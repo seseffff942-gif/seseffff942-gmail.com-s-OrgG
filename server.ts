@@ -515,6 +515,21 @@ if (!process.env.VERCEL) {
     res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
   }));
 
+  app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { invoiceId, items, client, sellerId } = req.body;
+    const dispatchId = `DISP-${Date.now()}`;
+    const dispatchRecord = {
+      id: dispatchId,
+      invoiceId,
+      items,
+      date: new Date().toISOString(),
+      client,
+      sellerId: sellerId || req.user.id
+    };
+    await supabase.from("dispatches").insert([dispatchRecord]);
+    res.json({ success: true, dispatchId });
+  }));
+
   // ======== NOTIFICATIONS HELPERS ========
   const NOTIFICATIONS_FILE = path.join(process.cwd(), "notifications_local.json");
   const WAREHOUSE_CONFIG_FILE = path.join(process.cwd(), "warehouse_config.json");

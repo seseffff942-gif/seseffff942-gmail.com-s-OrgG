@@ -105,3 +105,12 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     invoice_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS public.dispatches (
+    id TEXT PRIMARY KEY,
+    "invoiceId" TEXT,
+    items JSONB,
+    date TEXT,
+    client TEXT,
+    "sellerId" TEXT
+);
+

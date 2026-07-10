@@ -90,6 +90,8 @@ export interface Invoice {
   invoiceType?: 'agricola' | 'veterinaria';
   creditDays?: number;
   transportMethod?: 'bus' | 'paqueteria' | 'personal';
+  paymentMethod?: string;
+  seller?: string;
 }
 
 export interface Payment {

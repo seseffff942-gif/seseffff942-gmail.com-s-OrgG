@@ -838,6 +838,16 @@ export const api = {
     return res.json();
   },
 
+  saveDispatch: async (data: any): Promise<any> => {
+    const res = await fetchWithAuth('/api/save-dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Error al guardar el despacho');
+    return res.json();
+  },
+
   clearSales: async (): Promise<any> => {
     const res = await fetchWithAuth('/api/sales/clear', {
       method: 'DELETE'
