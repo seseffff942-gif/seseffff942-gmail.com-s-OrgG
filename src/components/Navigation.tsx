@@ -903,7 +903,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
   const navItems = [
     { id: 'home', label: 'Inicio', icon: Leaf, roles: ['admin', 'seller'] },
-    { id: 'dispatch', label: 'Despacho', icon: Box, roles: ['admin', 'seller'] },
+    { id: 'dispatch', label: 'Despacho', icon: Box, roles: ['admin'] },
     { id: 'inventory', label: 'Inventario', icon: Package, roles: ['admin', 'seller'] },
     { id: 'sales', label: 'Ventas', icon: ShoppingCart, roles: ['admin', 'seller'] },
     { id: 'my-sales', label: 'Mis Ventas', icon: FileText, roles: ['seller'] },
@@ -913,6 +913,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     { id: 'seller-debts', label: 'Registro Ventas', icon: ClipboardList, roles: ['seller'] },
     { id: 'clients', label: 'Clientes', icon: Users, roles: ['admin', 'seller'] },
     { id: 'team', label: 'Equipo', icon: Users, roles: ['admin', 'seller'] },
+    { id: 'credit-app', label: 'Solicitud Crédito', icon: FileText, roles: ['admin', 'seller'] },
   ];
 
   const userNavItems = navItems.filter(item => {

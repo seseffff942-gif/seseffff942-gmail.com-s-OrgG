@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 // AGRICOLAS INTEGRATION: Added draft auto-save persistence via localStorage to prevent losing elements upon browser refresh.
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
+import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
 import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf } from '../utils';
 import { motion } from 'motion/react';
@@ -129,7 +130,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [address, setAddress] = useState(() => localStorage.getItem('draft_address') || '');
   const [notes, setNotes] = useState(() => localStorage.getItem('draft_notes') || '');
   const [invoiceType, setInvoiceType] = useState<'agricola'>((localStorage.getItem('draft_invoiceType') as any) || 'agricola');
-  const [cart, setCart] = useState<{ product: Product; quantity: number; overridePrice?: number; suggestedPrice?: number; appliedCustomOffer?: { buyQty: number, freeQty: number }; variant?: { id: string; color: string; size: string } }[]>(() => {
+  const [cart, setCart] = useState<{ 
+    product: Product; 
+    quantity: number; 
+    overridePrice?: number; 
+    suggestedPrice?: number; 
+    appliedCustomOffer?: { buyQty: number, freeQty: number }; 
+    variant?: { id: string; color: string; size: string };
+    requiresAuth?: boolean;
+    isAuthorized?: boolean;
+  }[]>(() => {
     try {
       const saved = localStorage.getItem('draft_cart');
       return saved ? JSON.parse(saved) : [];
@@ -139,6 +149,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
+  const [sellerSignature, setSellerSignature] = useState<string | null>(() => {
+    return localStorage.getItem('last_seller_signature');
+  });
+  const [pendingCheckout, setPendingCheckout] = useState<{ isOwed: boolean; sellerId: string } | null>(null);
   const [lastSavedClientPhone, setLastSavedClientPhone] = useState<string>('');
   const [lastCreatedInvoice, setLastCreatedInvoice] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -151,7 +166,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [checkoutIsOwed, setCheckoutIsOwed] = useState<boolean>(() => localStorage.getItem('draft_checkoutIsOwed') === 'true');
   const [printTemplate, setPrintTemplate] = useState<string>('');
   const [autoPrint, setAutoPrint] = useState(false); // DEFAULT FALSE to prevent freezing on mobile!
-  const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
+  const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | 'personal' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
   const [shippingHandled, setShippingHandled] = useState(() => localStorage.getItem('draft_shippingHandled') === 'true');
   const [customDate, setCustomDate] = useState<string>(() => {
     const saved = localStorage.getItem('draft_customDate');
@@ -612,7 +627,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   };
 
-  const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string) => {
+  const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
+    if (!signature && !sellerSignature) {
+      setPendingCheckout({ isOwed, sellerId: sellerIdToUse });
+      setShowSignaturePad(true);
+      return;
+    }
+
+    const finalSignature = signature || sellerSignature || undefined;
     isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
     setIsSubmitting(true);
     try {
@@ -665,7 +687,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           creditDays: invoiceType === 'agricola' ? 60 : 30,
           debtAlert: debtType !== 'none',
           customDate: user?.email === 'seseffff942@gmail.com' ? (customDate || undefined) : undefined,
-          transportMethod: transportMethod || undefined
+          transportMethod: transportMethod || undefined,
+          sellerSignature: finalSignature || undefined
         };
 
         if (!navigator.onLine) {
@@ -771,6 +794,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       alert(`Error procesando venta: ${err.message}`);
     } finally {
       setIsSubmitting(false);
+      setPendingCheckout(null);
+    }
+  };
+
+  const handleSaveSignature = (sig: string) => {
+    setSellerSignature(sig);
+    localStorage.setItem('last_seller_signature', sig);
+    setShowSignaturePad(false);
+    if (pendingCheckout) {
+      proceedWithCheckout(pendingCheckout.isOwed, pendingCheckout.sellerId, sig);
     }
   };
 
@@ -1607,7 +1640,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               className="w-full bg-gradient-to-r from-[#0b4d2c] to-[#07361e] text-white py-4 rounded-2xl font-black hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-emerald-950/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100 text-xs sm:text-sm uppercase tracking-wider cursor-pointer"
             >
               <CheckCircle size={16} />
-              {editingInvoiceId ? 'ACTUALIZAR PEDIDO S/CRÉDITO' : (navigator.onLine ? 'REGISTRAR AL CRÉDITO' : 'REGISTRAR AL CRÉDITO OFFLINE')}
+              {editingInvoiceId ? 'ACTUALIZAR PEDIDO S/CRÉDITO' : (navigator.onLine ? 'REGISTRAR AL CRÉDITO Y FIRMAR' : 'REGISTRAR AL CRÉDITO OFFLINE Y FIRMAR')}
             </button>
             {isMobile && (
               <button 
@@ -2820,6 +2853,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       )}
 
       {/* Final closing area for modals */}
+      {showSignaturePad && (
+        <SignaturePad 
+          onSave={handleSaveSignature}
+          onClose={() => setShowSignaturePad(false)}
+          title="Firma del Vendedor"
+        />
+      )}
     </div>
   );
 }

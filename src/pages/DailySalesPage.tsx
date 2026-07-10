@@ -31,7 +31,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -305,7 +305,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       initial: { opacity: 0, y: 50, scale: 0.95 },
       whileInView: { opacity: 1, y: 0, scale: 1 },
       viewport: { once: true, margin: "-40px" },
-      transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] },
+      transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as any },
       whileHover: { 
         y: -8, 
         scale: 1.02, 
@@ -1063,7 +1063,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                         <RechartsTooltip 
                           contentStyle={{ 
                             background: 'rgba(11, 77, 44, 0.96)', 
-                            backdropBlur: '8px', 
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
                             border: '1px solid rgba(255,255,255,0.15)', 
                             borderRadius: '16px', 
                             boxShadow: '0 20px 40px rgba(11, 77, 44, 0.15)' 
@@ -1097,7 +1098,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                           <RechartsTooltip
                             contentStyle={{ 
                               background: 'rgba(30, 41, 59, 0.96)', 
-                              backdropBlur: '8px', 
+                              backdropFilter: 'blur(8px)',
+                              WebkitBackdropFilter: 'blur(8px)',
                               border: '1px solid rgba(255,255,255,0.1)', 
                               borderRadius: '16px', 
                               boxShadow: '0 20px 30px rgba(0,0,0,0.15)' 
@@ -1135,7 +1137,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             <RechartsTooltip
                               contentStyle={{ 
                                 background: 'rgba(30, 41, 59, 0.96)', 
-                                backdropBlur: '8px', 
+                                backdropFilter: 'blur(8px)',
+                                WebkitBackdropFilter: 'blur(8px)',
                                 border: 'none', 
                                 borderRadius: '16px', 
                                 boxShadow: '0 15px 30px rgba(0,0,0,0.15)' 
@@ -1667,15 +1670,37 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <p className="text-3xl font-black text-blue-600 leading-none">Q{selectedViewInvoice.totalAmount.toFixed(2)}</p>
               </div>
 
-              {selectedViewInvoice.notes && selectedViewInvoice.notes.trim() && (
+              {cleanObservations(selectedViewInvoice.notes) && (
                 <div className="mt-4 p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 shadow-sm rounded-2xl">
                    <p className="font-black text-amber-900 text-[11px] uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> 
                      Observaciones Importantes
                    </p>
-                   <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{selectedViewInvoice.notes.trim()}</p>
+                   <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{cleanObservations(selectedViewInvoice.notes)}</p>
                 </div>
               )}
+
+              <div className="mt-6 grid grid-cols-2 gap-4 border-t pt-6">
+                <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Vendedor</p>
+                  {(selectedViewInvoice as any).sellerSignature ? (
+                    <img src={(selectedViewInvoice as any).sellerSignature} alt="Firma Vendedor" className="max-h-20 mx-auto" />
+                  ) : (
+                    <div className="h-20 flex items-center justify-center text-gray-300 italic text-xs">Sin firma</div>
+                  )}
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Revisión (Admin)</p>
+                  {(selectedViewInvoice as any).adminSignature ? (
+                    <>
+                      <img src={(selectedViewInvoice as any).adminSignature} alt="Firma Admin" className="max-h-20 mx-auto" />
+                      <p className="text-[9px] font-bold text-green-700 mt-1 uppercase">Revisado por: {(selectedViewInvoice as any).reviewedBy}</p>
+                    </>
+                  ) : (
+                    <div className="h-20 flex items-center justify-center text-gray-300 italic text-xs">Pendiente de revisión</div>
+                  )}
+                </div>
+              </div>
 
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center gap-2">

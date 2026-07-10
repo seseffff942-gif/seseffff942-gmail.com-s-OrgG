@@ -4,7 +4,7 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -231,7 +231,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
     const matchSearch = (i.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
       (i.sellerId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (i.folio || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (String(i.folio || '')).toLowerCase().includes(searchTerm.toLowerCase());
     
     let matchDate = true;
     if (isHistoryMode) {
@@ -1223,15 +1223,37 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                       </div>
                     )}
                   </div>
-                  {selectedInvoiceForModal.notes && selectedInvoiceForModal.notes.trim() && (
+                  {cleanObservations(selectedInvoiceForModal.notes) && (
                     <div className="mt-4 p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 shadow-sm rounded-2xl">
                        <p className="font-black text-amber-900 text-[11px] uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> 
                          Observaciones Importantes
                        </p>
-                       <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{selectedInvoiceForModal.notes.trim()}</p>
+                       <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{cleanObservations(selectedInvoiceForModal.notes)}</p>
                     </div>
                   )}
+
+                  <div className="mt-6 grid grid-cols-2 gap-4 border-t pt-6">
+                    <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Vendedor</p>
+                      {selectedInvoiceForModal.sellerSignature ? (
+                        <img src={selectedInvoiceForModal.sellerSignature} alt="Firma Vendedor" className="max-h-20 mx-auto" />
+                      ) : (
+                        <div className="h-20 flex items-center justify-center text-gray-300 italic text-xs">Sin firma</div>
+                      )}
+                    </div>
+                    <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Revisión (Admin)</p>
+                      {selectedInvoiceForModal.adminSignature ? (
+                        <>
+                          <img src={selectedInvoiceForModal.adminSignature} alt="Firma Admin" className="max-h-20 mx-auto" />
+                          <p className="text-[9px] font-bold text-green-700 mt-1 uppercase">Revisado por: {selectedInvoiceForModal.reviewedBy}</p>
+                        </>
+                      ) : (
+                        <div className="h-20 flex items-center justify-center text-gray-300 italic text-xs">Pendiente de revisión</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {selectedInvoiceForModal.authStatus === 'pending' && user.role === 'admin' && (!(selectedInvoiceForModal as any).isEdited || user?.email === 'seseffff942@gmail.com') && (
@@ -1382,7 +1404,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                           <div className="text-right flex flex-col items-end gap-1">
                             <span className="font-extrabold text-slate-700 text-sm">Q{item.total.toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400">P.U: Q{(item.total / item.quantity).toFixed(2)}</span>
-                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && selectedInvoiceForModal.status !== 'sent' && (
+                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && (
                               <button 
                                 onClick={async () => {
                                   const currentPriceStr = (item.total / item.quantity).toFixed(2);

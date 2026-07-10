@@ -16,6 +16,7 @@ import { HomePage } from './pages/HomePage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
+import CreditApplicationPage from './pages/CreditApplicationPage';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
 
@@ -77,7 +78,7 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'team', 'clients', 'terms', 'privacy', 'credit-app'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -90,7 +91,7 @@ export default function App() {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
-      if (['home', 'inventory', 'sales', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'team', 'clients', 'terms', 'privacy', 'credit-app'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -265,7 +266,7 @@ export default function App() {
       />
       <main className={`flex-1 overflow-auto relative md:ml-[260px] md:pt-16`}>
         {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
-        {currentTab === 'dispatch' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
@@ -277,6 +278,7 @@ export default function App() {
         {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
         {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'credit-app' && <CreditApplicationPage />}
         
         {/* Floating Download Button (Android & Desktop Chrome support) */}
         {deferredPrompt && (

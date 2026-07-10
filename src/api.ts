@@ -405,7 +405,7 @@ export const api = {
     return res.json();
   },
 
-  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string }): Promise<Invoice> => {
+  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth('/api/invoices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -429,7 +429,7 @@ export const api = {
     }
   },
 
-  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean }): Promise<Invoice> => {
+  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerSignature?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth(`/api/invoices/${id}/full`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -485,6 +485,18 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error);
+    }
+  },
+
+  updateInvoiceReview: async (id: string, adminSignature: string, reviewedBy: string): Promise<void> => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(id)}/review`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminSignature, reviewedBy })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al guardar la firma de revisión');
     }
   },
 
@@ -845,6 +857,15 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) throw new Error('Error al guardar el despacho');
+    return res.json();
+  },
+
+  dispatchInvoice: async (id: string): Promise<any> => {
+    const res = await fetchWithAuth(`/api/invoices/${id}/dispatch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Error al despachar la factura');
     return res.json();
   },
 

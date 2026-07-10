@@ -530,6 +530,14 @@ if (!process.env.VERCEL) {
     res.json({ success: true, dispatchId });
   }));
 
+  app.post("/api/invoices/:id/dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { error } = await supabase.from("invoices").update({ status: 'despachado' }).eq('id', id);
+    if (error) throw error;
+    await syncInvoiceToPermanentBackup(id);
+    res.json({ success: true });
+  }));
+
   // ======== NOTIFICATIONS HELPERS ========
   const NOTIFICATIONS_FILE = path.join(process.cwd(), "notifications_local.json");
   const WAREHOUSE_CONFIG_FILE = path.join(process.cwd(), "warehouse_config.json");
@@ -2489,6 +2497,7 @@ if (!process.env.VERCEL) {
     let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
     let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
     let authFlag = requiresAuth ? "|||AUTH:pending" : "";
+    let sellerSigFlag = req.body.sellerSignature ? `|||SELLER_SIG:${req.body.sellerSignature}` : "";
     if (requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }
@@ -2497,7 +2506,7 @@ if (!process.env.VERCEL) {
     const invoiceDataRaw: any = {
       id,
       sellerId: saleOwner,
-      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag,
+      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag,
       items: processedItems,
       totalAmount: total,
       paidAmount: isOwed ? 0 : total,
@@ -2621,6 +2630,12 @@ if (!process.env.VERCEL) {
         (returnInvoice as any).scanClient = value;
       } else if (key === "SCAN_DATE") {
         (returnInvoice as any).scanDate = value;
+      } else if (key === "SELLER_SIG") {
+        (returnInvoice as any).sellerSignature = value;
+      } else if (key === "ADMIN_SIG") {
+        (returnInvoice as any).adminSignature = value;
+      } else if (key === "REVIEWED_BY") {
+        (returnInvoice as any).reviewedBy = value;
       }
     });
 
@@ -2647,7 +2662,7 @@ if (!process.env.VERCEL) {
 
   app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    let { client, nit, phone, address, items, isOwed, notes } = req.body;
+    let { client, nit, phone, address, items, isOwed, notes, sellerSignature } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
     
     // Fetch old invoice
@@ -2657,6 +2672,11 @@ if (!process.env.VERCEL) {
     
     if (oldInvoice.status === 'cancelled' || oldInvoice.status === 'rejected') {
         return res.status(400).json({ error: "Factura anulada, no se puede editar." });
+    }
+
+    let finalNotes = notes || oldInvoice.notes || "";
+    if (sellerSignature) {
+      finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
     }
 
     // 1. Validate all new products exist and calculate new total
@@ -2749,13 +2769,14 @@ if (!process.env.VERCEL) {
     let baseNotesParts = (oldInvoice.notes || '').split("|||");
     let oldNit = baseNotesParts[0].trim();
     
-    // Parse old flags except OBS and AUTH because we re-set them
-    let keepFlags = baseNotesParts.slice(1).filter((f: string) => !f.startsWith("AUTH:") && !f.startsWith("OBS:"));
+    // Parse old flags except OBS, AUTH and signatures because we re-set them
+    let keepFlags = baseNotesParts.slice(1).filter((f: string) => !f.startsWith("AUTH:") && !f.startsWith("OBS:") && !f.startsWith("SELLER_SIG:") && !f.startsWith("ADMIN_SIG:") && !f.startsWith("REVIEWED_BY:"));
     
     let safeNotes = notes !== undefined ? String(notes).replace(/\|\|\|/g, " - ") : "";
     let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
+    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
 
-    let reconstructedBaseNotes = oldNit + obsFlag;
+    let reconstructedBaseNotes = oldNit + obsFlag + sellerSigFlag;
     for(const f of keepFlags) {
       reconstructedBaseNotes += "|||" + f;
     }
@@ -2826,6 +2847,25 @@ if (!process.env.VERCEL) {
       address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
     });
   }));
+
+  app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { adminSignature, reviewedBy } = req.body;
+    
+    const { data: invoices } = await supabase.from("invoices").select("notes").eq('id', id);
+    if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+    
+    let currentNotes = invoices[0].notes || "";
+    currentNotes = updateTagInNotes(currentNotes, "ADMIN_SIG", adminSignature);
+    currentNotes = updateTagInNotes(currentNotes, "REVIEWED_BY", reviewedBy);
+    currentNotes = updateTagInNotes(currentNotes, "AUTH", "authorized");
+    
+    const { error } = await supabase.from("invoices").update({ notes: currentNotes }).eq('id', id);
+    if (error) throw error;
+    
+    res.json({ success: true });
+  }));
+
 
   app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
@@ -3160,6 +3200,12 @@ if (!process.env.VERCEL) {
                        mappedInv.notes = value;
                    } else if (key === "EDITED") {
                        mappedInv.isEdited = value === "true";
+                    } else if (key === "SELLER_SIG") {
+                        mappedInv.sellerSignature = value;
+                    } else if (key === "ADMIN_SIG") {
+                        mappedInv.adminSignature = value;
+                    } else if (key === "REVIEWED_BY") {
+                        mappedInv.reviewedBy = value;
                    }
                }
            });

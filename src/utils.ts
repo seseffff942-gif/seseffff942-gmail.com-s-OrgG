@@ -5,6 +5,14 @@ export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
+export function cleanObservations(notes: string | undefined | null): string {
+  if (!notes) return '';
+  if (!notes.includes('|||')) return notes.trim();
+  const parts = notes.split('|||');
+  const obsPart = parts.find(p => p.startsWith('OBS:'));
+  return obsPart ? obsPart.replace('OBS:', '').trim() : '';
+}
+
 export function isCriticalStock(product: { name?: string; category?: string; stock?: number }): boolean {
   if (!product) return false;
   const stock = product.stock || 0;
@@ -250,6 +258,35 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
             background-color: #F8FAFC;
         }
 
+        /* Firmas */
+        .signature-section {
+            margin-top: 40px;
+            width: 100%;
+            border-collapse: collapse;
+            page-break-inside: avoid;
+        }
+        .signature-box {
+            width: 50%;
+            text-align: center;
+            padding: 10px;
+            vertical-align: bottom;
+        }
+        .signature-line {
+            border-top: 1.5px solid #000;
+            margin-top: 50px;
+            padding-top: 6px;
+            font-size: 10pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #000;
+        }
+        .signature-img {
+            max-width: 160px;
+            max-height: 80px;
+            display: block;
+            margin: 0 auto -45px auto;
+        }
+
         .text-left { text-align: left; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
@@ -399,6 +436,24 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
         </table>
     </div>
 
+    <table class="signature-section">
+        <tr>
+            <td class="signature-box">
+                {{#if sellerSignature}}
+                    <img src="{{sellerSignature}}" class="signature-img" />
+                {{/if}}
+                <div class="signature-line">Firma Vendedor</div>
+            </td>
+            <td class="signature-box">
+                {{#if adminSignature}}
+                    <img src="{{adminSignature}}" class="signature-img" />
+                    <div style="font-size: 8pt; margin-top: 4px; font-weight: bold; color: #1A4D2E;">Revisado por: {{reviewedBy}}</div>
+                {{/if}}
+                <div class="signature-line">Revisado por (Admin)</div>
+            </td>
+        </tr>
+    </table>
+
     <div style="margin-top: 40px; text-align: center; font-family: monospace; font-size: 11pt; color: #16A34A; font-weight: bold; border-top: 1px dashed #ccc; padding-top: 20px;">
         ⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅
     </div>
@@ -495,6 +550,18 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{totalAmount\}\}/g, formatGT(invoice.totalAmount || 0));
     t = t.replace(/\{\{paidAmount\}\}/g, formatGT(invoice.paidAmount || 0));
     t = t.replace(/\{\{dueAmount\}\}/g, formatGT((invoice.totalAmount || 0) - (invoice.paidAmount || 0)));
+    
+    // Signatures
+    t = t.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature || '');
+    t = t.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature || '');
+    t = t.replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '');
+
+    t = t.replace(/\{\{#if sellerSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
+        return invoice.sellerSignature ? inner.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature) : '';
+    });
+    t = t.replace(/\{\{#if adminSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
+        return invoice.adminSignature ? inner.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature).replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '') : '';
+    });
     const storedLogo = localStorage.getItem('app_logo_url');
     const logoUrl = storedLogo && (storedLogo.startsWith('http') || storedLogo.startsWith('data:')) ? storedLogo : `${window.location.origin}/agricovet.png`;
     t = t.replace(/\{\{logoUrl\}\}/g, logoUrl);

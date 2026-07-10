@@ -36,6 +36,7 @@ export interface ProductVariant {
   size: string;
   price: number;
   stock?: number;
+  isBlocked?: boolean;
 }
 
 export interface Product {
@@ -78,7 +79,7 @@ export interface Invoice {
   items: InvoiceItem[];
   totalAmount: number;
   paidAmount: number;
-  status: 'pending' | 'paid' | 'cancelled' | 'sent' | 'rejected';
+  status: 'pending' | 'paid' | 'cancelled' | 'sent' | 'rejected' | 'despachado';
   authStatus?: 'pending' | 'authorized' | 'rejected';
   date: string;
   notes?: string;
@@ -92,6 +93,11 @@ export interface Invoice {
   transportMethod?: 'bus' | 'paqueteria' | 'personal';
   paymentMethod?: string;
   seller?: string;
+  sellerPaysShipping?: boolean;
+  clientName?: string;
+  sellerSignature?: string;
+  adminSignature?: string;
+  reviewedBy?: string;
 }
 
 export interface Payment {

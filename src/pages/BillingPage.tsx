@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
+import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -47,6 +48,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   
   // Folio reset configuration states
   const [showFolioModal, setShowFolioModal] = useState(false);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
+  const [pendingReviewInvoiceId, setPendingReviewInvoiceId] = useState<string | null>(null);
   const [folioConfig, setFolioConfig] = useState<{ resetDate: string | null; startFrom: number }>({ resetDate: null, startFrom: 1 });
   const [resetDateInput, setResetDateInput] = useState('');
   const [startFromInput, setStartFromInput] = useState(1);
@@ -80,6 +83,25 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       }).catch(console.error);
     }
   }, []);
+
+  const handleReviewSignature = async (sig: string) => {
+    if (!pendingReviewInvoiceId) return;
+    try {
+      await api.updateInvoiceReview(pendingReviewInvoiceId, sig, user.name);
+      setShowSignaturePad(false);
+      setPendingReviewInvoiceId(null);
+      await loadInvoices();
+      // Update modal if open
+      if (selectedInvoiceForModal && selectedInvoiceForModal.id === pendingReviewInvoiceId) {
+        const refreshed = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+        const current = refreshed.find(v => v.id === pendingReviewInvoiceId);
+        if (current) setSelectedInvoiceForModal(current);
+      }
+      alert('Revisión guardada con éxito.');
+    } catch (err: any) {
+      alert('Error al guardar revisión: ' + err.message);
+    }
+  };
 
   useEffect(() => {
     if (expandedInvoice && !invoicePayments[expandedInvoice]) {
@@ -850,11 +872,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       <button 
                          onClick={async () => {
                             await api.updateInvoiceAuth(invoice.id, 'authorized');
-                            loadInvoices();
+                            setPendingReviewInvoiceId(invoice.id);
+                            setShowSignaturePad(true);
                           }}
                           className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors"
                       >
-                         Autorizar
+                         Autorizar y Firmar
                       </button>
                       <button 
                          onClick={async () => {
@@ -1705,15 +1728,50 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       </div>
                     )}
                   </div>
-                  {selectedInvoiceForModal.notes && selectedInvoiceForModal.notes.trim() && (
+                  {cleanObservations(selectedInvoiceForModal.notes) && (
                     <div className="mt-4 p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 shadow-sm rounded-2xl">
                        <p className="font-black text-amber-900 text-[11px] uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> 
                          Observaciones Importantes
                        </p>
-                       <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{selectedInvoiceForModal.notes.trim()}</p>
+                       <p className="text-amber-950 font-medium text-sm leading-relaxed whitespace-pre-wrap">{cleanObservations(selectedInvoiceForModal.notes)}</p>
                     </div>
                   )}
+
+                  <div className="mt-6 grid grid-cols-2 gap-4 border-t pt-6">
+                    <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Vendedor</p>
+                      {selectedInvoiceForModal.sellerSignature ? (
+                        <img src={selectedInvoiceForModal.sellerSignature} alt="Firma Vendedor" className="max-h-20 mx-auto" />
+                      ) : (
+                        <div className="h-20 flex items-center justify-center text-gray-300 italic text-xs">Sin firma</div>
+                      )}
+                    </div>
+                    <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-100 relative group">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Firma Revisión (Admin)</p>
+                      {selectedInvoiceForModal.adminSignature ? (
+                        <>
+                          <img src={selectedInvoiceForModal.adminSignature} alt="Firma Admin" className="max-h-20 mx-auto" />
+                          <p className="text-[9px] font-bold text-green-700 mt-1 uppercase">Revisado por: {selectedInvoiceForModal.reviewedBy}</p>
+                        </>
+                      ) : (
+                        <div className="h-20 flex flex-col items-center justify-center gap-2">
+                          <span className="text-gray-300 italic text-xs">Pendiente de revisión</span>
+                          {user.role === 'admin' && (
+                            <button 
+                              onClick={() => {
+                                setPendingReviewInvoiceId(selectedInvoiceForModal.id);
+                                setShowSignaturePad(true);
+                              }}
+                              className="text-[10px] font-black text-blue-600 hover:text-blue-800 underline uppercase transition-colors"
+                            >
+                              Firmar Ahora
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {selectedInvoiceForModal.authStatus === 'pending' && user.role === 'admin' && (!(selectedInvoiceForModal as any).isEdited || user?.email === 'seseffff942@gmail.com') && (
@@ -1723,17 +1781,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div className="flex gap-2">
                       <button 
                          onClick={async () => {
-                            await api.updateInvoiceAuth(selectedInvoiceForModal.id, 'authorized');
-                            const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
-                            setInvoices(refreshedInvoices);
-                            const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
-                            if (updatedInvoice) {
-                              setSelectedInvoiceForModal(updatedInvoice);
-                            }
+                            setPendingReviewInvoiceId(selectedInvoiceForModal.id);
+                            setShowSignaturePad(true);
                          }}
                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors"
                       >
-                         Autorizar
+                         Autorizar y Firmar
                       </button>
                       <button 
                          onClick={async () => {
@@ -1864,7 +1917,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <div className="text-right flex flex-col items-end gap-1">
                             <span className="font-extrabold text-slate-700 text-sm">Q{item.total.toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400">P.U: Q{(item.total / item.quantity).toFixed(2)}</span>
-                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && selectedInvoiceForModal.status !== 'sent' && (
+                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && (
                               <button 
                                 onClick={async () => {
                                   const currentPriceStr = (item.total / item.quantity).toFixed(2);
@@ -2140,6 +2193,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         trackingNumber={viewingImageConfig?.trackingNumber}
         title="Guía de Envío" 
       />
+      {showSignaturePad && (
+        <SignaturePad 
+          onSave={handleReviewSignature}
+          onClose={() => setShowSignaturePad(false)}
+          title="Firma de Revisión (Admin)"
+        />
+      )}
     </div>
   );
 }
