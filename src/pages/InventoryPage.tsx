@@ -1145,6 +1145,26 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           </div>
         )}
 
+        {/* QR Code Modal */}
+        {selectedProductQR && (
+           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+             <motion.div 
+               initial={{ opacity: 0, scale: 0.95, y: 20 }}
+               animate={{ opacity: 1, scale: 1, y: 0 }}
+               className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-sm flex flex-col items-center gap-6"
+             >
+               <h3 className="text-xl font-bold text-slate-800 text-center">QR de {selectedProductQR.name}</h3>
+               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-inner">
+                 <QRCode value={selectedProductQR.id} size={200} />
+               </div>
+               <div className="flex gap-3 w-full">
+                 <button onClick={() => setSelectedProductQR(null)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cerrar</button>
+                 <button onClick={() => window.print()} className="flex-1 px-4 py-3 bg-sky-600 text-white font-bold rounded-xl hover:bg-sky-700 transition-colors">Imprimir</button>
+               </div>
+             </motion.div>
+           </div>
+        )}
+
         {/* Dynamic & Beautiful Tarjetas Informativas (Product Grid) */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 bg-white rounded-[2rem] border border-slate-200 shadow-sm animate-pulse space-y-4">
