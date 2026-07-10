@@ -1,0 +1,37 @@
+{
+  "name": "Agricovet App",
+  "short_name": "Agricovet",
+  "description": "Sistema de Gestión y Ventas Agricovet",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c5c35",
+  "theme_color": "#0c5c35",
+  "orientation": "any",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/agricovet.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/agricovet.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/agricovet.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/agricovet.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

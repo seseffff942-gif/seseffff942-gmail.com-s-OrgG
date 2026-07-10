@@ -1,0 +1,8 @@
+{
+  "name": "Agricovet App",
+  "description": "Sistema de Facturación y Ventas Agricovet con Gestión de Folios, Sobrescritura Manual y Monitoreo Holográfico de Sincronización de Datos",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
