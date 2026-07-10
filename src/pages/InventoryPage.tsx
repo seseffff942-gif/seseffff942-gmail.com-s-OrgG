@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download } from 'lucide-react';
+import QRCode from 'react-qr-code';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode } from 'lucide-react';
 import { cn, doesNotNeedStock, isCriticalStock } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { motion } from 'motion/react';
@@ -19,6 +20,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProductQR, setSelectedProductQR] = useState<Product | null>(null);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [newProductName, setNewProductName] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('Agroquímicos');
@@ -1344,6 +1346,15 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           >
                             <span className="text-xs font-black h-3 leading-none flex items-center">E</span>
                             <span>Especific.</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => setSelectedProductQR(product)}
+                            className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-50 border border-slate-200/65 text-slate-600 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-200 transition-all text-[9px] font-bold gap-1 cursor-pointer"
+                            title="Generar Código QR"
+                          >
+                            <QrCode size={12} />
+                            <span>QR</span>
                           </button>
 
                           <button

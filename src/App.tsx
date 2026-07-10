@@ -11,6 +11,7 @@ import { TeamPage } from './pages/TeamPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { SellerDebtsPage } from './pages/SellerDebtsPage';
 import { DailySalesPage } from './pages/DailySalesPage';
+import { DispatchPage } from './pages/DispatchPage';
 import { HomePage } from './pages/HomePage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
@@ -264,6 +265,7 @@ export default function App() {
       />
       <main className={`flex-1 overflow-auto relative md:ml-[260px] md:pt-16`}>
         {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
+        {currentTab === 'dispatch' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}

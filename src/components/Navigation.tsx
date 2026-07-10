@@ -903,6 +903,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
   const navItems = [
     { id: 'home', label: 'Inicio', icon: Leaf, roles: ['admin', 'seller'] },
+    { id: 'dispatch', label: 'Despacho', icon: Box, roles: ['admin', 'seller'] },
     { id: 'inventory', label: 'Inventario', icon: Package, roles: ['admin', 'seller'] },
     { id: 'sales', label: 'Ventas', icon: ShoppingCart, roles: ['admin', 'seller'] },
     { id: 'my-sales', label: 'Mis Ventas', icon: FileText, roles: ['seller'] },
