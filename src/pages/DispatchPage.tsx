@@ -58,9 +58,10 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
 
   const confirmQuantity = () => {
     if (pendingProduct) {
+      const qty = Math.max(1, quantityInput || 1);
       setDispatchedItems(prev => ({
         ...prev,
-        [pendingProduct.productId]: (prev[pendingProduct.productId] || 0) + quantityInput
+        [pendingProduct.productId]: (prev[pendingProduct.productId] || 0) + qty
       }));
       setPendingProduct(null);
       setQuantityInput(1);
@@ -137,8 +138,8 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
             <h3 className="text-xl font-bold text-slate-800 text-center">Cantidad para {pendingProduct.productName}</h3>
             <input 
               type="number" 
-              value={quantityInput}
-              onChange={(e) => setQuantityInput(parseInt(e.target.value) || 1)}
+              value={quantityInput || ''}
+              onChange={(e) => setQuantityInput(parseInt(e.target.value) || 0)}
               className="w-full text-center text-3xl font-bold p-4 border border-slate-200 rounded-xl"
               min="1"
             />
