@@ -45,11 +45,11 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   };
 
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col md:flex-row gap-6">
+    <div className="p-4 md:p-6 h-screen flex flex-col md:flex-row gap-6 overflow-hidden">
       {/* Izquierda: Despacho / Escáner */}
-      <div className="flex-1 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+      <div className="h-[250px] shrink-0 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
         <h2 className="text-xl font-bold text-slate-800 mb-4">Sección de Despacho</h2>
-        <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
+        <div className="h-full bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
             <Scanner
               onScan={(result) => {
                 if (result && result.length > 0) {
@@ -64,7 +64,7 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       </div>
 
       {/* Derecha: Ventas / Lista */}
-      <div className="flex-1 bg-white rounded-2xl p-6 shadow-sm border border-slate-200 overflow-auto">
+      <div className="flex-1 overflow-y-auto pb-20 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
         <h2 className="text-xl font-bold text-slate-800 mb-4">Venta Seleccionada</h2>
         {selectedInvoice ? (
           <div>
