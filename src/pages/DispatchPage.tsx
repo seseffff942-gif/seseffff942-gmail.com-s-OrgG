@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { User, Invoice, Product } from '../types';
 import { api } from '../api';
-import { QrReader } from 'react-qr-reader';
+import { Scanner } from '@yudiel/react-qr-scanner';
 
 interface DispatchPageProps {
   user: User;
@@ -29,20 +29,17 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
     fetchInvoices();
   }, []);
 
-  const handleScan = (result: any, error: any) => {
-    if (result) {
-      const productId = result.getText();
-      setScannedData(productId);
-      
-      // Logic to dispatch: find product in invoice and mark
-      if (selectedInvoice) {
-        const item = selectedInvoice.items.find(i => i.productId === productId);
-        if (item) {
-          setDispatchedItems(prev => ({
-            ...prev,
-            [productId]: (prev[productId] || 0) + 1
-          }));
-        }
+  const handleScan = (productId: string) => {
+    setScannedData(productId);
+    
+    // Logic to dispatch: find product in invoice and mark
+    if (selectedInvoice) {
+      const item = selectedInvoice.items.find(i => i.productId === productId);
+      if (item) {
+        setDispatchedItems(prev => ({
+          ...prev,
+          [productId]: (prev[productId] || 0) + 1
+        }));
       }
     }
   };
@@ -53,8 +50,13 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       <div className="flex-1 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
         <h2 className="text-xl font-bold text-slate-800 mb-4">Sección de Despacho</h2>
         <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
-            <QrReader
-              onResult={handleScan}
+            <Scanner
+              onScan={(result) => {
+                if (result && result.length > 0) {
+                  handleScan(result[0].rawValue);
+                }
+              }}
+              onError={(error) => console.log(error?.message)}
               constraints={{ facingMode: 'environment' }}
             />
         </div>
