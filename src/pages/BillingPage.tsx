@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -54,6 +54,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [resetDateInput, setResetDateInput] = useState('');
   const [startFromInput, setStartFromInput] = useState(1);
   const [savingFolio, setSavingFolio] = useState(false);
+  const [adminSignature, setAdminSignature] = useState<string | null>(() => {
+    return localStorage.getItem('last_admin_signature');
+  });
 
   // Print template states
   const [printTemplate, setPrintTemplate] = useState<string>('');
@@ -87,6 +90,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const handleReviewSignature = async (sig: string) => {
     if (!pendingReviewInvoiceId) return;
     try {
+      setAdminSignature(sig);
+      localStorage.setItem('last_admin_signature', sig);
       await api.updateInvoiceReview(pendingReviewInvoiceId, sig, user.name);
       setShowSignaturePad(false);
       setPendingReviewInvoiceId(null);
@@ -287,8 +292,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       if (dateFilter === 'today') {
         matchDate = invDate.toDateString() === now.toDateString();
       } else if (dateFilter === 'week') {
-        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        matchDate = invDate >= oneWeekAgo;
+        const startOfWeek = getStartOfCurrentWeek();
+        matchDate = invDate >= startOfWeek;
       } else if (dateFilter === 'month') {
         const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
         matchDate = invDate >= oneMonthAgo;
@@ -872,8 +877,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       <button 
                          onClick={async () => {
                             await api.updateInvoiceAuth(invoice.id, 'authorized');
-                            setPendingReviewInvoiceId(invoice.id);
-                            setShowSignaturePad(true);
+                            if (adminSignature) {
+                                await api.updateInvoiceReview(invoice.id, adminSignature, user.name);
+                                await loadInvoices();
+                                alert('Autorizada y Revisada con firma guardada.');
+                            } else {
+                                setPendingReviewInvoiceId(invoice.id);
+                                setShowSignaturePad(true);
+                            }
                           }}
                           className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors"
                       >
@@ -1760,8 +1771,20 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           {user.role === 'admin' && (
                             <button 
                               onClick={() => {
-                                setPendingReviewInvoiceId(selectedInvoiceForModal.id);
-                                setShowSignaturePad(true);
+                                if (adminSignature) {
+                                    api.updateInvoiceReview(selectedInvoiceForModal.id, adminSignature, user.name)
+                                        .then(() => loadInvoices())
+                                        .then(() => api.getInvoices(user.role === 'admin' ? undefined : user.email))
+                                        .then(refreshed => {
+                                            const current = refreshed.find(v => v.id === selectedInvoiceForModal.id);
+                                            if (current) setSelectedInvoiceForModal(current);
+                                            alert('Revisada con firma guardada.');
+                                        })
+                                        .catch(err => alert('Error: ' + err.message));
+                                } else {
+                                    setPendingReviewInvoiceId(selectedInvoiceForModal.id);
+                                    setShowSignaturePad(true);
+                                }
                               }}
                               className="text-[10px] font-black text-blue-600 hover:text-blue-800 underline uppercase transition-colors"
                             >
@@ -1781,8 +1804,22 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div className="flex gap-2">
                       <button 
                          onClick={async () => {
-                            setPendingReviewInvoiceId(selectedInvoiceForModal.id);
-                            setShowSignaturePad(true);
+                            if (adminSignature) {
+                                try {
+                                    await api.updateInvoiceAuth(selectedInvoiceForModal.id, 'authorized');
+                                    await api.updateInvoiceReview(selectedInvoiceForModal.id, adminSignature, user.name);
+                                    alert('Autorizada y Revisada con firma guardada.');
+                                    const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+                                    setInvoices(refreshedInvoices);
+                                    const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
+                                    if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
+                                } catch (e: any) {
+                                    alert('Error: ' + e.message);
+                                }
+                            } else {
+                                setPendingReviewInvoiceId(selectedInvoiceForModal.id);
+                                setShowSignaturePad(true);
+                            }
                          }}
                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors"
                       >

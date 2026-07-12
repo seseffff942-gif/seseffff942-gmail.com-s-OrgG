@@ -120,8 +120,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const getFallbackImage = (category: string) => {
-    if (category && category.toLowerCase().includes('agro')) return '/src/assets/images/agrochemical_bottle_1780513174091.png';
-    return '/src/assets/images/vet_product_box_1780513192500.png';
+    if (category && category.toLowerCase().includes('agro')) return '/bottle.png';
+    return '/box.png';
   };
   
   const [client, setClient] = useState(() => localStorage.getItem('draft_client') || '');

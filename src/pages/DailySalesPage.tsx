@@ -31,7 +31,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -223,8 +223,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       if (dateFilter === 'today') {
         matchDate = invDate.toDateString() === now.toDateString();
       } else if (dateFilter === 'week') {
-        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        matchDate = invDate >= oneWeekAgo;
+        const startOfWeek = getStartOfCurrentWeek();
+        matchDate = invDate >= startOfWeek;
       } else if (dateFilter === 'month') {
         const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
         matchDate = invDate >= oneMonthAgo;

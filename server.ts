@@ -2277,7 +2277,7 @@ if (!process.env.VERCEL) {
   }));
 
   app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping } = req.body;
+    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
     
     // Only allow custom dates if the user is seseffff942@gmail.com
@@ -2487,7 +2487,7 @@ if (!process.env.VERCEL) {
       processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
     }
 
-    const id = `INV-${Date.now()}`;
+    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     
     let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
     let baseNotes = (nit || "");
@@ -2497,7 +2497,7 @@ if (!process.env.VERCEL) {
     let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
     let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
     let authFlag = requiresAuth ? "|||AUTH:pending" : "";
-    let sellerSigFlag = req.body.sellerSignature ? `|||SELLER_SIG:${req.body.sellerSignature}` : "";
+    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
     if (requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }

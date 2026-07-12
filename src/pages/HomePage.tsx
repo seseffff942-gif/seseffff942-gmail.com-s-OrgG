@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Leaf, User as UserIcon, CheckCircle, ArrowRight, MapPin, Lock, Unlock, Edit, Save, X, Share2, MessageCircle, Search, TrendingUp, TrendingDown, BarChart2, Calendar, Activity, DollarSign, Heart, Award, ShieldCheck, Sparkles, Layers, Volume2, VolumeX, Play, Pause, Wheat, Stethoscope, Sprout, ShoppingBag, Clock, Phone, Eye, Upload } from 'lucide-react';
 import { api } from '../api';
-import { cn } from '../utils';
+import { cn, getStartOfCurrentWeek } from '../utils';
 import * as Sentry from '@sentry/react';
 import {
   ResponsiveContainer,
@@ -533,11 +533,15 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
 
   const matchesTargetDate = (dateStr: string | null | undefined, target: string) => {
     if (!dateStr || !target) return false;
+    // Standard ISO string format check
     if (dateStr.startsWith(target)) return true;
     try {
       const d = new Date(dateStr);
-      const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-      return adjusted.toISOString().split('T')[0] === target;
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const localDate = `${year}-${month}-${day}`;
+      return localDate === target;
     } catch {
       return false;
     }
@@ -546,11 +550,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
   const today = new Date();
   
   // Monday of this week
-  const startOfThisWeek = new Date(today);
-  const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
-  const diffToMonday = today.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
-  startOfThisWeek.setDate(diffToMonday);
-  startOfThisWeek.setHours(0, 0, 0, 0);
+  const startOfThisWeek = getStartOfCurrentWeek();
 
   // Monday of last week
   const startOfLastWeek = new Date(startOfThisWeek);

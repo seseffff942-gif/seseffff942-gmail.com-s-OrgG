@@ -1,14 +1,66 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { User, Invoice, Product } from '../types';
 import { api } from '../api';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Search, 
+  Package, 
+  CheckCircle2, 
+  Clock, 
+  ChevronRight, 
+  ArrowLeft, 
+  Printer, 
+  Truck, 
+  QrCode, 
+  X, 
+  Plus, 
+  Minus, 
+  History,
+  AlertCircle
+} from 'lucide-react';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import { cn } from '../utils';
 
 interface DispatchPageProps {
   user: User;
   isMobile: boolean;
 }
+
+const StableScanner = React.memo(({ onScan, disabled, isFlashActive }: { onScan: (id: string) => void, disabled: boolean, isFlashActive: boolean }) => {
+  return (
+    <div className="aspect-square bg-white/5 rounded-3xl border-2 border-dashed border-white/20 overflow-hidden relative">
+      <AnimatePresence>
+        {isFlashActive && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-emerald-500/30 z-20 pointer-events-none"
+          />
+        )}
+      </AnimatePresence>
+
+      {disabled ? (
+        <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-center p-6 z-10">
+          <AlertCircle size={40} className="text-orange-500 mb-4" />
+          <p className="text-white font-black text-sm uppercase">ORDEN CERRADA</p>
+          <p className="text-white/40 text-[10px] font-bold mt-1">Ya no se permiten escaneos</p>
+        </div>
+      ) : (
+        <Scanner
+          onScan={(result) => {
+            if (result?.[0]?.rawValue) onScan(result[0].rawValue);
+          }}
+          onError={(error) => console.log(error?.message)}
+          constraints={{ facingMode: 'environment' }}
+          styles={{ container: { width: '100%', height: '100%' } }}
+        />
+      )}
+    </div>
+  );
+});
 
 export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   const [scannedData, setScannedData] = React.useState<string | null>(null);
@@ -16,10 +68,45 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [dispatchedItems, setDispatchedItems] = useState<Record<string, number>>({});
-  const [pendingProduct, setPendingProduct] = useState<{ productId: string, productName: string } | null>(null);
+  const [pendingProduct, setPendingProduct] = useState<{ productId: string, productName: string, maxQty: number } | null>(null);
   const [quantityInput, setQuantityInput] = useState<number>(1);
   const [isDispatching, setIsDispatching] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'despachado'>('pending');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  const [isFlashActive, setIsFlashActive] = useState(false);
+
+  // Use refs to keep handleScan stable and avoid scanner re-renders
+  const invoiceRef = React.useRef<Invoice | null>(null);
+  const dispatchedRef = React.useRef<Record<string, number>>({});
+  const lastScannedRef = React.useRef<{ id: string, time: number } | null>(null);
+
+  useEffect(() => {
+    invoiceRef.current = selectedInvoice;
+    dispatchedRef.current = dispatchedItems;
+  }, [selectedInvoice, dispatchedItems]);
+
+  // Audio feedback helper
+  const playBeep = (type: 'success' | 'error' = 'success') => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(type === 'success' ? 880 : 220, audioCtx.currentTime);
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.1);
+    } catch (e) {
+      console.warn("Audio feedback failed", e);
+    }
+  };
 
   const handleDispatch = async () => {
     if (!selectedInvoice) return;
@@ -104,25 +191,74 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
     loadLogo();
   }, []);
 
-  const handleScan = (productId: string) => {
-    if (selectedInvoice?.status === 'despachado') return; // Lock scan if already dispatched
+  const filteredInvoices = useMemo(() => {
+    return invoices
+      .filter(inv => activeTab === 'despachado' ? inv.status === 'despachado' : inv.status !== 'despachado')
+      .filter(inv => 
+        inv.client?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inv.id.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [invoices, activeTab, searchQuery]);
+
+  const handleScan = React.useCallback((productId: string) => {
+    const currentInvoice = invoiceRef.current;
+    const currentDispatched = dispatchedRef.current;
+
+    if (!currentInvoice || currentInvoice.status === 'despachado') return;
+    
+    // Prevent accidental rapid double scans of the same ID (800ms cooldown)
+    const now = Date.now();
+    if (lastScannedRef.current && lastScannedRef.current.id === productId && (now - lastScannedRef.current.time) < 800) {
+      return;
+    }
+
+    lastScannedRef.current = { id: productId, time: now };
     setScannedData(productId);
     
-    // Logic to dispatch: find product in invoice and mark
-    if (selectedInvoice) {
-      const item = selectedInvoice.items.find(i => i.productId === productId);
-      if (item) {
-        setPendingProduct({ productId, productName: item.productName });
+    const item = currentInvoice.items.find(i => i.productId === productId);
+    if (item) {
+      const currentQty = currentDispatched[productId] || 0;
+      if (currentQty < item.quantity) {
+        setDispatchedItems(prev => ({
+          ...prev,
+          [productId]: (prev[productId] || 0) + 1
+        }));
+        
+        // Visual feedback
+        setIsFlashActive(true);
+        setTimeout(() => setIsFlashActive(false), 150);
+        
+        // Audio feedback
+        playBeep('success');
+      } else {
+        // Already fully dispatched
+        playBeep('error');
       }
+    } else {
+      // Product not in invoice
+      playBeep('error');
     }
+  }, []); // Truly stable callback to prevent scanner re-renders
+
+  const adjustQuantity = (productId: string, delta: number) => {
+    if (selectedInvoice?.status === 'despachado') return;
+    
+    const item = selectedInvoice?.items.find(i => i.productId === productId);
+    if (!item) return;
+
+    setDispatchedItems(prev => {
+      const current = prev[productId] || 0;
+      const next = Math.max(0, Math.min(item.quantity, current + delta));
+      return { ...prev, [productId]: next };
+    });
   };
 
   const confirmQuantity = () => {
     if (pendingProduct) {
-      const qty = Math.max(1, quantityInput || 1);
+      const qty = Math.max(0, Math.min(pendingProduct.maxQty, quantityInput));
       setDispatchedItems(prev => ({
         ...prev,
-        [pendingProduct.productId]: (prev[pendingProduct.productId] || 0) + qty
+        [pendingProduct.productId]: qty
       }));
       setPendingProduct(null);
       setQuantityInput(1);
@@ -329,245 +465,428 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-slate-50">
-      {/* Visual Verification Header with Logo */}
-      <div className="bg-white border-b border-slate-200 p-4 flex items-center justify-between shadow-sm z-20">
-        <div className="flex items-center gap-4">
-          <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
-            <img 
-              src="/logo_final.jpg" 
-              crossOrigin="anonymous"
-              className="w-12 h-12 object-contain" 
-              onError={(e) => { e.currentTarget.src = "/logo.png.png" }}
-              alt="Agricovet Logo"
-            />
+    <div className="h-screen flex flex-col bg-[#F8FAFC]">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="bg-[#1A4D2E] p-2 rounded-xl shadow-lg shadow-emerald-900/20">
+            <Truck className="text-white w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">AGRICOVET</h1>
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">Módulo de Despacho</p>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none">DESPACHO</h1>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Gestión de Egresos</p>
           </div>
         </div>
-        {selectedInvoice && (
-          <button 
-            onClick={generatePDF}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-100"
-          >
-            <span>🖨️</span> IMPRIMIR
-          </button>
-        )}
-      </div>
+        
+        <div className="flex items-center gap-3">
+          {selectedInvoice && (
+            <button 
+              onClick={generatePDF}
+              className="hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-all"
+            >
+              <Printer size={16} /> Imprimir
+            </button>
+          )}
+          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500">
+            {user.name?.[0] || 'U'}
+          </div>
+        </div>
+      </header>
 
-      {/* Tabs de Filtro */}
-      <div className="bg-white border-b border-slate-200 px-4 flex gap-8">
-        <button 
-          onClick={() => setActiveTab('pending')}
-          className={`py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === 'pending' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}
-        >
-          Pendientes ({invoices.filter(i => i.status !== 'despachado').length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('despachado')}
-          className={`py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === 'despachado' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400'}`}
-        >
-          Despachados ({invoices.filter(i => i.status === 'despachado').length})
-        </button>
-      </div>
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <AnimatePresence mode="wait">
+          {!selectedInvoice ? (
+            <motion.div 
+              key="list"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
+              {/* Search and Tabs */}
+              <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row gap-4 shrink-0">
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                  <button 
+                    onClick={() => setActiveTab('pending')}
+                    className={cn(
+                      "px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all",
+                      activeTab === 'pending' ? "bg-white text-emerald-700 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Pendientes
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('despachado')}
+                    className={cn(
+                      "px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all",
+                      activeTab === 'despachado' ? "bg-white text-emerald-700 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Despachados
+                  </button>
+                </div>
 
-      {/* 1. Contenedor del Escáner (Tamaño fijo) */}
-      <div className="h-[250px] shrink-0 p-4 md:p-6 bg-white border-b border-slate-200 shadow-sm z-10">
-        <div className="h-full flex flex-col">
-          <h2 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
-            <span className="p-1.5 bg-sky-100 text-sky-600 rounded-lg text-sm">📸</span>
-            Escáner de Productos
-          </h2>
-          <div className="flex-1 bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border-2 border-dashed border-slate-300 relative">
-            {selectedInvoice?.status === 'despachado' ? (
-              <div className="absolute inset-0 bg-slate-50/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-center p-6">
-                <span className="text-4xl mb-2">🔒</span>
-                <p className="text-slate-900 font-black text-sm uppercase">Egreso Bloqueado</p>
-                <p className="text-slate-400 text-[10px] font-bold">Este egreso ya ha sido despachado</p>
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="text"
+                    placeholder="Buscar por cliente o ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
               </div>
-            ) : (
-              <Scanner
-                onScan={(result) => {
-                  if (result && result.length > 0) {
-                    handleScan(result[0].rawValue);
-                  }
-                }}
-                onError={(error) => console.log(error?.message)}
-                constraints={{ facingMode: 'environment' }}
-              />
-            )}
-          </div>
-          <p className="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
-            Escaneado: <span className="text-sky-600 font-black">{scannedData || 'Esperando...'}</span>
-          </p>
-        </div>
-      </div>
 
-      {/* 2. Contenedor de Venta Seleccionada / Listado (Contenido principal que hace scroll) */}
-      <div className="flex-1 overflow-y-auto pb-20 custom-scrollbar p-4 md:p-6">
-        {selectedInvoice ? (
-          <div className="max-w-4xl mx-auto flex flex-col gap-6">
-            {/* Cabecera del Detalle */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Cliente</p>
-                        {selectedInvoice.status === 'despachado' && (
-                          <span className="bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
-                            <span>✅</span> DESPACHADO
-                          </span>
-                        )}
+              {/* Invoice List */}
+              <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {loading ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 animate-pulse h-40" />
+                    ))
+                  ) : filteredInvoices.length === 0 ? (
+                    <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-400">
+                      <div className="bg-slate-100 p-4 rounded-full mb-4">
+                        <Package size={32} />
                       </div>
-                      <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedInvoice.client}</h2>
-                      <div className="flex gap-4 mt-2">
-                        <p className="text-xs text-slate-400 font-mono">ID: {selectedInvoice.id}</p>
-                        <p className="text-xs text-sky-600 font-bold">Total: Q {selectedInvoice.totalAmount?.toLocaleString()}</p>
-                      </div>
+                      <p className="font-bold uppercase tracking-widest text-xs">No se encontraron egresos</p>
                     </div>
+                  ) : (
+                    filteredInvoices.map((inv) => (
+                      <motion.button 
+                        key={inv.id} 
+                        layoutId={`inv-${inv.id}`}
+                        onClick={() => setSelectedInvoice(inv)}
+                        className="group bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-emerald-500/30 transition-all text-left relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <ChevronRight size={18} className="text-emerald-500" />
+                        </div>
+                        
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter",
+                            inv.status === 'despachado' ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"
+                          )}>
+                            {inv.status === 'despachado' ? 'Completado' : 'Pendiente'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            #{inv.id.replace('INV-', '')}
+                          </span>
+                        </div>
+
+                        <h3 className="font-black text-slate-900 leading-tight mb-4 group-hover:text-emerald-800 transition-colors">
+                          {inv.client}
+                        </h3>
+
+                        <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                          <div className="flex items-center gap-1.5 text-slate-400">
+                            <Clock size={14} />
+                            <span className="text-[10px] font-bold">
+                              {new Date(inv.date).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-xs font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
+                            Q {inv.totalAmount?.toLocaleString()}
+                          </p>
+                        </div>
+                      </motion.button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="detail"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="flex-1 flex flex-col md:flex-row overflow-hidden"
+            >
+              {/* Left Panel: Invoice Detail & Items */}
+              <div className="flex-1 flex flex-col overflow-hidden bg-white">
+                <div className="p-6 border-b border-slate-100 shrink-0 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
                     <button 
                       onClick={() => setSelectedInvoice(null)}
-                      className="bg-slate-50 text-slate-400 hover:text-slate-600 px-4 py-2 rounded-xl text-xs font-bold border border-slate-100 transition-colors"
+                      className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-900 transition-all"
                     >
-                      Cambiar Factura
+                      <ArrowLeft size={20} />
                     </button>
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900">{selectedInvoice.client}</h2>
+                      <p className="text-xs text-slate-400 font-mono uppercase tracking-widest mt-0.5">ORDEN #{selectedInvoice.id.replace('INV-', '')}</p>
+                    </div>
                   </div>
-            </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {selectedInvoice.status === 'despachado' ? (
+                      <span className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                        <CheckCircle2 size={16} /> DESPACHADO
+                      </span>
+                    ) : (
+                      <span className="bg-orange-100 text-orange-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                        <Clock size={16} /> EN PROCESO
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-            {/* Listado de Productos */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-100">
-                  <tr className="text-left text-[10px] text-slate-400 font-black uppercase tracking-widest">
-                    <th className="py-4 px-6">Producto</th>
-                    <th className="py-4 px-6 text-center">Estado</th>
-                    <th className="py-4 px-6 text-right">Cantidad</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {selectedInvoice.items.map((item: any, idx: number) => {
-                    const dispatchedQty = dispatchedItems[item.productId] || 0;
-                    const isDone = dispatchedQty >= item.quantity;
-                    const progress = Math.min(100, (dispatchedQty / item.quantity) * 100);
-                    
-                    return (
-                      <tr key={idx} className={`group ${isDone ? 'bg-slate-50/50' : ''}`}>
-                        <td className="py-5 px-6">
-                          <p className={`font-bold ${isDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                            {item.productName || 'Producto'}
-                          </p>
-                          <p className="text-[10px] text-slate-400 font-mono">{item.productId}</p>
-                        </td>
-                        <td className="py-5 px-6">
-                          <div className="w-24 h-1.5 bg-slate-100 rounded-full mx-auto overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                  <div className="max-w-3xl mx-auto">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                        <Package size={18} className="text-emerald-500" />
+                        Productos en Orden
+                      </h3>
+                      <div className="text-[10px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+                        {selectedInvoice.items.length} ÍTEMS
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {selectedInvoice.items.map((item, idx) => {
+                        const dispatchedQty = dispatchedItems[item.productId] || 0;
+                        const isDone = dispatchedQty >= item.quantity;
+                        const progress = (dispatchedQty / item.quantity) * 100;
+
+                        return (
+                          <div 
+                            key={idx}
+                            className={cn(
+                              "p-4 rounded-2xl border transition-all flex items-center gap-4",
+                              isDone ? "bg-emerald-50/30 border-emerald-100" : "bg-white border-slate-100 hover:border-slate-200 shadow-sm"
+                            )}
+                          >
+                            <div className={cn(
+                              "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
+                              isDone ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"
+                            )}>
+                              {isDone ? <CheckCircle2 size={24} /> : <Package size={24} />}
+                            </div>
+                            
                             <div 
-                              className={`h-full transition-all duration-500 ${isDone ? 'bg-emerald-500' : 'bg-sky-500'}`}
-                              style={{ width: `${progress}%` }}
-                            />
+                              className="flex-1 min-w-0 cursor-pointer"
+                              onClick={() => {
+                                if (selectedInvoice.status !== 'despachado') {
+                                  setPendingProduct({ 
+                                    productId: item.productId, 
+                                    productName: item.productName, 
+                                    maxQty: item.quantity 
+                                  });
+                                  setQuantityInput(dispatchedItems[item.productId] || 0);
+                                }
+                              }}
+                            >
+                              <h4 className={cn(
+                                "font-bold text-sm truncate group-hover:text-emerald-700 transition-colors",
+                                isDone ? "text-slate-400 line-through" : "text-slate-900"
+                              )}>
+                                {item.productName}
+                              </h4>
+                              <p className="text-[10px] text-slate-400 font-mono mt-0.5">{item.productId}</p>
+                              
+                              <div className="mt-2 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${progress}%` }}
+                                  className={cn(
+                                    "h-full transition-all",
+                                    isDone ? "bg-emerald-500" : "bg-emerald-600"
+                                  )}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right mr-2">
+                                <p className="text-xs font-black text-slate-900">{dispatchedQty} / {item.quantity}</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">Cantidad</p>
+                              </div>
+                              
+                              {selectedInvoice.status !== 'despachado' && (
+                                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                                  <button 
+                                    onClick={() => adjustQuantity(item.productId, -1)}
+                                    disabled={dispatchedQty <= 0}
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-white text-slate-400 hover:text-slate-900 shadow-sm disabled:opacity-50 transition-all"
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => adjustQuantity(item.productId, 1)}
+                                    disabled={dispatchedQty >= item.quantity}
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-white text-slate-400 hover:text-slate-900 shadow-sm disabled:opacity-50 transition-all"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <p className={`text-[9px] text-center mt-1.5 font-black uppercase ${isDone ? 'text-emerald-500' : 'text-slate-400'}`}>
-                            {isDone ? 'Despachado' : `${progress.toFixed(0)}%`}
-                          </p>
-                        </td>
-                        <td className="py-5 px-6 text-right">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${
-                            isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'
-                          }`}>
-                            {dispatchedQty} / {item.quantity}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
 
-            {/* Acciones */}
-            <div className="sticky bottom-4 flex flex-col gap-3">
-              <button 
-                onClick={generatePDF}
-                className="w-full py-5 bg-emerald-600 text-white font-black text-lg rounded-[2rem] hover:bg-emerald-700 shadow-2xl shadow-emerald-600/30 active:scale-[0.98] transition-all flex items-center justify-center gap-4"
-              >
-                <span>🖨️</span>
-                GENERAR COMPROBANTE DE VENTA
-              </button>
-
-              {selectedInvoice.status !== 'despachado' && (
-                <button 
-                  onClick={handleDispatch}
-                  disabled={isDispatching}
-                  className={`w-full py-5 bg-slate-900 text-white font-black text-lg rounded-[2rem] hover:bg-slate-800 shadow-2xl shadow-slate-900/30 active:scale-[0.98] transition-all flex items-center justify-center gap-4 ${isDispatching ? 'opacity-50' : ''}`}
-                >
-                  {isDispatching ? (
-                    <span className="animate-spin">🔄</span>
+                <div className="p-6 bg-slate-50 border-t border-slate-200 grid grid-cols-2 gap-4 shrink-0">
+                  <button 
+                    onClick={generatePDF}
+                    className="flex items-center justify-center gap-2 py-4 bg-white border border-slate-200 text-slate-700 font-black text-sm rounded-2xl hover:bg-slate-50 transition-all shadow-sm"
+                  >
+                    <Printer size={18} /> GENERAR PDF
+                  </button>
+                  
+                  {selectedInvoice.status !== 'despachado' ? (
+                    <button 
+                      onClick={handleDispatch}
+                      disabled={isDispatching}
+                      className="flex items-center justify-center gap-2 py-4 bg-emerald-600 text-white font-black text-sm rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50"
+                    >
+                      {isDispatching ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <CheckCircle2 size={18} />
+                      )}
+                      FINALIZAR DESPACHO
+                    </button>
                   ) : (
-                    <span>🚚</span>
+                    <div className="flex items-center justify-center gap-2 py-4 bg-emerald-100 text-emerald-700 font-black text-sm rounded-2xl">
+                      <History size={18} /> DESPACHADO EL {new Date().toLocaleDateString()}
+                    </div>
                   )}
-                  MARCAR COMO DESPACHADO
+                </div>
+              </div>
+
+              {/* Right Panel: Scanner (Hidden on small screens when not active) */}
+              <div className={cn(
+                "w-full md:w-80 lg:w-96 bg-slate-900 shrink-0 flex flex-col transition-all",
+                !showScanner && isMobile && "h-0 overflow-hidden"
+              )}>
+                <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                  <h3 className="text-white font-black text-sm uppercase tracking-widest flex items-center gap-2">
+                    <QrCode size={18} className="text-emerald-500" />
+                    Escáner QR
+                  </h3>
+                  {isMobile && (
+                    <button 
+                      onClick={() => setShowScanner(false)}
+                      className="text-white/40 hover:text-white"
+                    >
+                      <X size={20} />
+                    </button>
+                  )}
+                </div>
+                
+                <div className="flex-1 p-6 flex flex-col">
+                  <StableScanner 
+                    onScan={handleScan}
+                    disabled={selectedInvoice.status === 'despachado'}
+                    isFlashActive={isFlashActive}
+                  />
+                  
+                  <div className="mt-6 bg-white/5 rounded-2xl p-4">
+                    <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Último escaneo</p>
+                    <p className="text-sm font-bold text-white truncate">
+                      {scannedData || 'Esperando producto...'}
+                    </p>
+                  </div>
+
+                  <div className="mt-auto pt-6 text-center">
+                    <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">
+                      Asegúrate de tener buena iluminación
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile Scanner Toggle */}
+              {isMobile && !showScanner && selectedInvoice.status !== 'despachado' && (
+                <button 
+                  onClick={() => setShowScanner(true)}
+                  className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-600 text-white rounded-full shadow-2xl flex items-center justify-center z-50 animate-bounce"
+                >
+                  <QrCode size={24} />
                 </button>
               )}
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-              <span className="p-2 bg-emerald-100 text-emerald-600 rounded-lg text-sm">📋</span>
-              Ventas Pendientes
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {loading ? (
-                <div className="col-span-full text-center py-20 text-slate-400 font-bold uppercase tracking-widest text-xs">Cargando datos...</div>
-              ) : invoices.length === 0 ? (
-                <div className="col-span-full text-center py-20 text-slate-400 font-bold uppercase tracking-widest text-xs">No hay facturas pendientes</div>
-              ) : (
-                invoices
-                  .filter(inv => activeTab === 'despachado' ? inv.status === 'despachado' : inv.status !== 'despachado')
-                  .map(inv => (
-                  <button 
-                    key={inv.id} 
-                    onClick={() => setSelectedInvoice(inv)}
-                    className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:border-sky-500 hover:shadow-xl hover:-translate-y-1 transition-all text-left"
-                  >
-                    <p className="font-black text-slate-900 leading-tight mb-2">{inv.client}</p>
-                    <div className="flex justify-between items-center mt-4">
-                      <p className="text-[10px] text-slate-400 font-mono">#{inv.id.replace('INV-', '')}</p>
-                      <p className="text-xs font-black text-sky-600 bg-sky-50 px-2 py-1 rounded-lg">Q {inv.totalAmount?.toLocaleString()}</p>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
 
-      {/* Modal de Cantidad (Z-index alto) */}
-      {pendingProduct && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl w-full max-w-sm flex flex-col items-center gap-6">
-            <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center text-3xl">📦</div>
-            <div className="text-center">
-              <h3 className="text-xl font-black text-slate-900">{pendingProduct.productName}</h3>
-              <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">Ingresa la cantidad</p>
-            </div>
-            <input 
-              type="number" 
-              value={quantityInput || ''}
-              onChange={(e) => setQuantityInput(parseInt(e.target.value) || 0)}
-              className="w-full text-center text-5xl font-black p-6 border-2 border-slate-100 rounded-3xl focus:border-sky-500 focus:outline-none transition-all"
-              min="1"
-              autoFocus
-            />
-            <div className="flex gap-3 w-full">
-              <button onClick={() => setPendingProduct(null)} className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all">CANCELAR</button>
-              <button onClick={confirmQuantity} className="flex-1 px-6 py-4 bg-sky-600 text-white font-black rounded-2xl hover:bg-sky-700 shadow-lg shadow-sky-600/20 transition-all">ACEPTAR</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Manual Quantity Modal */}
+      <AnimatePresence>
+        {pendingProduct && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[2.5rem] p-8 shadow-2xl w-full max-w-sm flex flex-col items-center gap-6"
+            >
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-3xl flex items-center justify-center text-4xl shadow-inner">
+                📦
+              </div>
+              
+              <div className="text-center">
+                <h3 className="text-xl font-black text-slate-900 leading-tight">{pendingProduct.productName}</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">¿Cuántas unidades despachar?</p>
+              </div>
+
+              <div className="flex items-center gap-4 w-full">
+                <button 
+                  onClick={() => setQuantityInput(prev => Math.max(1, prev - 1))}
+                  className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-900 text-2xl font-black hover:bg-slate-200 transition-all"
+                >
+                  <Minus size={24} />
+                </button>
+                <div className="flex-1 text-center">
+                  <input 
+                    type="number" 
+                    value={quantityInput}
+                    onChange={(e) => setQuantityInput(Math.max(1, Math.min(pendingProduct.maxQty, parseInt(e.target.value) || 1)))}
+                    className="w-full text-center text-5xl font-black p-4 border-none focus:outline-none focus:ring-0 text-slate-900"
+                    autoFocus
+                  />
+                  <p className="text-[10px] font-black text-emerald-600 mt-1 uppercase">Max: {pendingProduct.maxQty} unidades</p>
+                </div>
+                <button 
+                  onClick={() => setQuantityInput(prev => Math.min(pendingProduct.maxQty, prev + 1))}
+                  className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-900 text-2xl font-black hover:bg-slate-200 transition-all"
+                >
+                  <Plus size={24} />
+                </button>
+              </div>
+
+              <div className="flex gap-3 w-full">
+                <button 
+                  onClick={() => {
+                    setPendingProduct(null);
+                    setQuantityInput(1);
+                  }} 
+                  className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all uppercase text-xs tracking-widest"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmQuantity} 
+                  className="flex-1 px-6 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all uppercase text-xs tracking-widest"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -5,6 +5,16 @@ export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
+export function getStartOfCurrentWeek(): Date {
+  const today = new Date();
+  const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
+  const diffToMonday = today.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+  const startOfThisWeek = new Date(today);
+  startOfThisWeek.setDate(diffToMonday);
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  return startOfThisWeek;
+}
+
 export function cleanObservations(notes: string | undefined | null): string {
   if (!notes) return '';
   if (!notes.includes('|||')) return notes.trim();

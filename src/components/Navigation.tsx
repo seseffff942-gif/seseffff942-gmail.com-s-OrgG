@@ -913,7 +913,6 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     { id: 'seller-debts', label: 'Registro Ventas', icon: ClipboardList, roles: ['seller'] },
     { id: 'clients', label: 'Clientes', icon: Users, roles: ['admin', 'seller'] },
     { id: 'team', label: 'Equipo', icon: Users, roles: ['admin', 'seller'] },
-    { id: 'credit-app', label: 'Solicitud Crédito', icon: FileText, roles: ['admin', 'seller'] },
   ];
 
   const userNavItems = navItems.filter(item => {
