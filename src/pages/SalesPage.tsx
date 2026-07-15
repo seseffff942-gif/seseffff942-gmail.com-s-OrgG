@@ -539,20 +539,20 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     setCart(prev => prev.filter(i => i.product.id !== productId));
   };
 
-  const printTicket = (invoice: any) => {
+  const printTicket = async (invoice: any) => {
     const sellerObj = usersList.find((u: any) => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
-    printHtml(htmlContent);
+    await printHtml(htmlContent);
   };
 
-  const downloadTicketPdf = (invoice: any) => {
+  const downloadTicketPdf = async (invoice: any) => {
     const sellerObj = usersList.find((u: any) => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
-    downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id || 'venta'}.pdf`);
+    await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id || 'venta'}.pdf`);
   };
 
   const getWhatsAppTextReceipt = (invoice: any) => {
@@ -1553,7 +1553,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                           {isDiscounted && (
                             <div className="text-[8px] text-red-650 font-black uppercase tracking-wider mt-1.5 max-w-[200px] leading-tight">
-                              ⚠️ ALERTA: ABAJO DEL MÍNIMO ({formatMoney(item.product.price.toFixed(0))})
+                              ⚠️ ALERTA: ABAJO DEL MÍNIMO ({formatMoney(item.product.price)})
                             </div>
                           )}
                         </div>
@@ -1749,7 +1749,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                             ) : variantsInColor.length === 1 && (
                               <span className="opacity-80 border-l border-current pl-1.5 ml-1.5 flex items-center">
                                 {variantsInColor[0].stock !== undefined ? <span className="mr-1.5 text-[10px] uppercase font-bold normal-case">{variantsInColor[0].stock} disp.</span> : null}
-                                {formatMoney(variantsInColor[0].price.toFixed(0))}
+                                {formatMoney(variantsInColor[0].price)}
                               </span>
                             )}
                           </button>
@@ -1799,7 +1799,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                               ) : (
                                 <span className="opacity-80 border-l border-current pl-1.5">
                                   {v.stock !== undefined ? <span className="mr-1.5 text-[10px] uppercase font-bold">{v.stock} disp.</span> : null}
-                                  {formatMoney(v.price.toFixed(0))}
+                                  {formatMoney(v.price)}
                                 </span>
                               )}
                             </button>

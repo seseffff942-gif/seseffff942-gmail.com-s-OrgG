@@ -953,7 +953,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Deuda Pendiente</p>
             <h4 className="text-2xl md:text-3xl font-black text-orange-600 mt-2 font-mono tracking-tight">{formatMoney(computedStats.pending)}</h4>
             <div className="flex items-center gap-1 text-[10px] text-orange-700 font-bold mt-3 bg-orange-50/80 px-2 py-0.5 rounded-lg border border-orange-100/30 w-fit">
-              <span>{formatMoney((computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0))}% Por Recaudar</span>
+              <span>{(computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0)}% Por Recaudar</span>
             </div>
           </motion.div>
         </div>

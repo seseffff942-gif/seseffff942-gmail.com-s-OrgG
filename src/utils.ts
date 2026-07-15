@@ -1,5 +1,6 @@
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import { biSealBase64, banruralSealBase64, defaultLogoBase64 } from './sealsBase64';
 
 export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
@@ -376,7 +377,7 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
             </td>
             <td class="logo-details">
                 <!-- Logotipo Oficial del Usuario -->
-                <img src="{{origin}}/agricovet.png" alt="AGRICOVET Logo" style="max-width: 160px; max-height: 140px; object-fit: contain;" />
+                <img src="{{logoUrl}}" alt="AGRICOVET Logo" style="max-width: 160px; max-height: 140px; object-fit: contain;" />
             </td>
         </tr>
     </table>
@@ -446,7 +447,7 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
         </table>
     </div>
 
-    <table class="signature-section">
+    <table class="signature-section" style="margin-top: 20px;">
         <tr>
             <td class="signature-box">
                 {{#if sellerSignature}}
@@ -464,14 +465,32 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
         </tr>
     </table>
 
-    <div style="margin-top: 40px; text-align: center; font-family: monospace; font-size: 11pt; color: #16A34A; font-weight: bold; border-top: 1px dashed #ccc; padding-top: 20px;">
-        ⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅
+    <table style="width: 100%; margin-top: 25px; border-collapse: collapse; page-break-inside: avoid;">
+        <tr>
+            <td style="width: 48%; text-align: center; vertical-align: middle; padding: 5px;">
+                <div style="border: none; padding: 0;">
+                    <div style="font-size: 9pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; margin-bottom: 4px;">Depositar a: BANCO INDUSTRIAL</div>
+                    <div style="font-size: 11pt; font-weight: 900; color: #000; margin: 2px 0;">035-015252-6</div>
+                    <div style="font-size: 9pt; font-weight: 700; color: #555555; margin: 2px 0;">Agricovet de Guatemala</div>
+                </div>
+            </td>
+            <td style="width: 4%;">&nbsp;</td>
+            <td style="width: 48%; text-align: center; vertical-align: middle; padding: 5px;">
+                <div style="border: none; padding: 0;">
+                    <div style="font-size: 9pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; margin-bottom: 4px;">Depositar a: BANRURAL</div>
+                    <div style="font-size: 11pt; font-weight: 900; color: #000; margin: 2px 0;">3580029532</div>
+                    <div style="font-size: 9pt; font-weight: 700; color: #555555; margin: 2px 0;">Agricovet de Guatemala</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    <div style="text-align: center; margin-top: 20px; padding-bottom: 20px;">
+        <img src="{{logoUrl}}" alt="Agricovet Logo" style="width: 80px; height: 80px; object-fit: contain; opacity: 0.9;" />
     </div>
-
 </body>
 </html>`;
 
-export const formatMoney = (num: number | undefined | string) => {
+export function formatMoney(num: number | undefined | string) {
   if (num === undefined || num === null) return 'Q0.00';
   const n = typeof num === 'string' ? parseFloat(num) : num;
   if (isNaN(n)) return 'Q0.00';
@@ -479,7 +498,43 @@ export const formatMoney = (num: number | undefined | string) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4
   });
-};
+}
+
+/**
+ * Converts an image URL to a Base64 string.
+ * This is crucial for html2pdf.js and window.print() to correctly render images
+ * without CORS or loading race condition issues.
+ */
+async function getBase64Image(url: string): Promise<string> {
+  if (!url || url.startsWith('data:')) return url;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(url);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    return url;
+  }
+}
+
+async function convertAllImagesToBase64(container: HTMLElement) {
+  const imgs = Array.from(container.querySelectorAll('img'));
+  const promises = imgs.map(async (img) => {
+    const originalSrc = img.getAttribute('src');
+    if (originalSrc && !originalSrc.startsWith('data:')) {
+      const b64 = await getBase64Image(originalSrc);
+      if (b64.startsWith('data:')) {
+        img.src = b64;
+      }
+    }
+  });
+  await Promise.allSettled(promises);
+}
 
 export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string): string {
   try {
@@ -512,6 +567,31 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     }).join('');
 
     let t = templateText || DEFAULT_PRINT_TEMPLATE;
+
+    if (!t.includes('Cuenta BANCO INDUSTRIAL') && !t.includes('biSealUrl')) {
+        const sealsHtml = `
+    <table style="width: 100%; margin-top: 25px; border-collapse: collapse; page-break-inside: avoid;">
+        <tr>
+            <td style="width: 48%; text-align: center; vertical-align: middle; padding: 5px;">
+                <div style="border: none; padding: 0;">
+                    <div style="font-size: 9pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; margin-bottom: 4px;">Depositar a: BANCO INDUSTRIAL</div>
+                    <div style="font-size: 11pt; font-weight: 900; color: #000; margin: 2px 0;">035-015252-6</div>
+                    <div style="font-size: 9pt; font-weight: 700; color: #555555; margin: 2px 0;">Agricovet de Guatemala</div>
+                </div>
+            </td>
+            <td style="width: 4%;">&nbsp;</td>
+            <td style="width: 48%; text-align: center; vertical-align: middle; padding: 5px;">
+                <div style="border: none; padding: 0;">
+                    <div style="font-size: 9pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; margin-bottom: 4px;">Depositar a: BANRURAL</div>
+                    <div style="font-size: 11pt; font-weight: 900; color: #000; margin: 2px 0;">3580029532</div>
+                    <div style="font-size: 9pt; font-weight: 700; color: #555555; margin: 2px 0;">Agricovet de Guatemala</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+`;
+        t = t.replace('</body>', sealsHtml + '</body>');
+    }
 
     // Support both types of loop: {{#each items}} ... {{/each}} and old {{itemsTableRows}}
     const loopRegex = /\{\{#each items\}\}([\s\S]*?)\{\{\/each\}\}/g;
@@ -571,22 +651,43 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{paidAmount\}\}/g, formatGT(invoice.paidAmount || 0));
     t = t.replace(/\{\{dueAmount\}\}/g, formatGT((invoice.totalAmount || 0) - (invoice.paidAmount || 0)));
     
-    // Signatures
+    // Signatures and Seals
     t = t.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature || '');
     t = t.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature || '');
     t = t.replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '');
-
+    
+    const origin = window.location.origin;
+    const storedLogo = localStorage.getItem('app_logo_url');
+    let finalLogoUrl = storedLogo || `${origin}/agricovet.png`;
+    
+    if (finalLogoUrl && !finalLogoUrl.startsWith('http') && !finalLogoUrl.startsWith('data:')) {
+      const cleanPath = finalLogoUrl.startsWith('/') ? finalLogoUrl : `/${finalLogoUrl}`;
+      finalLogoUrl = `${origin}${cleanPath}`;
+    }
+    
+    // Replace all logo placeholders
+    if (finalLogoUrl === `${origin}/agricovet.png` || finalLogoUrl === '/agricovet.png') {
+        t = t.replace(/\{\{logoUrl\}\}/g, defaultLogoBase64);
+        t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, defaultLogoBase64);
+    } else {
+        t = t.replace(/\{\{logoUrl\}\}/g, finalLogoUrl);
+        t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, finalLogoUrl);
+    }
+    
+    // Signatures
     t = t.replace(/\{\{#if sellerSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
         return invoice.sellerSignature ? inner.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature) : '';
     });
     t = t.replace(/\{\{#if adminSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
         return invoice.adminSignature ? inner.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature).replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '') : '';
     });
-    const storedLogo = localStorage.getItem('app_logo_url');
-    const logoUrl = storedLogo && (storedLogo.startsWith('http') || storedLogo.startsWith('data:')) ? storedLogo : `${window.location.origin}/agricovet.png`;
-    t = t.replace(/\{\{logoUrl\}\}/g, logoUrl);
-    t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, logoUrl);
-    t = t.replace(/\{\{origin\}\}/g, window.location.origin);
+    
+    // Use absolute URLs for seals
+    t = t.replace(/\{\{biSealUrl\}\}/g, biSealBase64);
+    t = t.replace(/\{\{banruralSealUrl\}\}/g, banruralSealBase64);
+    
+    // Finally replace origin for any other relative links
+    t = t.replace(/\{\{origin\}\}/g, origin);
 
     return t;
   } catch (e) {
@@ -680,7 +781,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName: string): st
   `;
 }
 
-export function printHtml(html: string) {
+export async function printHtml(html: string) {
   // 1. Create or retrieve the print container directly under body
   let printSec = document.getElementById('print-receipt-section');
   if (!printSec) {
@@ -689,179 +790,98 @@ export function printHtml(html: string) {
     document.body.appendChild(printSec);
   }
 
-  // 2. Set the entire compiled HTML as the print container's content.
-  // This imports the full head, style tags, and body of the receipt template inside it.
+  // 2. Set content and convert images to Base64
   printSec.innerHTML = html;
+  await convertAllImagesToBase64(printSec);
 
-  // 3. Inject our global print stylesheet to control display and responsive tables
+  // 3. Inject global print stylesheet
   let printStyle = document.getElementById('print-receipt-style');
   if (!printStyle) {
     printStyle = document.createElement('style');
     printStyle.id = 'print-receipt-style';
     document.head.appendChild(printStyle);
   }
-
   printStyle.innerHTML = `
-    /* Hiding rules for screen (when we are NOT printing, this section is completely invisible) */
-    #print-receipt-section {
-      display: none !important;
-    }
-
     @media print {
-      html, body {
-        width: 100% !important;
-        height: auto !important;
-        min-height: 0 !important;
-        overflow: visible !important;
-        position: static !important;
+      body > *:not(#print-receipt-section) { display: none !important; }
+      #print-receipt-section { 
         display: block !important;
-        background: white !important;
-        color: black !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-
-      #print-receipt-section {
-        display: block !important;
-        position: static !important;
-        overflow: visible !important;
-        width: 100% !important;
-        height: auto !important;
+        position: absolute !important; 
+        left: 0 !important; 
+        top: 0 !important; 
+        width: 100% !important; 
         margin: 0 !important;
         padding: 0 !important;
-        background: white !important;
-        color: black !important;
-        visibility: visible !important;
       }
-
-      #print-receipt-section * {
-        visibility: visible !important;
-      }
-
-      /* Force standard CSS tables to layout properly during print pagination */
-      #print-receipt-section table {
-        display: table !important;
-        width: 100% !important;
-      }
-      #print-receipt-section tr {
-        display: table-row !important;
-      }
-      #print-receipt-section th, #print-receipt-section td {
-        display: table-cell !important;
-      }
+      @page { size: auto; margin: 0; }
     }
+    #print-receipt-section { display: none; }
   `;
 
-  // 4. Force hide all siblings of printSec directly under body using direct inline JavaScript styles.
-  // This bypasses any flaky media queries or browser bugs that ignore parent display: none container rules.
-  const otherBodyChildren: { element: HTMLElement; display: string; visibility: string }[] = [];
-  Array.from(document.body.children).forEach((child) => {
-    if (child instanceof HTMLElement && child !== printSec && child.tagName !== 'SCRIPT' && child.tagName !== 'STYLE') {
-      otherBodyChildren.push({
-        element: child,
-        display: child.style.display,
-        visibility: child.style.visibility
-      });
-      child.style.setProperty('display', 'none', 'important');
-      child.style.setProperty('visibility', 'hidden', 'important');
-    }
-  });
-
-  // Make the print container visible
-  printSec.style.setProperty('display', 'block', 'important');
-  printSec.style.setProperty('visibility', 'visible', 'important');
-
-  // Helper function to restore original system state
-  const restoreApp = () => {
-    // Restore siblings' original style attributes
-    otherBodyChildren.forEach(({ element, display, visibility }) => {
-      if (display) {
-        element.style.setProperty('display', display);
-      } else {
-        element.style.removeProperty('display');
-      }
-      if (visibility) {
-        element.style.setProperty('visibility', visibility);
-      } else {
-        element.style.removeProperty('visibility');
-      }
-    });
-
-    // Reset print elements
-    if (printSec) {
-      printSec.innerHTML = '';
-      printSec.style.setProperty('display', 'none', 'important');
-      printSec.style.setProperty('visibility', 'hidden', 'important');
-    }
-    if (printStyle) {
-      printStyle.innerHTML = `#print-receipt-section { display: none !important; }`;
-    }
-  };
-
-  // 5. Wait for all images inside printSec to load before triggering window.print()
-  const images = printSec.querySelectorAll('img');
+  // 4. Wait for all images to load
+  const images = Array.from(printSec.querySelectorAll('img'));
   let loadedCount = 0;
-  const totalImages = images.length;
+  let printTriggered = false;
 
   const triggerPrint = () => {
-    try {
-      window.print();
-    } catch (e) {
-      console.error('Window print dialog error:', e);
+    if (printTriggered) return;
+    printTriggered = true;
+    window.print();
+  };
+
+  const onImageLoaded = () => {
+    loadedCount++;
+    if (loadedCount >= images.length) {
+      setTimeout(triggerPrint, 500);
     }
   };
 
-  if (totalImages === 0) {
-    setTimeout(triggerPrint, 350);
+  if (images.length === 0) {
+    setTimeout(triggerPrint, 500);
   } else {
-    let printTriggered = false;
-    const onImageLoaded = () => {
-      loadedCount++;
-      if (loadedCount === totalImages && !printTriggered) {
-        printTriggered = true;
-        triggerPrint();
-      }
-    };
-
-    // Safety timeout in case an image fails to load or hangs
-    const safetyTimeout = setTimeout(() => {
-      if (!printTriggered) {
-        printTriggered = true;
-        triggerPrint();
-      }
-    }, 1500);
-
     images.forEach((img) => {
-      if (img.complete) {
+      if (img.complete && img.naturalWidth > 0) {
         onImageLoaded();
       } else {
         img.addEventListener('load', onImageLoaded);
         img.addEventListener('error', onImageLoaded);
       }
     });
+    // Safety timeout
+    setTimeout(triggerPrint, 6000);
   }
 
-  // 6. Bind print completion or cancel event to restore original application state
+  // 5. Cleanup after print
+  const restoreApp = () => {
+    if (printSec) {
+      printSec.innerHTML = '';
+      printSec.style.display = 'none';
+    }
+  };
   window.addEventListener('afterprint', restoreApp, { once: true });
-  
-  // Safety fallback in case afterprint does not fire on specific client webviews
   setTimeout(restoreApp, 20000);
 }
 
-export function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
+export async function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
   const opt = {
     margin: [0.3, 0.3, 0.3, 0.3],
     filename: filename,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
+    html2canvas: { 
+      scale: 2, 
+      useCORS: true,
+      logging: false,
+      allowTaint: true
+    },
     jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] }
   };
   
   const element = document.createElement('div');
   element.innerHTML = html;
+  
+  // Convert images to base64 before passing to html2pdf
+  await convertAllImagesToBase64(element);
   
   // @ts-ignore
   html2pdf().from(element).set(opt).save();

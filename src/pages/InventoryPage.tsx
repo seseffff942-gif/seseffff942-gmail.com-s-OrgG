@@ -1747,15 +1747,22 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 <span className="text-3xl sm:text-4xl lg:text-5xl font-black text-white font-mono tracking-tight leading-none">
                   Q{(() => {
                     let overallTotal = 0;
-                    filteredProducts.forEach(prod => {
+                    products.forEach(prod => {
                       if (!prod.is_external) {
-                        if (prod.variants && prod.variants.length > 0) {
-                          prod.variants.forEach(v => {
-                            const vStock = v.stock !== undefined ? v.stock : prod.stock;
-                            overallTotal += vStock * v.price;
-                          });
-                        } else {
-                          overallTotal += prod.stock * prod.price;
+                        const isIncubadora = (prod.category || '').toUpperCase() === 'INCUBADORAS';
+                        if (!isIncubadora) {
+                          if (prod.variants && prod.variants.length > 0) {
+                            prod.variants.forEach(v => {
+                              const vStock = v.stock !== undefined ? v.stock : prod.stock;
+                              if (vStock > 0) {
+                                overallTotal += vStock * (v.price || prod.price || 0);
+                              }
+                            });
+                          } else {
+                            if (prod.stock > 0) {
+                              overallTotal += prod.stock * (prod.price || 0);
+                            }
+                          }
                         }
                       }
                     });
@@ -1763,8 +1770,43 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   })()}
                 </span>
                 <span className="text-[9.5px] text-emerald-300/60 font-semibold block mt-2">
-                  Sumando {filteredProducts.filter(p => !p.is_external).length} de {filteredProducts.length} productos físicos mostrados
+                  Balance consolidado total (excluye Incubadoras, externos y stock negativo)
                 </span>
+                
+                {/* Filtered total if search/category filters are active */}
+                {(selectedCategory !== 'Todos' || searchTerm !== '') && (
+                  <div className="mt-2 pt-2 border-t border-emerald-500/10 text-slate-300 text-xs">
+                    <span className="font-medium text-[10px] text-emerald-400 block uppercase tracking-wider">Costo de Selección Filtrada</span>
+                    <span className="font-mono font-bold text-white">
+                      Q{(() => {
+                        let filteredSum = 0;
+                        filteredProducts.forEach(prod => {
+                          if (!prod.is_external) {
+                            const isIncubadora = (prod.category || '').toUpperCase() === 'INCUBADORAS';
+                            if (!isIncubadora) {
+                              if (prod.variants && prod.variants.length > 0) {
+                                prod.variants.forEach(v => {
+                                  const vStock = v.stock !== undefined ? v.stock : prod.stock;
+                                  if (vStock > 0) {
+                                    filteredSum += vStock * (v.price || prod.price || 0);
+                                  }
+                                });
+                              } else {
+                                if (prod.stock > 0) {
+                                  filteredSum += prod.stock * (prod.price || 0);
+                                }
+                              }
+                            }
+                          }
+                        });
+                        return filteredSum.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      })()}
+                    </span>
+                    <span className="text-[9px] text-slate-400 block mt-0.5">
+                      Sumando {filteredProducts.filter(p => !p.is_external && (p.category || '').toUpperCase() !== 'INCUBADORAS' && (p.stock > 0 || (p.variants && p.variants.some((v: any) => v.stock > 0)))).length} de {filteredProducts.length} productos mostrados
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

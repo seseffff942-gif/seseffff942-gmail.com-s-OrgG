@@ -687,20 +687,20 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   };
 
-    const printInvoice = (invoice: Invoice) => {
+    const printInvoice = async (invoice: Invoice) => {
     const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
-    printHtml(htmlContent);
+    await printHtml(htmlContent);
   };
 
-  const downloadInvoicePdf = (invoice: Invoice) => {
+  const downloadInvoicePdf = async (invoice: Invoice) => {
     const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
-    downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id}.pdf`);
+    await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id}.pdf`);
   };
 
   const renderInvoice = (invoice: Invoice) => {
