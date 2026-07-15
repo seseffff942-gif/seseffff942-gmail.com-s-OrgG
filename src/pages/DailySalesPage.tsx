@@ -31,7 +31,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -483,7 +483,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                      </div>
                   )}
                 </div>
-                <span className="font-extrabold text-slate-800 ml-2 font-mono group-hover/card:text-[#0b4d2c] transition-colors">Q{item.total.toFixed(2)}</span>
+                <span className="font-extrabold text-slate-800 ml-2 font-mono group-hover/card:text-[#0b4d2c] transition-colors">{formatMoney(item.total)}</span>
               </div>
             ))}
             {invoice.items.length > 3 && (
@@ -509,7 +509,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 			)}
           </div>
           <div className="text-lg font-black text-[#0b4d2c] leading-none font-mono bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100/50 px-3 py-1.5 rounded-2xl group-hover/card:scale-105 group-hover/card:from-[#0b4d2c] group-hover/card:to-emerald-700 group-hover/card:text-white transition-all duration-300">
-            Q{invoice.totalAmount.toFixed(2)}
+            {formatMoney(invoice.totalAmount)}
           </div>
         </div>
       </motion.div>
@@ -553,7 +553,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     </div>
                     <div className="text-right">
                       <p className="text-white/60">Total Venta</p>
-                      <p className="font-bold text-sm text-yellow-300 font-mono">Q{totalSellerAmount.toFixed(2)}</p>
+                      <p className="font-bold text-sm text-yellow-300 font-mono">{formatMoney(totalSellerAmount)}</p>
                     </div>
                   </div>
                 </div>
@@ -584,7 +584,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                           </div>
                           <div className="text-right shrink-0">
                             <p className={`text-xs font-black text-slate-800 ${isCancelled && 'line-through text-red-500'} font-mono`}>
-                              Q{inv.totalAmount.toFixed(2)}
+                              {formatMoney(inv.totalAmount)}
                             </p>
                             <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wide inline-block mt-0.5 ${
                               isCancelled || isRejected ? 'bg-red-50 text-red-600' :
@@ -605,7 +605,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 
                 <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-600 shrink-0">
                   <span>Pendiente:</span>
-                  <span className="text-orange-600 text-sm font-extrabold font-mono">Q{totalSellerPending.toFixed(2)}</span>
+                  <span className="text-orange-600 text-sm font-extrabold font-mono">{formatMoney(totalSellerPending)}</span>
                 </div>
               </div>
             );
@@ -641,7 +641,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 </div>
                 <div className="self-start sm:self-center shrink-0">
                   <span className="inline-block text-sm font-medium text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-200 shadow-sm font-mono whitespace-nowrap">
-                    Q{invs.reduce((sum, inv) => inv.status !== 'cancelled' && inv.status !== 'rejected' ? sum + (inv.totalAmount - (inv.paidAmount || 0)) : sum, 0).toFixed(2)} Deuda Pendiente
+                    {formatMoney(invs.reduce((sum, inv) => inv.status !== 'cancelled' && inv.status !== 'rejected' ? sum + (inv.totalAmount - (inv.paidAmount || 0)) : sum, 0))} Deuda Pendiente
                   </span>
                 </div>
               </div>
@@ -715,7 +715,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
           }
         })
         .reduce((sum, inv) => sum + inv.totalAmount, 0);
-      return { hora: displayHour, Ventas: Number(amount.toFixed(2)) };
+      return { hora: displayHour, Ventas: Number(amount.toFixed(4)) };
     });
   }, [filteredInvoices]);
 
@@ -734,8 +734,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     });
     return Object.values(dataMap).map(item => ({
       ...item,
-      Ventas: Number(item.Ventas.toFixed(2)),
-      Cobrado: Number(item.Cobrado.toFixed(2))
+      Ventas: Number(item.Ventas.toFixed(4)),
+      Cobrado: Number(item.Cobrado.toFixed(4))
     }));
   }, [filteredInvoices, users]);
 
@@ -852,7 +852,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-[#0b4d2c] to-emerald-400 group-hover:w-2 transition-all"></div>
               <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-1 font-mono">Total Vendido</span>
-              <span className="text-xl font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">Q{totalSalesAmount.toFixed(2)}</span>
+              <span className="text-xl font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">{formatMoney(totalSalesAmount)}</span>
             </motion.div>
             
             <motion.div 
@@ -862,7 +862,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-blue-600 to-sky-450 group-hover:w-2 transition-all"></div>
               <span className="text-[9px] font-black text-blue-800 uppercase tracking-widest mb-1 font-mono">Cobrado</span>
-              <span className="text-xl font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">Q{totalPaidAmount.toFixed(2)}</span>
+              <span className="text-xl font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">{formatMoney(totalPaidAmount)}</span>
             </motion.div>
           </div>
         </div>
@@ -915,7 +915,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               <DollarSign size={55} />
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Ingreso Neto (Filt.)</p>
-            <h4 className="text-2xl md:text-3xl font-black text-slate-800 mt-2 font-mono tracking-tight group-hover:text-[#0b4d2c] transition-colors">Q{computedStats.sales.toFixed(2)}</h4>
+            <h4 className="text-2xl md:text-3xl font-black text-slate-800 mt-2 font-mono tracking-tight group-hover:text-[#0b4d2c] transition-colors">{formatMoney(computedStats.sales)}</h4>
             <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold mt-3 bg-emerald-50/80 px-2 py-0.5 rounded-lg border border-emerald-100/30 w-fit">
               <TrendingUp size={12} className="animate-pulse" />
               <span>Venta Real Calculada</span>
@@ -933,7 +933,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               <CheckCircle size={55} />
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Total Cobrado</p>
-            <h4 className="text-2xl md:text-3xl font-black text-[#00696a] mt-2 font-mono tracking-tight">Q{computedStats.payments.toFixed(2)}</h4>
+            <h4 className="text-2xl md:text-3xl font-black text-[#00696a] mt-2 font-mono tracking-tight">{formatMoney(computedStats.payments)}</h4>
             <div className="flex items-center gap-1 text-[10px] text-teal-700 font-bold mt-3 bg-teal-50/80 px-2 py-0.5 rounded-lg border border-teal-100/30 w-fit">
               <Activity size={12} />
               <span>Abonos Recibidos</span>
@@ -951,9 +951,9 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               <TrendingDown size={55} />
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Deuda Pendiente</p>
-            <h4 className="text-2xl md:text-3xl font-black text-orange-600 mt-2 font-mono tracking-tight">Q{computedStats.pending.toFixed(2)}</h4>
+            <h4 className="text-2xl md:text-3xl font-black text-orange-600 mt-2 font-mono tracking-tight">{formatMoney(computedStats.pending)}</h4>
             <div className="flex items-center gap-1 text-[10px] text-orange-700 font-bold mt-3 bg-orange-50/80 px-2 py-0.5 rounded-lg border border-orange-100/30 w-fit">
-              <span>Q{(computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0)}% Por Recaudar</span>
+              <span>{formatMoney((computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0))}% Por Recaudar</span>
             </div>
           </motion.div>
         </div>
@@ -1071,7 +1071,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                           }}
                           itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: '800' }}
                           labelStyle={{ color: '#fbbf24', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', marginBottom: '6px' }}
-                          formatter={(value) => [`Q${parseFloat(value as string).toFixed(2)}`, 'Vendido']}
+                          formatter={(value) => [`Q${parseFloat(value as string).toFixed(4)}`, 'Vendido']}
                         />
                         <Area 
                           type="monotone" 
@@ -1106,7 +1106,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             }}
                             itemStyle={{ fontSize: '11px', fontWeight: '800', color: '#f1f5f9' }}
                             labelStyle={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '900', marginBottom: '6px' }}
-                            formatter={(value, name) => [`Q${parseFloat(value as string).toFixed(2)}`, name]}
+                            formatter={(value, name) => [`Q${parseFloat(value as string).toFixed(4)}`, name]}
                           />
                           <RechartsLegend wrapperStyle={{ fontSize: '11px', fontWeight: '800', fill: '#64748b' }} />
                           <Bar dataKey="Ventas" fill="#0b4d2c" radius={[8, 8, 0, 0]} maxBarSize={38} />
@@ -1328,13 +1328,13 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               </div>
               <div className="flex items-center gap-4 flex-wrap">
                 <div>
-                  Total: <span className="text-slate-900 font-black font-mono">Q{computedStats.sales.toFixed(2)}</span>
+                  Total: <span className="text-slate-900 font-black font-mono">{formatMoney(computedStats.sales)}</span>
                 </div>
                 <div>
-                  Cobrado: <span className="text-emerald-700 font-black font-mono">Q{computedStats.payments.toFixed(2)}</span>
+                  Cobrado: <span className="text-emerald-700 font-black font-mono">{formatMoney(computedStats.payments)}</span>
                 </div>
                 <div>
-                  Pendiente: <span className="text-orange-600 font-black font-mono">Q{computedStats.pending.toFixed(2)}</span>
+                  Pendiente: <span className="text-orange-600 font-black font-mono">{formatMoney(computedStats.pending)}</span>
                 </div>
               </div>
             </motion.div>
@@ -1371,7 +1371,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                    .map(([seller, amt]: [string, any]) => (
                       <div key={seller} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <span className="font-bold text-slate-700">{getSellerName(seller)}</span>
-                        <span className="font-black text-teal-600 text-xl">Q{amt.toFixed(2)}</span>
+                        <span className="font-black text-teal-600 text-xl">{formatMoney(amt)}</span>
                       </div>
                    ))
                ) : (
@@ -1416,7 +1416,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             <span className="font-extrabold text-slate-800">{getSellerName(seller)}</span>
                             <span className="text-[10px] text-slate-400 font-medium block truncate max-w-[200px]">{seller}</span>
                           </div>
-                          <span className="font-black text-blue-600 text-lg">Q{amt.toFixed(2)}</span>
+                          <span className="font-black text-blue-600 text-lg">{formatMoney(amt)}</span>
                         </div>
                       ))
                   ) : (
@@ -1450,7 +1450,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                           </div>
                           
                           <div className="text-right flex-shrink-0">
-                            <span className="font-black text-emerald-600 text-base block">Q{pay.amount.toFixed(2)}</span>
+                            <span className="font-black text-emerald-600 text-base block">{formatMoney(pay.amount)}</span>
                             <span className="text-[10px] text-slate-400 font-medium">{pay.date ? new Date(pay.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                           </div>
                         </div>
@@ -1486,7 +1486,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             
             <div className="p-5 bg-slate-100 border-t border-slate-200 text-right flex justify-between items-center px-8">
               <span className="text-sm font-bold text-slate-600">Monto total cobrado el día de hoy:</span>
-              <span className="font-black text-blue-700 text-2xl">Q{totalPaidAmount.toFixed(2)}</span>
+              <span className="font-black text-blue-700 text-2xl">{formatMoney(totalPaidAmount)}</span>
             </div>
           </div>
         </div>
@@ -1657,9 +1657,9 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div>
                         <p className="text-sm font-bold text-slate-700 notranslate leading-tight" translate="no">{item.productName}</p>
-                        <p className="text-xs text-slate-500 font-medium">{item.quantity} x Q{item.price.toFixed(2)}</p>
+                        <p className="text-xs text-slate-500 font-medium">{item.quantity} x {formatMoney(item.price)}</p>
                       </div>
-                      <span className="font-black text-slate-800 text-sm">Q{item.total.toFixed(2)}</span>
+                      <span className="font-black text-slate-800 text-sm">{formatMoney(item.total)}</span>
                     </div>
                   ))}
                 </div>
@@ -1667,7 +1667,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
               <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
                 <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Total</p>
-                <p className="text-3xl font-black text-blue-600 leading-none">Q{selectedViewInvoice.totalAmount.toFixed(2)}</p>
+                <p className="text-3xl font-black text-blue-600 leading-none">{formatMoney(selectedViewInvoice.totalAmount)}</p>
               </div>
 
               {cleanObservations(selectedViewInvoice.notes) && (

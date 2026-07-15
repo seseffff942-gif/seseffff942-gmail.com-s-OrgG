@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -375,7 +375,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     </div>
                     <div className="text-right">
                       <p className="text-white/60 text-[10px] uppercase font-bold tracking-wider">Total Venta</p>
-                      <p className="font-black text-sm text-amber-300">Q{totalSellerAmount.toFixed(2)}</p>
+                      <p className="font-black text-sm text-amber-300">{formatMoney(totalSellerAmount)}</p>
                     </div>
                   </div>
                 </div>
@@ -407,7 +407,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           </div>
                           <div className="text-right shrink-0">
                             <p className={`text-xs font-extrabold text-slate-800 ${isCancelled && 'line-through text-red-550'}`}>
-                              Q{inv.totalAmount.toFixed(2)}
+                              {formatMoney(inv.totalAmount)}
                             </p>
                             <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-lg uppercase tracking-wider inline-block mt-1 ${
                               isCancelled || isRejected ? 'bg-red-50 text-red-650 border border-red-100' :
@@ -428,7 +428,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 
                 <div className="bg-slate-50/80 px-5 py-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-500 shrink-0">
                   <span>Por Cobrar:</span>
-                  <span className="text-orange-600 text-sm font-black">Q{totalSellerPending.toFixed(2)}</span>
+                  <span className="text-orange-600 text-sm font-black">{formatMoney(totalSellerPending)}</span>
                 </div>
               </motion.div>
             );
@@ -479,7 +479,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div className="self-start sm:self-center shrink-0">
                   <span className="inline-block text-xs font-extrabold text-orange-650 bg-orange-50 px-3 py-1.5 rounded-full border border-orange-100/80 shadow-xs whitespace-nowrap">
-                    Q{invs.reduce((sum, inv) => inv.status !== 'cancelled' ? sum + (inv.totalAmount - inv.paidAmount) : sum, 0).toFixed(2)} Cartera Pendiente
+                    {formatMoney(invs.reduce((sum, inv) => inv.status !== 'cancelled' ? sum + (inv.totalAmount - inv.paidAmount) : sum, 0))} Cartera Pendiente
                   </span>
                 </div>
               </div>
@@ -589,14 +589,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div className="text-left md:text-right">
                       <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Monto</p>
                       <p className={cn("text-sm font-bold text-slate-700 font-mono", isCancelled && "line-through text-slate-400")}>
-                        Q{inv.totalAmount.toFixed(2)}
+                        {formatMoney(inv.totalAmount)}
                       </p>
                     </div>
                     
                     <div className="text-left md:text-right">
                       <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Abonado</p>
                       <p className="text-sm font-bold text-teal-600 font-mono">
-                        Q{(inv.paidAmount || 0).toFixed(2)}
+                        {formatMoney(inv.paidAmount || 0)}
                       </p>
                     </div>
 
@@ -606,7 +606,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                         "text-sm font-black font-mono",
                         pending > 0 && !isCancelled && !isRejected ? "text-orange-600" : "text-slate-500"
                       )}>
-                        Q{isCancelled || isRejected ? "0.00" : pending.toFixed(2)}
+                        {isCancelled || isRejected ? "Q0.00" : formatMoney(pending)}
                       </p>
                     </div>
 
@@ -760,7 +760,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             </div>
             <div className="text-right">
               <p className="text-xs text-neutral-500">Total Factura</p>
-              <p className={`text-sm font-bold ${isCancelled && 'line-through'}`}>Q{invoice.totalAmount.toFixed(2)}</p>
+              <p className={`text-sm font-bold ${isCancelled && 'line-through'}`}>{formatMoney(invoice.totalAmount)}</p>
             </div>
             <div className="text-right w-28 flex flex-col items-end gap-1">
               <p className="text-xs text-neutral-500">Estado</p>
@@ -928,17 +928,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       ) : null}
                       {((item.originalPrice && item.price < item.originalPrice && !(item as any).isOfferApplied) || (item as any).isPriceAlert) ? (
                          <span className="block text-[10px] text-red-600 mt-0.5 font-bold uppercase">
-                            ⚠️ Alerta de Precio Bajo: {(item as any).isOfferApplied ? 'Unidad en oferta debajo de costo base' : `Q${item.price.toFixed(2)} (Base: Q${item.originalPrice.toFixed(2)})`}
+                            ⚠️ Alerta de Precio Bajo: {(item as any).isOfferApplied ? 'Unidad en oferta debajo de costo base' : `${item.price.toFixed(4)} (Base: ${item.originalPrice.toFixed(4)})`}
                          </span>
                       ) : null}
-                      {(item as any).suggestedPrice ? <span className="block text-[10px] text-orange-500 mt-0.5">Precio Sugerido: Q{(item as any).suggestedPrice.toFixed(2)}</span> : null}
+                      {(item as any).suggestedPrice ? <span className="block text-[10px] text-orange-500 mt-0.5">Precio Sugerido: {formatMoney((item as any).suggestedPrice)}</span> : null}
                       {(item as any).isOfferApplied ? <span className="block text-[10px] text-green-600 mt-0.5 font-bold">Oferta Aplicada</span> : null}
                     </span>
                     <div className="flex flex-col items-end gap-1">
-                      <span className={`font-medium ${isCancelled ? 'text-neutral-400 line-through' : 'text-neutral-800'}`}>Q{item.total.toFixed(2)}</span>
+                      <span className={`font-medium ${isCancelled ? 'text-neutral-400 line-through' : 'text-neutral-800'}`}>{formatMoney(item.total)}</span>
                       {!isCancelled && invoice.status === 'pending' && user.role === 'admin' && (
                         <button 
-                          onClick={() => handleUpdateItemPrice(invoice.id, idx, item.quantity, (item.total / item.quantity).toFixed(2))}
+                          onClick={() => handleUpdateItemPrice(invoice.id, idx, item.quantity, (item.total / item.quantity).toFixed(4))}
                           className="text-[10px] text-blue-500 hover:text-blue-700 underline font-medium"
                         >
                            Modificar P.U.
@@ -1096,7 +1096,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           value={paymentAmount}
                           onChange={e => setPaymentAmount(e.target.value)}
                           className="w-full px-3 py-2 border border-neutral-300 rounded-lg outline-none focus:border-green-500"
-                          placeholder={`Max: Q${pending.toFixed(2)}`}
+                          placeholder={`Max: ${pending.toFixed(4)}`}
                         />
                       </div>
                       <div>
@@ -1158,7 +1158,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
                           </td>
                           <td className="px-4 py-3 font-bold text-emerald-600 text-base">
-                            Q{payment.amount.toFixed(2)}
+                            {formatMoney(payment.amount)}
                           </td>
                           <td className="px-4 py-3 flex gap-2">
                             {payment.receiptUrl ? (
@@ -1238,7 +1238,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa
             </span>
-            <span className="text-lg font-black text-[#0c5c35] leading-tight">Q{(dailyStats?.totalSales || 0).toFixed(2)}</span>
+            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalSales || 0))}</span>
           </motion.div>
           
           <motion.div 
@@ -1249,7 +1249,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <span className="text-[9px] font-black text-teal-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <Receipt size={11} className="text-teal-600" /> Total Cobrado
             </span>
-            <span className="text-lg font-black text-teal-700 leading-tight">Q{(dailyStats?.totalPayments || 0).toFixed(2)}</span>
+            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.totalPayments || 0))}</span>
           </motion.div>
 
           <motion.div 
@@ -1259,7 +1259,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <Clock size={11} className="text-amber-550" /> Cartera Pendiente
             </span>
-            <span className="text-lg font-black text-amber-700 leading-tight">Q{totalPending.toFixed(2)}</span>
+            <span className="text-lg font-black text-amber-700 leading-tight">{formatMoney(totalPending)}</span>
           </motion.div>
         </div>
       </div>
@@ -1432,13 +1432,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div className="flex items-center gap-4 flex-wrap">
                   <div>
-                    Venta: <span className="text-slate-800 font-extrabold font-mono">Q{filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + i.totalAmount : sum, 0).toFixed(2)}</span>
+                    Venta: <span className="text-slate-800 font-extrabold font-mono">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + i.totalAmount : sum, 0))}</span>
                   </div>
                   <div>
-                    Cobrado: <span className="text-[#0c5c35] font-extrabold font-mono">Q{filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.paidAmount || 0) : sum, 0).toFixed(2)}</span>
+                    Cobrado: <span className="text-[#0c5c35] font-extrabold font-mono">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.paidAmount || 0) : sum, 0))}</span>
                   </div>
                   <div>
-                    Cartera Pendiente: <span className="text-orange-650 font-black font-mono animate-pulse">Q{filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.totalAmount - (i.paidAmount || 0)) : sum, 0).toFixed(2)}</span>
+                    Cartera Pendiente: <span className="text-orange-650 font-black font-mono animate-pulse">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.totalAmount - (i.paidAmount || 0)) : sum, 0))}</span>
                   </div>
                 </div>
               </motion.div>
@@ -1593,7 +1593,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                    .map(([sellerEmail, amt]: [string, any]) => (
                       <div key={sellerEmail} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <span className="font-bold text-slate-700">{getSellerName(sellerEmail)}</span>
-                        <span className="font-black text-teal-600 text-xl">Q{amt.toFixed(2)}</span>
+                        <span className="font-black text-teal-600 text-xl">{formatMoney(amt)}</span>
                       </div>
                    ))
                ) : (
@@ -1621,7 +1621,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                    .map(([sellerEmail, amt]: [string, any]) => (
                       <div key={sellerEmail} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <span className="font-bold text-slate-700">{getSellerName(sellerEmail)}</span>
-                        <span className="font-black text-blue-600 text-xl">Q{amt.toFixed(2)}</span>
+                        <span className="font-black text-blue-600 text-xl">{formatMoney(amt)}</span>
                       </div>
                    ))
                ) : (
@@ -1880,7 +1880,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             )}
                             {isPriceAlert && (
                                <span className="block text-[10px] text-rose-600 font-bold uppercase tracking-tight">
-                                  ⚠️ Precio bajo costo base: Q{item.price.toFixed(2)} (Base: Q{item.originalPrice?.toFixed(2)})
+                                  ⚠️ Precio bajo costo base: {formatMoney(item.price)} (Base: {formatMoney(item.originalPrice)})
                                 </span>
                             )}
                             
@@ -1952,12 +1952,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
                           </div>
                           <div className="text-right flex flex-col items-end gap-1">
-                            <span className="font-extrabold text-slate-700 text-sm">Q{item.total.toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400">P.U: Q{(item.total / item.quantity).toFixed(2)}</span>
+                            <span className="font-extrabold text-slate-700 text-sm">{formatMoney(item.total)}</span>
+                            <span className="text-[10px] text-slate-400">P.U: {formatMoney((item.total / item.quantity))}</span>
                             {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && (
                               <button 
                                 onClick={async () => {
-                                  const currentPriceStr = (item.total / item.quantity).toFixed(2);
+                                  const currentPriceStr = (item.total / item.quantity).toFixed(4);
                                   const newPrice = parseFloat(prompt('Nuevo precio unitario (Q):', currentPriceStr) || '');
                                   if (isNaN(newPrice) || newPrice < 0) return;
                                   try {
@@ -2004,15 +2004,15 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   <div className="border-t border-slate-800 pt-4 grid grid-cols-3 gap-2">
                     <div>
                       <span className="text-slate-400 text-[10px] block font-bold">Total Factura</span>
-                      <p className="text-sm sm:text-base font-black tracking-tight text-slate-300">Q{selectedInvoiceForModal.totalAmount.toFixed(2)}</p>
+                      <p className="text-sm sm:text-base font-black tracking-tight text-slate-300">{formatMoney(selectedInvoiceForModal.totalAmount)}</p>
                     </div>
                     <div className="text-right">
                       <span className="text-teal-400 text-[10px] block font-bold">Abonado</span>
-                      <p className="text-sm sm:text-base font-black tracking-tight text-teal-400">Q{(selectedInvoiceForModal.paidAmount || 0).toFixed(2)}</p>
+                      <p className="text-sm sm:text-base font-black tracking-tight text-teal-400">{formatMoney((selectedInvoiceForModal.paidAmount || 0))}</p>
                     </div>
                     <div className="text-right">
                       <span className="text-rose-400 text-[10px] block font-bold">Saldo Pendiente</span>
-                      <p className="text-base sm:text-lg font-black tracking-tight text-rose-500">Q{(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}</p>
+                      <p className="text-base sm:text-lg font-black tracking-tight text-rose-500">{formatMoney((selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)))}</p>
                     </div>
                   </div>
                 </div>
@@ -2032,7 +2032,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-emerald-600 text-sm">Q{payment.amount.toFixed(2)}</span>
+                            <span className="font-black text-emerald-600 text-sm">{formatMoney(payment.amount)}</span>
                             {payment.receiptUrl ? (
                               <a href={payment.receiptUrl} target="_blank" rel="noopener noreferrer" className="p-1 px-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[10px] font-bold transition-all border border-blue-100">
                                 Ver Recibo
@@ -2103,7 +2103,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {
-                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: Q${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}.`;
+                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: ${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(4)}.`;
                       const targetPhone = selectedInvoiceForModal.phone;
                       let cleanPhone = String(targetPhone).replace(/\D/g, "");
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;

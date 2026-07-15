@@ -336,8 +336,8 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
           <tr style="border-bottom: 1px solid #f1f5f9; page-break-inside: avoid;">
             <td style="padding: 10px 8px; color: #0f172a; font-size: 9pt; font-weight: 900; text-align: left;">${item.productName || 'Producto'}</td>
             <td style="padding: 10px 8px; color: #1e293b; font-size: 9pt; font-weight: 900; text-align: center;">${qty}</td>
-            <td style="padding: 10px 8px; color: #64748b; font-size: 8.5pt; text-align: right;">Q ${price.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-            <td style="padding: 10px 8px; color: #1A4D2E; font-size: 9.5pt; text-align: right; font-weight: 900;">Q ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+            <td style="padding: 10px 8px; color: #64748b; font-size: 8.5pt; text-align: right;">Q ${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
+            <td style="padding: 10px 8px; color: #1A4D2E; font-size: 9.5pt; text-align: right; font-weight: 900;">Q ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
           </tr>
         `;
     }).join('');
@@ -404,7 +404,7 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
         <table style="width: 320px; border-collapse: collapse;">
           <tr>
             <td style="padding: 6px 12px; color: #64748b; text-align: left; font-size: 10pt; font-weight: 900;">VALOR BRUTO</td>
-            <td style="padding: 6px 12px; font-weight: 900; color: #0f172a; text-align: right; font-size: 10pt;">Q ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+            <td style="padding: 6px 12px; font-weight: 900; color: #0f172a; text-align: right; font-size: 10pt;">Q ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
           </tr>
           <tr>
             <td style="padding: 6px 12px; color: #059669; text-align: left; font-size: 9pt; font-weight: 900;">ABONOS/PAGOS</td>
@@ -414,7 +414,7 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
             <td colspan="2" style="padding-top: 15px;">
               <div style="background-color: #1A4D2E; border-radius: 16px; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 8px 16px -4px rgba(26, 77, 46, 0.3);">
                 <span style="font-weight: 900; font-size: 10pt; color: #ffffff; text-transform: uppercase; letter-spacing: 2px;">TOTAL NETO</span>
-                <span style="font-weight: 900; font-size: 20pt; color: #ffffff;">Q ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span style="font-weight: 900; font-size: 20pt; color: #ffffff;">Q ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
               </div>
             </td>
           </tr>

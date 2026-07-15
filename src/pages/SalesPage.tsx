@@ -4,7 +4,7 @@ import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
 import { motion } from 'motion/react';
 
 interface SalesPageProps {
@@ -573,16 +573,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       const quantity = item.quantity || 0;
       const price = item.price || 0;
       const itemTotal = quantity * price;
-      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a Q${price.toFixed(2)} = *Q${itemTotal.toFixed(2)}*\n`;
+      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = *${formatMoney(itemTotal)}*\n`;
     });
     
     msg += `---------------------------------------\n`;
     const total = invoice.totalAmount ?? invoice.total ?? 0;
-    msg += `*TOTAL COMPRA:* *Q${total.toFixed(2)}*\n`;
+    msg += `*TOTAL COMPRA:* *${formatMoney(total)}*\n`;
     if (invoice.isOwed !== false) {
       const paid = invoice.paidAmount || 0;
-      msg += `*Monto Pagado:* Q${paid.toFixed(2)}\n`;
-      msg += `*Saldo Pendiente:* *Q${(total - paid).toFixed(2)}*\n`;
+      msg += `*Monto Pagado:* ${formatMoney(paid)}\n`;
+      msg += `*Saldo Pendiente:* *${formatMoney(total - paid)}*\n`;
     }
     msg += `---------------------------------------\n`;
     msg += `¡Muchas gracias por su preferencia! 🐾🌾\n`;
@@ -1142,7 +1142,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       
                       <div className="flex items-center justify-between pt-1 border-t border-slate-50">
                         <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">SKU: <span className="notranslate" translate="no">{(product.id || '').split('-')[0]}</span></span>
-                        <p className="font-black text-[#0b4d2c] text-sm sm:text-[15px] bg-emerald-50/50 px-2.5 py-0.5 rounded-lg border border-emerald-100/50"><span className="notranslate" translate="no">Q{(product.price).toFixed(2)}</span></p>
+                        <p className="font-black text-[#0b4d2c] text-sm sm:text-[15px] bg-emerald-50/50 px-2.5 py-0.5 rounded-lg border border-emerald-100/50"><span className="notranslate" translate="no">{formatMoney(product.price)}</span></p>
                       </div>
                     </div>
 
@@ -1171,7 +1171,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                 <p className="text-[9px] uppercase font-black text-emerald-300 tracking-widest leading-none">
                   <span className="notranslate" translate="no">{cart.length}</span> {cart.length === 1 ? 'PRODUCTO' : 'PRODUCTOS'}
                 </p>
-                <p className="text-lg font-black leading-none mt-1"><span className="notranslate" translate="no">Q{cartTotal.toFixed(2)}</span></p>
+                <p className="text-lg font-black leading-none mt-1"><span className="notranslate" translate="no">{formatMoney(cartTotal)}</span></p>
               </div>
             </div>
             <button 
@@ -1536,9 +1536,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                             </div>
                           ) : (
                             <div className="space-y-0.5">
-                              <p className="text-[11px] font-black text-[#0b4d2c]"><span className="notranslate" translate="no">Q{itemPrice.toFixed(2)}</span> <span className="text-[9px] text-slate-400 font-bold">c/u</span></p>
+                              <p className="text-[11px] font-black text-[#0b4d2c]"><span className="notranslate" translate="no">{formatMoney(itemPrice)}</span> <span className="text-[9px] text-slate-400 font-bold">c/u</span></p>
                               {isDiscounted && (
-                                <p className="text-[8px] text-amber-600 font-black uppercase tracking-wide">Descuento aplicado base: Q{item.product.price.toFixed(2)}</p>
+                                <p className="text-[8px] text-amber-600 font-black uppercase tracking-wide">Descuento aplicado base: {formatMoney(item.product.price)}</p>
                               )}
                             </div>
                           )}
@@ -1553,7 +1553,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                           {isDiscounted && (
                             <div className="text-[8px] text-red-650 font-black uppercase tracking-wider mt-1.5 max-w-[200px] leading-tight">
-                              ⚠️ ALERTA: ABAJO DEL MÍNIMO (Q{item.product.price.toFixed(0)})
+                              ⚠️ ALERTA: ABAJO DEL MÍNIMO ({formatMoney(item.product.price.toFixed(0))})
                             </div>
                           )}
                         </div>
@@ -1629,7 +1629,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           <div className="flex justify-between items-center mb-5">
              <span className="font-extrabold text-slate-500 text-sm uppercase tracking-widest">Total del Pedido</span>
              <span className="font-black text-[#0b4d2c] text-2xl sm:text-3xl bg-white border border-emerald-950/5 px-4.5 py-1.5 rounded-2xl shadow-sm">
-                <span className="notranslate" translate="no">Q{cartTotal.toFixed(2)}</span>
+                <span className="notranslate" translate="no">{formatMoney(cartTotal)}</span>
              </span>
           </div>
 
@@ -1688,7 +1688,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     })()}
                   </span>
                   <span className="text-[10px] bg-slate-50 text-slate-600 font-extrabold px-2.5 py-0.5 rounded-md border border-slate-100">
-                    Precio Base: Q{selectedProduct.price.toFixed(2)}
+                    Precio Base: {formatMoney(selectedProduct.price)}
                   </span>
                 </div>
               </div>
@@ -1749,7 +1749,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                             ) : variantsInColor.length === 1 && (
                               <span className="opacity-80 border-l border-current pl-1.5 ml-1.5 flex items-center">
                                 {variantsInColor[0].stock !== undefined ? <span className="mr-1.5 text-[10px] uppercase font-bold normal-case">{variantsInColor[0].stock} disp.</span> : null}
-                                Q{variantsInColor[0].price.toFixed(0)}
+                                {formatMoney(variantsInColor[0].price.toFixed(0))}
                               </span>
                             )}
                           </button>
@@ -1799,7 +1799,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                               ) : (
                                 <span className="opacity-80 border-l border-current pl-1.5">
                                   {v.stock !== undefined ? <span className="mr-1.5 text-[10px] uppercase font-bold">{v.stock} disp.</span> : null}
-                                  Q{v.price.toFixed(0)}
+                                  {formatMoney(v.price.toFixed(0))}
                                 </span>
                               )}
                             </button>
@@ -1865,7 +1865,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                            }`} 
                         />
                         {parseFloat(modalPrice) < selectedProduct.price && (
-                           <p className="text-[9px] text-red-650 font-black mt-1 uppercase tracking-tight leading-normal">⚠️ BAJO PRECIO BASE (Q{selectedProduct.price})</p>
+                           <p className="text-[9px] text-red-650 font-black mt-1 uppercase tracking-tight leading-normal">⚠️ BAJO PRECIO BASE ({formatMoney(selectedProduct.price)})</p>
                         )}
                      </div>
                   </div>
@@ -1918,7 +1918,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                setCustomOfferBuy(e.target.value);
                                const buyQty = parseInt(e.target.value) || 0;
                                const up = parseFloat(customOfferUnitPrice) || (selectedProduct?.price || 0);
-                               setModalPrice((up * buyQty).toFixed(2));
+                               setModalPrice((up * buyQty).toFixed(4));
                            }} 
                            placeholder="Ej: 12"
                            className="w-full border border-emerald-200/60 rounded-xl px-3 py-2 text-sm font-extrabold outline-none focus:ring-2 focus:ring-[#0b4d2c] focus:border-[#0b4d2c] bg-white transition-all text-[#07361e]" 
@@ -1947,7 +1947,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                            setCustomOfferUnitPrice(e.target.value);
                            const up = parseFloat(e.target.value) || 0;
                            const buyQty = parseInt(customOfferBuy) || 0;
-                           setModalPrice((up * buyQty).toFixed(2));
+                           setModalPrice((up * buyQty).toFixed(4));
                            setIsPriceManuallyEdited(true);
                         }} 
                         className={`w-full border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 bg-white font-extrabold transition-all duration-250 ${
@@ -1958,7 +1958,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                      />
                      {selectedProduct && parseFloat(customOfferUnitPrice || '0') < selectedProduct.price && (
                         <p className="text-[9px] text-red-650 font-black mt-1 uppercase tracking-tight leading-normal">
-                           ⚠️ BAJO PRECIO BASE (Q{selectedProduct.price})
+                           ⚠️ BAJO PRECIO BASE ({formatMoney(selectedProduct.price)})
                         </p>
                      )}
                   </div>
@@ -1976,7 +1976,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                            const buyQty = parseInt(customOfferBuy) || 0;
                            const total = parseFloat(e.target.value) || 0;
                            if (buyQty > 0) {
-                              setCustomOfferUnitPrice((total / buyQty).toFixed(2));
+                              setCustomOfferUnitPrice((total / buyQty).toFixed(4));
                            }
                            setIsPriceManuallyEdited(true);
                         }} 
@@ -2697,7 +2697,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                 <p className="text-[10px] text-slate-500 font-medium">{new Date(inv.date).toLocaleDateString()}</p>
                              </div>
                              <div className="text-right">
-                                <p className="text-sm font-black text-teal-700">Q{(inv.totalAmount - (inv.paidAmount || 0)).toFixed(2)}</p>
+                                <p className="text-sm font-black text-teal-700">{formatMoney(inv.totalAmount - (inv.paidAmount || 0))}</p>
                              </div>
                           </div>
                        ))}
@@ -2716,7 +2716,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                             step="0.01"
                             value={paymentAmount}
                             onChange={e => setPaymentAmount(e.target.value)}
-                            placeholder={`Máximo Q${(selectedInvoiceForPayment.totalAmount - (selectedInvoiceForPayment.paidAmount || 0)).toFixed(2)}`}
+                            placeholder={`Máximo ${formatMoney(selectedInvoiceForPayment.totalAmount - (selectedInvoiceForPayment.paidAmount || 0))}`}
                             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-teal-500 outline-none font-bold text-slate-700"
                           />
                        </div>
@@ -2793,7 +2793,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
               <div className="pt-2 border-t border-neutral-200/60 flex justify-between items-center">
                 <span className="text-xs text-slate-500 font-extrabold uppercase tracking-wider">Total:</span>
-                <span className="text-lg font-black text-slate-800">Q{(lastCreatedInvoice.totalAmount ?? lastCreatedInvoice.total ?? 0).toFixed(2)}</span>
+                <span className="text-lg font-black text-slate-800">{formatMoney(lastCreatedInvoice.totalAmount ?? lastCreatedInvoice.total ?? 0)}</span>
               </div>
             </div>
 

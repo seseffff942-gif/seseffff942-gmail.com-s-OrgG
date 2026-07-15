@@ -8,6 +8,7 @@ import {
   Printer, ImageOff, Download, CheckCircle, Edit
 } from 'lucide-react';
 import { api } from '../api';
+import { formatMoney } from '../utils';
 
 function cn(...classes: any[]) {
   return classes.filter(Boolean).join(' ');
@@ -182,7 +183,7 @@ export function BusinessDebtsPage({ user }: BusinessDebtsPageProps) {
     setInvoiceFormData({
       ...invoiceFormData,
       items: updatedItems,
-      amount: newTotal.toFixed(2)
+      amount: newTotal.toFixed(4)
     });
 
     setNewItemName('');
@@ -196,7 +197,7 @@ export function BusinessDebtsPage({ user }: BusinessDebtsPageProps) {
     setInvoiceFormData({
       ...invoiceFormData,
       items: updatedItems,
-      amount: newTotal.toFixed(2)
+      amount: newTotal.toFixed(4)
     });
   };
 
@@ -233,15 +234,15 @@ Dirección Física: ${supplier?.address || 'No registrada'}
 LISTADO Y COMPILACIÓN DE ARTÍCULOS ADQUIRIDOS:
 ----------------------------------------------------
 ${d.items && d.items.length > 0 
-? d.items.map((it, idx) => `[${idx + 1}] ${it.name.padEnd(25)} | Cant: ${it.quantity.toString().padEnd(3)} | P.Unit: Q${it.price.toFixed(2).padEnd(8)} | Subt: Q${(it.quantity * it.price).toFixed(2)}`).join('\n')
-: `[-] ${d.title.padEnd(25)}  | Cant: 1   | P.Unit: Q${d.amount.toFixed(2).padEnd(8)} | Subt: Q${d.amount.toFixed(2)}`
+? d.items.map((it, idx) => `[${idx + 1}] ${it.name.padEnd(25)} | Cant: ${it.quantity.toString().padEnd(3)} | P.Unit: Q${it.price.toFixed(4).padEnd(8)} | Subt: ${formatMoney((it.quantity * it.price))}`).join('\n')
+: `[-] ${d.title.padEnd(25)}  | Cant: 1   | P.Unit: Q${d.amount.toFixed(4).padEnd(8)} | Subt: ${formatMoney(d.amount)}`
 }
 ----------------------------------------------------
 BALANCES METROLÓGICOS DE FINANZAS:
 ----------------------------------------------------
-SUMA BRUTA / TOTAL FACTURA: Q${d.amount.toFixed(2)}
-MONTO COMPENSADO / ABONOS:  Q${paidAmount.toFixed(2)}
-SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
+SUMA BRUTA / TOTAL FACTURA: ${formatMoney(d.amount)}
+MONTO COMPENSADO / ABONOS:  ${formatMoney(paidAmount)}
+SALDO LIQUIDO / RESTANTE:   ${formatMoney(remainingAmount)}
 ====================================================
 * Estas boletas amparan compras de inventario veterinario y agrario.
 * RESPALDADO Y ENCRIPTADO EN LA RED ADMINISTRATIVA DE FORMA EXCLUSIVA.
@@ -683,7 +684,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl group-hover:bg-orange-500/10 transition-colors" />
             <div className="space-y-1 z-10">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Pendiente General</span>
-              <p className="text-3xl font-black text-slate-800 tracking-tight">Q{totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-3xl font-black text-slate-800 tracking-tight">{formatMoney(totalOutstanding)}</p>
               <p className="text-xs text-slate-500 font-medium">Deudas activas a proveedores</p>
             </div>
             <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl z-10 shadow-inner">
@@ -707,7 +708,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
             <div className="space-y-1 z-10">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pagos Históricos Realizados</span>
-              <p className="text-3xl font-black text-emerald-600 tracking-tight">Q{totalPaidInHistory.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-3xl font-black text-emerald-600 tracking-tight">{formatMoney(totalPaidInHistory)}</p>
               <p className="text-xs text-slate-500 font-medium">Historial solventado</p>
             </div>
             <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl z-10 shadow-inner">
@@ -729,7 +730,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                   <div className="space-y-1">
                     <p className="text-xs font-black text-amber-700 uppercase tracking-tight">{alert.supplierName}</p>
                     <p className="text-sm font-bold text-slate-800">{alert.debt.title}</p>
-                    <p className="text-xs text-slate-500">Monto Restante: Q{(alert.debt.amount - calculatePaidAmount(alert.debt)).toFixed(2)}</p>
+                    <p className="text-xs text-slate-500">Monto Restante: {formatMoney((alert.debt.amount - calculatePaidAmount(alert.debt)))}</p>
                   </div>
                   <div className="text-right">
                     {alert.days < 0 ? (
@@ -889,13 +890,13 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                             "text-2xl font-black tabular-nums tracking-tight",
                             isLate ? "text-rose-600" : "text-slate-800"
                           )}>
-                            Q{remainingAmount.toFixed(2)}
+                            {formatMoney(remainingAmount)}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="text-[10px] uppercase font-bold text-slate-400">Total orig.</p>
                           <p className="text-sm font-bold text-slate-600 tabular-nums">
-                            Q{Number(d.amount).toFixed(2)}
+                            {formatMoney(Number(d.amount))}
                           </p>
                         </div>
                       </div>
@@ -1049,7 +1050,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                         <div className="flex justify-between items-center">
                           <p className="text-[10px] uppercase font-black tracking-widest text-slate-400">Deuda Vigente</p>
                           {providerOutstanding > 0 ? (
-                            <p className="font-black text-red-600 text-lg">Q{providerOutstanding.toFixed(2)}</p>
+                            <p className="font-black text-red-600 text-lg">{formatMoney(providerOutstanding)}</p>
                           ) : (
                             <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-0.5 rounded-full">Al día</span>
                           )}
@@ -1102,7 +1103,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
               </div>
               <div className="bg-white text-emerald-900 rounded-[1.5rem] px-8 py-5 shadow-inner relative z-10 w-full md:w-auto shrink-0 flex flex-col items-center md:items-end">
                 <span className="text-[11px] text-emerald-600/80 uppercase font-black tracking-widest block mb-1">Monto Histórico</span>
-                <span className="font-black text-3xl">Q{totalPaidInHistory.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-black text-3xl">{formatMoney(totalPaidInHistory)}</span>
               </div>
             </div>
 
@@ -1142,7 +1143,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                         <div className="bg-slate-50 p-4 rounded-2xl flex items-center justify-between">
                           <div>
                             <p className="text-[10px] uppercase font-bold text-slate-400">Total Liquidado</p>
-                            <p className="text-xl font-black text-emerald-600">Q{d.amount.toFixed(2)}</p>
+                            <p className="text-xl font-black text-emerald-600">{formatMoney(d.amount)}</p>
                           </div>
                           <div className="text-right">
                             <p className="text-[10px] uppercase font-bold text-slate-400">Cancelada O./A.</p>
@@ -1296,7 +1297,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                       <div key={idx} className="flex justify-between items-center bg-white px-3 py-2 rounded-xl border text-xs text-slate-600">
                         <span className="font-bold truncate max-w-[150px]">{item.name}</span>
                         <span className="font-mono text-[11px] text-slate-500">
-                          {item.quantity} x Q{item.price.toFixed(2)} = Q{(item.quantity * item.price).toFixed(2)}
+                          {item.quantity} x {formatMoney(item.price)} = {formatMoney((item.quantity * item.price))}
                         </span>
                         <button 
                           type="button" 
@@ -1470,11 +1471,11 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
               <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex justify-between items-center text-xs">
                 <div>
                   <span className="text-slate-400 block font-medium">Deuda Total:</span>
-                  <span className="font-extrabold text-[#116858] text-sm">Q{selectedDebtForReceipts.amount.toFixed(2)}</span>
+                  <span className="font-extrabold text-[#116858] text-sm">{formatMoney(selectedDebtForReceipts.amount)}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-slate-400 block font-medium">Restante actual:</span>
-                  <span className="font-black text-rose-600 text-sm">Q{(selectedDebtForReceipts.amount - calculatePaidAmount(selectedDebtForReceipts)).toFixed(2)}</span>
+                  <span className="font-black text-rose-600 text-sm">{formatMoney((selectedDebtForReceipts.amount - calculatePaidAmount(selectedDebtForReceipts)))}</span>
                 </div>
               </div>
 
@@ -1639,7 +1640,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                         ocrExtractedData.items.map((item: any, id: number) => (
                           <div key={id} className="pt-1.5 flex justify-between items-center text-slate-600 font-medium">
                             <span className="truncate max-w-[200px]">{item.name}</span>
-                            <span className="font-mono text-slate-500">x{item.quantity} (Q{(item.price || 0).toFixed(2)})</span>
+                            <span className="font-mono text-slate-500">x{item.quantity} ({formatMoney((item.price || 0))})</span>
                           </div>
                         ))
                       ) : (
@@ -1776,15 +1777,15 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div className="p-3 bg-slate-50 border rounded-2xl">
                   <span className="text-[10px] text-slate-400 uppercase font-bold block">Valor Total</span>
-                  <span className="font-extrabold text-slate-800 text-sm">Q{selectedDebtForReceipts.amount.toFixed(2)}</span>
+                  <span className="font-extrabold text-slate-800 text-sm">{formatMoney(selectedDebtForReceipts.amount)}</span>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-2xl">
                   <span className="text-[10px] text-emerald-600 uppercase font-bold block">Abonado</span>
-                  <span className="font-black text-emerald-700 text-sm">Q{calculatePaidAmount(selectedDebtForReceipts).toFixed(2)}</span>
+                  <span className="font-black text-emerald-700 text-sm">{formatMoney(calculatePaidAmount(selectedDebtForReceipts))}</span>
                 </div>
                 <div className="p-3 bg-rose-50 border border-rose-100 rounded-2xl">
                   <span className="text-[10px] text-rose-500 uppercase font-bold block">Saldo Pendiente</span>
-                  <span className="font-black text-rose-600 text-sm">Q{(selectedDebtForReceipts.amount - calculatePaidAmount(selectedDebtForReceipts)).toFixed(2)}</span>
+                  <span className="font-black text-rose-600 text-sm">{formatMoney((selectedDebtForReceipts.amount - calculatePaidAmount(selectedDebtForReceipts)))}</span>
                 </div>
               </div>
 
@@ -1812,7 +1813,7 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                             </div>
                           )}
                           <div>
-                            <p className="text-xs font-black text-slate-700">Abono: Q{rec.amount.toFixed(2)}</p>
+                            <p className="text-xs font-black text-slate-700">Abono: {formatMoney(rec.amount)}</p>
                             <p className="text-[10px] text-slate-400 font-medium">Fecha: {rec.date} {rec.reference && `| REF: ${rec.reference}`}</p>
                             {rec.notes && <p className="text-[10px] italic text-slate-400 mt-0.5">Note: {rec.notes}</p>}
                           </div>
@@ -1973,16 +1974,16 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                               <tr key={idx} className="hover:bg-slate-50/50">
                                 <td className="p-2 font-semibold truncate max-w-[120px]">{it.name}</td>
                                 <td className="p-2 text-center font-mono">{it.quantity}</td>
-                                <td className="p-2 text-right font-mono">Q{Number(it.price).toFixed(2)}</td>
-                                <td className="p-2 text-right font-mono text-slate-800 font-bold">Q{(it.quantity * it.price).toFixed(2)}</td>
+                                <td className="p-2 text-right font-mono">{formatMoney(Number(it.price))}</td>
+                                <td className="p-2 text-right font-mono text-slate-800 font-bold">{formatMoney((it.quantity * it.price))}</td>
                               </tr>
                             ))
                           ) : (
                             <tr>
                               <td className="p-2 font-semibold">{selectedDebtForDetails.title}</td>
                               <td className="p-2 text-center font-mono">1</td>
-                              <td className="p-2 text-right font-mono">Q{selectedDebtForDetails.amount.toFixed(2)}</td>
-                              <td className="p-2 text-right font-mono text-slate-800 font-bold">Q{selectedDebtForDetails.amount.toFixed(2)}</td>
+                              <td className="p-2 text-right font-mono">{formatMoney(selectedDebtForDetails.amount)}</td>
+                              <td className="p-2 text-right font-mono text-slate-800 font-bold">{formatMoney(selectedDebtForDetails.amount)}</td>
                             </tr>
                           )}
                         </tbody>
@@ -1994,15 +1995,15 @@ SALDO LIQUIDO / RESTANTE:   Q${remainingAmount.toFixed(2)}
                   <div className="pt-2 border-t border-slate-200 space-y-1.5 text-xs">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Total Facturado:</span>
-                      <span className="font-bold text-slate-700 font-mono">Q{selectedDebtForDetails.amount.toFixed(2)}</span>
+                      <span className="font-bold text-slate-700 font-mono">{formatMoney(selectedDebtForDetails.amount)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-400">Monto Abonado:</span>
-                      <span className="font-bold text-emerald-600 font-mono">Q{calculatePaidAmount(selectedDebtForDetails).toFixed(2)}</span>
+                      <span className="font-bold text-emerald-600 font-mono">{formatMoney(calculatePaidAmount(selectedDebtForDetails))}</span>
                     </div>
                     <div className="flex justify-between pt-1 border-t border-dashed text-sm">
                       <span className="font-extrabold text-slate-800">Saldo Pendiente:</span>
-                      <span className="font-black text-rose-600 font-mono">Q{(selectedDebtForDetails.amount - calculatePaidAmount(selectedDebtForDetails)).toFixed(2)}</span>
+                      <span className="font-black text-rose-600 font-mono">{formatMoney((selectedDebtForDetails.amount - calculatePaidAmount(selectedDebtForDetails)))}</span>
                     </div>
                   </div>
 

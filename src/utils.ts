@@ -471,11 +471,21 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
 </body>
 </html>`;
 
+export const formatMoney = (num: number | undefined | string) => {
+  if (num === undefined || num === null) return 'Q0.00';
+  const n = typeof num === 'string' ? parseFloat(num) : num;
+  if (isNaN(n)) return 'Q0.00';
+  return 'Q' + n.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
+  });
+};
+
 export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string): string {
   try {
     const formatGT = (num: number) => {
       const n = Number(num);
-      return isNaN(n) ? '0' : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      return isNaN(n) ? '0' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
     };
     const isCredit = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
     const phoneVal = invoice.phone || invoice.customerPhone || 'N/A';
