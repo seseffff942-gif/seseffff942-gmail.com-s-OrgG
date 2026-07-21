@@ -190,7 +190,7 @@ const initialDb = {
     { id: "p133", name: "FOLIAR PLUS", category: "Foragro", stock: 100, price: 50.00 },
     { id: "p134", name: "PIKUDO 20 SC", category: "Foragro", stock: 100, price: 50.00 },
     { id: "p135", name: "forza 60 WP", category: "Foragro", stock: 100, price: 50.00 },
-    { id: "p136", name: "foranex 25.7", category: "Foragro", stock: 100, price: 50.00 },
+    { id: "p139", name: "foranex 25.7", category: "Foragro", stock: 100, price: 50.00 },
   ],
   offers: []
 };
