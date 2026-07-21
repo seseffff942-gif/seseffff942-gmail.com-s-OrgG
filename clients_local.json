@@ -17,6 +17,26 @@
     "nit": "96920998",
     "phone": "48640192",
     "address": "Ciudad",
-    "createdAt": "2026-07-21T17:14:53.947Z"
+    "createdAt": "2026-07-21T17:26:19.677Z"
+  },
+  {
+    "id": "CLI-1784654364350",
+    "sellerId": "seseffff942@gmail.com",
+    "name": "ALFONSO ALVARADO",
+    "companyName": "ALFONSO ALVARADO",
+    "nit": "528368-K",
+    "phone": "",
+    "address": "Ciudad",
+    "createdAt": "2026-07-21T17:19:24.350Z"
+  },
+  {
+    "id": "CLI-1784655443590",
+    "sellerId": "u1b",
+    "name": "Agroservicios El Quetzal",
+    "companyName": "",
+    "nit": "1234567-8",
+    "phone": "50255512345",
+    "address": "Km 25 Ruta al Atlantico",
+    "createdAt": "2026-07-21T17:37:23.590Z"
   }
 ]

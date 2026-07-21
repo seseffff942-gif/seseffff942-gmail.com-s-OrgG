@@ -208,6 +208,30 @@ cuando sí trae valor.
 > propias más adelante.
 
 
+### El NIT nunca se guardaba en su columna — *(bug)*
+
+La tabla `invoices` **sí tiene** la columna `nit`, pero ninguna de las tres
+rutas de inserción la incluía:
+
+| Intento | Columnas que enviaba | ¿`nit`? |
+|---|---|---|
+| Primario | `clientName`, `customerPhone`, `deliveryAddress`… | No |
+| Respaldo 1 | cambia a `client`, `phone`, `address` | No |
+| Respaldo 2 | mínimo | No |
+
+Por eso `phone` y `address` sí se guardaban y el NIT no: no era un problema de
+esquema, era una omisión. El NIT solo sobrevivía incrustado dentro de `notes`.
+
+**Solución:** se agregó `nit` al objeto que se inserta. Se mantiene además el
+prefijo dentro de `notes` por compatibilidad con las facturas históricas y con
+las plantillas de impresión que lo leen de ahí. El respaldo mínimo descarta la
+columna igual que las demás, por si alguna base no la tuviera.
+
+Verificado creando una venta por el endpoint real: el NIT queda en su columna,
+la lectura por la API lo devuelve correctamente y las observaciones no se
+pierden.
+
+
 ---
 
 ## Factura Electrónica (FEL)

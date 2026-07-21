@@ -2533,6 +2533,10 @@ if (!process.env.VERCEL) {
     invoiceDataRaw['clientName'] = client;
     invoiceDataRaw['customerPhone'] = phone || "";
     invoiceDataRaw['deliveryAddress'] = address || "";
+    // El NIT tambien se guarda en su propia columna, no solo dentro de `notes`.
+    // Se mantiene el prefijo en `notes` por compatibilidad con las facturas
+    // historicas y con las plantillas de impresion que lo leen de ahi.
+    invoiceDataRaw['nit'] = nit || "";
     
     let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
     
@@ -2553,6 +2557,9 @@ if (!process.env.VERCEL) {
           const bareInvoice = { ...fallbackInvoice1 };
           delete bareInvoice['phone'];
           delete bareInvoice['address'];
+          // Si la base no tuviera la columna `nit`, se descarta igual que las
+          // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
+          delete bareInvoice['nit'];
           const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
           if(retryError2) throw new Error(retryError2.message);
       }

@@ -59,5 +59,64 @@
     "clientName": "JOSUE DANIEL ALVARADO ALFARO - JOSUE DANIEL ALVARADO ALFARO",
     "customerPhone": "48640192",
     "deliveryAddress": "Ciudad"
+  },
+  {
+    "id": "INV-1784654400241-2988",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "528368-K|||TYPE:agricola|||CREDIT:60|||SELLER_SIG:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFoAAABMCAYAAADtJ6CEAAAFDklEQVR4Aezci7HjRBCFYS0RkAGEQAZAJhAJEAEhUIRABEAmm8muPtvt6jsePfyULM2Wj2em59Xzu9WWdav2m679ewmBBvolmLuugW6gX0TgRdu0iL4P9O/99H97fTnpp76svhroKpZRI5gAg/tbP1K7Lw6vPw/vlbcGugLlZAIwJGoJXCXAp2Hdf13Xfe6O/37oC3P64uOrgT7yAAdAApPUQ/rpOLrrwP2j67qfT/q7L+OVP4Sw7fauAzSXP5ABlY3OcE4VUCmDBdh8dsPUlWQNUj9rTxHt8ICAA7DIYwsY7ARi6FPfGfWYa0xvvngN2Q8Dtw4aSFAjasH98XDy4+UPDpAZKFvoNHRW8X8aZd/U7JZNHR88eVzDITNc7VgdQGCz2KL/aeWWIhpQgEk9oAEJ7KfeoNSmvvm0V1w15w22ABpUcEnd4YAENcNlX0zvDhpcKgGDDPZSYHO+PvjwjqBBBdEXnLqDaINL6myr0juBBlX0UuRAUMEl9SXhhk9VH94BdAas7iCgrib/cmhKawYNqugldWcBWPSS9lrFzw++rRE0qOCSOoc5Di6ps61N4WvVr7WBBpfCaVDBJfXqIVZovPB1LaA9R8h3EdjFQ5wLp3W+m5YGLXJFsGcQwQ5YEQx+2B5fPnZF5xhdcUnQQIIcTgZgkNVHHV9xZ9X3pUADnKP43dNEFW4OhleDFr0gK8MPESy6o/2OZT5P1f9XggYzQxbFfnRMRkPV8zczvgK0TxvMnCq2EMX5o3bGaF88UNLxbNARxfEcAHCQlfbfjZ4F2icsTeQo9pfiXUIWTc8AHVEMtj1IPv5FZaOKK3bweI8GDXKOYhuLYnb13eqRoMtUIQ+DrNw64Hz1Vs/6KNAg582kir1ALsFWA+sj6HLKvLa0kCHbiG3e7O2Ncv6LU90LGtCckyOSLzbau+Ee0DXIbHtjWl7N1fPfChrQHMkuF7bqJhs3ZtDVX4XOfwtoC5eQffFZr2mAwLWgQXaHkZeTl3N7z3VXdvX814CuQRbJg4tXd9y2cZDFXNDybxnJDfIxaOLn9yBkw+aABjnnZPOki9GFDdqJXOmTR50CbZEaZPAnF9/ZgME7DhymQJfpwpwGGYUrNQa6BtSfnq7cYu7wtx9X43U+1BjoWso4T2yV6wgMgS4/HV9+pe26nbY52nfYrJMNgS6jedZiOx40eQc2BLpk1qK5JHJsR0T/c2wOv9dAl1CljeEVWg8C33obUw3098WEsl1077o561chQjXQ3+lIKtupa/dVqUN+plEYNdBlqrBYmU5GF91ZJz6TR66B9ulQnuwuZNaCedLG6xF8ZWBWj10DbWBtMtj6mo4EIj9HebQOvA+BFtEeg+ZpIpqybSv1W84RD5GiHF1jCLRJYJeR/ZeOpgMBqUMwKg+Gsbcx0OZZJP6/IG23emuMaj4Rf7PY+P0sCcZZa0+Btsiv3pLWlqs9yg3xLSvsyf1lqnNA+9RyChEltIzHl7vKkdm/yxErsMwBzU2XozIkaqK+dMk38qyc5M2sVXwIc0GDyXkliWhSX5tcgaUW9/Ea0OF8OL2mqA6fVlteA9oh8mUooom9aYLAtaBbVE8AHeq+FrR13iVX83U1ugU053MKabkakQmNgR6b6nYq+uVpinYrKwRuBW2pnEJaVCMyontAl1+MI9u0rntAoyeqKeds9qaCwL2gLdciG4UJPQL0xBatG4EGGoUXqIF+AWRbfAUAAP//rO6+xwAAAAZJREFUAwAxRdqZeqC99AAAAABJRU5ErkJggg==",
+    "items": [
+      {
+        "productId": "p16",
+        "productName": "Semental 16,5 SL litro",
+        "quantity": 2,
+        "price": 68.6,
+        "isOfferApplied": false,
+        "isPriceAlert": false,
+        "requiresAuth": false,
+        "total": 137.2,
+        "originalPrice": 50
+      },
+      {
+        "productId": "p91",
+        "productName": "Iverplus La 500ml 1%",
+        "quantity": 1,
+        "price": 50,
+        "isOfferApplied": false,
+        "isPriceAlert": false,
+        "requiresAuth": false,
+        "total": 50,
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 187.2,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-21T00:00:00.000Z",
+    "clientName": "ALFONSO ALVARADO - ALFONSO ALVARADO",
+    "customerPhone": "",
+    "deliveryAddress": "Ciudad"
+  },
+  {
+    "id": "INV-1784655443926-841",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "1234567-8|||OBS:entregar manana|||TYPE:veterinaria|||CREDIT:30",
+    "items": [
+      {
+        "productId": "p1",
+        "quantity": 3,
+        "price": 50.5,
+        "total": 151.5,
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 151.5,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-21T17:37:23.926Z",
+    "clientName": "Agroservicios El Quetzal",
+    "customerPhone": "50255512345",
+    "deliveryAddress": "Km 25 Ruta al Atlantico",
+    "nit": "1234567-8"
   }
 ]
