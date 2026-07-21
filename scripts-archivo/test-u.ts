@@ -3,8 +3,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co',
-  process.env.SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno'
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
 );
 
 async function run() {

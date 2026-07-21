@@ -1,4 +1,5 @@
 // AI Studio Deployment Heartbeat: 2026-06-18 V2
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import multer from "multer";
@@ -15,14 +16,29 @@ import webpush from "web-push";
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
 
-const JWT_SECRET = process.env.JWT_SECRET || "default_stable_secret_for_agricovet_dev";
+// Exige una variable de entorno. Falla al arrancar si falta, en lugar de
+// caer silenciosamente a una base de datos que no corresponde.
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value || !value.trim()) {
+    console.error(
+      `\n[FATAL] Falta la variable de entorno ${name}.\n` +
+      `El servidor no arranca sin ella para evitar conectarse a una base de datos equivocada.\n` +
+      `Definela en tu archivo .env (usa .env.example como guia).\n`
+    );
+    process.exit(1);
+  }
+  return value.trim();
+}
+
+const JWT_SECRET = requireEnv("JWT_SECRET");
 
 import { createClient } from '@supabase/supabase-js';
-const envUrl = process.env.SUPABASE_URL;
-const supabaseUrl = envUrl && envUrl.startsWith('http') ? envUrl : 'https://vedgedsbuajueynnyvpn.supabase.co';
-const envKey = process.env.SUPABASE_ANON_KEY;
-const supabaseKey = envKey && envKey.length > 10 ? envKey : 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
+const supabaseUrl = requireEnv("SUPABASE_URL");
+const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
 
 
 // Initial Seed Data
