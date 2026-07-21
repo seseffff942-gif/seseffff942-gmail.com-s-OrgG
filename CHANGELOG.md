@@ -125,6 +125,51 @@ respondía.
 > además de acelerar la aplicación.
 
 
+### La firma digital fallaba al guardar — *(bug)*
+
+Al pulsar guardar en el pad de firma, la consola lanzaba
+`(0, import_trim_canvas.default) is not a function` y la firma se perdía.
+
+**Causa:** `react-signature-canvas` usa internamente el paquete `trim-canvas`,
+que **solo se publica en formato CommonJS** (no trae build para módulos ES).
+Vite no puede resolver su export por defecto, así que `getTrimmedCanvas()`
+revienta en tiempo de ejecución.
+
+**Solución:** se dejó de usar `getTrimmedCanvas()`. Ahora el recorte se hace
+con una función propia de ~25 líneas en `SignaturePad.tsx`, que localiza el
+área realmente dibujada por el canal alfa y recorta con un pequeño margen. Si
+el recorte fallara por cualquier motivo, se guarda la firma completa: es
+preferible a perder lo que el usuario acaba de trazar.
+
+Verificado en el navegador: recorta al área correcta (400x200 → 110x80 para un
+trazo conocido), un lienzo vacío devuelve el original sin romper, un trazo
+pegado al borde no produce dimensiones negativas, y el PNG resultante es válido.
+
+### Los clientes no se guardaban — *(bug)*
+
+Al crear un cliente aparecía una cascada de errores en el servidor:
+
+```
+Primary Supabase client insert failed: no existe la columna 'sellerId'
+Casing fallback failed: no existe la columna 'company_name'
+Client pruned insert failed: no existe la columna 'created_at'
+Bare client backup insert failed: clave duplicada
+```
+
+**Causa:** la tabla `clients` no tenía la columna `sellerId` que el servidor
+intenta escribir. El código tiene una cascada defensiva de reintentos
+(`safeInsertClient`) que va podando columnas, así que el fallo terminaba en un
+guardado incompleto — **y consumía hasta 4 viajes a la base por cada cliente.**
+
+**Solución:** migración `003_clients_columnas.sql`, que agrega `sellerId`,
+`companyName` y `createdAt` si faltan. Con eso el primer insert funciona y los
+reintentos dejan de ejecutarse.
+
+> 🔎 **Revisar en producción:** si la base real también carece de esas columnas,
+> está pagando esos 3 viajes extra en cada alta de cliente y probablemente
+> guardando clientes sin vendedor asignado. La migración es aditiva y segura.
+
+
 ---
 
 ## Factura Electrónica (FEL)

@@ -8,5 +8,15 @@
     "phone": "48640192",
     "address": "Ciudad",
     "createdAt": "2026-07-21T16:37:45.421Z"
+  },
+  {
+    "id": "CLI-1784651865421",
+    "sellerId": "",
+    "name": "JOSUE DANIEL ALVARADO ALFARO",
+    "companyName": "",
+    "nit": "96920998",
+    "phone": "48640192",
+    "address": "Ciudad",
+    "createdAt": "2026-07-21T16:50:05.033Z"
   }
 ]

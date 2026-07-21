@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS public.clients (
     nit TEXT,
     phone TEXT,
     address TEXT,
-    "createdAt" TEXT
+    "createdAt" TEXT,
+    "sellerId" TEXT
 );
 
 CREATE TABLE IF NOT EXISTS public.notifications (
