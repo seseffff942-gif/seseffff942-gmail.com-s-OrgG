@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Lock, Mail, User as UserIcon, Monitor, Smartphone, Sparkles, AlertTriangle, CheckCircle, ArrowRight, RefreshCw, Star, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
+import { LOGO_PLACEHOLDER } from './ProductImage';
 
 interface LoginProps {
   onLogin: (user: any, device: 'desktop' | 'phone') => void;
@@ -250,7 +251,7 @@ export function Login({ onLogin }: LoginProps) {
                       alt="Agricovet Logo" 
                       className="w-full h-full object-contain" 
                       onError={(e) => { 
-                        e.currentTarget.src = 'https://via.placeholder.com/150?text=Agri'; 
+                        e.currentTarget.src = LOGO_PLACEHOLDER; 
                       }} 
                     />
                   )}

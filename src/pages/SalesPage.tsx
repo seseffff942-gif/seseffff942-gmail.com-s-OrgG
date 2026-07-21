@@ -6,6 +6,7 @@ import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
 import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
 import { motion } from 'motion/react';
+import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
 interface SalesPageProps {
   user: User;
@@ -119,10 +120,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   };
 
-  const getFallbackImage = (category: string) => {
-    if (category && category.toLowerCase().includes('agro')) return '/bottle.png';
-    return '/box.png';
-  };
   
   const [client, setClient] = useState(() => localStorage.getItem('draft_client') || '');
   const [nit, setNit] = useState(() => localStorage.getItem('draft_nit') || '');
@@ -1098,15 +1095,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                     {/* Image space */}
                     <div className="relative h-36 sm:h-44 overflow-hidden bg-slate-50/60 border-b border-slate-100 flex items-center justify-center p-5 group-hover:bg-slate-50 transition-colors">
-                      <img 
-                        src={product.image || getFallbackImage(product.category)} 
+                      <ProductImage 
+                        src={product.image} category={product.category} 
                         alt={product.name} 
                         className={cn(
                           "max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-500 drop-shadow-sm",
                           hasNoStock && "opacity-40"
-                        )} 
-                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(product.category); }}
-                        referrerPolicy="no-referrer"
+                        )}
                       />
                       
                       {/* Plus icon triggers options modal */}

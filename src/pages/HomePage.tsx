@@ -4,6 +4,7 @@ import { Leaf, User as UserIcon, CheckCircle, ArrowRight, MapPin, Lock, Unlock, 
 import { api } from '../api';
 import { cn, getStartOfCurrentWeek } from '../utils';
 import * as Sentry from '@sentry/react';
+import { LOGO_PLACEHOLDER } from '../components/ProductImage';
 import {
   ResponsiveContainer,
   BarChart,
@@ -1106,7 +1107,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
                         src={editLogoUrl || logoUrl || '/agricovet.png'} 
                         alt="Preview Logo" 
                         className="max-w-full max-h-full object-contain"
-                        onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/150?text=No+Logo'; }}
+                        onError={(e) => { e.currentTarget.src = LOGO_PLACEHOLDER; }}
                       />
                     </div>
 
@@ -1311,7 +1312,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
                     src={logoUrl} 
                     alt="Agricovet Logo" 
                     className="h-10 w-10 object-contain"
-                    onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/40?text=Agro'; }} 
+                    onError={(e) => { e.currentTarget.src = LOGO_PLACEHOLDER; }} 
                   />
                 </div>
                 <div className="flex flex-col">

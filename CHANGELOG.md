@@ -73,6 +73,58 @@ rechazaba **el bloque completo**: la tabla quedaba con **0 de 136 productos**.
 > 🔎 **Revisar en producción:** es posible que "foranex 25.7" nunca se haya
 > cargado en la base real. Conviene confirmarlo.
 
+### Bucle infinito de peticiones de imágenes — *(bug crítico, también en producción)*
+
+En **Ventas** e **Inventario**, los productos sin imagen provocaban una descarga
+infinita: se midieron **1,738 peticiones y 1,008 MB transferidos** en una sola
+sesión.
+
+**Causa raíz — dos fallas combinadas:**
+
+1. **Los archivos de respaldo estaban corruptos.** `public/box.png` y
+   `public/bottle.png` no eran PNG sino JPEG, y estaban dañados: contenían
+   ~200,000 bytes `EF BF BD` (el carácter Unicode de reemplazo `�`), la firma
+   inconfundible de un **binario copiado como texto UTF-8**. Eso destruyó la
+   imagen e infló su peso a 816 KB y 868 KB. El navegador no podía decodificarlas,
+   así que **el propio respaldo disparaba `onError`**.
+
+2. **El `onError` peleaba contra React.** El código hacía
+   `e.currentTarget.src = respaldo`, una mutación directa del DOM. Pero `src`
+   era una prop controlada. Como Ventas refresca cada 10 s e Inventario cada
+   15 s, **cada re-render devolvía `src` a la URL rota**, reiniciando el ciclo.
+   El `onerror = null` no ayudaba: React reinstala el handler en cada render.
+
+Resultado: ~136 productos x ~850 KB por cada ciclo de refresco.
+
+**Solución:** nuevo componente `src/components/ProductImage.tsx`.
+
+- El fallo se guarda en **estado de React**, no mutando el DOM.
+- Las URLs que fallaron se recuerdan **a nivel de módulo**, así ni los
+  re-renders ni los remontajes vuelven a pedirlas.
+- Los marcadores de "sin imagen" son ahora **SVG embebidos (data URI)**: no
+  hacen petición de red, **no pueden dar 404 y por tanto no pueden entrar en
+  bucle**. Pesan ~600 bytes en lugar de 850 KB.
+
+**Otros archivos corruptos encontrados y corregidos:**
+
+| Archivo | Problema | Acción |
+|---|---|---|
+| `public/agricovet.png` | Corrupto (77 bytes). **Ícono de la PWA y de las notificaciones push** — estaban rotos. | Regenerado, PNG válido 512x512 |
+| `public/logo.png.png` | Corrupto | Regenerado, PNG válido 512x512 |
+| `public/box.png`, `public/bottle.png` | Corruptos, 1.68 MB | Eliminados (ya no se usan) |
+| `dummy.jpg` | Vacío, sin referencias | Eliminado |
+| `vite.config.ts` | Precacheaba archivos ya inexistentes (podía romper el service worker) | Corregido |
+
+**Respaldos externos eliminados:** 5 usos de `via.placeholder.com` (en Login,
+Navigation y HomePage) se sustituyeron por un logo SVG local. Eran una
+dependencia de terceros y podían provocar el mismo bucle si el servicio no
+respondía.
+
+> 💡 **Efecto en costos:** este bug era un generador silencioso de gasto en
+> Vercel y Supabase. Eliminarlo reduce el ancho de banda de forma sustancial,
+> además de acelerar la aplicación.
+
+
 ---
 
 ## Factura Electrónica (FEL)

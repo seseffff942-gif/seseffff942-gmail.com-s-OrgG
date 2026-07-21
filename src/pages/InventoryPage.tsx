@@ -6,6 +6,7 @@ import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, S
 import { cn, doesNotNeedStock, isCriticalStock } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { motion } from 'motion/react';
+import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
 interface InventoryPageProps {
   user: User;
@@ -80,10 +81,6 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     }
   };
 
-  const getFallbackImage = (category: string) => {
-    if (category && category.toLowerCase().includes('agro')) return '/bottle.png';
-    return '/box.png';
-  };
 
   const loadData = async () => {
     setLoading(true);
@@ -944,12 +941,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     <span className="text-xs font-bold text-teal-700 mt-2">Subiendo imagen...</span>
                   </div>
                 ) : (
-                  <img 
-                    src={selectedProduct.image || getFallbackImage(selectedProduct.category)} 
+                  <ProductImage 
+                    src={selectedProduct.image} category={selectedProduct.category} 
                     alt={selectedProduct.name} 
-                    className="max-w-full max-h-full object-contain drop-shadow-xl relative z-10" 
-                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(selectedProduct.category); }}
-                    referrerPolicy="no-referrer"
+                    className="max-w-full max-h-full object-contain drop-shadow-xl relative z-10"
                   />
                 )}
 
@@ -1199,15 +1194,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   
                   {/* Card Image Area with overlays */}
                   <div className="h-48 bg-slate-50 flex items-center justify-center p-6 border-b border-slate-100 overflow-hidden relative shrink-0">
-                    <img
-                      src={product.image || getFallbackImage(product.category)}
+                    <ProductImage
+                      src={product.image} category={product.category}
                       alt={product.name}
                       className={cn(
                         "max-h-full max-w-full object-contain p-2 drop-shadow-sm group-hover:scale-105 transition-all duration-300",
                         uploadingImageProductId === product.id ? "opacity-30" : "opacity-100"
                       )}
-                      onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(product.category); }}
-                      referrerPolicy="no-referrer"
                     />
 
                     {/* Stock Overlays */}
@@ -1434,11 +1427,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center p-1 shrink-0 overflow-hidden relative">
-                              <img 
-                                src={product.image || getFallbackImage(product.category)} 
+                              <ProductImage 
+                                src={product.image} category={product.category} 
                                 alt="" 
                                 className="w-full h-full object-contain"
-                                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(product.category); }}
                               />
                               {isOutOfStock && <div className="absolute inset-0 bg-red-500/20" />}
                             </div>
@@ -1612,12 +1604,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-3">
-                              <img 
-                                src={p.image || getFallbackImage(p.category)}
+                              <ProductImage 
+                                src={p.image} category={p.category}
                                 alt={p.name}
                                 className="w-8 h-8 object-contain bg-slate-50 rounded-lg p-0.5 border border-slate-100 shrink-0"
-                                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(p.category); }}
-                                referrerPolicy="no-referrer"
                               />
                               <span className="font-extrabold text-slate-800 group-hover:text-[#0b4d2c] transition-colors line-clamp-1 notranslate" translate="no">
                                 {p.name}
@@ -1681,12 +1671,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     className="p-4.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col gap-3.5 hover:border-[#0b4d2c]/30 active:scale-[0.98] transition-all"
                   >
                     <div className="flex items-center gap-3">
-                      <img 
-                        src={p.image || getFallbackImage(p.category)}
+                      <ProductImage 
+                        src={p.image} category={p.category}
                         alt={p.name}
                         className="w-10 h-10 object-contain bg-slate-50 rounded-xl p-1 border border-slate-100 shrink-0"
-                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(p.category); }}
-                        referrerPolicy="no-referrer"
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-[10px] uppercase font-black tracking-widest text-[#0b4d2c] block mb-0.5">{p.category}</span>
@@ -2376,14 +2364,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center shrink-0 text-slate-400">
                           {p.image ? (
-                            <img 
+                            <ProductImage 
                               src={p.image} 
+                              category={p.category}
                               alt={p.name} 
-                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover rounded-xl"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = getFallbackImage(p.category || '');
-                              }}
                             />
                           ) : (
                             <CategoryIcon size={16} className="text-[#0b4d2c]" />
