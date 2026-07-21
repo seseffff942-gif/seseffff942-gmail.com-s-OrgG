@@ -4912,11 +4912,13 @@ ${productsContext}`;
     }
 
     const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
-    const { totales, advertencias } = felServicio.prepararDTE(invoice);
+    const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
 
     res.json({
       documento,
       estado: documento?.estado ?? 'sin_emitir',
+      nitReceptor,
+      esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
       desglose: {
         montoGravable: totales.totalMontoGravable,
         montoIva: totales.totalMontoIva,

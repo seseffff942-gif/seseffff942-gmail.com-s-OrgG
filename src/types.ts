@@ -140,6 +140,8 @@ export interface DocumentoFEL {
 export interface EstadoFacturaFEL {
   documento: DocumentoFEL | null;
   estado: EstadoFEL;
+  nitReceptor: string;
+  esConsumidorFinal: boolean;
   desglose: { montoGravable: number; montoIva: number; granTotal: number };
   advertencias: string[];
 }

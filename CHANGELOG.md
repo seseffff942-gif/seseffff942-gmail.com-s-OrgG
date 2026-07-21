@@ -170,6 +170,44 @@ reintentos dejan de ejecutarse.
 > guardando clientes sin vendedor asignado. La migración es aditiva y segura.
 
 
+### El NIT no aparecía en el panel FEL — *(bug)*
+
+El panel avisaba "La factura no tiene NIT del receptor" incluso en facturas
+creadas con NIT.
+
+**Causa:** el sistema **no guarda el NIT en la columna `nit`** de la tabla
+`invoices`. Al crear la factura, `server.ts` lo escribe al inicio del campo
+`notes`, antes de las etiquetas `|||`:
+
+```
+"1234567-8|||OBS:entregar manana|||TYPE:veterinaria|||CREDIT:30"
+```
+
+Al leer facturas por la API, `server.ts` lo extrae de ahí con unas heurísticas
+(descarta el texto si mide más de 25 caracteres o parece una nota de entrega).
+Pero el servicio FEL lee la fila **cruda** de la base, sin pasar por ese mapeo,
+así que veía la columna `nit` vacía.
+
+**Solución:** `extraerNit()` en `fel/servicio.ts` replica esas mismas reglas.
+El panel ahora muestra el NIT del receptor, y solo advierte cuando realmente
+no hay ninguno. "CF" (consumidor final) se reconoce como valor válido y no
+genera advertencia.
+
+Probado: NIT con y sin guion, CF explícito, factura sin NIT, observación larga
+mal ubicada (no debe confundirse con un NIT) y prioridad de la columna `nit`
+cuando sí trae valor.
+
+> ⚠️ **Deuda técnica anotada:** esta lógica de parseo queda duplicada entre
+> `server.ts` y `fel/servicio.ts`. Conviene unificarla al modularizar el
+> servidor; mientras tanto, cualquier cambio en el formato de `notes` hay que
+> aplicarlo en ambos lugares.
+>
+> De fondo, guardar datos estructurados (NIT, tipo, días de crédito, firma)
+> concatenados dentro de un campo de texto es frágil: si un cliente escribe
+> `|||` en una observación, rompe el parseo. Convendría migrarlos a columnas
+> propias más adelante.
+
+
 ---
 
 ## Factura Electrónica (FEL)

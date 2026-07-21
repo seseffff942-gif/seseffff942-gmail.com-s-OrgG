@@ -109,9 +109,49 @@ export function itemsALineas(items: any[]): LineaFactura[] {
   });
 }
 
+/**
+ * Obtiene el NIT del receptor de una factura.
+ *
+ * OJO: el sistema NO guarda el NIT en la columna `nit`. Al crear la factura
+ * lo escribe al inicio del campo `notes`, antes de las etiquetas `|||`:
+ *
+ *     "1234567-8|||OBS:...|||TYPE:veterinaria|||CREDIT:30"
+ *
+ * Al leer facturas, server.ts lo extrae con unas heuristicas para distinguir
+ * un NIT de una observacion. Aqui se replican esas mismas reglas, porque el
+ * servicio FEL lee la fila cruda de la base y no pasa por ese mapeo.
+ *
+ * (Deuda tecnica: esta logica de parseo esta duplicada. Convendria unificarla
+ * en un solo lugar cuando se modularice server.ts.)
+ */
+export function extraerNit(invoice: any): string {
+  const directo = (invoice?.nit ?? '').toString().trim();
+  if (directo) return directo;
+
+  const notas = (invoice?.notes ?? '').toString();
+  if (!notas.includes('|||')) return '';
+
+  const posible = notas.split('|||')[0].trim();
+  if (!posible) return '';
+
+  // Si el texto es largo o parece una nota de entrega, no es un NIT.
+  const bajo = posible.toLowerCase();
+  if (posible.length > 25 || bajo.includes('enviar') || bajo.includes('entrega') || bajo.includes('nota')) {
+    return '';
+  }
+  return posible;
+}
+
+/** En FEL, "CF" identifica a un consumidor final. Es un valor valido. */
+export function esConsumidorFinal(nit: string): boolean {
+  const n = nit.toUpperCase().replace(/[\s/\-\.]/g, '');
+  return n === '' || n === 'CF' || n === 'CONSUMIDORFINAL';
+}
+
 export interface PreparacionDTE {
   totales: TotalesFEL;
   advertencias: string[];
+  nitReceptor: string;
 }
 
 /**
@@ -122,10 +162,14 @@ export interface PreparacionDTE {
 export function prepararDTE(invoice: any): PreparacionDTE {
   const advertencias: string[] = [];
   const lineas = itemsALineas(invoice?.items || []);
+  const nitReceptor = extraerNit(invoice);
 
   if (lineas.length === 0) advertencias.push('La factura no tiene items.');
-  if (!invoice?.nit || String(invoice.nit).trim() === '') {
-    advertencias.push('La factura no tiene NIT del receptor; se emitiria como consumidor final (CF).');
+
+  // Solo se avisa cuando NO hay NIT. Si el cliente es consumidor final, el
+  // valor "CF" es correcto y no amerita advertencia.
+  if (!nitReceptor) {
+    advertencias.push('La factura no tiene NIT del receptor; se emitira como consumidor final (CF).');
   }
 
   const totales = calcularTotales(lineas);
@@ -139,7 +183,7 @@ export function prepararDTE(invoice: any): PreparacionDTE {
     );
   }
 
-  return { totales, advertencias };
+  return { totales, advertencias, nitReceptor };
 }
 
 export async function obtenerDocumentoPorFactura(

@@ -152,6 +152,18 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
               </div>
             )}
 
+            <div className="border border-slate-200 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                NIT del receptor
+              </span>
+              <span className={cn(
+                'font-mono text-sm font-bold',
+                datos?.nitReceptor ? 'text-slate-700' : 'text-amber-600'
+              )}>
+                {datos?.nitReceptor || 'CF (consumidor final)'}
+              </span>
+            </div>
+
             {/* Desglose fiscal: el dato clave es que el gran total NO cambia */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3.5 pt-3 pb-2">
