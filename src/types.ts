@@ -117,3 +117,29 @@ export interface Offer {
   price?: number;
   sellerPrices?: Record<string, number>;
 }
+
+export type EstadoFEL = 'sin_emitir' | 'pendiente' | 'enviado' | 'certificado' | 'error' | 'anulado';
+
+export interface DocumentoFEL {
+  id: string;
+  invoice_id: string;
+  tipo_dte: string;
+  estado: Exclude<EstadoFEL, 'sin_emitir'>;
+  numero_autorizacion?: string | null;
+  serie?: string | null;
+  numero?: string | null;
+  fecha_certificacion?: string | null;
+  monto_gravable?: number | null;
+  monto_iva?: number | null;
+  gran_total?: number | null;
+  intentos?: number;
+  mensaje_error?: string | null;
+  creado_en?: string;
+}
+
+export interface EstadoFacturaFEL {
+  documento: DocumentoFEL | null;
+  estado: EstadoFEL;
+  desglose: { montoGravable: number; montoIva: number; granTotal: number };
+  advertencias: string[];
+}

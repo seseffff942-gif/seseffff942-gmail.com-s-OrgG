@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import { Invoice, Payment, User } from '../types';
+import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
@@ -9,6 +9,7 @@ import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHt
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
+import { FelBadge, FelPanel } from '../components/FelPanel';
 
 interface BillingPageProps {
   user: User;
@@ -24,6 +25,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  // Estado FEL por factura. Se carga una sola vez por lote, sin polling: el
+  // estado solo cambia cuando alguien certifica un documento.
+  const [felEstados, setFelEstados] = useState<Record<string, EstadoFEL>>({});
+  const [invoiceFel, setInvoiceFel] = useState<Invoice | null>(null);
   const [shippingModalConfig, setShippingModalConfig] = useState<{ id: string } | null>(null);
   const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string } | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
@@ -138,10 +143,26 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     try {
       const data = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
       setInvoices(Array.isArray(data) ? data : []);
+      cargarEstadosFel();
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Carga en una sola peticion el estado FEL de todas las facturas visibles.
+   * Las facturas sin documento quedan como 'sin_emitir'.
+   */
+  const cargarEstadosFel = async () => {
+    try {
+      const r = await api.getFelDocumentos();
+      const mapa: Record<string, EstadoFEL> = {};
+      for (const d of r?.documentos ?? []) mapa[d.invoice_id] = d.estado;
+      setFelEstados(mapa);
+    } catch {
+      // Si falla, los distintivos muestran 'sin emitir'. No es critico.
     }
   };
 
@@ -568,6 +589,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <span className="text-[10px] font-mono font-black bg-emerald-50/50 text-[#0b4d2c] border border-emerald-100/50 px-1.5 py-0.5 rounded-md">
                             FOLIO {inv.folio}
                           </span>
+                        )}
+                        {!isCancelled && (
+                          <FelBadge
+                            estado={felEstados[inv.id] ?? 'sin_emitir'}
+                            onClick={() => setInvoiceFel(inv)}
+                          />
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1.5 flex-wrap">
@@ -2231,10 +2258,20 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         title="Guía de Envío" 
       />
       {showSignaturePad && (
-        <SignaturePad 
+        <SignaturePad
           onSave={handleReviewSignature}
           onClose={() => setShowSignaturePad(false)}
           title="Firma de Revisión (Admin)"
+        />
+      )}
+      {invoiceFel && (
+        <FelPanel
+          invoice={invoiceFel}
+          user={user}
+          onClose={() => {
+            setInvoiceFel(null);
+            cargarEstadosFel(); // refrescar por si se certifico
+          }}
         />
       )}
     </div>

@@ -15,6 +15,7 @@ import webpush from "web-push";
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
+import * as felServicio from "./fel/servicio";
 
 // Exige una variable de entorno. Falla al arrancar si falta, en lugar de
 // caer silenciosamente a una base de datos que no corresponde.
@@ -4863,6 +4864,103 @@ ${productsContext}`;
       generatedCount, 
       message: `Se actualizaron ${generatedCount} productos rápidamente usando la base de datos de Agricovet.` 
     });
+  }));
+
+  // ======== FACTURA ELECTRONICA (FEL) ========
+  // La logica vive en fel/servicio.ts. Estos endpoints solo exponen consulta,
+  // configuracion y el disparo de la certificacion.
+
+  // Configuracion del emisor. Incluye que campos faltan por llenar.
+  app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
+    const config = await felServicio.obtenerConfig(supabase);
+    const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
+    res.json({
+      config: publica,
+      // Nunca se devuelven las llaves; solo si ya estan cargadas.
+      credencialesCargadas: !!(infile_llave_firma && infile_llave_token),
+      camposFaltantes: felServicio.configIncompleta(config),
+    });
+  }));
+
+  app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const permitidos = [
+      'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'direccion', 'municipio',
+      'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
+      'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
+    ];
+    const cambios: any = {};
+    for (const c of permitidos) {
+      if (req.body[c] !== undefined && req.body[c] !== '') cambios[c] = req.body[c];
+    }
+    if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
+      return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
+    }
+    const config = await felServicio.guardarConfig(supabase, cambios);
+    const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
+    res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
+  }));
+
+  // Estado FEL de una factura, con el desglose fiscal ya calculado.
+  app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    // Un vendedor solo puede ver sus propias facturas.
+    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+      return res.status(403).json({ error: "No tienes acceso a esta factura" });
+    }
+
+    const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+    const { totales, advertencias } = felServicio.prepararDTE(invoice);
+
+    res.json({
+      documento,
+      estado: documento?.estado ?? 'sin_emitir',
+      desglose: {
+        montoGravable: totales.totalMontoGravable,
+        montoIva: totales.totalMontoIva,
+        granTotal: totales.granTotal,
+      },
+      advertencias,
+    });
+  }));
+
+  // Listado para la pantalla de control FEL.
+  // Un vendedor solo ve los documentos de sus propias facturas.
+  app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
+    let documentos = await felServicio.listarDocumentos(supabase, {
+      estado: req.query.estado,
+      limite: Number(req.query.limite) || 200,
+    });
+
+    if (req.user.role !== 'admin') {
+      const { data: propias } = await supabase
+        .from("invoices").select("id").eq("sellerId", req.user.id);
+      const permitidas = new Set((propias || []).map((f: any) => f.id));
+      documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
+    }
+    const resumen = documentos.reduce((acc: any, d: any) => {
+      acc[d.estado] = (acc[d.estado] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({ documentos, resumen, total: documentos.length });
+  }));
+
+  // Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
+  app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    if (invoice.status === 'cancelled' || invoice.status === 'rejected') {
+      return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
+    }
+
+    const resultado = await felServicio.certificarFactura(supabase, invoice, {
+      tipoDte: req.body?.tipoDte,
+    });
+    res.json(resultado);
   }));
 
 // Global Error Handler for API routes
