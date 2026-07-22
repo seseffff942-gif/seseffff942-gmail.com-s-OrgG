@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileCheck2, Clock, AlertTriangle, XCircle, Ban, RefreshCw, X, Copy, Check } from 'lucide-react';
+import { FileCheck2, Clock, AlertTriangle, XCircle, Ban, RefreshCw, X, Copy, Check, Download } from 'lucide-react';
 import { api } from '../api';
 import type { EstadoFacturaFEL, EstadoFEL, Invoice, User } from '../types';
 import { cn } from '../utils';
@@ -111,6 +111,20 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
       setNitVerificado({ valido: false, mensaje: e?.message ?? 'No se pudo consultar' });
     } finally {
       setVerificandoNit(false);
+    }
+  };
+
+  const descargarXml = async (tipo: 'enviado' | 'certificado') => {
+    try {
+      const blob = await api.descargarFelXml(invoice.id, tipo);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DTE-${tipo}-${datos?.documento?.numero_autorizacion || invoice.id}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e?.message ?? 'No se pudo descargar el XML');
     }
   };
 
@@ -250,6 +264,27 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
                 Los precios ya incluyen IVA: el total cobrado al cliente no cambia.
               </p>
             </div>
+
+            {/* Descarga de XML: lo que pide el certificador cuando hay que
+                diagnosticar un error ("mandame el XML y te digo que paso") */}
+            {doc && (doc as any).intentos > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => descargarXml('enviado')}
+                  className="flex-1 py-2 rounded-xl font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer text-[11px] flex items-center justify-center gap-1.5"
+                >
+                  <Download size={12} /> XML enviado
+                </button>
+                {doc.numero_autorizacion && (
+                  <button
+                    onClick={() => descargarXml('certificado')}
+                    className="flex-1 py-2 rounded-xl font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 transition-colors cursor-pointer text-[11px] flex items-center justify-center gap-1.5"
+                  >
+                    <Download size={12} /> XML certificado
+                  </button>
+                )}
+              </div>
+            )}
 
             {!!datos?.advertencias?.length && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5">

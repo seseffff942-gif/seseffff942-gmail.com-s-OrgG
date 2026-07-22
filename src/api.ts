@@ -1004,6 +1004,15 @@ export const api = {
     return data;
   },
 
+  descargarFelXml: async (invoiceId: string, tipo: 'enviado' | 'certificado'): Promise<Blob> => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/xml?tipo=${tipo}`);
+    if (!res.ok) {
+      const d = await safeJson(res);
+      throw new Error(d?.error || 'No se pudo descargar el XML');
+    }
+    return res.blob();
+  },
+
   consultarNitFel: async (nit: string): Promise<{ valido: boolean; nit?: string; nombre?: string; mensaje?: string }> => {
     const res = await fetchWithAuth(`/api/fel/consulta-nit/${encodeURIComponent(nit)}`);
     const data = await safeJson(res);

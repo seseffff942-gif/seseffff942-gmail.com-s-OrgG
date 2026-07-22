@@ -5023,6 +5023,37 @@ ${productsContext}`;
     }
   }));
 
+  // Descarga el XML de un documento FEL (enviado o certificado). Pensado para
+  // cuando el certificador pide "mandame el XML para revisar que paso".
+  app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+      return res.status(403).json({ error: "No tienes acceso a esta factura" });
+    }
+
+    const doc: any = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+    if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
+
+    const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
+    let xml: string | null = tipo === 'certificado' ? doc.xml_certificado : doc.xml_enviado;
+    if (!xml) return res.status(404).json({ error: `Esta factura no tiene XML ${tipo}.` });
+
+    // INFILE devuelve el XML certificado en base64; se decodifica al vuelo.
+    if (!xml.trim().startsWith('<')) {
+      try {
+        const decodificado = Buffer.from(xml, 'base64').toString('utf-8');
+        if (decodificado.trim().startsWith('<')) xml = decodificado;
+      } catch {}
+    }
+
+    const nombre = `DTE-${tipo}-${doc.numero_autorizacion || req.params.id}.xml`;
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.send(xml);
+  }));
+
   // Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
   app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
     const config = await felServicio.obtenerConfig(supabase);

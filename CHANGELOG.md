@@ -382,6 +382,16 @@ Agricovet = **2**, frases Tipo 1 / Escenario 1, usuario API = usuario firma.
   días con NIT real (Q2,400), 48 unidades (Q372.96) y mixta a crédito
   (Q127.75). Ningún descuadre de redondeo.
 
+
+### Descarga de XML desde el panel FEL
+
+Cuando el certificador pide «mándame el XML para revisar qué pasó», ahora se
+descarga desde la propia factura: botones **XML enviado** y **XML certificado**
+en el panel FEL. El certificado (que INFILE devuelve en base64) se decodifica
+automáticamente y baja como `.xml` listo para adjuntar, nombrado con el UUID.
+Verificado: ambos XML descargan válidos y el certificado incluye la firma
+digital de INFILE.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:
