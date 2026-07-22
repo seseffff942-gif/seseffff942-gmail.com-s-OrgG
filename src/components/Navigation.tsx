@@ -882,10 +882,17 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     };
     window.addEventListener('agricovet-mutate', handleMutation);
 
-    const interval = setInterval(checkNotifications, 45000); 
-    
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No consultar notificaciones en segundo plano
+      checkNotifications();
+    }, 45000);
+
+    const alVolver = () => { if (!document.hidden) checkNotifications(); };
+    document.addEventListener('visibilitychange', alVolver);
+
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('agricovet-mutate', handleMutation);
     };
   }, [soundsEnabled]);

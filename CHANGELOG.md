@@ -232,6 +232,35 @@ la lectura por la API lo devuelve correctamente y las observaciones no se
 pierden.
 
 
+### Optimización de polling — palanca #1 de costos aplicada
+
+Las pantallas dejaban de consumir servidor solo cuando se cerraban; ahora se
+pausan cuando **nadie está mirando** y se refrescan al instante al volver:
+
+| Pantalla | Antes | Ahora |
+|---|---|---|
+| Ventas | cada 10 s, siempre | cada 30 s, solo pestaña visible + refresco al volver |
+| Inventario | cada 15 s, siempre | cada 30 s, solo pestaña visible + refresco al volver |
+| Notificaciones | cada 45 s, siempre | cada 45 s, solo pestaña visible + refresco al volver |
+| Ventas diarias | cada 120 s, siempre | cada 120 s, solo pestaña visible |
+
+**Efecto:** una pestaña abierta en Ventas pasaba de ~360 peticiones/hora a ~120
+cuando está visible y **0 cuando está en segundo plano**. La experiencia no
+cambia: al volver a la pestaña los datos se actualizan de inmediato.
+
+### La anulación FEL no anulaba la factura — *(inconsistencia)*
+
+Al anular un DTE ante SAT, la factura del sistema seguía como
+pendiente/pagada, con su stock descontado y ofreciendo volver a anularla.
+
+**Solución:** cuando SAT acepta la anulación, la factura pasa a `cancelled`
+**reutilizando la misma lógica de anulación normal** — incluida la
+restauración de stock (se extrajo a `restaurarStockDeFactura()` para no
+duplicarla). Facturación se refresca al cerrar el panel FEL.
+
+Verificado de punta a punta: venta de 4 unidades (stock 95→91) → certificada →
+anulada ante SAT → factura `cancelled` y stock de vuelta en 95.
+
 ---
 
 ## Factura Electrónica (FEL)

@@ -109,7 +109,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     loadData();
     api.getUsers().then(setUsers).catch(console.error);
     api.getPrintTemplate().then(data => setPrintTemplate(data.template || DEFAULT_PRINT_TEMPLATE)).catch(() => {});
-    const interval = setInterval(loadData, 120000);
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No recargar si nadie esta mirando
+      loadData();
+    }, 120000);
     return () => clearInterval(interval);
   }, [filterDate]);
 

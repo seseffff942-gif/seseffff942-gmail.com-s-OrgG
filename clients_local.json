@@ -78,5 +78,15 @@
     "phone": "",
     "address": "",
     "createdAt": "2026-07-22T18:30:57.333Z"
+  },
+  {
+    "id": "CLI-1784745883289",
+    "sellerId": "u1b",
+    "name": "Prueba Anulacion Total",
+    "companyName": "",
+    "nit": "CF",
+    "phone": "",
+    "address": "",
+    "createdAt": "2026-07-22T18:44:43.289Z"
   }
 ]

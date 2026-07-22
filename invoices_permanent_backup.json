@@ -143,29 +143,6 @@
     "nit": "7654321-K"
   },
   {
-    "id": "INV-1784744495243-5176",
-    "sellerId": "seseffff942@gmail.com",
-    "notes": "|||TYPE:veterinaria|||CREDIT:30",
-    "items": [
-      {
-        "productId": "p1",
-        "quantity": 2,
-        "price": 50,
-        "total": 100,
-        "productName": "Legatus mixx 30 OD litro",
-        "originalPrice": 50
-      }
-    ],
-    "totalAmount": 100,
-    "paidAmount": 0,
-    "status": "pending",
-    "date": "2026-07-22T18:21:35.243Z",
-    "clientName": "Consumidor Final",
-    "customerPhone": "",
-    "deliveryAddress": "",
-    "nit": ""
-  },
-  {
     "id": "INV-1784744531303-5447",
     "sellerId": "seseffff942@gmail.com",
     "notes": "CF|||TYPE:veterinaria|||CREDIT:30",
@@ -413,5 +390,52 @@
     "customerPhone": "",
     "deliveryAddress": "",
     "nit": ""
+  },
+  {
+    "id": "INV-1784744495243-5176",
+    "client": "Consumidor Final",
+    "nit": "",
+    "phone": "",
+    "address": "",
+    "items": [
+      {
+        "price": 50,
+        "total": 100,
+        "quantity": 2,
+        "productId": "p1",
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 100,
+    "paidAmount": 0,
+    "sellerId": "seseffff942@gmail.com",
+    "status": "cancelled",
+    "date": "2026-07-22T18:21:35.243Z",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30",
+    "is_archived": false
+  },
+  {
+    "id": "INV-1784745883594-6636",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "CF|||TYPE:veterinaria|||CREDIT:30",
+    "items": [
+      {
+        "productId": "p3",
+        "quantity": 4,
+        "price": 50,
+        "total": 200,
+        "productName": "Dimaxine 72 SL galon",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 200,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:44:43.594Z",
+    "clientName": "Prueba Anulacion Total",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": "CF"
   }
 ]

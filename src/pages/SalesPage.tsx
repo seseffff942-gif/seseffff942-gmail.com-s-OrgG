@@ -303,8 +303,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
     }
     // Sync check - version 2026.06.15.0100
-    const interval = setInterval(async () => {
-      if (document.hidden) return; // Don't sync if tab is hidden
+    const sincronizar = async () => {
       try {
         const p = await api.getProducts();
         setProducts(prev => {
@@ -322,9 +321,22 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           return prev;
         });
       } catch (err) {}
-    }, 10000); // 10 seconds is enough for real-time inventory
-    
-    return () => clearInterval(interval);
+    };
+
+    // 30s en lugar de 10s: reduce a un tercio las peticiones al servidor.
+    // Es imperceptible porque al volver a la pestana se refresca al instante.
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No consumir servidor si nadie esta mirando
+      sincronizar();
+    }, 30000);
+
+    const alVolver = () => { if (!document.hidden) sincronizar(); };
+    document.addEventListener('visibilitychange', alVolver);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', alVolver);
+    };
   }, []);
 
   useEffect(() => {

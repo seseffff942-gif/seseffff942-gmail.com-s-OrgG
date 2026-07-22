@@ -523,6 +523,36 @@ if (!process.env.VERCEL) {
     return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
   };
 
+  // Devuelve al inventario las cantidades de una factura (al anularla o
+  // rechazarla). Respeta variantes y omite productos externos. Se usa tanto
+  // al cambiar el estado de la factura como al anular su DTE ante SAT.
+  async function restaurarStockDeFactura(invoice: any) {
+    for (const item of (invoice.items || [])) {
+       const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+       const product = prods?.[0];
+       if (product && !product.is_external) {
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+          let variantObj = null;
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            if (varIndex !== -1) {
+               variantObj = variantsToUpdate[varIndex];
+            }
+          }
+
+          if (variantObj && variantObj.stock !== undefined) {
+             const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+             variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+             const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+             if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
+          } else {
+             const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+             if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
+          }
+       }
+    }
+  }
+
   // ======== API ERROR WRAPPER ========
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -2970,31 +3000,7 @@ if (!process.env.VERCEL) {
 
     if (status === 'cancelled' || status === 'rejected') {
       if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-          // Restore stock
-          for (const item of invoice.items) {
-             const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
-             const product = prods?.[0];
-             if (product && !product.is_external) {
-                let variantsToUpdate = product.variants ? [...product.variants] : [];
-                let variantObj = null;
-                if (item.variantId) {
-                  const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-                  if (varIndex !== -1) {
-                     variantObj = variantsToUpdate[varIndex];
-                  }
-                }
-                
-                if (variantObj && variantObj.stock !== undefined) {
-                   const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-                   variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-                   const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
-                   if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-                } else {
-                   const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
-                   if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-                }
-             }
-          }
+          await restaurarStockDeFactura(invoice);
       }
     }
 
@@ -4987,6 +4993,18 @@ ${productsContext}`;
 
     try {
       const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
+
+      // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
+      // un documento fiscal anulado no puede seguir como venta activa. Se
+      // restaura el stock igual que en una anulacion normal.
+      if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+        await restaurarStockDeFactura(invoice);
+        await supabase.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
+        invalidateCache("products");
+        invalidateCache("folio_map");
+        (resultado as any).facturaAnulada = true;
+      }
+
       res.json(resultado);
     } catch (e: any) {
       res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });

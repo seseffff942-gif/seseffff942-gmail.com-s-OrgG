@@ -99,7 +99,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   useEffect(() => {
     loadData();
     // Use a longer interval to prevent frequent race conditions and unnecessary load
-    const interval = setInterval(async () => {
+    const sincronizar = async () => {
       // If we are currently uploading, don't poll to avoid state conflicts
       if (uploadingImageProductId) return;
 
@@ -124,8 +124,20 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           return prev;
         });
       } catch (err) {}
-    }, 15000); // 15 seconds is more reasonable for a real-time-ish feel
-    return () => clearInterval(interval);
+    };
+
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No consumir servidor si nadie esta mirando
+      sincronizar();
+    }, 30000);
+
+    const alVolver = () => { if (!document.hidden) sincronizar(); };
+    document.addEventListener('visibilitychange', alVolver);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', alVolver);
+    };
   }, [uploadingImageProductId]);
 
   const handleOpenAddModal = () => {

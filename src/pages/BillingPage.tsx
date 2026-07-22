@@ -2281,7 +2281,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           user={user}
           onClose={() => {
             setInvoiceFel(null);
-            cargarEstadosFel(); // refrescar por si se certifico
+            // Refrescar todo: una anulacion FEL tambien anula la factura
+            loadInvoices();
           }}
         />
       )}
