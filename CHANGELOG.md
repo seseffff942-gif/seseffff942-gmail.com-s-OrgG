@@ -261,6 +261,42 @@ duplicarla). Facturación se refresca al cerrar el panel FEL.
 Verificado de punta a punta: venta de 4 unidades (stock 95→91) → certificada →
 anulada ante SAT → factura `cancelled` y stock de vuelta en 95.
 
+### La anulación fallaba con FEL-GUI-56 — *(bug)*
+
+SAT rechazaba la anulación: «La fecha de emisión del documento a anular
+[21/07/2026] no coincide con la registrada en el sistema».
+
+**Causa:** el XML de anulación usaba la **fecha de la factura del sistema**,
+que la UI guarda a medianoche UTC. Al convertirla a hora de Guatemala (−6 h)
+caía en el día anterior. Pero SAT registra como fecha de emisión **el momento
+de la certificación** (la devuelve INFILE y se guarda en
+`fecha_certificacion`).
+
+**Solución:** la anulación ahora envía `fecha_certificacion`. Verificado
+reintentando la misma anulación que había fallado: aceptada, documento
+anulado y factura cancelada.
+
+### Respaldos JSON desactivados (venían del sistema original)
+
+`invoices_permanent_backup.json` y `payments_permanent_backup.json` se
+reescribían **completos en cada venta y cada abono**. Tres problemas:
+
+1. En Vercel el sistema de archivos es efímero: **nunca persistieron nada**
+   en producción.
+2. Crecen sin límite (incluyen firmas en base64) y la reescritura completa se
+   vuelve más lenta con cada factura.
+3. **Nada del sistema los lee.** La base de datos es la fuente de verdad, y
+   los XML de FEL ya se guardan en `fel_documentos`.
+
+**Cambio:** desactivados por defecto; `ENABLE_JSON_BACKUP=true` los reactiva
+en desarrollo si se quisieran. Los archivos de datos de runtime salieron del
+control de versiones (contenían NIT, nombres y teléfonos reales).
+
+> 📌 **Pendiente mayor anotado:** migrar a Supabase los almacenes que aún
+> viven en archivos JSON (deudas del negocio, proveedores, clientes locales,
+> configuración de folios/bodega). En Vercel esos datos NO persisten entre
+> despliegues — es el hallazgo de la auditoría aún abierto.
+
 ---
 
 ## Factura Electrónica (FEL)

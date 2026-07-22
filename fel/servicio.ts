@@ -466,7 +466,12 @@ export async function anularFactura(
     numeroAutorizacion: documento.numero_autorizacion,
     nitEmisor: config?.nit_emisor ?? '',
     nitReceptor: extraerNit(invoice) || 'CF',
-    fechaEmisionDocumento: invoice.date || new Date().toISOString(),
+    // OJO: debe ser la fecha que SAT registro al CERTIFICAR (la devuelve el
+    // certificador), no la fecha de la factura del sistema. La factura suele
+    // guardarse a medianoche UTC, que en hora de Guatemala cae el dia
+    // anterior, y SAT rechaza la anulacion con FEL-GUI-56 ("la fecha de
+    // emision no coincide con la registrada").
+    fechaEmisionDocumento: documento.fecha_certificacion || invoice.date || new Date().toISOString(),
     motivo,
   });
 

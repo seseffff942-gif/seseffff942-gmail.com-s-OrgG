@@ -9,3 +9,11 @@ coverage/
 
 # Llaves VAPID generadas automaticamente (contienen llave privada)
 vapid_keys.json
+
+# Archivos de datos que el servidor escribe en runtime (no son codigo)
+invoices_permanent_backup.json
+payments_permanent_backup.json
+clients_local.json
+notifications_local.json
+offers_extra.json
+push_subscriptions.json

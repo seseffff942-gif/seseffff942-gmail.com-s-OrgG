@@ -924,7 +924,18 @@ if (!process.env.VERCEL) {
     }
   }
 
+  // Los "respaldos permanentes" en JSON vienen del sistema original y estan
+  // DESACTIVADOS por defecto por tres razones:
+  //  1. En Vercel el sistema de archivos es efimero: nunca persistieron nada.
+  //  2. Reescriben el archivo COMPLETO en cada venta/abono: cada vez mas
+  //     lento a medida que crece el historial.
+  //  3. Nada del sistema los lee. La base de datos es la fuente de verdad
+  //     (los XML de FEL, por ejemplo, ya se guardan en fel_documentos).
+  // Para activarlos en desarrollo: ENABLE_JSON_BACKUP=true en el .env
+  const JSON_BACKUP_ENABLED = process.env.ENABLE_JSON_BACKUP === 'true';
+
   async function syncInvoiceToPermanentBackup(id: string, invoiceObj?: any) {
+    if (!JSON_BACKUP_ENABLED) return;
     try {
       const backupPath = path.join(process.cwd(), "invoices_permanent_backup.json");
       let invoicesList: any[] = [];
@@ -955,6 +966,7 @@ if (!process.env.VERCEL) {
   }
 
   async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
+    if (!JSON_BACKUP_ENABLED) return;
     try {
       const backupPath = path.join(process.cwd(), "payments_permanent_backup.json");
       let paymentsList: any[] = [];
