@@ -195,5 +195,223 @@
     "customerPhone": "50255500000",
     "deliveryAddress": "Zona 10, Guatemala",
     "nit": "CF"
+  },
+  {
+    "id": "INV-1784745043216-287",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30|||AUTH:pending",
+    "items": [
+      {
+        "productId": "p1",
+        "quantity": 3,
+        "price": 33.33,
+        "total": 99.99,
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 99.99,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:43.217Z",
+    "clientName": "Consumidor Final",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
+  },
+  {
+    "id": "INV-1784745045880-4121",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30|||AUTH:pending",
+    "items": [
+      {
+        "productId": "p2",
+        "quantity": 1,
+        "price": 1.05,
+        "total": 1.05,
+        "productName": "Leñador 16 EW galón",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 1.05,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:45.880Z",
+    "clientName": "Consumidor Final",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
+  },
+  {
+    "id": "INV-1784745049965-603",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30|||AUTH:pending",
+    "items": [
+      {
+        "productId": "p1",
+        "quantity": 2,
+        "price": 13.16,
+        "total": 26.32,
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p2",
+        "quantity": 3,
+        "price": 16.33,
+        "total": 48.989999999999995,
+        "productName": "Leñador 16 EW galón",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p3",
+        "quantity": 4,
+        "price": 19.5,
+        "total": 78,
+        "productName": "Dimaxine 72 SL galon",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p4",
+        "quantity": 1,
+        "price": 22.67,
+        "total": 22.67,
+        "productName": "Terraquat 20 SL galón",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p5",
+        "quantity": 2,
+        "price": 25.84,
+        "total": 51.68,
+        "productName": "Terraquat 20 SL litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p6",
+        "quantity": 3,
+        "price": 29.01,
+        "total": 87.03,
+        "productName": "Anorak 60 EC litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p7",
+        "quantity": 4,
+        "price": 32.18,
+        "total": 128.72,
+        "productName": "Duplexone 20 SL litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p8",
+        "quantity": 1,
+        "price": 35.35,
+        "total": 35.35,
+        "productName": "Leñador 16 EW 1 litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p9",
+        "quantity": 2,
+        "price": 38.52,
+        "total": 77.04,
+        "productName": "Revolver 36 5 SL litro",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p10",
+        "quantity": 3,
+        "price": 41.69,
+        "total": 125.07,
+        "productName": "Kaindor plus 30 SC litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 680.8700000000001,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:49.965Z",
+    "clientName": "Consumidor Final",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
+  },
+  {
+    "id": "INV-1784745052781-5548",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "120894769|||TYPE:veterinaria|||CREDIT:60",
+    "items": [
+      {
+        "productId": "p136",
+        "quantity": 2,
+        "price": 1200,
+        "total": 2400,
+        "productName": "Incubadora Pro 50 Huevos",
+        "originalPrice": 1200
+      }
+    ],
+    "totalAmount": 2400,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:52.781Z",
+    "clientName": "Boreal Solutions",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": "120894769"
+  },
+  {
+    "id": "INV-1784745055165-6957",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30|||AUTH:pending",
+    "items": [
+      {
+        "productId": "p19",
+        "quantity": 48,
+        "price": 7.77,
+        "total": 372.96,
+        "productName": "PILOT 56G 48X3",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 372.96,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:55.165Z",
+    "clientName": "Consumidor Final",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
+  },
+  {
+    "id": "INV-1784745057817-1854",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30|||AUTH:pending",
+    "items": [
+      {
+        "productId": "p57",
+        "quantity": 2,
+        "price": 45.5,
+        "total": 91,
+        "productName": "Shampoo Pets 250ml",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p116",
+        "quantity": 3,
+        "price": 12.25,
+        "total": 36.75,
+        "productName": "Jeringa 1 ml 100U",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 127.75,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:30:57.817Z",
+    "clientName": "Cliente Mostrador",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
   }
 ]

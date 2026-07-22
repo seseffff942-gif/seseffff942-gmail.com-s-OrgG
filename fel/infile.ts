@@ -158,3 +158,62 @@ export async function anularDTE(
   if (faltan.length) throw new InfileNoConfiguradoError(faltan);
   return llamarInfile(credenciales.url, xmlAnulacion, credenciales, identificador);
 }
+
+/**
+ * Servicio de consulta de receptores de INFILE: devuelve el nombre registrado
+ * en SAT para un NIT. Permite validar el NIT antes de facturar, evitando
+ * rechazos por receptor inexistente.
+ */
+const URL_CONSULTA_NIT = 'https://consultareceptores.feel.com.gt/rest/action';
+
+export interface ResultadoConsultaNit {
+  valido: boolean;
+  nit?: string;
+  nombre?: string;
+  mensaje?: string;
+}
+
+export async function consultarNit(
+  nit: string,
+  credenciales: Pick<CredencialesInfile, 'usuario' | 'llaveToken'>
+): Promise<ResultadoConsultaNit> {
+  const limpio = String(nit || '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+  if (!limpio || limpio === 'CF') {
+    return { valido: true, nit: 'CF', nombre: 'Consumidor Final' };
+  }
+
+  const controlador = new AbortController();
+  const timer = setTimeout(() => controlador.abort(), 15_000);
+  try {
+    const res = await fetch(URL_CONSULTA_NIT, {
+      method: 'POST',
+      signal: controlador.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emisor_codigo: credenciales.usuario,
+        emisor_clave: credenciales.llaveToken,
+        nit_consulta: limpio,
+      }),
+    });
+    const json: any = await res.json().catch(() => null);
+
+    const nombre = json?.nombre ?? json?.Nombre ?? null;
+    if (nombre) return { valido: true, nit: limpio, nombre };
+
+    return {
+      valido: false,
+      nit: limpio,
+      mensaje: json?.mensaje ?? json?.descripcion ?? 'El NIT no aparece registrado en SAT.',
+    };
+  } catch (e: any) {
+    return {
+      valido: false,
+      nit: limpio,
+      mensaje: e?.name === 'AbortError'
+        ? 'El servicio de consulta de NIT no respondio a tiempo.'
+        : `No se pudo consultar el NIT: ${e?.message ?? e}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}

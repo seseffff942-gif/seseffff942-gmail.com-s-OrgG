@@ -294,6 +294,29 @@ certificaron dos documentos reales contra el certificador:
 Datos operativos confirmados por la ficha de INFILE: establecimiento de
 Agricovet = **2**, frases Tipo 1 / Escenario 1, usuario API = usuario firma.
 
+
+### Ciclo fiscal completo: anulación, consulta de NIT y pantalla de configuración
+
+- **Anulación de DTE** (`anularFactura` + `POST /api/invoices/:id/fel/anular`):
+  exige motivo, solo administradores y solo documentos certificados. Si el
+  certificador rechaza la anulación, el documento **sigue certificado** (falla
+  el trámite, no el documento). Probada en vivo en el sandbox: DTE
+  `B0E4DD7C-…` anulado, y el reintento devuelve «ya estaba anulado».
+- **Consulta de NIT** (`GET /api/fel/consulta-nit/:nit`): usa el servicio de
+  consulta de receptores de INFILE para validar el NIT y obtener el nombre
+  registrado en SAT antes de facturar. Probada en vivo (resuelve nombres
+  reales; los NIT inexistentes devuelven «NIT no válido»). Disponible desde el
+  panel FEL con el botón «Verificar en SAT».
+- **Pantalla de Configuración FEL** (`FelConfigModal`, botón en Facturación,
+  solo admins): datos fiscales del emisor, tipo de documento por defecto,
+  ambiente (con advertencia fuerte al elegir producción) y credenciales de
+  INFILE. Las llaves son de solo escritura: nunca se vuelven a mostrar, y
+  dejar el campo vacío conserva la actual.
+- **Lote de certificación variado en el sandbox — 6/6 exitosas:** centavos
+  difíciles (Q99.99), monto mínimo (Q1.05), 10 líneas (Q680.87), crédito a 60
+  días con NIT real (Q2,400), 48 unidades (Q372.96) y mixta a crédito
+  (Q127.75). Ningún descuadre de redondeo.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:

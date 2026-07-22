@@ -58,5 +58,25 @@
     "phone": "50255500000",
     "address": "Zona 10, Guatemala",
     "createdAt": "2026-07-22T18:22:10.694Z"
+  },
+  {
+    "id": "CLI-1784745052496",
+    "sellerId": "u1b",
+    "name": "Boreal Solutions",
+    "companyName": "",
+    "nit": "120894769",
+    "phone": "",
+    "address": "",
+    "createdAt": "2026-07-22T18:30:52.496Z"
+  },
+  {
+    "id": "CLI-1784745057333",
+    "sellerId": "u1b",
+    "name": "Cliente Mostrador",
+    "companyName": "",
+    "nit": "",
+    "phone": "",
+    "address": "",
+    "createdAt": "2026-07-22T18:30:57.333Z"
   }
 ]

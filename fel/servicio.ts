@@ -7,12 +7,13 @@
  */
 import { calcularTotales, validarCuadre, type LineaFactura, type TotalesFEL } from './calculos';
 import {
+  anularDTE,
   certificarDTE,
   credencialesCompletas,
   InfileNoConfiguradoError,
   type CredencialesInfile,
 } from './infile';
-import { construirXmlDTE } from './xml';
+import { construirXmlAnulacion, construirXmlDTE } from './xml';
 
 export type EstadoFEL = 'pendiente' | 'enviado' | 'certificado' | 'error' | 'anulado';
 export type TipoDTE = 'FACT' | 'FCAM' | 'NCRE' | 'NDEB' | 'NABN' | 'RDON';
@@ -422,4 +423,87 @@ export async function certificarFactura(
       mensaje: e?.message ?? String(e),
     };
   }
+}
+
+export interface ResultadoAnulacion {
+  documento: DocumentoFEL;
+  anulado: boolean;
+  mensaje?: string;
+}
+
+/**
+ * Anula ante SAT (via INFILE) un DTE ya certificado.
+ *
+ * La anulacion es un tramite fiscal formal: el documento no desaparece, queda
+ * marcado como anulado ante SAT. Solo procede sobre documentos certificados.
+ */
+export async function anularFactura(
+  supabase: any,
+  invoice: any,
+  motivo: string
+): Promise<ResultadoAnulacion> {
+  const inicio = Date.now();
+  const config = await obtenerConfig(supabase);
+
+  const documento = await obtenerDocumentoPorFactura(supabase, invoice.id);
+  if (!documento) throw new Error('Esta factura no tiene ningun documento FEL emitido.');
+  if (documento.estado === 'anulado') {
+    return { documento, anulado: true, mensaje: 'El documento ya estaba anulado.' };
+  }
+  if (documento.estado !== 'certificado' || !documento.numero_autorizacion) {
+    throw new Error('Solo se puede anular un documento certificado ante SAT.');
+  }
+
+  const credenciales: CredencialesInfile = {
+    usuario: config?.infile_usuario ?? '',
+    llaveFirma: config?.infile_llave_firma ?? '',
+    llaveToken: config?.infile_llave_token ?? '',
+    url: config?.infile_url ?? '',
+    ambiente: (config?.ambiente as any) ?? 'pruebas',
+  };
+
+  const xmlAnulacion = construirXmlAnulacion({
+    numeroAutorizacion: documento.numero_autorizacion,
+    nitEmisor: config?.nit_emisor ?? '',
+    nitReceptor: extraerNit(invoice) || 'CF',
+    fechaEmisionDocumento: invoice.date || new Date().toISOString(),
+    motivo,
+  });
+
+  const resp = await anularDTE(xmlAnulacion, credenciales, `ANUL-${documento.id}`);
+
+  const cambios: any = {
+    actualizado_en: new Date().toISOString(),
+    respuesta_certificador: resp.respuestaCompleta ?? null,
+  };
+  if (resp.exito) {
+    cambios.estado = 'anulado';
+    cambios.motivo_anulacion = motivo;
+    cambios.fecha_anulacion = new Date().toISOString();
+    cambios.mensaje_error = null;
+  } else {
+    // El documento SIGUE certificado: la anulacion fallo, no el documento.
+    cambios.mensaje_error = `Anulacion rechazada: ${resp.mensaje ?? 'sin detalle'}`;
+  }
+
+  const { data, error } = await supabase
+    .from('fel_documentos')
+    .update(cambios)
+    .eq('id', documento.id)
+    .select()
+    .single();
+  if (error) throw new Error(`No se pudo actualizar el documento FEL: ${error.message}`);
+
+  await registrarBitacora(supabase, {
+    documento_id: documento.id,
+    invoice_id: invoice.id,
+    operacion: 'anular',
+    exito: resp.exito,
+    codigo_respuesta: resp.codigo ?? (resp.exito ? 'ANULADO' : null),
+    mensaje: resp.exito ? motivo : resp.mensaje ?? null,
+    respuesta: resp.respuestaCompleta ?? null,
+    duracion_ms: Date.now() - inicio,
+  });
+
+  return { documento: data, anulado: resp.exito, mensaje: resp.mensaje };
 }

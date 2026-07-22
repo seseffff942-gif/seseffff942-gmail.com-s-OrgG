@@ -16,6 +16,7 @@ import webpush from "web-push";
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
 import * as felServicio from "./fel/servicio";
+import * as infileApi from "./fel/infile";
 
 // Exige una variable de entorno. Falla al arrancar si falta, en lugar de
 // caer silenciosamente a una base de datos que no corresponde.
@@ -4969,6 +4970,38 @@ ${productsContext}`;
 
     const resultado = await felServicio.certificarFactura(supabase, invoice, {
       tipoDte: req.body?.tipoDte,
+    });
+    res.json(resultado);
+  }));
+
+  // Anula ante SAT un DTE certificado. Tramite fiscal formal: exige motivo.
+  app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const motivo = String(req.body?.motivo || '').trim();
+    if (motivo.length < 5) {
+      return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
+    }
+
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    try {
+      const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
+      res.json(resultado);
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });
+    }
+  }));
+
+  // Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
+  app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const config = await felServicio.obtenerConfig(supabase);
+    if (!config?.infile_usuario || !config?.infile_llave_token) {
+      return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
+    }
+    const resultado = await infileApi.consultarNit(req.params.nit, {
+      usuario: config.infile_usuario,
+      llaveToken: config.infile_llave_token,
     });
     res.json(resultado);
   }));

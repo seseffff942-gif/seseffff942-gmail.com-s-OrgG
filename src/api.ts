@@ -993,6 +993,24 @@ export const api = {
     return data;
   },
 
+  anularFel: async (invoiceId: string, motivo: string) => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo anular el documento');
+    return data;
+  },
+
+  consultarNitFel: async (nit: string): Promise<{ valido: boolean; nit?: string; nombre?: string; mensaje?: string }> => {
+    const res = await fetchWithAuth(`/api/fel/consulta-nit/${encodeURIComponent(nit)}`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo consultar el NIT');
+    return data;
+  },
+
   getFelDocumentos: async (estado?: string) => {
     const url = estado ? `/api/fel/documentos?estado=${encodeURIComponent(estado)}` : '/api/fel/documentos';
     const res = await fetchWithAuth(url);

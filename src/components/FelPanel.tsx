@@ -55,6 +55,12 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
+  // Verificacion del NIT contra el padron de SAT (servicio de INFILE)
+  const [nitVerificado, setNitVerificado] = useState<{ valido: boolean; nombre?: string; mensaje?: string } | null>(null);
+  const [verificandoNit, setVerificandoNit] = useState(false);
+  // Flujo de anulacion: requiere motivo y confirmacion explicita
+  const [mostrandoAnulacion, setMostrandoAnulacion] = useState(false);
+  const [motivoAnulacion, setMotivoAnulacion] = useState('');
 
   const cargar = async () => {
     try {
@@ -93,6 +99,40 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
     navigator.clipboard?.writeText(uuid);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 1800);
+  };
+
+  const verificarNit = async () => {
+    if (!datos?.nitReceptor) return;
+    setVerificandoNit(true);
+    setNitVerificado(null);
+    try {
+      setNitVerificado(await api.consultarNitFel(datos.nitReceptor));
+    } catch (e: any) {
+      setNitVerificado({ valido: false, mensaje: e?.message ?? 'No se pudo consultar' });
+    } finally {
+      setVerificandoNit(false);
+    }
+  };
+
+  const anular = async () => {
+    if (motivoAnulacion.trim().length < 5) {
+      setError('Indica el motivo de la anulación (mínimo 5 caracteres).');
+      return;
+    }
+    setProcesando(true);
+    setError(null);
+    setAviso(null);
+    try {
+      const r = await api.anularFel(invoice.id, motivoAnulacion.trim());
+      setAviso(r?.anulado ? 'Documento anulado ante SAT.' : r?.mensaje ?? null);
+      setMostrandoAnulacion(false);
+      setMotivoAnulacion('');
+      await cargar();
+    } catch (e: any) {
+      setError(e?.message ?? 'No se pudo anular');
+    } finally {
+      setProcesando(false);
+    }
   };
 
   const estado: EstadoFEL = datos?.estado ?? 'sin_emitir';
@@ -152,16 +192,39 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
               </div>
             )}
 
-            <div className="border border-slate-200 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                NIT del receptor
-              </span>
-              <span className={cn(
-                'font-mono text-sm font-bold',
-                datos?.nitReceptor ? 'text-slate-700' : 'text-amber-600'
-              )}>
-                {datos?.nitReceptor || 'CF (consumidor final)'}
-              </span>
+            <div className="border border-slate-200 rounded-xl px-3.5 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  NIT del receptor
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    'font-mono text-sm font-bold',
+                    datos?.nitReceptor ? 'text-slate-700' : 'text-amber-600'
+                  )}>
+                    {datos?.nitReceptor || 'CF (consumidor final)'}
+                  </span>
+                  {datos?.nitReceptor && !datos?.esConsumidorFinal && (
+                    <button
+                      onClick={verificarNit}
+                      disabled={verificandoNit}
+                      className="text-[10px] font-bold px-2 py-1 rounded-lg bg-teal-50 text-[#00696a] hover:bg-teal-100 border border-teal-100 cursor-pointer disabled:opacity-50"
+                    >
+                      {verificandoNit ? 'Consultando…' : 'Verificar en SAT'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {nitVerificado && (
+                <p className={cn(
+                  'text-[11px] mt-1.5 leading-snug',
+                  nitVerificado.valido ? 'text-emerald-700' : 'text-red-600'
+                )}>
+                  {nitVerificado.valido
+                    ? <>✓ Registrado en SAT como: <b>{nitVerificado.nombre}</b></>
+                    : <>✗ {nitVerificado.mensaje}</>}
+                </p>
+              )}
             </div>
 
             {/* Desglose fiscal: el dato clave es que el gran total NO cambia */}
@@ -221,6 +284,59 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
                 {procesando ? <><RefreshCw size={15} className="animate-spin" /> Procesando…</>
                             : <><FileCheck2 size={15} /> Certificar ante SAT</>}
               </button>
+            )}
+
+            {/* Anulación: solo admin, solo documentos certificados */}
+            {esAdmin && estado === 'certificado' && !mostrandoAnulacion && (
+              <button
+                onClick={() => setMostrandoAnulacion(true)}
+                className="w-full py-2 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 transition-colors cursor-pointer text-xs flex items-center justify-center gap-1.5"
+              >
+                <Ban size={13} /> Anular documento ante SAT
+              </button>
+            )}
+            {esAdmin && estado === 'certificado' && mostrandoAnulacion && (
+              <div className="border border-red-200 bg-red-50 rounded-xl p-3.5 space-y-2.5">
+                <p className="text-xs font-bold text-red-800">
+                  La anulación es un trámite fiscal ante SAT y no se puede deshacer.
+                </p>
+                <textarea
+                  value={motivoAnulacion}
+                  onChange={(e) => setMotivoAnulacion(e.target.value)}
+                  placeholder="Motivo de la anulación (obligatorio)…"
+                  rows={2}
+                  className="w-full text-xs border border-red-200 rounded-lg p-2 bg-white text-slate-700 resize-none focus:outline-none focus:ring-1 focus:ring-red-300"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={anular}
+                    disabled={procesando || motivoAnulacion.trim().length < 5}
+                    className="flex-1 py-2 rounded-lg font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-xs"
+                  >
+                    {procesando ? 'Anulando…' : 'Confirmar anulación'}
+                  </button>
+                  <button
+                    onClick={() => { setMostrandoAnulacion(false); setMotivoAnulacion(''); }}
+                    className="py-2 px-4 rounded-lg font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {estado === 'anulado' && datos?.documento && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Anulación</p>
+                <p className="text-[11px] text-slate-600">
+                  Motivo: <b>{(datos.documento as any).motivo_anulacion || '—'}</b>
+                </p>
+                {(datos.documento as any).fecha_anulacion && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {new Date((datos.documento as any).fecha_anulacion).toLocaleString('es-GT')}
+                  </p>
+                )}
+              </div>
             )}
 
             {!esAdmin && (

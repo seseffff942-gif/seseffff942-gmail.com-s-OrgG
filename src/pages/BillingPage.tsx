@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
@@ -10,6 +10,7 @@ import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { FelBadge, FelPanel } from '../components/FelPanel';
+import { FelConfigModal } from '../components/FelConfigModal';
 
 interface BillingPageProps {
   user: User;
@@ -29,6 +30,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   // estado solo cambia cuando alguien certifica un documento.
   const [felEstados, setFelEstados] = useState<Record<string, EstadoFEL>>({});
   const [invoiceFel, setInvoiceFel] = useState<Invoice | null>(null);
+  const [showFelConfig, setShowFelConfig] = useState(false);
   const [shippingModalConfig, setShippingModalConfig] = useState<{ id: string } | null>(null);
   const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string } | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
@@ -1253,6 +1255,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <p className="text-slate-400 mt-1 font-medium text-sm">
             {user.role === 'admin' ? 'Gestión avanzada de cuentas por cobrar, abonos y folios' : 'Monitoreo de ventas diarias y créditos'}
           </p>
+          {user.role === 'admin' && (
+            <button
+              onClick={() => setShowFelConfig(true)}
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+            >
+              <Settings2 size={12} /> Configuración FEL
+            </button>
+          )}
         </div>
         
         {/* Statistical Bento Deck */}
@@ -2264,6 +2274,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           title="Firma de Revisión (Admin)"
         />
       )}
+      {showFelConfig && <FelConfigModal onClose={() => setShowFelConfig(false)} />}
       {invoiceFel && (
         <FelPanel
           invoice={invoiceFel}
