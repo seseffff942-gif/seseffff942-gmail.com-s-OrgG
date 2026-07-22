@@ -250,6 +250,34 @@ le sigue cobrando al cliente en Q50.00; FEL solo exige declararlo descompuesto:
 **Consecuencia:** ningún precio cambia. La facturación actual y la facturación
 FEL producen el mismo total. Esto elimina el mayor riesgo comercial del proyecto.
 
+
+### Integración real con INFILE implementada
+
+Con base en la implementación de referencia del cliente (sistema NestJS ya en
+producción con INFILE), se completó la integración:
+
+- **`fel/xml.ts`** — genera el `GTDocumento` completo. Mejoras sobre la
+  referencia: **todos los valores se escapan** (un cliente llamado "Agro & Vet"
+  rompía el XML de la referencia) y los montos salen de `fel/calculos.ts`
+  (cuadre garantizado). La fecha de emisión se calcula explícitamente en hora
+  de Guatemala (UTC-6): el servidor corre en UTC y usar su hora local emitiría
+  documentos 6 horas en el futuro.
+- **Factura cambiaria (FCAM) con complemento de abonos** — es el tipo por
+  defecto (confirmado con el cliente). Un abono por el total, con vencimiento
+  = fecha de la factura + días de crédito (etiqueta `|||CREDIT:` de `notes`).
+- **`fel/infile.ts`** — llamada real al certificador: cabeceras `UsuarioFirma`,
+  `LlaveFirma`, `UsuarioApi`, `LlaveApi`, `identificador`; respuesta JSON con
+  `resultado`, `uuid`, `serie`, `numero`, `descripcion_errores`. Timeout de 30 s.
+- **Todo lo enviado y todo lo respondido queda guardado** (pedido explícito):
+  `xml_enviado` (incluso si la certificación queda pendiente), `xml_certificado`,
+  `respuesta_certificador` (JSON crudo) en `fel_documentos`, y la respuesta de
+  cada intento en `fel_bitacora`.
+- La URL del certificador y las credenciales viven en `fel_config`
+  (migración `004_fel_infile.sql`) — nunca en el código.
+
+Verificado: XML bien formado (xmllint), escape correcto, complemento FCAM con
+vencimiento a +60 días, y persistencia del XML aun sin credenciales.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:

@@ -4894,6 +4894,7 @@ ${productsContext}`;
       'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'direccion', 'municipio',
       'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
       'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
+      'infile_url', 'tipo_dte_default',
     ];
     const cambios: any = {};
     for (const c of permitidos) {

@@ -118,5 +118,28 @@
     "customerPhone": "50255512345",
     "deliveryAddress": "Km 25 Ruta al Atlantico",
     "nit": "1234567-8"
+  },
+  {
+    "id": "INV-1784743980026-5107",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "7654321-K|||TYPE:agricola|||CREDIT:60",
+    "items": [
+      {
+        "productId": "p1",
+        "quantity": 3,
+        "price": 50,
+        "total": 150,
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 150,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:13:00.027Z",
+    "clientName": "Agroservicios El Quetzal",
+    "customerPhone": "50255512345",
+    "deliveryAddress": "Zona 1",
+    "nit": "7654321-K"
   }
 ]

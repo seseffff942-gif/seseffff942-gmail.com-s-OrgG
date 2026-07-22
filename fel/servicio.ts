@@ -12,6 +12,7 @@ import {
   InfileNoConfiguradoError,
   type CredencialesInfile,
 } from './infile';
+import { construirXmlDTE } from './xml';
 
 export type EstadoFEL = 'pendiente' | 'enviado' | 'certificado' | 'error' | 'anulado';
 export type TipoDTE = 'FACT' | 'FCAM' | 'NCRE' | 'NDEB' | 'NABN' | 'RDON';
@@ -27,9 +28,15 @@ export interface ConfigFEL {
   tasa_iva?: number;
   moneda?: string;
   ambiente?: 'pruebas' | 'produccion';
+  codigo_postal?: string;
+  municipio?: string;
+  departamento?: string;
+  pais?: string;
   infile_usuario?: string;
   infile_llave_firma?: string;
   infile_llave_token?: string;
+  infile_url?: string;
+  tipo_dte_default?: string;
 }
 
 export interface DocumentoFEL {
@@ -148,6 +155,16 @@ export function esConsumidorFinal(nit: string): boolean {
   return n === '' || n === 'CF' || n === 'CONSUMIDORFINAL';
 }
 
+/**
+ * Dias de credito de la factura, guardados como etiqueta |||CREDIT:n dentro
+ * de `notes` (mismo formato interno que el resto del sistema).
+ * Definen la fecha de vencimiento del abono en la factura cambiaria.
+ */
+export function extraerDiasCredito(invoice: any): number {
+  const m = String(invoice?.notes ?? '').match(/\|\|\|CREDIT:(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 export interface PreparacionDTE {
   totales: TotalesFEL;
   advertencias: string[];
@@ -243,9 +260,11 @@ export async function certificarFactura(
   const inicio = Date.now();
   const config = await obtenerConfig(supabase);
   const faltantes = configIncompleta(config);
-  const tipoDte: TipoDTE = opciones.tipoDte ?? 'FACT';
+  // El negocio factura con FACTURA CAMBIARIA (FCAM) por defecto; el tipo se
+  // puede cambiar por peticion o en fel_config.tipo_dte_default.
+  const tipoDte: TipoDTE = opciones.tipoDte ?? ((config?.tipo_dte_default as TipoDTE) || 'FCAM');
 
-  const { totales, advertencias } = prepararDTE(invoice);
+  const { totales, advertencias, nitReceptor } = prepararDTE(invoice);
   if (faltantes.length) {
     advertencias.push(`Falta completar la configuracion del emisor: ${faltantes.join(', ')}.`);
   }
@@ -277,14 +296,47 @@ export async function certificarFactura(
     usuario: config?.infile_usuario ?? '',
     llaveFirma: config?.infile_llave_firma ?? '',
     llaveToken: config?.infile_llave_token ?? '',
+    url: config?.infile_url ?? '',
     ambiente: (config?.ambiente as any) ?? 'pruebas',
   };
+
+  // El XML se genera y se guarda SIEMPRE que los datos del emisor esten
+  // completos, aunque falten credenciales: queda constancia exacta de lo que
+  // se enviaria y se puede revisar antes de la primera certificacion real.
+  let xmlEnviado: string | null = null;
+  if (faltantes.length === 0) {
+    const dias = extraerDiasCredito(invoice);
+    const fechaBase = new Date(invoice.date || Date.now());
+    const vencimiento = new Date(fechaBase.getTime() + dias * 86400000).toISOString().slice(0, 10);
+
+    xmlEnviado = construirXmlDTE(
+      {
+        nit: config!.nit_emisor!,
+        nombre: config!.nombre_emisor!,
+        nombreComercial: config!.nombre_comercial,
+        direccion: config!.direccion!,
+        codigoPostal: config!.codigo_postal,
+        municipio: config!.municipio,
+        departamento: config!.departamento,
+        pais: config!.pais,
+        codigoEstablecimiento: config!.codigo_establecimiento!,
+        afiliacionIva: config!.afiliacion_iva,
+      },
+      { nit: nitReceptor || 'CF', nombre: invoice.client, direccion: invoice.address },
+      totales,
+      {
+        tipo: (tipoDte === 'FCAM' ? 'FCAM' : 'FACT'),
+        moneda: config?.moneda || 'GTQ',
+        fechaVencimiento: vencimiento,
+      }
+    );
+  }
 
   const puedeCertificar = faltantes.length === 0 && credencialesCompletas(credenciales);
 
   if (!puedeCertificar) {
     const motivo = new InfileNoConfiguradoError().message;
-    const registro = { ...base, estado: 'pendiente' as EstadoFEL, mensaje_error: motivo };
+    const registro = { ...base, estado: 'pendiente' as EstadoFEL, mensaje_error: motivo, xml_enviado: xmlEnviado };
     const { data, error } = await supabase
       .from('fel_documentos')
       .upsert(registro, { onConflict: 'id' })
@@ -305,10 +357,9 @@ export async function certificarFactura(
     return { documento: data, advertencias, certificado: false, mensaje: motivo };
   }
 
-  // --- Camino real: se ejecutara cuando existan credenciales de INFILE ---
+  // --- Certificacion real contra INFILE ---
   try {
-    const xml = ''; // TODO: generar el XML del DTE con los XML de ejemplo de INFILE
-    const resp = await certificarDTE(xml, credenciales);
+    const resp = await certificarDTE(xmlEnviado!, credenciales, id);
 
     const registro = {
       ...base,
@@ -316,8 +367,10 @@ export async function certificarFactura(
       numero_autorizacion: resp.numeroAutorizacion ?? null,
       serie: resp.serie ?? null,
       numero: resp.numero ?? null,
+      xml_enviado: xmlEnviado,
       xml_certificado: resp.xmlCertificado ?? null,
-      fecha_certificacion: resp.exito ? new Date().toISOString() : null,
+      respuesta_certificador: resp.respuestaCompleta ?? null,
+      fecha_certificacion: resp.exito ? (resp.fecha ?? new Date().toISOString()) : null,
       mensaje_error: resp.exito ? null : resp.mensaje ?? 'Rechazado por el certificador',
     };
 
@@ -333,8 +386,9 @@ export async function certificarFactura(
       invoice_id: invoice.id,
       operacion: 'certificar',
       exito: resp.exito,
-      codigo_respuesta: resp.codigo ?? null,
+      codigo_respuesta: resp.codigo ?? (resp.exito ? 'CERTIFICADO' : null),
       mensaje: resp.mensaje ?? null,
+      respuesta: resp.respuestaCompleta ?? null,
       duracion_ms: Date.now() - inicio,
     });
 
@@ -345,7 +399,7 @@ export async function certificarFactura(
       mensaje: resp.mensaje,
     };
   } catch (e: any) {
-    const registro = { ...base, estado: 'error' as EstadoFEL, mensaje_error: e?.message ?? String(e) };
+    const registro = { ...base, estado: 'error' as EstadoFEL, mensaje_error: e?.message ?? String(e), xml_enviado: xmlEnviado };
     const { data } = await supabase
       .from('fel_documentos')
       .upsert(registro, { onConflict: 'id' })

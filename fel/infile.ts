@@ -1,31 +1,24 @@
 /**
  * Integracion con INFILE (certificador de FEL en Guatemala).
  *
- * ESTADO: pendiente de credenciales y documentacion de INFILE.
+ * Protocolo (segun la implementacion de referencia del cliente, ya en
+ * produccion con INFILE en otro sistema):
  *
- * Este archivo es la UNICA frontera con el certificador. Todo lo demas del
- * sistema (endpoints, pantallas, base de datos) ya funciona sin el: los
- * documentos se pueden preparar, revisar y consultar. Lo unico que falta es
- * que estas dos funciones dejen de lanzar el error y hagan la llamada real.
+ *   POST {url}            con el XML del DTE en el cuerpo
+ *   Cabeceras:            UsuarioFirma, LlaveFirma, UsuarioApi, LlaveApi,
+ *                         identificador (correlacion unica por intento)
+ *   Respuesta (JSON):     { resultado: bool, uuid, serie, numero, fecha,
+ *                           descripcion_errores: [{ mensaje_error }] }
  *
- * QUE HACE FALTA PARA COMPLETARLO
- * -------------------------------
- * 1. Documentacion tecnica de la API de INFILE (endpoints y formato).
- * 2. Credenciales del ambiente de PRUEBAS: usuario, llave de firma y token.
- * 3. Un XML de ejemplo ya aceptado, para replicar la estructura exacta del DTE.
- *
- * FLUJO QUE IMPLEMENTAN ESTAS FUNCIONES
- * -------------------------------------
- *   1. Se arma el DTE en XML segun el esquema de SAT.
- *   2. Se firma electronicamente (INFILE ofrece servicio de firma).
- *   3. Se envia al certificador.
- *   4. INFILE valida, reporta a SAT y devuelve el numero de autorizacion (UUID).
+ * La URL y las credenciales viven en la tabla fel_config (ambiente de
+ * pruebas o produccion) — nunca en el codigo.
  */
 
 export interface CredencialesInfile {
   usuario: string;
   llaveFirma: string;
   llaveToken: string;
+  url: string;
   ambiente: 'pruebas' | 'produccion';
 }
 
@@ -34,45 +27,134 @@ export interface RespuestaCertificacion {
   numeroAutorizacion?: string;
   serie?: string;
   numero?: string;
+  fecha?: string;
   xmlCertificado?: string;
   codigo?: string;
   mensaje?: string;
+  /** Respuesta cruda completa del certificador, para guardarla integra. */
+  respuestaCompleta?: any;
 }
 
 export class InfileNoConfiguradoError extends Error {
-  constructor() {
+  constructor(faltantes: string[] = []) {
     super(
-      'La integracion con INFILE aun no esta configurada. ' +
-      'Hacen falta las credenciales del ambiente de pruebas y la documentacion de su API. ' +
-      'El documento se guardo en estado pendiente y puede certificarse despues.'
+      'La integracion con INFILE aun no esta configurada' +
+      (faltantes.length ? ` (falta: ${faltantes.join(', ')})` : '') +
+      '. El documento se guardo en estado pendiente y puede certificarse despues.'
     );
     this.name = 'InfileNoConfiguradoError';
   }
 }
 
+export function credencialesFaltantes(c: Partial<CredencialesInfile> | null): string[] {
+  const faltan: string[] = [];
+  if (!c?.usuario) faltan.push('usuario');
+  if (!c?.llaveFirma) faltan.push('llave de firma');
+  if (!c?.llaveToken) faltan.push('llave/token de API');
+  if (!c?.url) faltan.push('URL del certificador');
+  return faltan;
+}
+
 export function credencialesCompletas(c: Partial<CredencialesInfile> | null): boolean {
-  return !!(c && c.usuario && c.llaveFirma && c.llaveToken);
+  return credencialesFaltantes(c).length === 0;
 }
 
-/**
- * Envia un DTE a INFILE para su certificacion.
- * Pendiente de implementar: ver notas al inicio del archivo.
- */
+const TIMEOUT_MS = 30_000;
+
+async function llamarInfile(
+  url: string,
+  xml: string,
+  credenciales: CredencialesInfile,
+  identificador: string
+): Promise<RespuestaCertificacion> {
+  const controlador = new AbortController();
+  const timer = setTimeout(() => controlador.abort(), TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      signal: controlador.signal,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        UsuarioFirma: credenciales.usuario,
+        LlaveFirma: credenciales.llaveFirma,
+        UsuarioApi: credenciales.usuario,
+        LlaveApi: credenciales.llaveToken,
+        identificador,
+      },
+      body: xml,
+    });
+  } catch (e: any) {
+    const esTimeout = e?.name === 'AbortError';
+    return {
+      exito: false,
+      codigo: esTimeout ? 'TIMEOUT' : 'RED',
+      mensaje: esTimeout
+        ? `El certificador no respondio en ${TIMEOUT_MS / 1000}s. La factura queda pendiente; reintentar mas tarde.`
+        : `No se pudo contactar al certificador: ${e?.message ?? e}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    return {
+      exito: false,
+      codigo: `HTTP_${res.status}`,
+      mensaje: `El certificador devolvio una respuesta no valida (HTTP ${res.status}).`,
+    };
+  }
+
+  if (json?.resultado) {
+    return {
+      exito: true,
+      numeroAutorizacion: json.uuid,
+      serie: json.serie,
+      numero: json.numero !== undefined && json.numero !== null ? String(json.numero) : undefined,
+      fecha: json.fecha,
+      // INFILE devuelve el XML certificado en base64 en 'xml_certificado'.
+      xmlCertificado: json.xml_certificado,
+      respuestaCompleta: json,
+    };
+  }
+
+  const errores = Array.isArray(json?.descripcion_errores) ? json.descripcion_errores : [];
+  const mensajes = errores
+    .slice(0, 5)
+    .map((e: any) => e?.mensaje_error)
+    .filter(Boolean)
+    .join(' | ');
+
+  return {
+    exito: false,
+    codigo: 'RECHAZADO',
+    mensaje: mensajes || json?.descripcion || 'El certificador rechazo el documento sin detalle.',
+    respuestaCompleta: json,
+  };
+}
+
+/** Envia un DTE a INFILE para su certificacion. */
 export async function certificarDTE(
-  _xml: string,
-  _credenciales: CredencialesInfile
+  xml: string,
+  credenciales: CredencialesInfile,
+  identificador: string
 ): Promise<RespuestaCertificacion> {
-  throw new InfileNoConfiguradoError();
+  const faltan = credencialesFaltantes(credenciales);
+  if (faltan.length) throw new InfileNoConfiguradoError(faltan);
+  return llamarInfile(credenciales.url, xml, credenciales, identificador);
 }
 
-/**
- * Solicita a INFILE la anulacion de un DTE ya certificado.
- * Pendiente de implementar: ver notas al inicio del archivo.
- */
+/** Solicita la anulacion de un DTE ya certificado. */
 export async function anularDTE(
-  _numeroAutorizacion: string,
-  _motivo: string,
-  _credenciales: CredencialesInfile
+  xmlAnulacion: string,
+  credenciales: CredencialesInfile,
+  identificador: string
 ): Promise<RespuestaCertificacion> {
-  throw new InfileNoConfiguradoError();
+  const faltan = credencialesFaltantes(credenciales);
+  if (faltan.length) throw new InfileNoConfiguradoError(faltan);
+  return llamarInfile(credenciales.url, xmlAnulacion, credenciales, identificador);
 }
