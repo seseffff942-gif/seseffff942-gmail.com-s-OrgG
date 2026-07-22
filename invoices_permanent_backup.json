@@ -141,5 +141,59 @@
     "customerPhone": "50255512345",
     "deliveryAddress": "Zona 1",
     "nit": "7654321-K"
+  },
+  {
+    "id": "INV-1784744495243-5176",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "|||TYPE:veterinaria|||CREDIT:30",
+    "items": [
+      {
+        "productId": "p1",
+        "quantity": 2,
+        "price": 50,
+        "total": 100,
+        "productName": "Legatus mixx 30 OD litro",
+        "originalPrice": 50
+      }
+    ],
+    "totalAmount": 100,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:21:35.243Z",
+    "clientName": "Consumidor Final",
+    "customerPhone": "",
+    "deliveryAddress": "",
+    "nit": ""
+  },
+  {
+    "id": "INV-1784744531303-5447",
+    "sellerId": "seseffff942@gmail.com",
+    "notes": "CF|||TYPE:veterinaria|||CREDIT:30",
+    "items": [
+      {
+        "productId": "p2",
+        "quantity": 5,
+        "price": 50,
+        "total": 250,
+        "productName": "Leñador 16 EW galón",
+        "originalPrice": 50
+      },
+      {
+        "productId": "p137",
+        "quantity": 1,
+        "price": 850,
+        "total": 850,
+        "productName": "Incubadora Automática 24",
+        "originalPrice": 850
+      }
+    ],
+    "totalAmount": 1100,
+    "paidAmount": 0,
+    "status": "pending",
+    "date": "2026-07-22T18:22:11.303Z",
+    "clientName": "Distribuidora El Campo",
+    "customerPhone": "50255500000",
+    "deliveryAddress": "Zona 10, Guatemala",
+    "nit": "CF"
   }
 ]

@@ -278,6 +278,22 @@ producción con INFILE), se completó la integración:
 Verificado: XML bien formado (xmllint), escape correcto, complemento FCAM con
 vencimiento a +60 días, y persistencia del XML aun sin credenciales.
 
+
+### ✅ Primera certificación real exitosa (ambiente de pruebas, 22/07/2026)
+
+Con las credenciales de pruebas de INFILE cargadas en `fel_config`, se
+certificaron dos documentos reales contra el certificador:
+
+| Prueba | Resultado |
+|---|---|
+| FCAM contado, receptor CF (Q100) | UUID `B0E4DD7C-…`, serie `**PRUEBAS**` |
+| FCAM a crédito 30 días (Q1,100) | UUID `E5C976F7-…`, vencimiento del abono correcto |
+| Reintento sobre factura certificada | Bloqueado: «ya estaba certificada» |
+| Persistencia | `xml_enviado`, `xml_certificado` (XML firmado, ~19 KB), respuesta JSON completa y bitácora con duración |
+
+Datos operativos confirmados por la ficha de INFILE: establecimiento de
+Agricovet = **2**, frases Tipo 1 / Escenario 1, usuario API = usuario firma.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:
