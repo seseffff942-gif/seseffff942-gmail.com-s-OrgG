@@ -468,6 +468,30 @@ distinción razón social / nombre comercial.
 > editor de plantilla. El bloque fiscal —lo que SAT exige— ya usa los datos
 > correctos de la configuración.
 
+
+### Representación gráfica FEL: formato unificado en una sola página
+
+El bloque fiscal se agregaba como un recuadro grande al final, lo que empujaba
+la factura a una **segunda página**. Se rediseñó para **repartir los datos
+fiscales en las secciones que ya existen**, manteniendo el documento en una
+página:
+
+- **Encabezado:** razón social, nombre comercial y NIT del emisor (tomados de
+  la configuración FEL) — Razón social = `BOREAL SOLUTIONS, SOCIEDAD ANÓNIMA`,
+  nombre comercial = `AGRICOVET DE GUATEMALA`.
+- **Detalles del Documento:** tipo de documento, serie, número (resaltado),
+  número de autorización y fecha de certificación, junto al Folio y la Fecha.
+- **Totales:** monto gravable e IVA (12%) integrados con el Total.
+- **Franja compacta al final:** solo la leyenda cambiaria + la frase.
+- **Modo compacto:** cuando la factura está certificada se inyecta un `<style>`
+  que ajusta los márgenes de las secciones, recuperando el espacio que agrega
+  el contenido fiscal. Medido: de 1203px (2 páginas) a 976px (1 página, con
+  ~33px de margen) para una factura de 4 líneas.
+
+La inyección usa anclas estables de la plantilla; si una plantilla
+personalizada no las tuviera, hay un **bloque de respaldo** que agrega todo
+junto al final (nunca se pierde la información fiscal).
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:

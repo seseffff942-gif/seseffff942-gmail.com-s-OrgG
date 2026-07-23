@@ -515,88 +515,89 @@ function fechaDDMMYYYY(fecha: any, conHora = false): string {
   return conHora ? `${base} ${p(d.getHours())}:${p(d.getMinutes())}` : base;
 }
 
-/** Construye el bloque fiscal FEL que se incrusta en la factura impresa. */
-function construirBloqueFel(fel?: FelPrintData): string {
+/**
+ * Fragmentos FEL para incrustar en distintas secciones de la factura, en vez
+ * de un bloque grande al final (que empujaba a una segunda pagina). Asi el
+ * documento mantiene un formato unificado en una sola pagina:
+ *   - emisorLinea  -> encabezado (razon social + NIT del emisor)
+ *   - detalles     -> columna "Detalles del Documento" (tipo, serie, numero, UUID)
+ *   - ivaRows      -> tabla de totales (monto gravable, IVA)
+ *   - leyenda      -> franja compacta al final (leyenda cambiaria + frase)
+ *   - tagline      -> reemplazo del "Comprobante de Venta" del encabezado
+ */
+interface FragmentosFel {
+  emisorLinea: string;
+  detalles: string;
+  ivaRows: string;
+  leyenda: string;
+  tagline: string;
+  bloqueFallback: string;
+}
+
+function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
   const doc = fel?.documento;
-  if (!doc || doc.estado !== 'certificado' || !doc.numero_autorizacion) return '';
+  if (!doc || doc.estado !== 'certificado' || !doc.numero_autorizacion) return null;
 
   const fmt = (n: any) => {
     const v = Number(n);
     return isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
   const esFcam = doc.tipo_dte === 'FCAM';
-  const razonSocial = fel?.emisor?.nombre || '';
-  const nombreComercial = fel?.emisor?.nombreComercial || razonSocial;
+  const razon = fel?.emisor?.nombre || '';
+  const comercial = fel?.emisor?.nombreComercial || '';
   const dias = Number(fel?.creditDays || 0);
   const fechaCert = fechaDDMMYYYY(doc.fecha_certificacion, true);
+  const tipoTexto = esFcam ? 'Factura Cambiaria Electrónica (Libre de Protesto)' : 'Factura Electrónica';
+  const esPrueba = String(doc.serie || '').toUpperCase().includes('PRUEBA') || fel?.emisor?.ambiente === 'pruebas';
 
-  const esPrueba = String(doc.serie || '').toUpperCase().includes('PRUEBA')
-    || fel?.emisor?.ambiente === 'pruebas';
-  const bannerPrueba = esPrueba
-    ? `<div style="background:#fef3c7; border:1px solid #f59e0b; color:#92400e; text-align:center; font-weight:800; font-size:9pt; padding:6px; border-radius:5px; margin-bottom:12px;">DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL</div>`
+  const emisorLinea =
+    (razon ? `<div class="meta-info-text" style="margin-top:3px;"><strong>Razón social:</strong> ${razon}</div>` : '') +
+    (comercial && comercial !== razon ? `<div class="meta-info-text"><strong>Nombre comercial:</strong> ${comercial}</div>` : '') +
+    (fel?.emisor?.nit ? `<div class="meta-info-text"><strong>NIT Emisor:</strong> ${fel.emisor.nit}</div>` : '');
+
+  const detalles = `
+                    <div class="info-detail-item" style="margin-top:6px; border-top:1px dashed #E2E8F0; padding-top:6px;"><strong>Documento:</strong> ${tipoTexto}</div>
+                    <div class="info-detail-item"><strong>Serie:</strong> ${doc.serie || ''} &nbsp;·&nbsp; <strong>Número:</strong> <span style="color:#b91c1c; font-weight:bold;">${doc.numero || ''}</span></div>
+                    <div class="info-detail-item"><strong>No. Autorización:</strong><br/><span style="font-family:monospace; font-size:8pt; word-break:break-all;">${doc.numero_autorizacion}</span></div>
+                    <div class="info-detail-item"><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A.</div>`;
+
+  const ivaRows = `
+            <tr>
+                <td class="lbl" style="font-weight:normal; color:#555;">Monto Gravable</td>
+                <td class="val" style="color:#555;">Q ${fmt(doc.monto_gravable)}</td>
+            </tr>
+            <tr>
+                <td class="lbl" style="font-weight:normal; color:#555;">IVA (12%)</td>
+                <td class="val" style="color:#555;">Q ${fmt(doc.monto_iva)}</td>
+            </tr>`;
+
+  const leyendaCambiaria = esFcam
+    ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'} se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon}</strong> el valor total de <strong>Q ${fmt(doc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
     : '';
 
-  // Titulo del documento segun su tipo.
-  const tituloDoc = esFcam
-    ? 'FACTURA CAMBIARIA ELECTRÓNICA<br/>LIBRE DE PROTESTO'
-    : 'FACTURA ELECTRÓNICA';
+  const bannerPrueba = esPrueba
+    ? `<span style="color:#92400e; font-weight:800;">DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL. </span>`
+    : '';
 
-  // Encabezado tipo "recuadro" con el tipo de documento, serie y numero
-  // (al estilo de la representacion grafica que exige SAT).
-  const cabecera = `
-    <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
-      <tr>
-        <td style="vertical-align:top; font-size:8.5pt; color:#333; padding-right:14px;">
-          <div style="font-weight:800; font-size:10pt; color:#111;">${razonSocial}</div>
-          ${nombreComercial && nombreComercial !== razonSocial ? `<div style="color:#555;">Nombre comercial: ${nombreComercial}</div>` : ''}
-          <div><strong>NIT Emisor:</strong> ${fel?.emisor?.nit || ''}</div>
-        </td>
-        <td style="width:230px; vertical-align:top;">
-          <div style="border:1.5px solid #111; border-radius:4px; padding:8px 10px; text-align:center;">
-            <div style="font-weight:800; font-size:9.5pt; color:#111; line-height:1.25;">${tituloDoc}</div>
-            <div style="margin-top:5px; font-size:8.5pt; color:#333;"><strong>SERIE:</strong> ${doc.serie || ''}</div>
-            <div style="font-size:8.5pt; color:#333;"><strong>NÚMERO:</strong> <span style="color:#b91c1c; font-weight:700;">${doc.numero || ''}</span></div>
-          </div>
-        </td>
-      </tr>
-    </table>`;
-
-  // Leyenda de pago obligatoria de la factura cambiaria (sin clausula de
-  // intereses, por indicacion del cliente). Solo aplica a FCAM.
-  const leyendaCambiaria = esFcam ? `
-    <div style="margin-top:10px; font-size:8pt; color:#333; text-align:justify; line-height:1.4;">
-      Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'}
-      se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razonSocial}</strong> el valor total de
-      <strong>Q ${fmt(doc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la
-      mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a
-      pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja
-      correspondiente.
-    </div>` : '';
-
-  return `
-    <div style="margin-top: 26px; border: 1.5px solid #1A4D2E; border-radius: 8px; padding: 14px 18px; page-break-inside: avoid;">
-      ${bannerPrueba}
-      ${cabecera}
-      <table style="width:100%; border-collapse: collapse; font-size: 8.5pt; color:#333; border-top:1px dashed #ccc; padding-top:6px;">
-        <tr>
-          <td style="padding:3px 0;"><strong>Número de Autorización (SAT):</strong></td>
-          <td style="padding:3px 0; font-family: monospace; word-break: break-all;">${doc.numero_autorizacion}</td>
-        </tr>
-        <tr>
-          <td style="padding:2px 0;"><strong>Fecha de certificación:</strong> ${fechaCert}</td>
-          <td style="padding:2px 0;"><strong>Certificador:</strong> INFILE, S.A.</td>
-        </tr>
-      </table>
-      <table style="width:100%; margin-top:8px; border-top:1px dashed #cccccc; padding-top:6px; font-size:8.5pt; color:#333;">
-        <tr><td>Monto gravable:</td><td style="text-align:right;">Q ${fmt(doc.monto_gravable)}</td></tr>
-        <tr><td>IVA (12%):</td><td style="text-align:right;">Q ${fmt(doc.monto_iva)}</td></tr>
-        <tr><td style="font-weight:800;">Gran Total:</td><td style="text-align:right; font-weight:800;">Q ${fmt(doc.gran_total)}</td></tr>
-      </table>
-      ${leyendaCambiaria}
-      <div style="margin-top:10px; font-size:7.5pt; color:#666; text-align:center; font-style:italic;">
-        Frase: ${FRASE_FEL} · Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.
-      </div>
+  const leyenda = `
+    <div style="margin-top:14px; padding:9px 13px; border:1px solid #1A4D2E; border-radius:6px; font-size:7.6pt; color:#333; text-align:justify; line-height:1.45; page-break-inside:avoid;">
+      ${bannerPrueba}${leyendaCambiaria}<span style="font-style:italic; color:#666;">Frase: ${FRASE_FEL} Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span>
     </div>`;
+
+  // Bloque de respaldo (si la plantilla es personalizada y faltan las anclas):
+  // se agrega todo junto al final, compacto.
+  const bloqueFallback = `
+    <div style="margin-top:16px; border:1.5px solid #1A4D2E; border-radius:8px; padding:12px 16px; font-size:8.5pt; color:#333; page-break-inside:avoid;">
+      <div style="font-weight:800; color:#1A4D2E; margin-bottom:6px;">${tipoTexto.toUpperCase()}</div>
+      <div><strong>Emisor:</strong> ${razon} · <strong>NIT:</strong> ${fel?.emisor?.nit || ''}</div>
+      <div><strong>Serie:</strong> ${doc.serie || ''} · <strong>Número:</strong> ${doc.numero || ''}</div>
+      <div><strong>No. Autorización:</strong> <span style="font-family:monospace;">${doc.numero_autorizacion}</span></div>
+      <div><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A.</div>
+      <div style="margin-top:4px;"><strong>Gravable:</strong> Q ${fmt(doc.monto_gravable)} · <strong>IVA:</strong> Q ${fmt(doc.monto_iva)} · <strong>Total:</strong> Q ${fmt(doc.gran_total)}</div>
+      ${leyenda}
+    </div>`;
+
+  return { emisorLinea, detalles, ivaRows, leyenda, tagline: tipoTexto, bloqueFallback };
 }
 
 export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string, fel?: FelPrintData): string {
@@ -630,6 +631,61 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     }).join('');
 
     let t = templateText || DEFAULT_PRINT_TEMPLATE;
+
+    // ---- Inyeccion FEL distribuida (antes de sustituir variables, porque
+    // algunas anclas usan {{sellerName}}). Reparte los datos fiscales en las
+    // secciones existentes para no empujar a una segunda pagina. ----
+    const frag = construirFragmentosFel(fel);
+    if (frag) {
+      let ok = false;
+
+      // Modo compacto: el bloque fiscal agrega contenido; se recupera espacio
+      // ajustando margenes para mantener el documento en una sola pagina.
+      const estiloCompacto = `
+    <style id="fel-compacto">
+      .header-container { margin-bottom: 10px !important; }
+      .info-grid { margin-bottom: 10px !important; }
+      .modern-table { margin-bottom: 8px !important; }
+      .modern-table td, .modern-table th { padding-top: 5px !important; padding-bottom: 5px !important; }
+      .totals-wrapper { margin-top: 8px !important; }
+      .totals-subtable td { padding: 5px 14px !important; }
+      .info-detail-item { margin-bottom: 2px !important; }
+      .meta-info-text { margin-bottom: 1px !important; }
+      .company-title { margin-bottom: 3px !important; font-size: 22pt !important; }
+      .policy-banner { margin-top: 6px !important; }
+    </style>`;
+      t = t.replace(/<\/head>/i, estiloCompacto + '\n</head>');
+
+      // 1) Encabezado: reemplazar tagline por el tipo de documento + emisor
+      const taglineAntes = t;
+      t = t.replace(/<div class="tagline">Comprobante de Venta ⚽<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
+      t = t.replace(/<div class="tagline">Comprobante de Venta<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
+      t = t.replace(/(<h1 class="company-title">[^<]*<\/h1>)/, `$1${frag.emisorLinea}`);
+
+      // 2) Detalles del Documento: agregar tipo, serie, numero, autorizacion
+      if (/<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>/.test(t)) {
+        t = t.replace(/(<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>)/, `$1${frag.detalles}`);
+        ok = true;
+      }
+
+      // 3) Totales: agregar monto gravable e IVA antes del gran total
+      if (t.includes('grand-total')) {
+        t = t.replace(/(<tr class="grand-total">)/, `${frag.ivaRows}$1`);
+        ok = true;
+      }
+
+      // Quitar la leyenda de futbol (si existe) — no va en documento fiscal
+      t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g, '');
+
+      // 4) Leyenda compacta al final. Si las anclas principales existieron, solo
+      // la leyenda; si la plantilla es personalizada y no matchearon, el bloque
+      // de respaldo completo.
+      if (ok || t !== taglineAntes) {
+        t = t.replace(/<\/body>/i, frag.leyenda + '\n</body>');
+      } else {
+        t = t.replace(/<\/body>/i, frag.bloqueFallback + '\n</body>');
+      }
+    }
 
     // Support both types of loop: {{#each items}} ... {{/each}} and old {{itemsTableRows}}
     const loopRegex = /\{\{#each items\}\}([\s\S]*?)\{\{\/each\}\}/g;
@@ -705,32 +761,6 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{logoUrl\}\}/g, logoUrl);
     t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, logoUrl);
     t = t.replace(/\{\{origin\}\}/g, window.location.origin);
-
-    // ---- Bloque fiscal FEL (solo si la factura esta certificada) ----
-    const bloqueFel = construirBloqueFel(fel);
-    const estaCertificada = !!bloqueFel;
-
-    if (t.includes('{{felBlock}}')) {
-      t = t.replace(/\{\{felBlock\}\}/g, bloqueFel);
-    } else if (estaCertificada) {
-      // La plantilla guardada (o la por defecto) no tiene el marcador:
-      // se inyecta el bloque justo antes de cerrar el body.
-      t = t.replace(/<\/body>/i, bloqueFel + '\n</body>');
-    }
-
-    if (estaCertificada) {
-      // Un DTE certificado ya no es un "comprobante de venta": es una factura
-      // fiscal. Se ajustan los textos que delatan lo contrario. Se cubren tanto
-      // la plantilla por defecto (con emoji) como la que el cliente tiene
-      // guardada en produccion (sin emoji) — el orden importa: primero la
-      // variante con emoji, luego el texto plano.
-      t = t.replace(/Comprobante de Venta ⚽/g, 'Factura Electrónica en Línea (FEL)');
-      t = t.replace(/Comprobante de Venta/gi, 'Factura Electrónica en Línea (FEL)');
-      t = t.replace(/COMPROBANTE DE VENTA/g, 'FACTURA ELECTRÓNICA (FEL)');
-      // La leyenda de futbol (si existe) no corresponde en un documento tributario.
-      t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g,
-        'Representación gráfica de un DTE certificado electrónicamente ante la SAT.');
-    }
 
     return t;
   } catch (e) {
