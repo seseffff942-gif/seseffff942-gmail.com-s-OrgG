@@ -950,6 +950,49 @@ export const api = {
     return res.json();
   },
 
+  getOfficeInventory: async (): Promise<any[]> => {
+    const res = await fetchWithAuth('/api/office-inventory');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al obtener inventario de oficina');
+    }
+    return res.json();
+  },
+  createOfficeItem: async (data: any): Promise<any> => {
+    const res = await fetchWithAuth('/api/office-inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al crear artículo');
+    }
+    return res.json();
+  },
+  updateOfficeItem: async (id: string, data: any): Promise<any> => {
+    const res = await fetchWithAuth(`/api/office-inventory/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al actualizar artículo');
+    }
+    return res.json();
+  },
+  deleteOfficeItem: async (id: string): Promise<any> => {
+    const res = await fetchWithAuth(`/api/office-inventory/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al eliminar artículo');
+    }
+    return res.json();
+  },
+
   impersonate: async (userId: string): Promise<User> => {
     const res = await fetchWithAuth('/api/auth/impersonate', {
       method: 'POST',

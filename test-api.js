@@ -1,26 +1,29 @@
-import http from 'http';
+import fetch from 'node-fetch';
 
-http.get('http://localhost:3000/api/offers', (res) => {
-  let data = '';
-  res.on('data', chunk => data += chunk);
-  res.on('end', () => console.log('GET /api/offers:', data));
-});
+async function test() {
+  const loginRes = await fetch('http://localhost:3000/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@agricovet.com', password: 'admin' })
+  });
+  const loginData = await loginRes.json();
+  const token = loginData.token;
 
-const postData = JSON.stringify({ name: 'test from curl', buyQty: 1, freeQty: 1, productId: 'p1' });
-const options = {
-  hostname: 'localhost',
-  port: 3000,
-  path: '/api/offers',
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(postData)
-  }
-};
-const req = http.request(options, (res) => {
-  let data = '';
-  res.on('data', chunk => data += chunk);
-  res.on('end', () => console.log('POST /api/offers:', res.statusCode, data));
-});
-req.write(postData);
-req.end();
+  const createRes = await fetch('http://localhost:3000/api/office-inventory', {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      name: 'Test via API',
+      category: 'Mobiliario',
+      quantity: 5,
+      unitPrice: 100,
+      location: 'Oficina',
+      status: 'good'
+    })
+  });
+  console.log('Create Response:', createRes.status, await createRes.json());
+}
+test();

@@ -24,8 +24,20 @@ export function cleanObservations(notes: string | undefined | null): string {
   return obsPart ? obsPart.replace('OBS:', '').trim() : '';
 }
 
+export function isTecunProduct(product: { name?: string; category?: string } | null | undefined): boolean {
+  if (!product) return false;
+  const nameL = (product.name || '').toLowerCase();
+  const catL = (product.category || '').toLowerCase();
+  return (
+    catL.includes('tecun') || nameL.includes('tecun') ||
+    catL.includes('tecún') || nameL.includes('tecún')
+  );
+}
+
 export function isCriticalStock(product: { name?: string; category?: string; stock?: number }): boolean {
   if (!product) return false;
+  if (isTecunProduct(product)) return false;
+  
   const stock = product.stock || 0;
   
   const nameL = (product.name || '').toLowerCase();

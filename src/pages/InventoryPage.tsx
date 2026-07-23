@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode } from 'lucide-react';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase } from 'lucide-react';
 import { cn, doesNotNeedStock, isCriticalStock } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
+import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
 
 interface InventoryPageProps {
@@ -45,7 +46,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [uploadingImageProductId, setUploadingImageProductId] = useState<string | null>(null);
   const [isGeminiOpen, setIsGeminiOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const [inventoryViewMode, setInventoryViewMode] = useState<'grid' | 'list' | 'valuation'>(() => {
+  const [inventoryViewMode, setInventoryViewMode] = useState<'grid' | 'list' | 'valuation' | 'office'>(() => {
     return (localStorage.getItem('inventoryViewMode') as any) || 'list';
   });
 
@@ -555,7 +556,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
             
             {/* Search Input */}
-            <div className="relative w-full lg:max-w-xs flex-1">
+            <div className={cn("relative w-full lg:max-w-xs flex-1", inventoryViewMode === 'office' ? 'invisible hidden lg:block' : '')}>
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
                 type="text"
@@ -597,25 +598,41 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 <span className="xs:hidden">LIST.</span>
               </button>
               {user.role === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => setInventoryViewMode('valuation')}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
-                    inventoryViewMode === 'valuation' 
-                      ? "bg-[#0b4d2c] text-white shadow-sm animate-pulse-once" 
-                      : "text-slate-500 hover:text-slate-805"
-                  )}
-                >
-                  <Package size={13} />
-                  <span className="hidden xs:inline">VALORACIÓN</span>
-                  <span className="xs:hidden">VAL.</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setInventoryViewMode('valuation')}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
+                      inventoryViewMode === 'valuation' 
+                        ? "bg-[#0b4d2c] text-white shadow-sm animate-pulse-once" 
+                        : "text-slate-500 hover:text-slate-805"
+                    )}
+                  >
+                    <Package size={13} />
+                    <span className="hidden xs:inline">VALORACIÓN</span>
+                    <span className="xs:hidden">VAL.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInventoryViewMode('office')}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
+                      inventoryViewMode === 'office' 
+                        ? "bg-blue-800 text-white shadow-sm animate-pulse-once" 
+                        : "text-slate-500 hover:text-blue-800"
+                    )}
+                  >
+                    <Briefcase size={13} />
+                    <span className="hidden xs:inline">OFICINA Y EQUIPO</span>
+                    <span className="xs:hidden">OFI.</span>
+                  </button>
+                </>
               )}
             </div>
 
             {/* Refresh and Add Product Controls */}
-            <div className="flex w-full lg:w-auto items-center justify-end gap-2.5">
+            <div className={cn("flex w-full lg:w-auto items-center justify-end gap-2.5", inventoryViewMode === 'office' ? 'hidden' : '')}>
               <button
                 onClick={() => {
                   let csv = "Producto,Categoría,Stock,Precio (Q)\n";
@@ -770,7 +787,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           </div>
 
           {/* Interactive Categories Bar using exact HomePage styling approach */}
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-200 snap-x">
+          <div className={cn("flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-200 snap-x", inventoryViewMode === 'office' ? 'hidden' : '')}>
             {categories.map((cat) => {
               const IconComponent = getCategoryIcon(cat);
               const isActive = selectedCategory === cat;
@@ -1171,6 +1188,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             <div className="w-10 h-10 border-4 border-[#0b4d2c] border-t-transparent rounded-full animate-spin" />
             <p className="text-xs sm:text-sm text-slate-400 font-bold uppercase tracking-wider">Cargando inventario centralizado...</p>
           </div>
+        ) : inventoryViewMode === 'office' ? (
+          <OfficeInventory user={user} isMobile={isMobile} />
         ) : filteredProducts.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8 max-w-xl mx-auto">
             <Package size={48} className="mx-auto text-slate-300 mb-4" />

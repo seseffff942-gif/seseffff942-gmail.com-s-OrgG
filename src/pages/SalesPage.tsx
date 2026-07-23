@@ -4,7 +4,7 @@ import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
 import { motion } from 'motion/react';
 
 interface SalesPageProps {
@@ -374,7 +374,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
     let requiresAuth = false;
     if (totalNewQty > maxStock && !doesNotNeedStock(product)) {
-      if ((product.category || '').toUpperCase() === 'TECUN') {
+      if (isTecunProduct(product)) {
         requiresAuth = true;
         setErrorMsg(`"${product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
         setTimeout(() => setErrorMsg(''), 6000);
@@ -493,9 +493,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         const maxStock = variantStock !== undefined ? variantStock : item.product.stock;
 
         if (newQ > maxStock && !doesNotNeedStock(item.product)) {
-           setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
-           setTimeout(() => setErrorMsg(''), 5000);
-           return { ...item, quantity: maxStock };
+           if (isTecunProduct(item.product)) {
+              setErrorMsg(`"${item.product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
+              setTimeout(() => setErrorMsg(''), 6000);
+              return { ...item, quantity: newQ, requiresAuth: true };
+           } else {
+              setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
+              setTimeout(() => setErrorMsg(''), 5000);
+              return { ...item, quantity: maxStock };
+           }
         }
         return { ...item, quantity: newQ };
       }
@@ -836,9 +842,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       const maxStock = variantStock !== undefined ? variantStock : item.product.stock;
 
       if (item.quantity > maxStock && !doesNotNeedStock(item.product)) {
-        setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
-        setTimeout(() => setErrorMsg(''), 5000);
-        return;
+        if (isTecunProduct(item.product)) {
+          item.requiresAuth = true;
+        } else {
+          setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
+          setTimeout(() => setErrorMsg(''), 5000);
+          return;
+        }
       }
       const itemPrice = item.overridePrice !== undefined ? item.overridePrice : item.product.price;
       if (itemPrice < 0) {
@@ -1047,11 +1057,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
               {filteredProducts.map((product) => {
                 const isExempt = doesNotNeedStock(product);
+                const isTecun = isTecunProduct(product);
                 let displayStock = product.stock;
                 if (product.variants && product.variants.length > 0) {
                    displayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
                 }
-                const hasNoStock = displayStock === 0 && !product.is_external && !isExempt;
+                const hasNoStock = displayStock === 0 && !product.is_external && !isExempt && !isTecun;
                 
                 const cardMotionProps = isMobile ? {
                   initial: { opacity: 1, y: 0, scale: 1 },
@@ -1086,13 +1097,23 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           ? "bg-amber-500 border-amber-400 text-white" 
                           : (isExempt 
                               ? "bg-[#16a34a] border-[#15803d] text-white"
-                              : (displayStock > 10 
-                                  ? "bg-emerald-50 border-emerald-100 text-emerald-800" 
-                                  : (displayStock > 0 
-                                      ? "bg-amber-50 border-amber-100 text-amber-800 animate-pulse" 
-                                      : "bg-red-50 border-red-100 text-red-700")))
+                              : (isTecun
+                                  ? (displayStock > 0 ? "bg-amber-500 border-amber-600 text-white" : "bg-purple-600 border-purple-700 text-white")
+                                  : (displayStock > 10 
+                                      ? "bg-emerald-50 border-emerald-100 text-emerald-800" 
+                                      : (displayStock > 0 
+                                          ? "bg-amber-50 border-amber-100 text-amber-800 animate-pulse" 
+                                          : "bg-red-50 border-red-100 text-red-700"))))
                       )}>
-                        {product.is_external ? 'BAJO PEDIDO' : (isExempt ? 'STOCK ILIMITADO' : (displayStock > 10 ? <span>Disponibles: {displayStock}</span> : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO')))}
+                        {product.is_external 
+                          ? 'BAJO PEDIDO' 
+                          : (isExempt 
+                              ? 'STOCK ILIMITADO' 
+                              : (isTecun 
+                                  ? (displayStock > 0 ? <span>TECUN ({displayStock} DISP.)</span> : <span>TECUN (REVISIÓN)</span>)
+                                  : (displayStock > 10 
+                                      ? <span>Disponibles: {displayStock}</span> 
+                                      : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO'))))}
                       </span>
                     </div>
 
@@ -1597,9 +1618,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                     const maxStock = variantStock !== undefined ? variantStock : it.product.stock;
                                     
                                     if (newQ > maxStock && !doesNotNeedStock(it.product)) {
-                                      setErrorMsg(`Falta de stock disponible para "${it.product.name}"${it.variant ? ` (${it.variant.color})` : ''}`);
-                                      setTimeout(() => setErrorMsg(''), 4000);
-                                      return it;
+                                      if (isTecunProduct(it.product)) {
+                                         setErrorMsg(`"${it.product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
+                                         setTimeout(() => setErrorMsg(''), 6000);
+                                         return { ...it, quantity: newQ, requiresAuth: true };
+                                      } else {
+                                         setErrorMsg(`Falta de stock disponible para "${it.product.name}"${it.variant ? ` (${it.variant.color})` : ''}`);
+                                         setTimeout(() => setErrorMsg(''), 4000);
+                                         return it;
+                                      }
                                     }
                                     return { ...it, quantity: newQ };
                                  }
@@ -1706,7 +1733,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     <div className="flex flex-wrap gap-2">
                       {Array.from(new Set(selectedProduct.variants.map(v => v.color))).map(color => {
                         const variantsInColor = selectedProduct.variants!.filter(v => v.color === color);
-                        const isColorExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct);
+                        const isColorExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct);
                         
                         // A color is blocked/out-of-stock if ALL variants under this color are blocked/out-of-stock
                         const isColorAllBlocked = variantsInColor.every(v => v.isBlocked);
@@ -1764,7 +1791,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide block">2. Seleccionar Medida / Talla</label>
                       <div className="flex flex-wrap gap-2">
                         {selectedProduct.variants!.filter(v => v.color === selectedColor).map(v => {
-                          const isSizeExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct);
+                          const isSizeExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct);
                           const isSizeBlocked = v.isBlocked;
                           const isSizeOutOfStock = !isSizeExempt && (v.stock !== undefined ? v.stock : selectedProduct.stock) <= 0;
                           const isSizeUnavailable = isSizeBlocked || isSizeOutOfStock;

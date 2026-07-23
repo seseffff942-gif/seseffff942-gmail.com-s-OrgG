@@ -1439,6 +1439,89 @@ if (!process.env.VERCEL) {
     res.json({ success: true, photo: photoUrl });
   }));
 
+  // OFFICE INVENTORY
+  app.get("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { data, error } = await supabase.from("office_inventory").select("*");
+    if (error) {
+      console.warn("Office inventory fetch error (probably table missing):", error);
+      return res.json([]);
+    }
+    const formattedData = (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      quantity: Number(item.quantity || 0),
+      unitPrice: Number(item.unit_price || 0),
+      location: item.location,
+      status: item.status
+    }));
+    res.json(formattedData);
+  }));
+
+  app.post("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
+    console.log("CREATE office item Payload:", req.body);
+    const payload = {
+      name: req.body.name,
+      category: req.body.category,
+      quantity: req.body.quantity,
+      unit_price: req.body.unitPrice,
+      location: req.body.location,
+      status: req.body.status
+    };
+    const { data, error } = await supabase.from("office_inventory").insert([payload]).select().single();
+    if (error) {
+      console.error("Error creating office item:", error);
+      return res.status(500).json({ error: 'Error saving item: ' + error.message });
+    }
+    res.json({
+      id: data.id,
+      name: data.name,
+      category: data.category,
+      quantity: Number(data.quantity),
+      unitPrice: Number(data.unit_price),
+      location: data.location,
+      status: data.status
+    });
+  }));
+
+  app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    console.log("UPDATE office item ID:", id, "Payload:", req.body);
+    const payload = {
+      name: req.body.name,
+      category: req.body.category,
+      quantity: req.body.quantity,
+      unit_price: req.body.unitPrice,
+      location: req.body.location,
+      status: req.body.status
+    };
+    const { data, error } = await supabase.from("office_inventory").update(payload).eq('id', id).select().single();
+    if (error) {
+      console.error("Error updating office item:", error);
+      return res.status(500).json({ error: 'Error updating item: ' + error.message });
+    }
+    res.json({
+      id: data.id,
+      name: data.name,
+      category: data.category,
+      quantity: Number(data.quantity),
+      unitPrice: Number(data.unit_price),
+      location: data.location,
+      status: data.status
+    });
+  }));
+
+  app.delete("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    console.log("DELETE office item ID:", id);
+    const { error } = await supabase.from("office_inventory").delete().eq('id', id);
+    if (error) {
+      console.error("Error deleting office item:", error);
+      return res.status(500).json({ error: 'Error deleting item: ' + error.message });
+    }
+    res.json({ success: true });
+  }));
+
   // INVENTORY
   app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) => {
     const cached = getCachedData("products");
