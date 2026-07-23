@@ -438,11 +438,27 @@ facturas de 50 líneas y descuentos. Todas las pruebas pasan.
 
 ## Pendientes
 
-| Tarea | Bloqueado por |
+| Tarea | Estado / Prioridad |
 |---|---|
-| Generación del XML del DTE | Los XML de ejemplo del sistema anterior |
-| Integración con la API de INFILE | Credenciales de pruebas |
-| Definir si las ventas al crédito usan FACT o **FCAM** | Decisión del cliente |
-| Políticas RLS en producción | — |
-| Rotar la llave de Supabase comprometida | — |
-| Optimización de costos (pausar polling) | — |
+| Desplegar a producción (seguridad + FEL) | **Siguiente paso** — seguir DESPLIEGUE.md |
+| Rotar la llave de Supabase comprometida | Alta — hacerla en el mismo despliegue |
+| Políticas RLS en producción | Alta — antes o durante el despliegue |
+| Comparar con el XML puro de INFILE | Cuando INFILE lo envíe |
+| Credenciales de producción de INFILE | Cuando el cliente autorice salir de pruebas |
+| Migrar blobs `sys-*` a tablas reales | **Baja — pospuesta.** Verificado en producción (22/07/2026): las deudas pesan 2.3 KB y proveedores 2.4 KB. Con ese volumen no se justifica; retomar si el módulo crece (50+ registros o necesidad de reportes). |
+| Anulación de factura del sistema con DTE certificado debería exigir anulación FEL | Media — mejora antifallo humano |
+
+---
+
+## Notas operativas para quien mantenga esto
+
+- **NUNCA borrar los usuarios con `role = 'system'`** (`sys-debts-store`,
+  `sys-suppliers-store`, `sys-print-template`, `sys-logo-config`,
+  `sys-signature-config`, `sys-whatsapp-config`). No son usuarios: son el
+  almacén real de deudas, proveedores y configuración, guardado como JSON en
+  la columna `photo`. Borrarlos destruye esos datos. La pantalla de Equipo los
+  oculta a propósito.
+- **Folios en producción:** no existe fila `sys-folio-config` en la base de
+  producción; la numeración sale del archivo `folio_config.json` desplegado.
+  El código lee el archivo ANTES que la base — si algún día un "reset de
+  folio" en producción no surte efecto, esta es la causa.
