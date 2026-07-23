@@ -580,7 +580,7 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
     : '';
 
   const leyenda = `
-    <div style="margin-top:14px; padding:9px 13px; border:1px solid #1A4D2E; border-radius:6px; font-size:7.6pt; color:#333; text-align:justify; line-height:1.45; page-break-inside:avoid;">
+    <div style="margin-top:8px; padding:7px 11px; border:1px solid #1A4D2E; border-radius:6px; font-size:7.4pt; color:#333; text-align:justify; line-height:1.4; page-break-inside:avoid;">
       ${bannerPrueba}${leyendaCambiaria}<span style="font-style:italic; color:#666;">Frase: ${FRASE_FEL} Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span>
     </div>`;
 
@@ -643,16 +643,21 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       // ajustando margenes para mantener el documento en una sola pagina.
       const estiloCompacto = `
     <style id="fel-compacto">
-      .header-container { margin-bottom: 10px !important; }
-      .info-grid { margin-bottom: 10px !important; }
-      .modern-table { margin-bottom: 8px !important; }
-      .modern-table td, .modern-table th { padding-top: 5px !important; padding-bottom: 5px !important; }
-      .totals-wrapper { margin-top: 8px !important; }
-      .totals-subtable td { padding: 5px 14px !important; }
-      .info-detail-item { margin-bottom: 2px !important; }
-      .meta-info-text { margin-bottom: 1px !important; }
-      .company-title { margin-bottom: 3px !important; font-size: 22pt !important; }
-      .policy-banner { margin-top: 6px !important; }
+      .header-container { margin-bottom: 8px !important; }
+      /* Logo mas pequeño para ganar espacio vertical en el encabezado */
+      .logo-details img { max-width: 95px !important; max-height: 85px !important; }
+      .tagline { margin-bottom: 2px !important; font-size: 8.5pt !important; }
+      .company-title { margin-bottom: 2px !important; font-size: 19pt !important; }
+      .meta-info-text { margin-bottom: 0 !important; font-size: 8.8pt !important; line-height: 1.25 !important; }
+      .policy-banner { margin-top: 5px !important; font-size: 8pt !important; padding: 3px 9px !important; }
+      .info-grid { margin-bottom: 8px !important; }
+      .section-heading { margin-bottom: 5px !important; }
+      .info-profile-name { font-size: 11pt !important; margin-bottom: 3px !important; }
+      .info-detail-item { margin-bottom: 1px !important; font-size: 9.3pt !important; }
+      .modern-table { margin-bottom: 6px !important; }
+      .modern-table td, .modern-table th { padding-top: 4px !important; padding-bottom: 4px !important; font-size: 9.5pt !important; }
+      .totals-wrapper { margin-top: 6px !important; }
+      .totals-subtable td { padding: 4px 14px !important; font-size: 10pt !important; }
     </style>`;
       t = t.replace(/<\/head>/i, estiloCompacto + '\n</head>');
 

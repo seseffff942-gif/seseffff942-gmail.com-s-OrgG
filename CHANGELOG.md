@@ -486,7 +486,9 @@ página:
 - **Modo compacto:** cuando la factura está certificada se inyecta un `<style>`
   que ajusta los márgenes de las secciones, recuperando el espacio que agrega
   el contenido fiscal. Medido: de 1203px (2 páginas) a 976px (1 página, con
-  ~33px de margen) para una factura de 4 líneas.
+  ~33px de margen) para una factura de 4 líneas. Ajuste posterior: logo más
+  pequeño (95px) y encabezado/tablas más compactos → una factura de **6
+  líneas mide 849px (160px de margen)**, con lo que caben ~11 líneas por página.
 
 La inyección usa anclas estables de la plantilla; si una plantilla
 personalizada no las tuviera, hay un **bloque de respaldo** que agrega todo
