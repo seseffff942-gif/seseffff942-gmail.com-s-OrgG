@@ -297,6 +297,28 @@ control de versiones (contenían NIT, nombres y teléfonos reales).
 > configuración de folios/bodega). En Vercel esos datos NO persisten entre
 > despliegues — es el hallazgo de la auditoría aún abierto.
 
+### El botón "Anular Factura" no anulaba el DTE ante SAT — *(inconsistencia fiscal)*
+
+Había dos formas de anular una factura:
+
+- **"Anular documento ante SAT"** (panel FEL): anula el DTE ante SAT + cancela
+  la factura + restaura stock. Correcto.
+- **"Anular Factura"** (detalle de la factura): solo marcaba la factura como
+  `cancelled` y restauraba stock — **sin tocar el DTE**. Resultado: la venta
+  quedaba anulada en el sistema pero **el documento seguía CERTIFICADO y válido
+  ante SAT**. Un problema fiscal real.
+
+**Solución (protección en el servidor, capa autoritativa):** al intentar
+anular/rechazar por la vía normal una factura que tiene un DTE certificado, el
+servidor responde **409** con un mensaje claro que indica usar "Anular
+documento ante SAT". La factura NO se toca hasta que se haga la anulación
+fiscal correcta. El frontend ahora muestra ese mensaje real (antes tapaba todos
+los errores con un genérico "Error al actualizar estado").
+
+Verificado: (1) anular por la vía normal una factura certificada → bloqueado,
+factura intacta; (2) la anulación FEL correcta sí funciona; (3) una factura sin
+DTE certificado se sigue anulando normal, sin cambios.
+
 ---
 
 ## Factura Electrónica (FEL)
@@ -472,7 +494,6 @@ facturas de 50 líneas y descuentos. Todas las pruebas pasan.
 | Comparar con el XML puro de INFILE | Cuando INFILE lo envíe |
 | Credenciales de producción de INFILE | Cuando el cliente autorice salir de pruebas |
 | Migrar blobs `sys-*` a tablas reales | **Baja — pospuesta.** Verificado en producción (22/07/2026): las deudas pesan 2.3 KB y proveedores 2.4 KB. Con ese volumen no se justifica; retomar si el módulo crece (50+ registros o necesidad de reportes). |
-| Anulación de factura del sistema con DTE certificado debería exigir anulación FEL | Media — mejora antifallo humano |
 
 ---
 

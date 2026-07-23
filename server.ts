@@ -3000,6 +3000,24 @@ if (!process.env.VERCEL) {
     const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
     if (!invoice) return res.status(404).json({ error: "No encontrada" });
 
+    // PROTECCION FISCAL: no dejar anular/rechazar por la via normal una factura
+    // que tiene un DTE certificado ante SAT. Anularla solo aqui dejaria la venta
+    // cancelada en el sistema pero el documento seguiria VALIDO ante SAT. Debe
+    // pasar por la anulacion FEL (que anula ante SAT y ademas cancela la factura
+    // y restaura el stock). Ver POST /api/invoices/:id/fel/anular.
+    if ((status === 'cancelled' || status === 'rejected')
+        && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+      const docFel: any = await felServicio.obtenerDocumentoPorFactura(supabase, id);
+      if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
+        return res.status(409).json({
+          error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
+                 "Para anularla, usa \"Anular documento ante SAT\" en el panel FEL: ese proceso " +
+                 "anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.",
+          requiereAnulacionFel: true,
+        });
+      }
+    }
+
     let updateData: any = { status };
 
     if (status !== invoice.status) {

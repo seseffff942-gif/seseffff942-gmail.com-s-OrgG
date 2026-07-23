@@ -259,8 +259,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           }
       }
       loadInvoices();
-    } catch(err) {
-      alert("Error al actualizar estado");
+    } catch(err: any) {
+      // Mostrar el mensaje real del servidor (p. ej. el aviso de que la factura
+      // tiene un DTE certificado y debe anularse ante SAT) en vez de uno generico.
+      alert(err?.message || "Error al actualizar estado");
     }
   };
 
