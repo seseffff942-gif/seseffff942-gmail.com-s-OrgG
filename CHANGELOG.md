@@ -494,6 +494,35 @@ La inyección usa anclas estables de la plantilla; si una plantilla
 personalizada no las tuviera, hay un **bloque de respaldo** que agrega todo
 junto al final (nunca se pierde la información fiscal).
 
+
+### Rediseño profesional de la factura impresa + fix de guardado de plantillas
+
+A pedido del cliente, se rediseñó la representación gráfica para que sea más
+limpia, ligera y aproveche mejor el espacio:
+
+- **Nueva plantilla profesional** (`fel/plantilla_profesional.html`, también en
+  `DEFAULT_PRINT_TEMPLATE`): encabezado compacto (logo pequeño + emisor a la
+  izquierda, recuadro del tipo de documento a la derecha), tabla de ítems
+  ligera (sin bloques verdes pesados), totales alineados y bloque legal FEL al
+  pie. Una factura de 6 líneas mide ~794px (cabe holgada en una página).
+- **Datos FEL por marcadores** (`{{FEL_EMISOR}}`, `{{FEL_DOCTYPE}}`,
+  `{{FEL_SERIE_NUM}}`, `{{FEL_DOC_DETAILS}}`, `{{FEL_IVA_ROWS}}`,
+  `{{FEL_LEYENDA}}`): la nueva plantilla los coloca donde corresponde; se
+  mantiene la inyección por anclas como respaldo para plantillas antiguas.
+- El emisor (razón social, nombre comercial, NIT) se muestra siempre, tomado de
+  la configuración FEL.
+
+**Bug encontrado y corregido — el guardado de plantillas escapaba el HTML:**
+el middleware `sanitizeInput` (global) convertía `<` `>` `"` en entidades
+(`&lt;`…) en TODO cuerpo de petición. Al guardar una plantilla de impresión por
+API, la corrompía (se veía el HTML como texto). **Afectaba también al editor de
+plantillas del admin.** Se excluyó la ruta `/api/invoices/print-template` de la
+sanitización (es HTML legítimo); el resto del sistema sigue sanitizado.
+
+> 📌 **Para producción:** con el fix desplegado, la plantilla profesional se
+> aplica guardándola desde el editor de plantillas, o borrando la fila
+> `sys-print-template` para que use la nueva por defecto.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:

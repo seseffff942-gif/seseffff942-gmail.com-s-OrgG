@@ -321,8 +321,13 @@ const sanitizeInput = (obj: any): any => {
   return obj;
 };
 
+// Rutas que legitimamente reciben HTML en el cuerpo y NO deben sanitizarse
+// (la sanitizacion escaparia < > " y corromperia la plantilla de impresion).
+const RUTAS_SIN_SANITIZAR = ['/api/invoices/print-template'];
+
 app.use((req, res, next) => {
-  if (req.body) req.body = sanitizeInput(req.body);
+  const esRutaHtml = RUTAS_SIN_SANITIZAR.some(p => req.path.startsWith(p));
+  if (!esRutaHtml && req.body) req.body = sanitizeInput(req.body);
   if (req.query) req.query = sanitizeInput(req.query);
   if (req.params) req.params = sanitizeInput(req.params);
   next();

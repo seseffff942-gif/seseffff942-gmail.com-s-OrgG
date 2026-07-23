@@ -63,411 +63,116 @@ export function doesNotNeedStock(product: { name?: string; category?: string } |
 export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Recibo de Venta Profesional - AGRICOVET</title>
-    <base href="{{origin}}/" />
-    <style>
-        @page {
-            size: A4;
-            margin: 15mm 15mm;
-            background-color: #ffffff;
-        }
-        
-        @media print {
-            body {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                color: #000000 !important;
-                background-color: #ffffff !important;
-            }
-            /* Clean black text with zero halftoning for superb readability and sharp printing */
-            .info-detail-item, .meta-info-text, .tagline {
-                color: #000000 !important;
-                font-weight: 500 !important;
-            }
-            .totals-subtable .lbl {
-                color: #000000 !important;
-                font-weight: bold !important;
-            }
-            .modern-table td {
-                color: #000000 !important;
-                font-weight: 500 !important;
-            }
-            .info-profile-name {
-                color: #000000 !important;
-                font-weight: 800 !important;
-            }
-            .section-heading {
-                color: #000000 !important;
-                font-weight: 800 !important;
-                border-bottom: 2px solid #000000 !important;
-                display: block !important;
-                padding-bottom: 3px !important;
-            }
-            /* Prevent blurry fonts on print rendering */
-            body, p, td, th, div, span {
-                text-shadow: none !important;
-                box-shadow: none !important;
-            }
-        }
+  <meta charset="UTF-8" />
+  <base href="{{origin}}/" />
+  <style>
+    @page { size: A4; margin: 14mm 15mm; }
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; }
+    @media print {
+      body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+    body { margin: 0; color: #1f2937; font-size: 10pt; line-height: 1.45; }
+    .muted { color: #6b7280; }
+    .num { color: #b91c1c; font-weight: 700; }
 
-        * {
-            box-sizing: border-box;
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-        }
+    /* Encabezado */
+    .doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 12px; border-bottom: 2px solid #1A4D2E; }
+    .brand { display: flex; gap: 12px; align-items: center; }
+    .brand img { width: 62px; height: 62px; object-fit: contain; }
+    .em-name { font-size: 14pt; font-weight: 700; color: #111827; letter-spacing: -0.2px; }
+    .em-meta { font-size: 8.4pt; color: #6b7280; margin-top: 2px; line-height: 1.45; }
+    .doc-box { min-width: 218px; border: 1px solid #1A4D2E; border-radius: 6px; padding: 8px 12px; text-align: center; }
+    .doc-box .t { font-size: 9pt; font-weight: 800; color: #1A4D2E; line-height: 1.25; }
+    .doc-box .r { font-size: 8.6pt; color: #374151; margin-top: 4px; }
 
-        body {
-            margin: 0;
-            padding: 0;
-            font-size: 11pt;
-            line-height: 1.5;
-            color: #111111; /* Clean high-contrast almost-black for screen and print */
-        }
+    /* Partes */
+    .parties { display: flex; gap: 26px; margin: 14px 0 4px; }
+    .parties .col { flex: 1; }
+    .lbl { font-size: 7.4pt; text-transform: uppercase; letter-spacing: 0.09em; color: #9ca3af; font-weight: 700; margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid #e5e7eb; }
+    .cli-name { font-weight: 700; font-size: 10.5pt; color: #111827; }
+    .kv { font-size: 9pt; margin-top: 2px; }
+    .kv b { color: #374151; }
 
-        tr {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
+    /* Tabla de items */
+    table.items { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    table.items thead th { font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; text-align: left; padding: 7px 8px; border-bottom: 1.5px solid #d1d5db; }
+    table.items thead th.r { text-align: right; }
+    table.items tbody td { font-size: 9.4pt; padding: 6px 8px; border-bottom: 1px solid #f0f1f2; vertical-align: top; }
+    table.items tbody td.r { text-align: right; }
+    table.items tbody tr:nth-child(even) td { background: #fafafa; }
 
-        /* Encabezado */
-        .header-container {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
+    /* Totales */
+    .totals { width: 46%; margin-left: auto; margin-top: 10px; border-collapse: collapse; }
+    .totals td { padding: 4px 6px; font-size: 9.6pt; }
+    .totals td.r { text-align: right; }
+    .totals tr.grand td { border-top: 1.5px solid #1A4D2E; font-weight: 800; font-size: 11.5pt; color: #1A4D2E; padding-top: 8px; }
 
-        .header-container td {
-            vertical-align: middle;
-            padding: 0;
-        }
-
-        .company-details {
-            width: 70%;
-        }
-
-        .logo-details {
-            width: 30%;
-            text-align: right;
-        }
-
-        .tagline {
-            font-size: 9.5pt;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #111111;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .company-title {
-            font-size: 26pt;
-            font-weight: 800;
-            color: #1A4D2E;
-            margin: 0 0 8px 0;
-            letter-spacing: -0.5px;
-        }
-
-        .meta-info-text {
-            font-size: 10pt;
-            color: #111111;
-            margin-bottom: 3px;
-        }
-
-        .policy-banner {
-            margin-top: 12px;
-            display: inline-block;
-            background-color: #F0FDF4;
-            border-left: 3.5px solid #16A34A;
-            padding: 6px 12px;
-            font-size: 9.5pt;
-            font-weight: 700;
-            color: #14532D;
-            border-radius: 0 4px 4px 0;
-        }
-
-        /* Bloques informativos de dos columnas */
-        .info-grid {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 30px;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
-
-        .info-grid td {
-            width: 50%;
-            vertical-align: top;
-            padding: 0;
-        }
-
-        .info-card-left {
-            padding-right: 15px;
-        }
-
-        .info-card-right {
-            padding-left: 15px;
-            border-left: 2px solid #E2E8F0;
-        }
-
-        .section-heading {
-            font-size: 10.5pt;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #1A4D2E;
-            font-weight: 800;
-            margin-bottom: 10px;
-            border-bottom: 1.5px solid #E2E8F0;
-            padding-bottom: 2px;
-        }
-
-        .info-profile-name {
-            font-size: 12.5pt;
-            font-weight: 800;
-            color: #000000;
-            margin-bottom: 6px;
-        }
-
-        .info-detail-item {
-            font-size: 10.5pt;
-            color: #111111;
-            margin-bottom: 4px;
-        }
-
-        /* Tabla Moderna */
-        .modern-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-        }
-
-        .modern-table th {
-            background-color: #1A4D2E;
-            color: #ffffff;
-            font-weight: 700;
-            font-size: 10pt;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 12px 14px;
-            border: none;
-        }
-
-        .modern-table th.align-left { text-align: left; border-radius: 6px 0 0 6px; }
-        .modern-table th.align-center { text-align: center; }
-        .modern-table th.align-right { text-align: right; border-radius: 0 6px 6px 0; }
-
-        .modern-table td {
-            padding: 12px 14px;
-            font-size: 11pt;
-            border-bottom: 1px solid #E2E8F0;
-            color: #000000;
-        }
-
-        .modern-table tr:nth-child(even) td {
-            background-color: #F8FAFC;
-        }
-
-        /* Firmas */
-        .signature-section {
-            margin-top: 40px;
-            width: 100%;
-            border-collapse: collapse;
-            page-break-inside: avoid;
-        }
-        .signature-box {
-            width: 50%;
-            text-align: center;
-            padding: 10px;
-            vertical-align: bottom;
-        }
-        .signature-line {
-            border-top: 1.5px solid #000;
-            margin-top: 50px;
-            padding-top: 6px;
-            font-size: 10pt;
-            font-weight: 800;
-            text-transform: uppercase;
-            color: #000;
-        }
-        .signature-img {
-            max-width: 160px;
-            max-height: 80px;
-            display: block;
-            margin: 0 auto -45px auto;
-        }
-
-        .text-left { text-align: left; }
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
-
-        /* Estructura de Totales */
-        .totals-wrapper {
-            width: 100%;
-            margin-top: 20px;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
-
-        .totals-subtable {
-            width: 45%;
-            margin-left: 55%;
-            border-collapse: collapse;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
-
-        .totals-subtable td {
-            padding: 9px 14px;
-            font-size: 11pt;
-        }
-
-        .totals-subtable tr.border-top td {
-            border-top: 2px solid #E2E8F0;
-        }
-
-        .totals-subtable .lbl {
-            color: #333333;
-            text-align: right;
-            font-weight: 700;
-        }
-
-        .totals-subtable .val {
-            text-align: right;
-            font-weight: 750;
-            color: #000000;
-            width: 45%;
-        }
-
-        .totals-subtable tr.grand-total td {
-            background-color: #1A4D2E;
-            padding: 11px 14px;
-            border-radius: 6px;
-        }
-
-        .totals-subtable tr.grand-total .lbl {
-            color: #ffffff;
-            font-weight: 700;
-        }
-
-        .totals-subtable tr.grand-total .val {
-            color: #ffffff;
-            font-size: 13pt;
-            font-weight: 800;
-        }
-
-        .logo-svg {
-            width: 130px;
-            height: 130px;
-        }
-    </style>
+    /* Bloque legal FEL */
+    .fel-legend { margin-top: 14px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 12px; font-size: 7.5pt; color: #4b5563; text-align: justify; line-height: 1.45; page-break-inside: avoid; }
+    .foot-note { margin-top: 8px; font-size: 8pt; color: #1A4D2E; font-weight: 600; }
+  </style>
 </head>
 <body>
-
-    <table class="header-container">
-        <tr>
-            <td class="company-details">
-                <div class="tagline">Comprobante de Venta ⚽</div>
-                <h1 class="company-title">AGRICOVET</h1>
-                <div class="meta-info-text"><strong>Gerencia:</strong> Agricovetsa@gmail.com</div>
-                <div class="meta-info-text"><strong>Teléfono:</strong> +502 3645 0241</div>
-                <div class="meta-info-text">Barrio Segunda Lotificación, Santa Elena, Petén</div>
-                <div class="policy-banner">CAMBIO O DEVOLUCIONES TIENE VIGENCIA DE 8 DÍAS 🏆</div>
-            </td>
-            <td class="logo-details">
-                <!-- Logotipo Oficial del Usuario -->
-                <img src="{{origin}}/agricovet.png" alt="AGRICOVET Logo" style="max-width: 160px; max-height: 140px; object-fit: contain;" />
-            </td>
-        </tr>
-    </table>
-
-    <table class="info-grid">
-        <tr>
-            <td>
-                <div class="info-card-left">
-                    <div class="section-heading">Cliente</div>
-                    <div class="info-profile-name">{{customerName}}</div>
-                    <div class="info-detail-item"><strong>NIT:</strong> {{customerNit}}</div>
-                    <div class="info-detail-item"><strong>Dirección:</strong> {{customerAddress}}</div>
-                    <div class="info-detail-item"><strong>Teléfono:</strong> {{phone}}</div>
-                </div>
-            </td>
-            <td>
-                <div class="info-card-right">
-                    <div class="section-heading">Detalles del Documento</div>
-                    <div class="info-detail-item"><strong>Folio:</strong> <span style="color: #1A4D2E; font-weight: bold;">#{{folio}}</span></div>
-                    <div class="info-detail-item"><strong>Fecha:</strong> {{date}}</div>
-                    <div class="info-detail-item"><strong>Forma de Pago:</strong> {{paymentForm}}</div>
-                    <div class="info-detail-item"><strong>Estado:</strong> {{status}}</div>
-                    <div class="info-detail-item"><strong>Vendedor:</strong> {{sellerName}}</div>
-                </div>
-            </td>
-        </tr>
-    </table>
-
-    <table class="modern-table">
-        <thead>
-            <tr>
-                <th class="align-left" style="width: 50%;">Producto</th>
-                <th class="align-center" style="width: 15%;">Cantidad</th>
-                <th class="align-right" style="width: 15%;">Precio</th>
-                <th class="align-right" style="width: 20%;">Subtotal</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each items}}
-            <tr>
-                <td class="text-left" style="font-weight: 500;">
-                    {{this.productName}}
-                    <div style="font-size: 8.5pt; color: #555555; font-weight: normal; margin-top: 2px;">{{this.variantInfo}}</div>
-                </td>
-                <td class="text-center">{{this.quantity}}</td>
-                <td class="text-right">Q {{this.price}}</td>
-                <td class="text-right" style="font-weight: 600;">Q {{this.subtotal}}</td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
-
-    <div class="totals-wrapper">
-        <table class="totals-subtable">
-            <tr>
-                <td class="lbl">Total Bruto</td>
-                <td class="val">Q {{totalAmount}}</td>
-            </tr>
-            <tr class="border-top">
-                <td class="lbl">Pagos Recibidos</td>
-                <td class="val" style="color: #16A34A;">Q {{paidAmount}}</td>
-            </tr>
-            <tr class="grand-total">
-                <td class="lbl">Total a Pagar</td>
-                <td class="val">Q {{dueAmount}}</td>
-            </tr>
-        </table>
+  <div class="doc-head">
+    <div class="brand">
+      <img src="{{logoUrl}}" alt="Logo" />
+      <div>{{FEL_EMISOR}}</div>
     </div>
-
-    <table class="signature-section">
-        <tr>
-            <td class="signature-box">
-                {{#if sellerSignature}}
-                    <img src="{{sellerSignature}}" class="signature-img" />
-                {{/if}}
-                <div class="signature-line">Firma Vendedor</div>
-            </td>
-            <td class="signature-box">
-                {{#if adminSignature}}
-                    <img src="{{adminSignature}}" class="signature-img" />
-                    <div style="font-size: 8pt; margin-top: 4px; font-weight: bold; color: #1A4D2E;">Revisado por: {{reviewedBy}}</div>
-                {{/if}}
-                <div class="signature-line">Revisado por (Admin)</div>
-            </td>
-        </tr>
-    </table>
-
-    <div style="margin-top: 40px; text-align: center; font-family: monospace; font-size: 11pt; color: #16A34A; font-weight: bold; border-top: 1px dashed #ccc; padding-top: 20px;">
-        ⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅
+    <div class="doc-box">
+      <div class="t">{{FEL_DOCTYPE}}</div>
+      <div class="r"><b>Folio:</b> #{{folio}}</div>
+      {{FEL_SERIE_NUM}}
     </div>
+  </div>
 
+  <div class="parties">
+    <div class="col">
+      <div class="lbl">Cliente</div>
+      <div class="cli-name notranslate" translate="no">{{customerName}}</div>
+      <div class="kv"><b>NIT:</b> {{customerNit}}</div>
+      <div class="kv"><b>Dirección:</b> {{customerAddress}}</div>
+      <div class="kv"><b>Teléfono:</b> {{phone}}</div>
+    </div>
+    <div class="col">
+      <div class="lbl">Detalles del Documento</div>
+      <div class="kv"><b>Fecha:</b> {{date}}</div>
+      <div class="kv"><b>Forma de pago:</b> {{paymentForm}}</div>
+      <div class="kv"><b>Estado:</b> {{status}}</div>
+      <div class="kv"><b>Vendedor:</b> {{sellerName}}</div>
+      {{FEL_DOC_DETAILS}}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:52%;">Producto</th>
+        <th class="r" style="width:14%;">Cantidad</th>
+        <th class="r" style="width:16%;">Precio</th>
+        <th class="r" style="width:18%;">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td class="notranslate" translate="no">{{this.productName}}</td>
+        <td class="r">{{this.quantity}}</td>
+        <td class="r">Q {{this.price}}</td>
+        <td class="r">Q {{this.subtotal}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td class="muted">Total Bruto</td><td class="r">Q {{totalAmount}}</td></tr>
+    {{FEL_IVA_ROWS}}
+    <tr><td class="muted">Pagos Recibidos</td><td class="r">Q {{paidAmount}}</td></tr>
+    <tr class="grand"><td>Total a Pagar</td><td class="r">Q {{dueAmount}}</td></tr>
+  </table>
+
+  {{FEL_LEYENDA}}
+  <div class="foot-note">Cambio o devoluciones tienen vigencia de 8 días.</div>
 </body>
 </html>`;
 
@@ -635,60 +340,102 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     // ---- Inyeccion FEL distribuida (antes de sustituir variables, porque
     // algunas anclas usan {{sellerName}}). Reparte los datos fiscales en las
     // secciones existentes para no empujar a una segunda pagina. ----
-    const frag = construirFragmentosFel(fel);
-    if (frag) {
-      let ok = false;
-
-      // Modo compacto: el bloque fiscal agrega contenido; se recupera espacio
-      // ajustando margenes para mantener el documento en una sola pagina.
-      const estiloCompacto = `
-    <style id="fel-compacto">
-      .header-container { margin-bottom: 8px !important; }
-      /* Logo mas pequeño para ganar espacio vertical en el encabezado */
-      .logo-details img { max-width: 95px !important; max-height: 85px !important; }
-      .tagline { margin-bottom: 2px !important; font-size: 8.5pt !important; }
-      .company-title { margin-bottom: 2px !important; font-size: 19pt !important; }
-      .meta-info-text { margin-bottom: 0 !important; font-size: 8.8pt !important; line-height: 1.25 !important; }
-      .policy-banner { margin-top: 5px !important; font-size: 8pt !important; padding: 3px 9px !important; }
-      .info-grid { margin-bottom: 8px !important; }
-      .section-heading { margin-bottom: 5px !important; }
-      .info-profile-name { font-size: 11pt !important; margin-bottom: 3px !important; }
-      .info-detail-item { margin-bottom: 1px !important; font-size: 9.3pt !important; }
-      .modern-table { margin-bottom: 6px !important; }
-      .modern-table td, .modern-table th { padding-top: 4px !important; padding-bottom: 4px !important; font-size: 9.5pt !important; }
-      .totals-wrapper { margin-top: 6px !important; }
-      .totals-subtable td { padding: 4px 14px !important; font-size: 10pt !important; }
-    </style>`;
-      t = t.replace(/<\/head>/i, estiloCompacto + '\n</head>');
-
-      // 1) Encabezado: reemplazar tagline por el tipo de documento + emisor
-      const taglineAntes = t;
-      t = t.replace(/<div class="tagline">Comprobante de Venta ⚽<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
-      t = t.replace(/<div class="tagline">Comprobante de Venta<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
-      t = t.replace(/(<h1 class="company-title">[^<]*<\/h1>)/, `$1${frag.emisorLinea}`);
-
-      // 2) Detalles del Documento: agregar tipo, serie, numero, autorizacion
-      if (/<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>/.test(t)) {
-        t = t.replace(/(<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>)/, `$1${frag.detalles}`);
-        ok = true;
+    if (t.includes('{{FEL_EMISOR}}') || t.includes('{{FEL_LEYENDA}}')) {
+      // ---- Plantilla profesional nueva: reemplazo de marcadores FEL ----
+      const felDoc: any = fel?.documento;
+      const felCert = !!(felDoc && felDoc.estado === 'certificado' && felDoc.numero_autorizacion);
+      const esFcam = felDoc?.tipo_dte === 'FCAM';
+      const fmtQ = (n: any) => { const v = Number(n); return isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+      const razon = fel?.emisor?.nombre || '';
+      const comercial = fel?.emisor?.nombreComercial || '';
+      const emNombre = comercial || razon || 'AGRICOVET';
+      const meta: string[] = [];
+      if (razon && razon !== emNombre) meta.push(razon);
+      if (fel?.emisor?.nit) meta.push('NIT: ' + fel.emisor.nit);
+      const felEmisor = `<div class="em-name">${emNombre}</div>` + (meta.length ? `<div class="em-meta">${meta.join(' &middot; ')}</div>` : '');
+      const tipoTexto = esFcam ? 'Factura Cambiaria Electrónica' : 'Factura Electrónica';
+      const felDoctype = felCert ? (esFcam ? 'FACTURA CAMBIARIA ELECTRÓNICA<br/>LIBRE DE PROTESTO' : 'FACTURA ELECTRÓNICA') : 'COMPROBANTE DE VENTA';
+      const felSerieNum = felCert ? `<div class="r"><b>Serie:</b> ${felDoc.serie || ''} &nbsp; <b>No.:</b> <span class="num">${felDoc.numero || ''}</span></div>` : '';
+      const felDocDetails = felCert
+        ? `<div class="kv" style="margin-top:6px; border-top:1px dashed #e5e7eb; padding-top:5px;"><b>Documento:</b> ${tipoTexto}</div><div class="kv"><b>No. Autorización:</b><br/><span style="font-family:monospace; font-size:8pt; word-break:break-all;">${felDoc.numero_autorizacion}</span></div><div class="kv"><b>Certificación:</b> ${fechaDDMMYYYY(felDoc.fecha_certificacion, true)} &middot; INFILE, S.A.</div>`
+        : '';
+      const felIvaRows = felCert
+        ? `<tr><td class="muted">Monto Gravable</td><td class="r muted">Q ${fmtQ(felDoc.monto_gravable)}</td></tr><tr><td class="muted">IVA (12%)</td><td class="r muted">Q ${fmtQ(felDoc.monto_iva)}</td></tr>`
+        : '';
+      let felLeyenda = '';
+      if (felCert) {
+        const dias = Number(fel?.creditDays || 0);
+        const esPrueba = String(felDoc.serie || '').toUpperCase().includes('PRUEBA') || fel?.emisor?.ambiente === 'pruebas';
+        const banner = esPrueba ? `<span style="color:#92400e; font-weight:800;">DOCUMENTO DE PRUEBA &middot; SIN VALIDEZ FISCAL. </span>` : '';
+        const camb = esFcam
+          ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'} se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon || emNombre}</strong> el valor total de <strong>Q ${fmtQ(felDoc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
+          : '';
+        felLeyenda = `<div class="fel-legend">${banner}${camb}<span style="font-style:italic;">Frase: ${FRASE_FEL} Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span></div>`;
       }
 
-      // 3) Totales: agregar monto gravable e IVA antes del gran total
-      if (t.includes('grand-total')) {
-        t = t.replace(/(<tr class="grand-total">)/, `${frag.ivaRows}$1`);
-        ok = true;
-      }
+      t = t.replace(/\{\{FEL_EMISOR\}\}/g, felEmisor)
+           .replace(/\{\{FEL_DOCTYPE\}\}/g, felDoctype)
+           .replace(/\{\{FEL_SERIE_NUM\}\}/g, felSerieNum)
+           .replace(/\{\{FEL_DOC_DETAILS\}\}/g, felDocDetails)
+           .replace(/\{\{FEL_IVA_ROWS\}\}/g, felIvaRows)
+           .replace(/\{\{FEL_LEYENDA\}\}/g, felLeyenda);
+    } else {
+      // ---- Plantilla antigua: inyeccion por anclas (compatibilidad) ----
+      const frag = construirFragmentosFel(fel);
+      if (frag) {
+        let ok = false;
 
-      // Quitar la leyenda de futbol (si existe) — no va en documento fiscal
-      t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g, '');
+        // Modo compacto: el bloque fiscal agrega contenido; se recupera espacio
+        // ajustando margenes para mantener el documento en una sola pagina.
+        const estiloCompacto = `
+      <style id="fel-compacto">
+        .header-container { margin-bottom: 8px !important; }
+        /* Logo mas pequeño para ganar espacio vertical en el encabezado */
+        .logo-details img { max-width: 95px !important; max-height: 85px !important; }
+        .tagline { margin-bottom: 2px !important; font-size: 8.5pt !important; }
+        .company-title { margin-bottom: 2px !important; font-size: 19pt !important; }
+        .meta-info-text { margin-bottom: 0 !important; font-size: 8.8pt !important; line-height: 1.25 !important; }
+        .policy-banner { margin-top: 5px !important; font-size: 8pt !important; padding: 3px 9px !important; }
+        .info-grid { margin-bottom: 8px !important; }
+        .section-heading { margin-bottom: 5px !important; }
+        .info-profile-name { font-size: 11pt !important; margin-bottom: 3px !important; }
+        .info-detail-item { margin-bottom: 1px !important; font-size: 9.3pt !important; }
+        .modern-table { margin-bottom: 6px !important; }
+        .modern-table td, .modern-table th { padding-top: 4px !important; padding-bottom: 4px !important; font-size: 9.5pt !important; }
+        .totals-wrapper { margin-top: 6px !important; }
+        .totals-subtable td { padding: 4px 14px !important; font-size: 10pt !important; }
+      </style>`;
+        t = t.replace(/<\/head>/i, estiloCompacto + '\n</head>');
 
-      // 4) Leyenda compacta al final. Si las anclas principales existieron, solo
-      // la leyenda; si la plantilla es personalizada y no matchearon, el bloque
-      // de respaldo completo.
-      if (ok || t !== taglineAntes) {
-        t = t.replace(/<\/body>/i, frag.leyenda + '\n</body>');
-      } else {
-        t = t.replace(/<\/body>/i, frag.bloqueFallback + '\n</body>');
+        // 1) Encabezado: reemplazar tagline por el tipo de documento + emisor
+        const taglineAntes = t;
+        t = t.replace(/<div class="tagline">Comprobante de Venta ⚽<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
+        t = t.replace(/<div class="tagline">Comprobante de Venta<\/div>/, `<div class="tagline">${frag.tagline}</div>`);
+        t = t.replace(/(<h1 class="company-title">[^<]*<\/h1>)/, `$1${frag.emisorLinea}`);
+
+        // 2) Detalles del Documento: agregar tipo, serie, numero, autorizacion
+        if (/<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>/.test(t)) {
+          t = t.replace(/(<strong>Vendedor:<\/strong>\s*\{\{sellerName\}\}<\/div>)/, `$1${frag.detalles}`);
+          ok = true;
+        }
+
+        // 3) Totales: agregar monto gravable e IVA antes del gran total
+        if (t.includes('grand-total')) {
+          t = t.replace(/(<tr class="grand-total">)/, `${frag.ivaRows}$1`);
+          ok = true;
+        }
+
+        // Quitar la leyenda de futbol (si existe) — no va en documento fiscal
+        t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g, '');
+
+        // 4) Leyenda compacta al final. Si las anclas principales existieron, solo
+        // la leyenda; si la plantilla es personalizada y no matchearon, el bloque
+        // de respaldo completo.
+        if (ok || t !== taglineAntes) {
+          t = t.replace(/<\/body>/i, frag.leyenda + '\n</body>');
+        } else {
+          t = t.replace(/<\/body>/i, frag.bloqueFallback + '\n</body>');
+        }
       }
     }
 

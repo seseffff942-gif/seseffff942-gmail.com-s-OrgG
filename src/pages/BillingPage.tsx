@@ -724,10 +724,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const obtenerFelParaImpresion = async (invoice: Invoice) => {
     try {
       const e = await api.getFelEstado(invoice.id);
-      if (e?.documento?.estado === 'certificado') {
-        return { documento: e.documento, emisor: (e as any).emisor, creditDays: (invoice as any).creditDays };
-      }
-    } catch { /* sin FEL: se imprime como comprobante normal */ }
+      // Siempre se devuelven los datos del emisor (para el encabezado); el
+      // documento solo aporta datos fiscales cuando esta certificado.
+      return { documento: e?.documento ?? null, emisor: (e as any).emisor, creditDays: (invoice as any).creditDays };
+    } catch { /* sin conexion FEL: se imprime con datos basicos */ }
     return undefined;
   };
 
