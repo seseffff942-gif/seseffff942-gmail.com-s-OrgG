@@ -4941,11 +4941,20 @@ ${productsContext}`;
     const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
     const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
 
+    // Datos del emisor para la representacion grafica (factura impresa).
+    const felConfig = await felServicio.obtenerConfig(supabase);
+    const emisor = {
+      nit: felConfig?.nit_emisor ?? '',
+      nombre: felConfig?.nombre_emisor ?? '',
+      ambiente: felConfig?.ambiente ?? 'pruebas',
+    };
+
     res.json({
       documento,
       estado: documento?.estado ?? 'sin_emitir',
       nitReceptor,
       esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
+      emisor,
       desglose: {
         montoGravable: totales.totalMontoGravable,
         montoIva: totales.totalMontoIva,

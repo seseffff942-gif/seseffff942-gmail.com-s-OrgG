@@ -142,6 +142,7 @@ export interface EstadoFacturaFEL {
   estado: EstadoFEL;
   nitReceptor: string;
   esConsumidorFinal: boolean;
+  emisor?: { nit?: string; nombre?: string; ambiente?: string };
   desglose: { montoGravable: number; montoIva: number; granTotal: number };
   advertencias: string[];
 }

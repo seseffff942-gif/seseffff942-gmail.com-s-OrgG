@@ -481,7 +481,86 @@ export const formatMoney = (num: number | undefined | string) => {
   });
 };
 
-export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string): string {
+/**
+ * Datos FEL para la representacion grafica (factura impresa).
+ * Cuando la factura esta certificada, SAT exige que el documento impreso
+ * muestre el numero de autorizacion, serie, numero, fecha y el desglose de IVA.
+ */
+export interface FelPrintData {
+  documento?: {
+    estado?: string;
+    numero_autorizacion?: string | null;
+    serie?: string | null;
+    numero?: string | null;
+    fecha_certificacion?: string | null;
+    tipo_dte?: string | null;
+    monto_gravable?: number | null;
+    monto_iva?: number | null;
+    gran_total?: number | null;
+  } | null;
+  emisor?: { nit?: string; nombre?: string; ambiente?: string };
+}
+
+/** Texto oficial de la frase segun tipo/escenario configurado (Tipo 1, Esc 1). */
+const FRASE_FEL = 'Sujeto a pagos trimestrales ISR.';
+
+/** Construye el bloque fiscal FEL que se incrusta en la factura impresa. */
+function construirBloqueFel(fel?: FelPrintData): string {
+  const doc = fel?.documento;
+  if (!doc || doc.estado !== 'certificado' || !doc.numero_autorizacion) return '';
+
+  const fmt = (n: any) => {
+    const v = Number(n);
+    return isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  const fecha = doc.fecha_certificacion
+    ? new Date(doc.fecha_certificacion).toLocaleString('es-GT', { dateStyle: 'short', timeStyle: 'short' })
+    : '';
+  const esPrueba = String(doc.serie || '').toUpperCase().includes('PRUEBA')
+    || fel?.emisor?.ambiente === 'pruebas';
+
+  const bannerPrueba = esPrueba
+    ? `<div style="background:#fef3c7; border:1px solid #f59e0b; color:#92400e; text-align:center; font-weight:800; font-size:9pt; padding:6px; border-radius:5px; margin-bottom:10px;">DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL</div>`
+    : '';
+
+  const tipoNombre = doc.tipo_dte === 'FCAM' ? 'Factura Cambiaria' : 'Factura';
+
+  return `
+    <div style="margin-top: 26px; border: 1.5px solid #1A4D2E; border-radius: 8px; padding: 14px 18px; page-break-inside: avoid;">
+      ${bannerPrueba}
+      <div style="font-weight: 800; color: #1A4D2E; font-size: 11pt; text-align:center; letter-spacing: 0.5px; margin-bottom: 10px;">
+        DOCUMENTO TRIBUTARIO ELECTRÓNICO (DTE)
+      </div>
+      <table style="width:100%; border-collapse: collapse; font-size: 8.5pt; color:#333;">
+        <tr>
+          <td style="padding:2px 0;"><strong>Número de Autorización:</strong></td>
+          <td style="padding:2px 0; font-family: monospace; word-break: break-all;">${doc.numero_autorizacion}</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 0;"><strong>Serie:</strong> ${doc.serie || ''}</td>
+          <td style="padding:2px 0;"><strong>Número DTE:</strong> ${doc.numero || ''}</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 0;"><strong>Fecha de certificación:</strong> ${fecha}</td>
+          <td style="padding:2px 0;"><strong>Tipo:</strong> ${tipoNombre}</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 0;"><strong>NIT Emisor:</strong> ${fel?.emisor?.nit || ''}</td>
+          <td style="padding:2px 0;"><strong>Certificador:</strong> INFILE, S.A.</td>
+        </tr>
+      </table>
+      <table style="width:100%; margin-top:8px; border-top:1px dashed #cccccc; padding-top:6px; font-size:8.5pt; color:#333;">
+        <tr><td>Monto gravable:</td><td style="text-align:right;">Q ${fmt(doc.monto_gravable)}</td></tr>
+        <tr><td>IVA (12%):</td><td style="text-align:right;">Q ${fmt(doc.monto_iva)}</td></tr>
+        <tr><td style="font-weight:800;">Gran Total:</td><td style="text-align:right; font-weight:800;">Q ${fmt(doc.gran_total)}</td></tr>
+      </table>
+      <div style="margin-top:8px; font-size:7.5pt; color:#666; text-align:center; font-style:italic;">
+        Frase: ${FRASE_FEL} · Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.
+      </div>
+    </div>`;
+}
+
+export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string, fel?: FelPrintData): string {
   try {
     const formatGT = (num: number) => {
       const n = Number(num);
@@ -587,6 +666,32 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{logoUrl\}\}/g, logoUrl);
     t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, logoUrl);
     t = t.replace(/\{\{origin\}\}/g, window.location.origin);
+
+    // ---- Bloque fiscal FEL (solo si la factura esta certificada) ----
+    const bloqueFel = construirBloqueFel(fel);
+    const estaCertificada = !!bloqueFel;
+
+    if (t.includes('{{felBlock}}')) {
+      t = t.replace(/\{\{felBlock\}\}/g, bloqueFel);
+    } else if (estaCertificada) {
+      // La plantilla guardada (o la por defecto) no tiene el marcador:
+      // se inyecta el bloque justo antes de cerrar el body.
+      t = t.replace(/<\/body>/i, bloqueFel + '\n</body>');
+    }
+
+    if (estaCertificada) {
+      // Un DTE certificado ya no es un "comprobante de venta": es una factura
+      // fiscal. Se ajustan los textos que delatan lo contrario. Se cubren tanto
+      // la plantilla por defecto (con emoji) como la que el cliente tiene
+      // guardada en produccion (sin emoji) — el orden importa: primero la
+      // variante con emoji, luego el texto plano.
+      t = t.replace(/Comprobante de Venta ⚽/g, 'Factura Electrónica en Línea (FEL)');
+      t = t.replace(/Comprobante de Venta/gi, 'Factura Electrónica en Línea (FEL)');
+      t = t.replace(/COMPROBANTE DE VENTA/g, 'FACTURA ELECTRÓNICA (FEL)');
+      // La leyenda de futbol (si existe) no corresponde en un documento tributario.
+      t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g,
+        'Representación gráfica de un DTE certificado electrónicamente ante la SAT.');
+    }
 
     return t;
   } catch (e) {

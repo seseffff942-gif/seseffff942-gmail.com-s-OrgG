@@ -392,6 +392,32 @@ automáticamente y baja como `.xml` listo para adjuntar, nombrado con el UUID.
 Verificado: ambos XML descargan válidos y el certificado incluye la firma
 digital de INFILE.
 
+
+### Representación gráfica FEL en la factura impresa *(requisito de SAT)*
+
+La factura impresa/PDF decía «Comprobante de Venta» y no mostraba ningún dato
+fiscal — **SAT no la aceptaría** como representación gráfica de un DTE. Ahora,
+cuando la factura está certificada, el PDF incluye:
+
+- **Número de Autorización (UUID)**, serie, número, fecha de certificación
+- **NIT del emisor** y certificador (INFILE, S.A.)
+- **Desglose de IVA** (monto gravable, IVA 12%, gran total)
+- La **frase** obligatoria (Tipo 1, Escenario 1: «Sujeto a pagos trimestrales ISR»)
+- El encabezado cambia de «Comprobante de Venta» a «Factura Electrónica (FEL)»
+- Banner **«DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL»** cuando la serie es de sandbox
+
+Si la factura NO está certificada, el PDF sale como antes (comprobante normal).
+
+**Detalle clave descubierto al verificar:** la plantilla que el cliente tiene
+guardada en producción **difiere** de la plantilla por defecto del código (no
+tiene el emoji del tagline ni la leyenda de fútbol). Los reemplazos se hicieron
+robustos para cubrir ambas, y el bloque fiscal se **inyecta antes de `</body>`**
+sin depender de ningún marcador en la plantilla — así funciona con cualquier
+plantilla que el admin haya personalizado.
+
+Verificado en el navegador contra la plantilla real y datos reales de una
+factura certificada (UUID, serie PRUEBAS, IVA Q167.36 sobre Q1,562).
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:

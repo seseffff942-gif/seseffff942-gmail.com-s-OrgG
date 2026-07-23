@@ -716,19 +716,34 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   };
 
-    const printInvoice = (invoice: Invoice) => {
+  // Carga los datos FEL de una factura para incrustarlos en la impresion.
+  // Si la factura no esta certificada (o falla la consulta), devuelve undefined
+  // y el PDF sale como comprobante normal sin datos fiscales.
+  const obtenerFelParaImpresion = async (invoice: Invoice) => {
+    try {
+      const e = await api.getFelEstado(invoice.id);
+      if (e?.documento?.estado === 'certificado') {
+        return { documento: e.documento, emisor: (e as any).emisor };
+      }
+    } catch { /* sin FEL: se imprime como comprobante normal */ }
+    return undefined;
+  };
+
+  const printInvoice = async (invoice: Invoice) => {
     const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
-    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
+    const fel = await obtenerFelParaImpresion(invoice);
+    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName, fel);
     printHtml(htmlContent);
   };
 
-  const downloadInvoicePdf = (invoice: Invoice) => {
+  const downloadInvoicePdf = async (invoice: Invoice) => {
     const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
     const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
 
-    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
+    const fel = await obtenerFelParaImpresion(invoice);
+    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName, fel);
     downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id}.pdf`);
   };
 
