@@ -1156,7 +1156,24 @@ if (!process.env.VERCEL) {
     } catch (e) {}
 
     const localList = readLocalClients();
-    
+
+    // Validacion por NIT: no permitir dos clientes con el mismo NIT real.
+    // "CF" / "C/F" (consumidor final) es generico y SI puede repetirse.
+    const normalizarNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitNuevo = normalizarNit(nit);
+    const esConsumidorFinal = nitNuevo === '' || nitNuevo === 'CF' || nitNuevo === 'CONSUMIDORFINAL';
+    if (!esConsumidorFinal) {
+      const yaExiste = [...existingList, ...localList].find(
+        (c: any) => c && normalizarNit(c.nit) === nitNuevo
+      );
+      if (yaExiste) {
+        return res.status(409).json({
+          error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
+          clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
+        });
+      }
+    }
+
     const findMatch = (list: any[]) => {
       return list.find(c => {
         if (!c || !c.name) return false;

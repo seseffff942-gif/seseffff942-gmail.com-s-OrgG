@@ -524,6 +524,24 @@ sanitización (es HTML legítimo); el resto del sistema sigue sanitizado.
 > `sys-print-template` para que use la nueva por defecto.
 
 
+
+### Evitar clientes duplicados por NIT
+
+Al crear un cliente ahora se valida que no exista otro con el mismo NIT:
+
+- **En el servidor (autoritativo):** `POST /api/clients` rechaza con **409** y un
+  mensaje claro («Ya existe un cliente registrado con el NIT X: "Nombre"…») si
+  el NIT ya está registrado. La comparación **normaliza** el NIT (ignora
+  guiones, espacios y puntos), así que `555001-2` y `5550012` se detectan como
+  el mismo.
+- **En el frontend (Clientes y Ventas):** validación instantánea contra la lista
+  ya cargada, antes de enviar, con el mismo mensaje.
+- **Consumidor final exento:** `CF` / `C/F` (o NIT vacío) es genérico y **sí**
+  puede repetirse en varios clientes.
+
+Verificado: se bloquea el NIT duplicado (con distinto formato de guiones) y se
+permiten varios `CF`.
+
 ### Consulta de NIT al crear un cliente
 
 En el formulario de nuevo cliente (Clientes → Nuevo Cliente), junto al campo

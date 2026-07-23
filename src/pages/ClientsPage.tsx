@@ -112,6 +112,16 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       alert('Por favor, ingresa el nombre y selecciona un vendedor asignado.');
       return;
     }
+    // Validacion instantanea: no duplicar por NIT (CF puede repetirse).
+    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitN = normNit(newClient.nit);
+    if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
+      const dup = clients.find(c => normNit(c.nit) === nitN);
+      if (dup) {
+        alert(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}". No se puede duplicar.`);
+        return;
+      }
+    }
     setAdding(true);
     try {
       const added = await api.addClient(newClient);
@@ -119,8 +129,9 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '' });
       setNitResultado(null);
       setShowAddForm(false);
-    } catch (err) {
-      alert("Error al agregar cliente");
+    } catch (err: any) {
+      // Muestra el mensaje real del servidor (p. ej. NIT duplicado).
+      alert(err?.message || "Error al agregar cliente");
     } finally {
       setAdding(false);
     }
