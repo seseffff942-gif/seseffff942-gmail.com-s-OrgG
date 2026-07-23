@@ -34,6 +34,9 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     sellerId: user.role === 'admin' ? '' : (user.email || '') 
   });
   const [adding, setAdding] = useState(false);
+  // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
+  const [consultandoNit, setConsultandoNit] = useState(false);
+  const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [suggestEditClient, setSuggestEditClient] = useState<Client | null>(null);
   const [suggestEditText, setSuggestEditText] = useState('');
@@ -75,6 +78,34 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     }
   };
 
+  // Consulta el NIT en SAT (vía INFILE) y autocompleta el nombre del cliente.
+  // El usuario puede editar el valor después: solo es un punto de partida.
+  const consultarNit = async () => {
+    const nit = newClient.nit.trim();
+    if (!nit) { setNitResultado({ ok: false, texto: 'Ingresa un NIT primero.' }); return; }
+    setConsultandoNit(true);
+    setNitResultado(null);
+    try {
+      const r = await api.consultarNitFel(nit);
+      if (r.valido && r.nombre) {
+        // Se rellena el nombre solo si está vacío o si el usuario lo confirma,
+        // para no pisar algo que ya escribió.
+        setNewClient(prev => ({
+          ...prev,
+          name: (!prev.name.trim() || prev.name === r.nombre) ? (r.nombre || prev.name) : prev.name,
+          nit: r.nit || prev.nit,
+        }));
+        setNitResultado({ ok: true, texto: `Encontrado en SAT: ${r.nombre}` });
+      } else {
+        setNitResultado({ ok: false, texto: r.mensaje || 'NIT no encontrado en SAT.' });
+      }
+    } catch (err: any) {
+      setNitResultado({ ok: false, texto: err?.message || 'No se pudo consultar el NIT.' });
+    } finally {
+      setConsultandoNit(false);
+    }
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClient.name || !newClient.sellerId) {
@@ -86,6 +117,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       const added = await api.addClient(newClient);
       setClients(prev => prev.some(c => c.id === added.id) ? prev : [added, ...prev]);
       setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '' });
+      setNitResultado(null);
       setShowAddForm(false);
     } catch (err) {
       alert("Error al agregar cliente");
@@ -800,18 +832,35 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                     />
                   </div>
 
-                  {/* NIT/ID */}
+                  {/* NIT/ID con consulta a SAT */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                       NIT / Identificación
                     </label>
-                    <input 
-                      type="text" 
-                      placeholder="Ej. 1029384-5"
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
-                      value={newClient.nit} 
-                      onChange={e => setNewClient({...newClient, nit: e.target.value})}
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Ej. 1029384-5"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={newClient.nit}
+                        onChange={e => { setNewClient({...newClient, nit: e.target.value}); setNitResultado(null); }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); consultarNit(); } }}
+                      />
+                      <button
+                        type="button"
+                        onClick={consultarNit}
+                        disabled={consultandoNit || !newClient.nit.trim()}
+                        title="Buscar el nombre en SAT por el NIT"
+                        className="shrink-0 px-3 py-3 rounded-xl font-bold text-xs bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
+                      </button>
+                    </div>
+                    {nitResultado && (
+                      <p className={`text-[11px] mt-1.5 ml-1 leading-snug ${nitResultado.ok ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {nitResultado.ok ? '✓ ' : '⚠ '}{nitResultado.texto}
+                      </p>
+                    )}
                   </div>
 
                   {/* Telefono */}

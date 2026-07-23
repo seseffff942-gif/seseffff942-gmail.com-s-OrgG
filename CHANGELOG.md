@@ -523,6 +523,22 @@ sanitización (es HTML legítimo); el resto del sistema sigue sanitizado.
 > aplica guardándola desde el editor de plantillas, o borrando la fila
 > `sys-print-template` para que use la nueva por defecto.
 
+
+### Consulta de NIT al crear un cliente
+
+En el formulario de nuevo cliente (Clientes → Nuevo Cliente), junto al campo
+NIT hay un botón **"Consultar SAT"**: al ingresar el NIT y consultar, se trae
+el nombre registrado en SAT (vía el servicio de receptores de INFILE) y se
+**autocompleta el nombre del cliente**. El usuario puede editar el valor
+después — es solo un punto de partida.
+
+- Con NIT válido: rellena el nombre y muestra «✓ Encontrado en SAT: …».
+- Con NIT inválido: muestra «⚠ NIT no válido» y **no pisa** lo ya escrito.
+- Enter en el campo NIT también dispara la consulta.
+
+Reutiliza el endpoint `GET /api/fel/consulta-nit/:nit` (mismo que el panel FEL).
+Verificado en el navegador con NIT real e inválido.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:
