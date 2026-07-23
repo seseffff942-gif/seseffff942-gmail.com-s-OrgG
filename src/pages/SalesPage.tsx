@@ -44,6 +44,30 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientAddress, setNewClientAddress] = useState('');
   const [newClientSellerId, setNewClientSellerId] = useState('');
+  // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
+  const [consultandoNit, setConsultandoNit] = useState(false);
+  const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const consultarNitCliente = async () => {
+    const n = newClientNit.trim();
+    if (!n) { setNitResultado({ ok: false, texto: 'Ingresa un NIT primero.' }); return; }
+    setConsultandoNit(true);
+    setNitResultado(null);
+    try {
+      const r = await api.consultarNitFel(n);
+      if (r.valido && r.nombre) {
+        setNewClientName(prev => (!prev.trim() || prev === r.nombre) ? (r.nombre || prev) : prev);
+        if (r.nit) setNewClientNit(r.nit);
+        setNitResultado({ ok: true, texto: `Encontrado en SAT: ${r.nombre}` });
+      } else {
+        setNitResultado({ ok: false, texto: r.mensaje || 'NIT no encontrado en SAT.' });
+      }
+    } catch (err: any) {
+      setNitResultado({ ok: false, texto: err?.message || 'No se pudo consultar el NIT.' });
+    } finally {
+      setConsultandoNit(false);
+    }
+  };
 
   // Client Debt States
   const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
@@ -1268,6 +1292,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       setNewClientPhone('');
                       setNewClientAddress('');
                       setNewClientSellerId(user.email || '');
+                      setNitResultado(null);
                       setShowSearchClientModal(true);
                     }}
                     placeholder="Buscar o registrar cliente..."
@@ -2212,6 +2237,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   setNewClientPhone('');
                   setNewClientAddress('');
                   setNewClientSellerId(user.email || '');
+                  setNitResultado(null);
                   setClientModalTab('create');
                 }}
                 className={cn(
@@ -2471,13 +2497,30 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                       NIT / Identificación
                     </label>
-                    <input
-                      type="text"
-                      value={newClientNit}
-                      onChange={(e) => setNewClientNit(e.target.value)}
-                      placeholder="Ej. 123456-7 (C/F por defecto)"
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={newClientNit}
+                        onChange={(e) => { setNewClientNit(e.target.value); setNitResultado(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); consultarNitCliente(); } }}
+                        placeholder="Ej. 123456-7 (C/F por defecto)"
+                        className="w-full pl-4 pr-28 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={consultarNitCliente}
+                        disabled={consultandoNit || !newClientNit.trim()}
+                        title="Buscar el nombre en SAT por el NIT"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-bold text-[11px] bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
+                      </button>
+                    </div>
+                    {nitResultado && (
+                      <p className={`text-[11px] mt-1.5 ml-1 leading-snug ${nitResultado.ok ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {nitResultado.ok ? '✓ ' : '⚠ '}{nitResultado.texto}
+                      </p>
+                    )}
                   </div>
                 </div>
 

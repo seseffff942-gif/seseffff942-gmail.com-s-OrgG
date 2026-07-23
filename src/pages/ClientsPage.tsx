@@ -837,11 +837,11 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                       NIT / Identificación
                     </label>
-                    <div className="flex gap-2">
+                    <div className="relative">
                       <input
                         type="text"
                         placeholder="Ej. 1029384-5"
-                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        className="w-full pl-4 pr-28 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
                         value={newClient.nit}
                         onChange={e => { setNewClient({...newClient, nit: e.target.value}); setNitResultado(null); }}
                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); consultarNit(); } }}
@@ -851,7 +851,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                         onClick={consultarNit}
                         disabled={consultandoNit || !newClient.nit.trim()}
                         title="Buscar el nombre en SAT por el NIT"
-                        className="shrink-0 px-3 py-3 rounded-xl font-bold text-xs bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-bold text-[11px] bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                       >
                         {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
                       </button>

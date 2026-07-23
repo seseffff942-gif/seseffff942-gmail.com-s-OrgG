@@ -537,7 +537,10 @@ después — es solo un punto de partida.
 - Enter en el campo NIT también dispara la consulta.
 
 Reutiliza el endpoint `GET /api/fel/consulta-nit/:nit` (mismo que el panel FEL).
-Verificado en el navegador con NIT real e inválido.
+Disponible en **dos lugares**: el formulario de Clientes y el de registro rápido
+de cliente dentro de **Ventas**. El botón «Consultar SAT» va dentro del campo
+NIT (no se corta en el modal). Verificado en el navegador en ambas pantallas
+con NIT real e inválido.
 
 ### Tablas FEL (`migrations/002_fel.sql`)
 
