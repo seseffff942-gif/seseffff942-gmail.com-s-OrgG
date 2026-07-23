@@ -4964,6 +4964,7 @@ ${productsContext}`;
     const emisor = {
       nit: felConfig?.nit_emisor ?? '',
       nombre: felConfig?.nombre_emisor ?? '',
+      nombreComercial: felConfig?.nombre_comercial ?? '',
       ambiente: felConfig?.ambiente ?? 'pruebas',
     };
 

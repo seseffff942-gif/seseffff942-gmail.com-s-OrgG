@@ -498,11 +498,22 @@ export interface FelPrintData {
     monto_iva?: number | null;
     gran_total?: number | null;
   } | null;
-  emisor?: { nit?: string; nombre?: string; ambiente?: string };
+  emisor?: { nit?: string; nombre?: string; nombreComercial?: string; ambiente?: string };
+  /** Dias de credito de la factura (para la fecha de vencimiento del abono). */
+  creditDays?: number;
 }
 
 /** Texto oficial de la frase segun tipo/escenario configurado (Tipo 1, Esc 1). */
 const FRASE_FEL = 'Sujeto a pagos trimestrales ISR.';
+
+/** Formatea una fecha como dd/mm/yyyy. */
+function fechaDDMMYYYY(fecha: any, conHora = false): string {
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  const base = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return conHora ? `${base} ${p(d.getHours())}:${p(d.getMinutes())}` : base;
+}
 
 /** Construye el bloque fiscal FEL que se incrusta en la factura impresa. */
 function construirBloqueFel(fel?: FelPrintData): string {
@@ -513,39 +524,66 @@ function construirBloqueFel(fel?: FelPrintData): string {
     const v = Number(n);
     return isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
-  const fecha = doc.fecha_certificacion
-    ? new Date(doc.fecha_certificacion).toLocaleString('es-GT', { dateStyle: 'short', timeStyle: 'short' })
-    : '';
+  const esFcam = doc.tipo_dte === 'FCAM';
+  const razonSocial = fel?.emisor?.nombre || '';
+  const nombreComercial = fel?.emisor?.nombreComercial || razonSocial;
+  const dias = Number(fel?.creditDays || 0);
+  const fechaCert = fechaDDMMYYYY(doc.fecha_certificacion, true);
+
   const esPrueba = String(doc.serie || '').toUpperCase().includes('PRUEBA')
     || fel?.emisor?.ambiente === 'pruebas';
-
   const bannerPrueba = esPrueba
-    ? `<div style="background:#fef3c7; border:1px solid #f59e0b; color:#92400e; text-align:center; font-weight:800; font-size:9pt; padding:6px; border-radius:5px; margin-bottom:10px;">DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL</div>`
+    ? `<div style="background:#fef3c7; border:1px solid #f59e0b; color:#92400e; text-align:center; font-weight:800; font-size:9pt; padding:6px; border-radius:5px; margin-bottom:12px;">DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL</div>`
     : '';
 
-  const tipoNombre = doc.tipo_dte === 'FCAM' ? 'Factura Cambiaria' : 'Factura';
+  // Titulo del documento segun su tipo.
+  const tituloDoc = esFcam
+    ? 'FACTURA CAMBIARIA ELECTRÓNICA<br/>LIBRE DE PROTESTO'
+    : 'FACTURA ELECTRÓNICA';
+
+  // Encabezado tipo "recuadro" con el tipo de documento, serie y numero
+  // (al estilo de la representacion grafica que exige SAT).
+  const cabecera = `
+    <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+      <tr>
+        <td style="vertical-align:top; font-size:8.5pt; color:#333; padding-right:14px;">
+          <div style="font-weight:800; font-size:10pt; color:#111;">${razonSocial}</div>
+          ${nombreComercial && nombreComercial !== razonSocial ? `<div style="color:#555;">Nombre comercial: ${nombreComercial}</div>` : ''}
+          <div><strong>NIT Emisor:</strong> ${fel?.emisor?.nit || ''}</div>
+        </td>
+        <td style="width:230px; vertical-align:top;">
+          <div style="border:1.5px solid #111; border-radius:4px; padding:8px 10px; text-align:center;">
+            <div style="font-weight:800; font-size:9.5pt; color:#111; line-height:1.25;">${tituloDoc}</div>
+            <div style="margin-top:5px; font-size:8.5pt; color:#333;"><strong>SERIE:</strong> ${doc.serie || ''}</div>
+            <div style="font-size:8.5pt; color:#333;"><strong>NÚMERO:</strong> <span style="color:#b91c1c; font-weight:700;">${doc.numero || ''}</span></div>
+          </div>
+        </td>
+      </tr>
+    </table>`;
+
+  // Leyenda de pago obligatoria de la factura cambiaria (sin clausula de
+  // intereses, por indicacion del cliente). Solo aplica a FCAM.
+  const leyendaCambiaria = esFcam ? `
+    <div style="margin-top:10px; font-size:8pt; color:#333; text-align:justify; line-height:1.4;">
+      Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'}
+      se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razonSocial}</strong> el valor total de
+      <strong>Q ${fmt(doc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la
+      mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a
+      pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja
+      correspondiente.
+    </div>` : '';
 
   return `
     <div style="margin-top: 26px; border: 1.5px solid #1A4D2E; border-radius: 8px; padding: 14px 18px; page-break-inside: avoid;">
       ${bannerPrueba}
-      <div style="font-weight: 800; color: #1A4D2E; font-size: 11pt; text-align:center; letter-spacing: 0.5px; margin-bottom: 10px;">
-        DOCUMENTO TRIBUTARIO ELECTRÓNICO (DTE)
-      </div>
-      <table style="width:100%; border-collapse: collapse; font-size: 8.5pt; color:#333;">
+      ${cabecera}
+      <table style="width:100%; border-collapse: collapse; font-size: 8.5pt; color:#333; border-top:1px dashed #ccc; padding-top:6px;">
         <tr>
-          <td style="padding:2px 0;"><strong>Número de Autorización:</strong></td>
-          <td style="padding:2px 0; font-family: monospace; word-break: break-all;">${doc.numero_autorizacion}</td>
+          <td style="padding:3px 0;"><strong>Número de Autorización (SAT):</strong></td>
+          <td style="padding:3px 0; font-family: monospace; word-break: break-all;">${doc.numero_autorizacion}</td>
         </tr>
         <tr>
-          <td style="padding:2px 0;"><strong>Serie:</strong> ${doc.serie || ''}</td>
-          <td style="padding:2px 0;"><strong>Número DTE:</strong> ${doc.numero || ''}</td>
-        </tr>
-        <tr>
-          <td style="padding:2px 0;"><strong>Fecha de certificación:</strong> ${fecha}</td>
-          <td style="padding:2px 0;"><strong>Tipo:</strong> ${tipoNombre}</td>
-        </tr>
-        <tr>
-          <td style="padding:2px 0;"><strong>NIT Emisor:</strong> ${fel?.emisor?.nit || ''}</td>
+          <td style="padding:2px 0;"><strong>Fecha de certificación:</strong> ${fechaCert}</td>
           <td style="padding:2px 0;"><strong>Certificador:</strong> INFILE, S.A.</td>
         </tr>
       </table>
@@ -554,7 +592,8 @@ function construirBloqueFel(fel?: FelPrintData): string {
         <tr><td>IVA (12%):</td><td style="text-align:right;">Q ${fmt(doc.monto_iva)}</td></tr>
         <tr><td style="font-weight:800;">Gran Total:</td><td style="text-align:right; font-weight:800;">Q ${fmt(doc.gran_total)}</td></tr>
       </table>
-      <div style="margin-top:8px; font-size:7.5pt; color:#666; text-align:center; font-style:italic;">
+      ${leyendaCambiaria}
+      <div style="margin-top:10px; font-size:7.5pt; color:#666; text-align:center; font-style:italic;">
         Frase: ${FRASE_FEL} · Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.
       </div>
     </div>`;
@@ -641,7 +680,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{phone\}\}/g, phoneVal);
     t = t.replace(/\{\{address\}\}/g, addressVal);
     t = t.replace(/\{\{folio\}\}/g, String(invoice.folio || 1));
-    t = t.replace(/\{\{date\}\}/g, invoice.date ? (isNaN(new Date(invoice.date).getTime()) ? '' : new Date(invoice.date).toISOString().split('T')[0]) : '');
+    t = t.replace(/\{\{date\}\}/g, invoice.date ? fechaDDMMYYYY(invoice.date) : '');
     t = t.replace(/\{\{paymentForm\}\}/g, isCredit ? 'CREDITO' : 'CONTADO');
     t = t.replace(/\{\{status\}\}/g, isCredit ? 'POR COBRAR' : (invoice.status === 'cancelled' || invoice.status === 'rejected' ? 'ANULADA' : 'PAGADO'));
     t = t.replace(/\{\{sellerName\}\}/g, sellerName);

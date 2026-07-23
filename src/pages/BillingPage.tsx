@@ -725,7 +725,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     try {
       const e = await api.getFelEstado(invoice.id);
       if (e?.documento?.estado === 'certificado') {
-        return { documento: e.documento, emisor: (e as any).emisor };
+        return { documento: e.documento, emisor: (e as any).emisor, creditDays: (invoice as any).creditDays };
       }
     } catch { /* sin FEL: se imprime como comprobante normal */ }
     return undefined;

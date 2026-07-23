@@ -440,6 +440,34 @@ plantilla que el admin haya personalizado.
 Verificado en el navegador contra la plantilla real y datos reales de una
 factura certificada (UUID, serie PRUEBAS, IVA Q167.36 sobre Q1,562).
 
+
+### Mejoras a la representación gráfica FEL (formato factura cambiaria)
+
+Ajustes al bloque fiscal de la factura impresa, a pedido del cliente y siguiendo
+el formato estándar de factura cambiaria en Guatemala:
+
+- **Tipo de documento en recuadro destacado:** «FACTURA CAMBIARIA ELECTRÓNICA ·
+  LIBRE DE PROTESTO» (para FCAM) o «FACTURA ELECTRÓNICA» (para FACT), con SERIE
+  y NÚMERO resaltados.
+- **Leyenda de pago obligatoria** de la factura cambiaria: compromiso de pago a
+  la orden del emisor, conformidad de recepción de la mercadería y cláusula
+  «libre de protesto». **Sin la cláusula de intereses por mora** (el cliente
+  indicó que por ahora no aplican intereses).
+- **Fechas en formato dd/mm/yyyy** en todo el documento (antes la fecha general
+  salía como yyyy-mm-dd).
+- **Razón social y nombre comercial correctos:** el bloque fiscal ahora toma
+  ambos de `fel_config` (razón social = `nombre_emisor`, nombre comercial =
+  `nombre_comercial`), en vez de un texto fijo. Se muestran por separado.
+
+Verificado en el navegador con una FCAM certificada: recuadro del tipo de
+documento, leyenda cambiaria con los días de crédito, fecha 23/07/2026 y la
+distinción razón social / nombre comercial.
+
+> 📌 El encabezado superior del PDF (el logo y el nombre grande «AGRICOVET»)
+> sigue viniendo de la plantilla editable; el cliente puede ajustarlo desde el
+> editor de plantilla. El bloque fiscal —lo que SAT exige— ya usa los datos
+> correctos de la configuración.
+
 ### Tablas FEL (`migrations/002_fel.sql`)
 
 Tres tablas nuevas, **sin tocar ninguna existente**:
