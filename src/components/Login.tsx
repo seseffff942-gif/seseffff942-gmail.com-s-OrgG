@@ -19,27 +19,15 @@ export function Login({ onLogin }: LoginProps) {
     }).catch(() => {});
   }, []);
 
-  const [mode, setMode] = useState<'login' | 'register' | 'verify'>('login');
+  const [mode, setMode] = useState<'login'>('login');
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [role, setRole] = useState('seller');
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
   
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [debugCode, setDebugCode] = useState<string | null>(null);
-
-  const [users, setUsers] = useState<any[]>([]);
-  
-  React.useEffect(() => {
-    api.getUsers().then(u => setUsers(u)).catch(() => {});
-  }, []);
-
-  const matchingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,42 +40,6 @@ export function Login({ onLogin }: LoginProps) {
       onLogin(user, device);
     } catch (err: any) {
       setError(err.message || 'Error de autenticación. Verifica tus credenciales.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRegisterIntent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (!email || !password || !name) return setError('Completa todos los campos obligatorios');
-    
-    setLoading(true);
-    try {
-      const data = await api.registerIntent(email);
-      if (data && data.code) {
-        setDebugCode(data.code);
-        setCode(data.code);
-      }
-      setMode('verify');
-    } catch (err: any) {
-      setError(err.message || 'Error enviando código de verificación');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (!code) return setError('Ingresa el código enviado a tu correo');
-    
-    setLoading(true);
-    try {
-      const user = await api.register({ email, password, name, role, code });
-      onLogin(user, device);
-    } catch (err: any) {
-      setError(err.message || 'Error verificando código');
     } finally {
       setLoading(false);
     }
@@ -238,11 +190,14 @@ export function Login({ onLogin }: LoginProps) {
                   {/* Subtle reflective glass highlight within the slot */}
                   <div className="absolute -inset-y-1 left-[-100%] w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-30 transition-all duration-1000 group-hover:left-[150%]" />
                   
-                  {mode === 'login' && matchingUser && matchingUser.photo ? (
+                  {mode === 'login' ? (
                     <img 
-                      src={matchingUser.photo} 
-                      alt={matchingUser.name} 
-                      className="w-full h-full object-cover rounded-xl"
+                      src={logoUrl} 
+                      alt="Agricovet Logo" 
+                      className="w-full h-full object-contain" 
+                      onError={(e) => { 
+                        e.currentTarget.src = 'https://via.placeholder.com/150?text=Agri'; 
+                      }} 
                     />
                   ) : (
                     <img 
@@ -257,33 +212,20 @@ export function Login({ onLogin }: LoginProps) {
                 </div>
               </div>
 
-              {/* Dynamic Header Titles based on Authentication Mode */}
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={`${mode}-${matchingUser?.email}`}
+                  key={mode}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  {mode === 'login' && matchingUser ? (
-                    <>
-                      <h1 className="text-2xl font-black tracking-tight text-white">{matchingUser.name}</h1>
-                      <div className="inline-flex items-center gap-1.5 mt-1.5 px-3 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase tracking-wider text-emerald-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        {matchingUser.role === 'admin' ? 'Administrador' : 'Asesor Comercial'}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <h1 className="text-2xl font-black tracking-tight text-white font-manrope">
-                        {mode === 'login' ? 'Bienvenido' : mode === 'register' ? 'Registro de Asesor' : 'Confirmar Registro'}
-                      </h1>
-                      <p className="text-slate-400 text-xs font-semibold mt-1">
-                        {mode === 'login' ? 'Acceso Seguro Corporativo' : mode === 'register' ? 'Solicita credenciales de acceso' : 'Código de seguridad en camino'}
-                      </p>
-                    </>
-                  )}
+                  <h1 className="text-2xl font-black tracking-tight text-white font-manrope">
+                    Bienvenido
+                  </h1>
+                  <p className="text-slate-400 text-xs font-semibold mt-1">
+                    Acceso Seguro Corporativo
+                  </p>
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -315,13 +257,6 @@ export function Login({ onLogin }: LoginProps) {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center ml-1">
                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Contraseña</label>
-                      <button 
-                        type="button" 
-                        onClick={() => setMode('register')}
-                        className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors"
-                      >
-                        ¿Olvidaste la clave?
-                      </button>
                     </div>
                     <div className="relative group/input2">
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input2:text-emerald-400" size={16} />
@@ -381,181 +316,6 @@ export function Login({ onLogin }: LoginProps) {
                       )}
                     </motion.button>
                   </div>
-
-                  {/* Registration links helper footer */}
-                  <div className="text-center pt-2">
-                    <p className="text-xs text-slate-500">
-                      ¿Aún no tienes cuenta?{' '}
-                      <button 
-                        type="button" 
-                        onClick={() => { setError(''); setMode('register'); }} 
-                        className="text-emerald-400 hover:text-emerald-300 font-bold transition-colors ml-1 underline"
-                      >
-                        Registrarse como Asesor
-                      </button>
-                    </p>
-                  </div>
-                </form>
-              )}
-
-              {/* MODE 2: REGISTRATION DESPONDENT FORM */}
-              {mode === 'register' && (
-                <form onSubmit={handleRegisterIntent} className="space-y-5">
-                  <div className="space-y-4">
-                    {/* Full Name block */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Nombre Completo</label>
-                      <div className="relative group/input">
-                        <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
-                        <input
-                          type="text"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          placeholder="Ingresa tu nombre"
-                          className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Email address */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Correo Electrónico Corporativo</label>
-                      <div className="relative group/input">
-                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="ejemplo@agricovet.com"
-                          className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Password choice */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Crear Contraseña</label>
-                      <div className="relative group/input">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
-                        <input
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
-                          required
-                          minLength={6}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Register Intent Button */}
-                  <div className="pt-3">
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_25px_rgba(52,211,153,0.15)] focus:ring-4 focus:ring-emerald-500/20 group/btn"
-                    >
-                      {loading ? (
-                        <>
-                          <RefreshCw className="animate-spin w-4 h-4 text-emerald-200" />
-                          <span>Solicitando Código...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Solicitar Código de Acceso</span>
-                          <ArrowRight className="w-4 h-4 transition-transform group-hover/btn:translate-x-1" />
-                        </>
-                      )}
-                    </motion.button>
-                  </div>
-
-                  <div className="text-center pt-2">
-                    <button 
-                      type="button" 
-                      onClick={() => { setError(''); setMode('login'); }} 
-                      className="text-xs text-slate-400 hover:text-white transition-colors underline"
-                    >
-                      Volver al Inicio de Sesión
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* MODE 3: VERIFICATION PIN FORM */}
-              {mode === 'verify' && (
-                <form onSubmit={handleVerify} className="space-y-6">
-                  
-                  {/* Status alert notice */}
-                  <div className="p-3.5 bg-emerald-950/20 border border-emerald-500/20 rounded-2xl text-xs text-emerald-300 font-medium flex items-start gap-2.5">
-                    <CheckCircle className="text-emerald-400 w-4 h-4 shrink-0 mt-0.5" />
-                    <div>
-                      Código enviado con éxito. Revisa la bandeja de entrada para <strong>{email}</strong>.
-                    </div>
-                  </div>
-
-                  {/* Debug temporal access code auto helper widget */}
-                  {debugCode && (
-                    <div className="p-3 bg-white/[0.02] border border-white/10 rounded-2xl relative overflow-hidden group">
-                      <div className="absolute inset-0 bg-emerald-500/[0.02] blur-xl" />
-                      <div className="relative z-10 text-center space-y-1.5">
-                        <span className="text-[10px] uppercase font-black tracking-widest text-emerald-400/80">Código de Acceso de Prueba</span>
-                        <div className="font-mono font-black text-xl text-teal-300 tracking-[0.2em] bg-black/40 px-3 py-1 rounded-lg border border-white/5 inline-block select-all cursor-pointer">
-                          {debugCode}
-                        </div>
-                        <p className="text-[10px] text-slate-500 font-medium">¡Autocompletado para facilitar tu validación!</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pin code entry field with standard spaced fonts */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest text-center">Código de Verificación (6 Dígitos)</label>
-                    <input
-                      type="text"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      placeholder="000000"
-                      className="w-full px-4 py-3 text-center text-2xl tracking-[0.4em] rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all font-mono font-extrabold text-teal-300 bg-white/[0.02]"
-                      required
-                    />
-                  </div>
-
-                  {/* Submit verification token */}
-                  <div className="pt-2">
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_25px_rgba(52,211,153,0.15)] focus:ring-4 focus:ring-emerald-500/20"
-                    >
-                      {loading ? (
-                        <>
-                          <RefreshCw className="animate-spin w-4 h-4 text-emerald-200" />
-                          <span>Verificando PIN...</span>
-                        </>
-                      ) : (
-                        <span>Confirmar y Acceder al Panel</span>
-                      )}
-                    </motion.button>
-                  </div>
-
-                  <div className="text-center">
-                    <button 
-                      type="button" 
-                      onClick={() => { setError(''); setMode('register'); }} 
-                      className="text-xs text-slate-400 hover:text-white transition-colors"
-                    >
-                      Cancelar y Cambiar Correo
-                    </button>
-                  </div>
-
                 </form>
               )}
 

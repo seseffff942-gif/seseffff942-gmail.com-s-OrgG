@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS public.users (
 
 -- Si la tabla 'users' ya existía, actualiza su esquema:
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "phone" TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;
 
 CREATE TABLE IF NOT EXISTS public.products (
     id TEXT PRIMARY KEY,

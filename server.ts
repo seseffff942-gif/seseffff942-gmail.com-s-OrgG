@@ -1467,9 +1467,22 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
-    if (error) throw new Error(error.message);
-    res.json((users || []).filter((u: any) => u.role !== 'system'));
+    try {
+      const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
+      if (error) {
+        // Fallback if sellerCode column is missing
+        if (error.message.includes('sellerCode')) {
+          const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
+          if (errFallback) throw new Error(errFallback.message);
+          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
+        }
+        throw new Error(error.message);
+      }
+      res.json((users || []).filter((u: any) => u.role !== 'system'));
+    } catch (err: any) {
+      console.error("Error fetching users:", err);
+      res.status(500).json({ error: err.message });
+    }
   }));
 
   app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -5081,6 +5094,14 @@ async function startServer() {
       
       // One-time migration to ensure all clients have a code
       try {
+        // Try to add sellerCode column if it doesn't exist
+        try {
+          await supabase.rpc('exec_sql', { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
+        } catch (e) {
+          // If RPC doesn't exist or fails, we just log it and proceed with fallback in GET
+          console.warn("Could not run ALTER TABLE via RPC, ensure you have run the SQL schema manualy if needed.");
+        }
+
         const clients = readLocalClients();
         const missingCodes = clients.filter(c => !c.clientCode || c.clientCode.trim() === '');
         if (missingCodes.length > 0) {
@@ -5107,11 +5128,22 @@ async function startServer() {
         }
 
         // One-time migration to ensure all users have a sellerCode
-        const { data: users } = await supabase.from("users").select("*");
-        const missingUserCodes = (users || []).filter((u: any) => !u.sellerCode || u.sellerCode.trim() === '');
+        let usersData: any[] = [];
+        try {
+          const { data: users, error } = await supabase.from("users").select("*");
+          if (error) {
+             console.error("Could not fetch users for migration, possibly missing column:", error.message);
+          } else {
+             usersData = users || [];
+          }
+        } catch (e) {
+          console.error("Users select failed in migration:", e);
+        }
+
+        const missingUserCodes = usersData.filter((u: any) => !u.sellerCode || u.sellerCode.trim() === '');
         if (missingUserCodes.length > 0) {
            console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
-           const usedUserCodes = new Set((users || []).map((u: any) => u.sellerCode).filter(Boolean));
+           const usedUserCodes = new Set(usersData.map((u: any) => u.sellerCode).filter(Boolean));
            for (const u of missingUserCodes) {
              let code = '';
              let unique = false;
@@ -5122,8 +5154,12 @@ async function startServer() {
                attempts++;
              }
              if (unique) {
-               await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
-               usedUserCodes.add(code);
+               try {
+                 await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
+                 usedUserCodes.add(code);
+               } catch (upErr) {
+                 console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);
+               }
              }
            }
            console.log("User migration completed.");
