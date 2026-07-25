@@ -1195,7 +1195,8 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       </AnimatePresence>
 
       {/* Desktop Navigation Structure (Sidebar + TopAppBar) */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-[260px] bg-[#0f1c2c] text-[#778598] flex-col py-8 z-50 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-[260px] bg-[#0f1c2c] text-[#778598] flex-col z-50 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+        <div className="py-8">
         <div className="px-6 mb-8">
           <h1 translate="no" className="notranslate font-hanken font-bold text-[24px] text-white tracking-tight leading-tight">Agricovet</h1>
           <p className="text-[12px] text-[#778598] mt-1 uppercase tracking-widest font-hanken font-bold mb-4">Veterinary & AgTech</p>
@@ -1314,6 +1315,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
              <LogOut size={16} />
              Cerrar Sesión
            </button>
+          </div>
         </div>
       </aside>
 

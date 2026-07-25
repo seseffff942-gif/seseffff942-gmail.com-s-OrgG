@@ -1293,22 +1293,40 @@ if (!process.env.VERCEL) {
     
     // Check for one-time token
     let isMatch = false;
-    const { data: tokens, error: tokenErr } = await supabase
-      .from("login_tokens")
-      .select("*")
-      .eq("userId", foundUser.id)
-      .eq("token", tokenProvided)
-      .is("usedAt", null);
+    try {
+      const { data: tokens, error: tokenErr } = await supabase
+        .from("login_tokens")
+        .select("*")
+        .eq("userId", foundUser.id)
+        .eq("token", tokenProvided)
+        .is("usedAt", null);
 
-    if (tokens && tokens.length > 0) {
-      const tokenData = tokens[0];
-      // Check expiry (e.g., 24 hours)
-      const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
-      if (!expiresAt || expiresAt > new Date()) {
-        isMatch = true;
-        // Mark as used
-        await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+      if (tokenErr) {
+        if (tokenErr.message.includes('public.login_tokens')) {
+          console.error("CRITICAL: Table 'login_tokens' is missing in Supabase. Please run the SQL in supabase_schema.sql");
+          // Fallback only for super admin during setup
+          if (foundUser.email === 'seseffff942@gmail.com') {
+             console.log("Admin fallback login allowed due to missing tokens table");
+          } else {
+             return res.status(500).json({ error: "Error de configuración: La tabla de tokens no existe. Contacta al administrador." });
+          }
+        } else {
+          throw tokenErr;
+        }
       }
+
+      if (tokens && tokens.length > 0) {
+        const tokenData = tokens[0];
+        // Check expiry (e.g., 24 hours)
+        const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
+        if (!expiresAt || expiresAt > new Date()) {
+          isMatch = true;
+          // Mark as used
+          await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+        }
+      }
+    } catch (tokenCheckErr) {
+      console.error("Error checking token:", tokenCheckErr);
     }
 
     // Backup: Allow password for the super admin only if token fails? 
