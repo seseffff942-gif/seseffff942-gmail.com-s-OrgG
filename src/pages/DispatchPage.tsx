@@ -332,9 +332,12 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
         const qty = dispatchedItems[item.productId] || 0;
         const price = item.price || 0;
         const subtotal = qty * price;
+        const c = item.color || (item as any).variant?.color;
+        const s = item.size || (item as any).variant?.size;
+        const varStr = (c || s) ? `<br/><small style="color: #64748b; font-weight: normal;">🎨 ${c && s && s !== 'Única' ? `${c} - ${s}` : (c || s)}</small>` : '';
         return `
           <tr style="border-bottom: 1px solid #f1f5f9; page-break-inside: avoid;">
-            <td style="padding: 10px 8px; color: #0f172a; font-size: 9pt; font-weight: 900; text-align: left;">${item.productName || 'Producto'}</td>
+            <td style="padding: 10px 8px; color: #0f172a; font-size: 9pt; font-weight: 900; text-align: left;">${item.productName || 'Producto'}${varStr}</td>
             <td style="padding: 10px 8px; color: #1e293b; font-size: 9pt; font-weight: 900; text-align: center;">${qty}</td>
             <td style="padding: 10px 8px; color: #64748b; font-size: 8.5pt; text-align: right;">Q ${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
             <td style="padding: 10px 8px; color: #1A4D2E; font-size: 9.5pt; text-align: right; font-weight: 900;">Q ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
@@ -686,6 +689,11 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
                               )}>
                                 {item.productName}
                               </h4>
+                              {(item.color || item.size) && (
+                                <p className="text-[10px] text-amber-700 font-extrabold uppercase mt-0.5">
+                                  🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
+                                </p>
+                              )}
                               <p className="text-[10px] text-slate-400 font-mono mt-0.5">{item.productId}</p>
                               
                               <div className="mt-2 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">

@@ -295,6 +295,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
         setCart(parsedItems.map((i: any) => {
            const prodPrice = i.originalPrice !== undefined ? Number(i.originalPrice) : (Number(i.price) || 0);
+           const variantObj = i.variant || (i.color || i.size || i.variantId ? { id: i.variantId || '', color: i.color || '', size: i.size || '' } : undefined);
            return {
              product: { 
                id: i.productId, 
@@ -306,7 +307,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
              quantity: Number(i.quantity) || 1,
              overridePrice: Number(i.price) || 0,
              suggestedPrice: undefined,
-             appliedCustomOffer: undefined
+             appliedCustomOffer: undefined,
+             variant: variantObj
            };
         }));
         
@@ -672,9 +674,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           suggestedPrice: i.suggestedPrice,
           isOfferApplied: !!i.appliedCustomOffer,
           isPriceAlert: price < i.product.price,
-          variantId: i.variant?.id,
-          color: i.variant?.color,
-          size: i.variant?.size,
+          variantId: i.variant?.id || (i as any).variantId,
+          color: i.variant?.color || (i as any).color,
+          size: i.variant?.size || (i as any).size,
           requiresAuth: i.requiresAuth
         };
       });
@@ -1533,9 +1535,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           <h4 className="font-extrabold text-xs text-slate-800 leading-tight notranslate" translate="no">
                             {item.product.name}
                           </h4>
-                          {item.variant && (
-                            <span className="inline-block mt-1 px-2 py-0.5 bg-slate-50 text-[9px] text-[#0b4d2c] font-black rounded-lg border border-slate-100">
-                              Variante: {item.variant.color} / {item.variant.size}
+                          {(item.variant?.color || item.variant?.size || (item as any).color || (item as any).size) && (
+                            <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-50 text-yellow-850 text-[9px] font-black rounded-lg border border-yellow-250">
+                              🎨 Variante: {
+                                (() => {
+                                  const c = item.variant?.color || (item as any).color;
+                                  const s = item.variant?.size || (item as any).size;
+                                  if (c && s && s !== 'Única') return `${c} - ${s}`;
+                                  return c || s || '';
+                                })()
+                              }
                             </span>
                           )}
                         </div>

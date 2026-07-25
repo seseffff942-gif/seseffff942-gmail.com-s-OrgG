@@ -475,10 +475,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                       <strong className="font-extrabold text-slate-800 mr-1">{item.quantity}x</strong> {item.productName}
                     </span>
                   </div>
-                  {item.color && item.size && (
+                  {(item.color || item.size) && (
                      <div className="ml-5 mt-0.5 whitespace-nowrap overflow-hidden">
                        <span className="inline-block px-1.5 py-0.5 bg-yellow-50 text-yellow-850 border border-yellow-250 text-[9px] font-black uppercase tracking-wider rounded-lg">
-                         {item.color} - {item.size}
+                         🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
                        </span>
                      </div>
                   )}
@@ -1657,7 +1657,12 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div>
                         <p className="text-sm font-bold text-slate-700 notranslate leading-tight" translate="no">{item.productName}</p>
-                        <p className="text-xs text-slate-500 font-medium">{item.quantity} x {formatMoney(item.price)}</p>
+                        {(item.color || item.size) && (
+                          <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-50 text-yellow-850 border border-yellow-250 text-[10px] font-extrabold uppercase rounded-lg">
+                            🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
+                          </span>
+                        )}
+                        <p className="text-xs text-slate-500 font-medium mt-0.5">{item.quantity} x {formatMoney(item.price)}</p>
                       </div>
                       <span className="font-black text-slate-800 text-sm">{formatMoney(item.total)}</span>
                     </div>

@@ -563,15 +563,15 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 
     const itemsTableRows = (invoice.items || []).map((item: any) => {
       const getVariantString = (item: any) => {
-        let c = item.color || item.variant?.color;
-        let s = item.size || item.variant?.size;
+        const c = item.color || item.variant?.color;
+        const s = item.size || item.variant?.size;
         if (!c && !s) return '';
-        if (s === 'Única' || !s) return ` (${c || ''})`;
-        return ` (${c || ''} / ${s || ''})`;
+        if (s === 'Única' || !s) return `<br/><small style="color: #555;">🎨 ${c || ''}</small>`;
+        return `<br/><small style="color: #555;">🎨 ${c || ''} - ${s || ''}</small>`;
       };
       const variantStr = getVariantString(item);
       return '<tr>' +
-        '<td class="col-producto notranslate" translate="no">' + (item.productName || '') + '<br/><small>' + variantStr + '</small></td>' +
+        '<td class="col-producto notranslate" translate="no">' + (item.productName || '') + variantStr + '</td>' +
         '<td class="col-cant">' + formatGT(item.quantity || 0) + '</td>' +
         '<td class="col-precio">' + formatGT(item.price || 0) + '</td>' +
         '<td class="col-subtotal">' + formatGT(item.total || 0) + '</td>' +
@@ -615,8 +615,8 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
           let c = item.color || item.variant?.color;
           let s = item.size || item.variant?.size;
           if (!c && !s) return '';
-          if (s === 'Única' || !s) return c || '';
-          return `${c || ''} / ${s || ''}`;
+          if (s === 'Única' || !s) return `🎨 ${c || ''}`;
+          return `🎨 ${c || ''} - ${s || ''}`;
         };
         const variantInfo = getVariantInfo(item);
         row = row.replace(/\{\{this\.variantInfo\}\}/g, variantInfo);
@@ -763,14 +763,17 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName: string): st
               const s = item.size || item.variant?.size;
               let varStr = '';
               if (c || s) {
-                if (s === 'Única' || !s) varStr = ` (${c || ''})`;
-                else if (!c) varStr = ` (${s})`;
-                else varStr = ` (${c} / ${s})`;
+                if (s === 'Única' || !s) varStr = `<br/><small style="color: #666;">🎨 ${c || ''}</small>`;
+                else if (!c) varStr = `<br/><small style="color: #666;">🎨 ${s}</small>`;
+                else varStr = `<br/><small style="color: #666;">🎨 ${c} - ${s}</small>`;
               }
               return `
               <tr>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity}</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.productName}${varStr}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                  <div style="font-weight: bold;">${item.productName}</div>
+                  ${varStr}
+                </td>
               </tr>
             `}).join('')}
           </tbody>

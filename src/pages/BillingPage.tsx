@@ -914,10 +914,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   <li key={idx} className="flex justify-between items-center text-sm border-b border-neutral-50 pb-2">
                     <span className="text-neutral-600">
                       <span className="font-medium">{item.quantity}x</span> <span className="notranslate" translate="no">{item.productName}</span>
-                      {item.color && item.size && (
+                      {(item.color || item.size) && (
                         <span className="block mt-1">
                           <span className="inline-block px-1.5 py-0.5 bg-yellow-100/80 text-yellow-800 border border-yellow-200 text-[10px] font-black uppercase tracking-wider rounded-md">
-                            {item.color} - {item.size}
+                            🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
                           </span>
                         </span>
                       )}
@@ -1866,10 +1866,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             <p className="font-extrabold text-slate-800 notranslate" translate="no">
                               {item.quantity}x {item.productName}
                             </p>
-                            {item.color && item.size && (
+                            {(item.color || item.size) && (
                               <span className="block mt-1">
                                 <span className="inline-block px-1.5 py-0.5 bg-yellow-100/80 text-yellow-800 border border-yellow-200 text-[10px] font-black uppercase tracking-wider rounded-md">
-                                  {item.color} - {item.size}
+                                  🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
                                 </span>
                               </span>
                             )}
