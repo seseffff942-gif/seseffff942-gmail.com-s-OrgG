@@ -9,6 +9,8 @@ export interface Client {
   phone?: string;
   address?: string;
   createdAt?: string;
+  clientCode?: string;
+  isBlocked?: boolean;
 }
 
 export interface User {
@@ -18,6 +20,8 @@ export interface User {
   role: Role;
   photo?: string;
   phone?: string;
+  sellerCode?: string;
+  password?: string;
 }
 
 export interface AppNotification {

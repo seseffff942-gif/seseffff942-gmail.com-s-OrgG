@@ -8,6 +8,7 @@ import {
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../utils';
 
 interface ClientsPageProps {
   user: User;
@@ -31,10 +32,22 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     nit: '', 
     phone: '', 
     address: '', 
-    sellerId: user.role === 'admin' ? '' : (user.email || '') 
+    sellerId: user.role === 'admin' ? '' : (user.email || ''),
+    clientCode: '',
+    isBlocked: false
   });
   const [adding, setAdding] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
+
+  const generateRandomCode = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  useEffect(() => {
+    if (showAddForm && !newClient.clientCode) {
+      setNewClient(prev => ({ ...prev, clientCode: generateRandomCode() }));
+    }
+  }, [showAddForm]);
   const [suggestEditClient, setSuggestEditClient] = useState<Client | null>(null);
   const [suggestEditText, setSuggestEditText] = useState('');
 
@@ -75,17 +88,36 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     }
   };
 
+  const checkClientCoincidences = (name: string, companyName: string, phone: string) => {
+    const blockedClients = clients.filter(c => c.isBlocked);
+    const coincidences = blockedClients.filter(c => {
+      let matches = 0;
+      if (name && c.name && name.toLowerCase().trim() === c.name.toLowerCase().trim()) matches++;
+      if (companyName && c.companyName && companyName.toLowerCase().trim() === c.companyName.toLowerCase().trim()) matches++;
+      if (phone && c.phone && phone.replace(/\D/g, '') === c.phone.replace(/\D/g, '')) matches++;
+      return matches >= 2;
+    });
+    return coincidences;
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClient.name || !newClient.sellerId) {
       alert('Por favor, ingresa el nombre y selecciona un vendedor asignado.');
       return;
     }
+
+    const blockedMatches = checkClientCoincidences(newClient.name, newClient.companyName, newClient.phone);
+    if (blockedMatches.length > 0) {
+      const confirmBlocked = confirm(`¡ALERTA DE SEGURIDAD!\n\nSe han encontrado coincidencias con un cliente BLOQUEADO:\n- ${blockedMatches[0].name}${blockedMatches[0].companyName ? ` (${blockedMatches[0].companyName})` : ''}\n\n¿Estás seguro de que deseas registrar este cliente de todos modos?`);
+      if (!confirmBlocked) return;
+    }
+
     setAdding(true);
     try {
       const added = await api.addClient(newClient);
       setClients(prev => prev.some(c => c.id === added.id) ? prev : [added, ...prev]);
-      setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '' });
+      setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '', clientCode: '', isBlocked: false });
       setShowAddForm(false);
     } catch (err) {
       alert("Error al agregar cliente");
@@ -404,13 +436,25 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                         {getClientInitials(client.name)}
                       </div>
                       <div>
-                        <h3 className="font-extrabold text-slate-900 text-base leading-tight">
-                          {client.name}
-                        </h3>
-                        <p className="text-xs text-slate-400 font-semibold mt-0.5 flex items-center gap-1">
-                          <Building2 size={12} className="text-slate-400" />
-                          {client.companyName || 'Sin Registrar Negocio'}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                            {client.name}
+                          </h3>
+                          {client.isBlocked && (
+                            <span className="bg-red-100 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Bloqueado</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-slate-400 font-semibold flex items-center gap-1">
+                            <Building2 size={12} className="text-slate-400" />
+                            {client.companyName || 'Sin Registrar Negocio'}
+                          </p>
+                          {client.clientCode && (
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                              #{client.clientCode}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -547,11 +591,19 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                 )}
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-base">
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl text-white flex items-center justify-center font-bold text-base",
+                      selectedClient.isBlocked ? "bg-red-600" : "bg-slate-900"
+                    )}>
                       {getClientInitials(selectedClient.name)}
                     </div>
                     <div>
-                      <h2 className="text-xl font-black text-slate-900 tracking-tight">{selectedClient.name}</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight">{selectedClient.name}</h2>
+                        {selectedClient.isBlocked && (
+                          <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Bloqueado</span>
+                        )}
+                      </div>
                       <p className="text-xs font-semibold text-teal-600">
                         {selectedClient.companyName || 'Establecimiento sin nombre comercial'}
                       </p>
@@ -572,16 +624,28 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3.5 mt-5 pt-4 border-t border-slate-100 text-xs font-medium text-slate-600">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5 pt-4 border-t border-slate-100 text-xs font-medium text-slate-600">
                   <div>
                     <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">NIT / ID</span>
                     <span className="bg-white px-2.5 py-1 rounded-lg border border-slate-100 font-mono text-slate-800">
                       {selectedClient.nit || 'No registrado'}
                     </span>
                   </div>
+                  {selectedClient.clientCode && (
+                    <div>
+                      <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cód. Cliente</span>
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 font-bold">
+                        {selectedClient.clientCode}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Teléfono comercial</span>
                     <span className="text-slate-800">{selectedClient.phone || 'No registrado'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Vendedor Asignado</span>
+                    <span className="text-slate-800">{getClientSellerName(selectedClient.sellerId)}</span>
                   </div>
                   <div className="col-span-2 lg:col-span-1">
                     <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Dirección de Entrega</span>
@@ -814,6 +878,49 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                     />
                   </div>
 
+                  {/* Código de Cliente */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Código de Cliente
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Ej. 1234"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={newClient.clientCode} 
+                        onChange={e => setNewClient({...newClient, clientCode: e.target.value})}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewClient({...newClient, clientCode: generateRandomCode()})}
+                        className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors"
+                      >
+                        Generar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bloqueo */}
+                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex-1">
+                      ¿Bloquear Cliente?
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setNewClient({...newClient, isBlocked: !newClient.isBlocked})}
+                      className={cn(
+                        "w-11 h-6 rounded-full transition-all relative flex items-center cursor-pointer shadow-inner",
+                        newClient.isBlocked ? "bg-red-600" : "bg-slate-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full bg-white shadow-md transition-all absolute",
+                        newClient.isBlocked ? "left-6" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+
                   {/* Telefono */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
@@ -958,6 +1065,49 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                       value={editingClient.nit || ''} 
                       onChange={e => setEditingClient({...editingClient, nit: e.target.value})}
                     />
+                  </div>
+
+                  {/* Código de Cliente */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Código de Cliente
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Ej. 1234"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={editingClient.clientCode || ''} 
+                        onChange={e => setEditingClient({...editingClient, clientCode: e.target.value})}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditingClient({...editingClient, clientCode: generateRandomCode()})}
+                        className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors"
+                      >
+                        Generar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bloqueo */}
+                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex-1">
+                      ¿Bloquear Cliente?
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setEditingClient({...editingClient, isBlocked: !editingClient.isBlocked})}
+                      className={cn(
+                        "w-11 h-6 rounded-full transition-all relative flex items-center cursor-pointer shadow-inner",
+                        editingClient.isBlocked ? "bg-red-600" : "bg-slate-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full bg-white shadow-md transition-all absolute",
+                        editingClient.isBlocked ? "left-6" : "left-1"
+                      )} />
+                    </button>
                   </div>
 
                   {/* Telefono */}

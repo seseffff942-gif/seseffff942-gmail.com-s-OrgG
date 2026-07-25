@@ -716,8 +716,30 @@ if (!process.env.VERCEL) {
     invalidateCache("clients");
   }
 
+  // Helper to generate unique 4-digit client code
+  async function generateUniqueClientCode() {
+    let code = '';
+    let isUnique = false;
+    let attempts = 0;
+
+    while (!isUnique && attempts < 50) {
+      code = Math.floor(1000 + Math.random() * 9000).toString();
+      // We check local cache first for speed, then we'd check DB if needed
+      const clients = readLocalClients();
+      const existing = clients.find(c => c.clientCode === code);
+      if (!existing) isUnique = true;
+      attempts++;
+    }
+    return code;
+  }
+
   async function safeInsertClient(clientData: any) {
     try {
+      // Auto-generate code if missing
+      if (!clientData.clientCode || clientData.clientCode.trim() === '') {
+        clientData.clientCode = await generateUniqueClientCode();
+      }
+
       // 1. Try standard formatted insertion with camelCase (matching supabase_schema.sql)
       const { error } = await supabase.from("clients").insert([clientData]);
       if (!error) return true;
@@ -736,7 +758,9 @@ if (!process.env.VERCEL) {
         createdAt: clientData.createdAt || clientData.created_at,
         created_at: clientData.createdAt || clientData.created_at || new Date().toISOString(),
         sellerId: clientData.sellerId || '',
-        seller_id: clientData.sellerId || ''
+        seller_id: clientData.sellerId || '',
+        clientCode: clientData.clientCode,
+        isBlocked: clientData.isBlocked || false
       };
 
       const { error: errorWithFallbacks } = await supabase.from("clients").insert([payload]);
@@ -1164,7 +1188,7 @@ if (!process.env.VERCEL) {
   app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("clients");
     const { id } = req.params;
-    const { name, companyName, nit, phone, address, sellerId } = req.body;
+    const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked } = req.body;
     
     const updates: any = {};
     if (name !== undefined) updates.name = name;
@@ -1173,6 +1197,8 @@ if (!process.env.VERCEL) {
     if (phone !== undefined) updates.phone = phone;
     if (address !== undefined) updates.address = address;
     if (sellerId !== undefined) updates.sellerId = sellerId;
+    if (clientCode !== undefined) updates.clientCode = clientCode;
+    if (isBlocked !== undefined) updates.isBlocked = isBlocked;
     
     // Update local
     updateLocalClient(id, updates);
@@ -1200,21 +1226,65 @@ if (!process.env.VERCEL) {
     }
   }));
 
+  // Migration endpoint to generate codes for all clients
+  app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const clients = readLocalClients();
+    let updatedCount = 0;
+    const usedCodes = new Set(clients.map(c => c.clientCode).filter(Boolean));
+
+    for (const client of clients) {
+      if (!client.clientCode || client.clientCode.trim() === '') {
+        let code = '';
+        let unique = false;
+        let attempts = 0;
+        while (!unique && attempts < 100) {
+          code = Math.floor(1000 + Math.random() * 9000).toString();
+          if (!usedCodes.has(code)) unique = true;
+          attempts++;
+        }
+        
+        if (unique) {
+          client.clientCode = code;
+          usedCodes.add(code);
+          
+          // Update local
+          updateLocalClient(client.id, { clientCode: code });
+          // Update Supabase
+          await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
+          updatedCount++;
+        }
+      }
+    }
+
+    invalidateCache("clients");
+    res.json({ success: true, updatedCount });
+  }));
+
   // AUTH
   app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
     const { email, password } = req.body;
     let foundUser = null;
     try {
+      // Try by email first
       const { data: users, error } = await supabase.from("users").select("*").ilike("email", email);
       if (users && users.length > 0) {
         foundUser = users[0];
+      } else {
+        // Try by sellerCode
+        const { data: usersByCode, error: errByCode } = await supabase.from("users").select("*").ilike("sellerCode", email);
+        if (usersByCode && usersByCode.length > 0) {
+          foundUser = usersByCode[0];
+        }
       }
     } catch (e) {
       console.warn("DB error in login, searching in local fallback:", e);
     }
 
     if (!foundUser) {
-      foundUser = initialDb.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      foundUser = initialDb.users.find(u => 
+        u.email.toLowerCase() === email.toLowerCase() || 
+        (u as any).sellerCode?.toLowerCase() === email.toLowerCase()
+      );
     }
 
     if (!foundUser) return res.status(401).json({ error: "Usuario no encontrado" });
@@ -1397,35 +1467,69 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone");
+    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
     if (error) throw new Error(error.message);
     res.json((users || []).filter((u: any) => u.role !== 'system'));
   }));
 
   app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { email, name, role, photo, phone } = req.body;
+    const { email, name, role, photo, phone, sellerCode, password } = req.body;
     
     // Check if exists
     const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
     if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
 
+    if (sellerCode) {
+      const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+      if (existingCode && existingCode.length > 0) return res.status(400).json({ error: "El código de vendedor ya está en uso" });
+    }
+
+    let finalSellerCode = sellerCode;
+    if (!finalSellerCode || finalSellerCode.trim() === '') {
+      let code = '';
+      let unique = false;
+      let attempts = 0;
+      const { data: allUsers } = await supabase.from("users").select("sellerCode");
+      const usedCodes = new Set((allUsers || []).map((u: any) => u.sellerCode).filter(Boolean));
+
+      while (!unique && attempts < 50) {
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+        if (!usedCodes.has(code)) unique = true;
+        attempts++;
+      }
+      finalSellerCode = code;
+    }
+
     const id = `u_${Date.now()}`;
-    const newUser = { id, email, name, role, photo, phone, password: '' };
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : '';
+    const newUser = { id, email, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
     
     const { error } = await supabase.from("users").insert([newUser]);
     if (error) throw new Error(error.message);
     
-    res.json({ id, email, name, role, photo, phone });
+    res.json({ id, email, name, role, photo, phone, sellerCode });
   }));
 
   app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    const { name, email, role, phone } = req.body;
+    const { name, email, role, phone, sellerCode, password } = req.body;
 
-    const { error } = await supabase.from("users").update({ name, email, role, phone }).eq("id", id);
+    if (sellerCode) {
+      const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+      if (existingCode && existingCode.length > 0 && existingCode[0].id !== id) {
+        return res.status(400).json({ error: "El código de vendedor ya está en uso" });
+      }
+    }
+
+    const updates: any = { name, email, role, phone, sellerCode };
+    if (password) {
+      updates.password = await bcrypt.hash(password, 10);
+    }
+
+    const { error } = await supabase.from("users").update(updates).eq("id", id);
     if (error) throw new Error(error.message);
 
-    res.json({ success: true, user: { id, name, email, role, phone } });
+    res.json({ success: true, user: { id, name, email, role, phone, sellerCode } });
   }));
 
   app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
@@ -4972,8 +5076,61 @@ async function startServer() {
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT as number, "0.0.0.0", () => {
+    app.listen(PORT as number, "0.0.0.0", async () => {
       console.log(`Server running on http://localhost:${PORT}`);
+      
+      // One-time migration to ensure all clients have a code
+      try {
+        const clients = readLocalClients();
+        const missingCodes = clients.filter(c => !c.clientCode || c.clientCode.trim() === '');
+        if (missingCodes.length > 0) {
+          console.log(`Migrating ${missingCodes.length} clients to have codes...`);
+          const usedCodes = new Set(clients.map(c => c.clientCode).filter(Boolean));
+          for (const client of missingCodes) {
+            let code = '';
+            let unique = false;
+            let attempts = 0;
+            while (!unique && attempts < 100) {
+              code = Math.floor(1000 + Math.random() * 9000).toString();
+              if (!usedCodes.has(code)) unique = true;
+              attempts++;
+            }
+            if (unique) {
+              client.clientCode = code;
+              usedCodes.add(code);
+              updateLocalClient(client.id, { clientCode: code });
+              await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
+            }
+          }
+          console.log("Migration completed.");
+          invalidateCache("clients");
+        }
+
+        // One-time migration to ensure all users have a sellerCode
+        const { data: users } = await supabase.from("users").select("*");
+        const missingUserCodes = (users || []).filter((u: any) => !u.sellerCode || u.sellerCode.trim() === '');
+        if (missingUserCodes.length > 0) {
+           console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
+           const usedUserCodes = new Set((users || []).map((u: any) => u.sellerCode).filter(Boolean));
+           for (const u of missingUserCodes) {
+             let code = '';
+             let unique = false;
+             let attempts = 0;
+             while (!unique && attempts < 100) {
+               code = Math.floor(1000 + Math.random() * 9000).toString();
+               if (!usedUserCodes.has(code)) unique = true;
+               attempts++;
+             }
+             if (unique) {
+               await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
+               usedUserCodes.add(code);
+             }
+           }
+           console.log("User migration completed.");
+        }
+      } catch (err) {
+        console.error("Migration error:", err);
+      }
     });
   }
 }

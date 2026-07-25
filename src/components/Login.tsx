@@ -295,16 +295,16 @@ export function Login({ onLogin }: LoginProps) {
               {mode === 'login' && (
                 <form onSubmit={handleLoginSubmit} className="space-y-5">
                   
-                  {/* Email block */}
+                  {/* Login Identifier block */}
                   <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Correo Electrónico</label>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Código de Acceso / Usuario</label>
                     <div className="relative group/input">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
                       <input
-                        type="email"
+                        type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="tu@agricovet.com"
+                        placeholder="Ingresa tu código o correo"
                         className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
                         required
                       />

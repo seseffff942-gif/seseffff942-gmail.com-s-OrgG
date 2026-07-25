@@ -14,8 +14,8 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [newMember, setNewMember] = useState({ name: '', email: '', role: 'seller', phone: '' });
-  const [editMember, setEditMember] = useState<{ id: string; name: string; email: string; role: Role; phone: string } | null>(null);
+  const [newMember, setNewMember] = useState({ name: '', email: '', role: 'seller', phone: '', sellerCode: '', password: '' });
+  const [editMember, setEditMember] = useState<{ id: string; name: string; email: string; role: Role; phone: string; sellerCode: string; password?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,13 +33,26 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
     });
   };
 
+  const generateRandomCode = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  const generateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    let pass = '';
+    for (let i = 0; i < 8; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pass;
+  };
+
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
       await api.createUser({ ...newMember, role: newMember.role as Role });
       setShowAddModal(false);
-      setNewMember({ name: '', email: '', role: 'seller', phone: '' });
+      setNewMember({ name: '', email: '', role: 'seller', phone: '', sellerCode: '', password: '' });
       loadUsers();
     } catch(err: any) {
       alert(err.message || 'Error al agregar miembro');
@@ -57,7 +70,9 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
         name: editMember.name,
         email: editMember.email,
         role: editMember.role,
-        phone: editMember.phone
+        phone: editMember.phone,
+        sellerCode: editMember.sellerCode,
+        password: editMember.password
       });
       setShowEditModal(false);
       setEditMember(null);
@@ -70,7 +85,15 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
   };
 
   const openEditModal = (u: User) => {
-    setEditMember({ id: u.id, name: u.name, email: u.email, role: u.role, phone: u.phone || '' });
+    setEditMember({ 
+      id: u.id, 
+      name: u.name, 
+      email: u.email, 
+      role: u.role, 
+      phone: u.phone || '', 
+      sellerCode: u.sellerCode || '',
+      password: '' 
+    });
     setShowEditModal(true);
   };
 
@@ -144,6 +167,11 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
               
               <h3 className="font-bold text-lg text-slate-800 relative z-10">{u.name}</h3>
               <div className="flex flex-col items-center gap-1.5 text-sm font-medium text-slate-500 mb-4 mt-1 relative z-10">
+                {u.sellerCode && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 rounded text-[10px] font-black text-slate-600 mb-1">
+                    CÓDIGO: {u.sellerCode}
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5">
                   <Mail size={14} className="text-teal-500" />
                   <span>{u.email}</span>
@@ -215,6 +243,22 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                     <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono / WhatsApp</label>
                     <input type="text" value={newMember.phone} onChange={e => setNewMember({...newMember, phone: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Ej. 50212345678" />
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-bold text-slate-700">Código Vendedor</label>
+                        <button type="button" onClick={() => setNewMember({...newMember, sellerCode: generateRandomCode()})} className="text-[10px] font-black text-teal-600 uppercase tracking-wider hover:underline">Generar</button>
+                      </div>
+                      <input type="text" value={newMember.sellerCode} onChange={e => setNewMember({...newMember, sellerCode: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none font-mono" placeholder="1234" />
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-bold text-slate-700">Contraseña</label>
+                        <button type="button" onClick={() => setNewMember({...newMember, password: generateRandomPassword()})} className="text-[10px] font-black text-teal-600 uppercase tracking-wider hover:underline">Generar</button>
+                      </div>
+                      <input type="text" value={newMember.password} onChange={e => setNewMember({...newMember, password: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Clave" />
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Rol</label>
                     <select value={newMember.role} onChange={e => setNewMember({...newMember, role: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none bg-white">
@@ -253,6 +297,22 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono / WhatsApp</label>
                     <input type="text" value={editMember.phone} onChange={e => setEditMember({...editMember, phone: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Ej. 50212345678" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-bold text-slate-700">Código Vendedor</label>
+                        <button type="button" onClick={() => setEditMember({...editMember, sellerCode: generateRandomCode()})} className="text-[10px] font-black text-teal-600 uppercase tracking-wider hover:underline">Generar</button>
+                      </div>
+                      <input type="text" value={editMember.sellerCode} onChange={e => setEditMember({...editMember, sellerCode: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none font-mono" placeholder="1234" />
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-bold text-slate-700">Nueva Contraseña</label>
+                        <button type="button" onClick={() => setEditMember({...editMember, password: generateRandomPassword()})} className="text-[10px] font-black text-teal-600 uppercase tracking-wider hover:underline">Generar</button>
+                      </div>
+                      <input type="text" value={editMember.password || ''} onChange={e => setEditMember({...editMember, password: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Opcional" />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Rol</label>

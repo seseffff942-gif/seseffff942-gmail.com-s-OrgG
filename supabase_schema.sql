@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS public.clients (
 
 -- Ejecuta esto si tu tabla clients ya existe y le falta el campo companyName:
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "companyName" TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "clientCode" TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "isBlocked" BOOLEAN DEFAULT FALSE;
 
 -- Tabla para guardar notificaciones y alertas
 CREATE TABLE IF NOT EXISTS public.notifications (
