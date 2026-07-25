@@ -257,7 +257,13 @@ export function Login({ onLogin }: LoginProps) {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center ml-1">
                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Token de Acceso</label>
-                      <span className="text-[10px] font-bold text-emerald-500/60 uppercase tracking-tighter">Solicitalo a un Admin</span>
+                      <button 
+                        type="button"
+                        onClick={() => window.open('https://wa.me/50248234048?text=Hola, solicito un token de acceso para Agricovet.', '_blank')}
+                        className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 uppercase tracking-tighter cursor-pointer transition-colors underline decoration-emerald-500/30 underline-offset-2"
+                      >
+                        Solicitalo a un Admin
+                      </button>
                     </div>
                     <div className="relative group/input2">
                       <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input2:text-emerald-400" size={16} />
