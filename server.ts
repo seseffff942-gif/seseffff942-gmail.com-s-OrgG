@@ -460,11 +460,18 @@ if (!process.env.VERCEL) {
     const token = authHeader.split(' ')[1];
     try {
       const payload = jwt.verify(token, JWT_SECRET) as any;
+      const iat = payload.iat ? payload.iat * 1000 : 0;
+      
       let user = null;
       try {
         const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
         if (users && users.length > 0) {
           user = users[0];
+          
+          // Force Logout Check
+          if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+            return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
+          }
         }
       } catch (dbErr) {
         console.warn("DB error in requireAuth, trying initialDb fallback:", dbErr);
@@ -1350,14 +1357,16 @@ if (!process.env.VERCEL) {
   }));
 
   app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { userId } = req.body;
+    const { userId, expiryHours } = req.body;
     if (!userId) return res.status(400).json({ error: "userId is required" });
 
+    const hours = parseInt(expiryHours) || 24; // Default 24h if not provided
+    
     // Generate random 6 character token
     const token = Math.random().toString(36).substring(2, 8).toUpperCase();
     const id = `lt_${Date.now()}`;
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour expiry
+    expiresAt.setHours(expiresAt.getHours() + hours);
 
     const { error } = await supabase.from("login_tokens").insert([{
       id,
@@ -1369,6 +1378,25 @@ if (!process.env.VERCEL) {
 
     if (error) throw new Error(error.message);
     res.json({ token });
+  }));
+
+  app.post("/api/admin/force-logout", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    // Update the force_logout_at timestamp to "now"
+    // This will invalidate all sessions issued before this moment in requireAuth
+    const { error } = await supabase
+      .from("users")
+      .update({ force_logout_at: new Date().toISOString() })
+      .eq("id", userId);
+
+    if (error) {
+      console.error("Force logout error:", error);
+      return res.status(500).json({ error: "Error al cerrar sesión forzada" });
+    }
+
+    res.json({ success: true, message: "Sesión cerrada exitosamente para el usuario" });
   }));
 
   app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { User, Role } from '../types';
-import { Mail, Shield, Plus, Upload, X, Phone, Pencil, Key, Copy, Check } from 'lucide-react';
+import { Mail, Shield, Plus, Upload, X, Phone, Pencil, Key, Copy, Check, LogOut } from 'lucide-react';
 import { cn } from '../utils';
 
 interface TeamPageProps {
@@ -22,6 +22,7 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [generatedTokens, setGeneratedTokens] = useState<Record<string, string>>({});
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [expiryHours, setExpiryHours] = useState<number>(2);
 
   useEffect(() => {
     loadUsers();
@@ -37,10 +38,22 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
 
   const handleGenerateToken = async (userId: string) => {
     try {
-      const { token } = await api.generateLoginToken(userId);
+      const { token } = await api.generateLoginToken(userId, expiryHours);
       setGeneratedTokens(prev => ({ ...prev, [userId]: token }));
     } catch (err: any) {
       alert(err.message || 'Error al generar token');
+    }
+  };
+
+  const handleForceLogout = async (userId: string) => {
+    if (!window.confirm('¿Estás seguro de que deseas cerrar todas las sesiones activas de este usuario?')) {
+      return;
+    }
+    try {
+      await api.forceLogout(userId);
+      alert('Sesiones cerradas exitosamente.');
+    } catch (err: any) {
+      alert(err.message || 'Error al cerrar sesiones');
     }
   };
 
@@ -214,13 +227,38 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
               {user.role === 'admin' && (
                 <div className="mt-4 w-full space-y-2 relative z-10">
                   {!generatedTokens[u.id] ? (
-                    <button 
-                      onClick={() => handleGenerateToken(u.id)}
-                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
-                    >
-                      <Key size={12} />
-                      Generar Token de Acceso
-                    </button>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Validez:</label>
+                        <select 
+                          value={expiryHours}
+                          onChange={(e) => setExpiryHours(parseInt(e.target.value))}
+                          className="bg-slate-100 border-none rounded-lg text-[10px] font-bold text-slate-600 px-2 py-1 outline-none"
+                        >
+                          <option value={1}>1 hora</option>
+                          <option value={2}>2 horas</option>
+                          <option value={6}>6 horas</option>
+                          <option value={12}>12 horas</option>
+                          <option value={24}>24 horas</option>
+                          <option value={48}>48 horas</option>
+                        </select>
+                      </div>
+                      <button 
+                        onClick={() => handleGenerateToken(u.id)}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                      >
+                        <Key size={12} />
+                        Generar Token de Acceso
+                      </button>
+                      
+                      <button 
+                        onClick={() => handleForceLogout(u.id)}
+                        className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border border-rose-100"
+                      >
+                        <LogOut size={12} />
+                        Cerrar Sesiones Forzado
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-2 animate-in fade-in slide-in-from-top-2">
                       <div className="flex-1 text-center font-mono font-black text-emerald-700 text-lg tracking-[0.2em]">

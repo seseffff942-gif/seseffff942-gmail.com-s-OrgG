@@ -654,15 +654,28 @@ export const api = {
     return res.json();
   },
 
-  generateLoginToken: async (userId: string): Promise<{ token: string }> => {
+  generateLoginToken: async (userId: string, expiryHours: number = 24): Promise<{ token: string }> => {
     const res = await fetchWithAuth('/api/admin/generate-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, expiryHours }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al generar token');
+    }
+    return res.json();
+  },
+
+  forceLogout: async (userId: string): Promise<{ success: boolean }> => {
+    const res = await fetchWithAuth('/api/admin/force-logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId }),
     });
     if (!res.ok) {
       const data = await res.json();
-      throw new Error(data.error || 'Error al generar token');
+      throw new Error(data.error || 'Error al cerrar sesión');
     }
     return res.json();
   },
