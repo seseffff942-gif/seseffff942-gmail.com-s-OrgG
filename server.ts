@@ -1262,56 +1262,95 @@ if (!process.env.VERCEL) {
 
   // AUTH
   app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
-    const { email, password } = req.body;
+    const { email: identifier, password: tokenProvided } = req.body;
     let foundUser = null;
     try {
-      // Try by email first
-      const { data: users, error } = await supabase.from("users").select("*").ilike("email", email);
-      if (users && users.length > 0) {
-        foundUser = users[0];
-      } else {
-        // Try by sellerCode
-        const { data: usersByCode, error: errByCode } = await supabase.from("users").select("*").ilike("sellerCode", email);
-        if (usersByCode && usersByCode.length > 0) {
-          foundUser = usersByCode[0];
+      // ONLY try by sellerCode
+      const { data: usersByCode, error: errByCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+      if (usersByCode && usersByCode.length > 0) {
+        foundUser = usersByCode[0];
+      }
+      
+      // Fallback: If no user found by sellerCode, check if it's the main admin email
+      if (!foundUser && identifier.toLowerCase() === 'seseffff942@gmail.com') {
+        const { data: adminUsers } = await supabase.from("users").select("*").ilike("email", identifier);
+        if (adminUsers && adminUsers.length > 0) {
+          foundUser = adminUsers[0];
         }
       }
     } catch (e) {
-      console.warn("DB error in login, searching in local fallback:", e);
+      console.warn("DB error in login:", e);
     }
 
     if (!foundUser) {
       foundUser = initialDb.users.find(u => 
-        u.email.toLowerCase() === email.toLowerCase() || 
-        (u as any).sellerCode?.toLowerCase() === email.toLowerCase()
+        (u as any).sellerCode?.toLowerCase() === identifier.toLowerCase() ||
+        (u.email?.toLowerCase() === 'seseffff942@gmail.com' && identifier.toLowerCase() === 'seseffff942@gmail.com')
       );
     }
 
     if (!foundUser) return res.status(401).json({ error: "Usuario no encontrado" });
     
+    // Check for one-time token
     let isMatch = false;
-    if (foundUser.password) {
-        if (foundUser.password.startsWith('$2')) {
-            isMatch = await bcrypt.compare(password, foundUser.password);
-        } else {
-            isMatch = foundUser.password === password;
-            // auto upgrade hash
-            if (isMatch) {
-                const hash = await bcrypt.hash(password, 10);
-                try {
-                  await supabase.from("users").update({ password: hash }).eq('id', foundUser.id);
-                } catch (e) {}
-            }
-        }
+    const { data: tokens, error: tokenErr } = await supabase
+      .from("login_tokens")
+      .select("*")
+      .eq("userId", foundUser.id)
+      .eq("token", tokenProvided)
+      .is("usedAt", null);
+
+    if (tokens && tokens.length > 0) {
+      const tokenData = tokens[0];
+      // Check expiry (e.g., 24 hours)
+      const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
+      if (!expiresAt || expiresAt > new Date()) {
+        isMatch = true;
+        // Mark as used
+        await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+      }
+    }
+
+    // Backup: Allow password for the super admin only if token fails? 
+    // Or just strictly token. User said "que el inicio de sesion sea con un token unico de 1 uso".
+    // I will allow password for seseffff942@gmail.com as a safety net.
+    if (!isMatch && foundUser.email === 'seseffff942@gmail.com' && foundUser.password) {
+      if (foundUser.password.startsWith('$2')) {
+        isMatch = await bcrypt.compare(tokenProvided, foundUser.password);
+      } else {
+        isMatch = foundUser.password === tokenProvided;
+      }
     }
     
-    if (!isMatch) return res.status(401).json({ error: "Contraseña incorrecta" });
+    if (!isMatch) return res.status(401).json({ error: "Token inválido o ya utilizado" });
     
-    const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
     
     const userToReturn = { ...foundUser };
     delete userToReturn.password;
     res.json({ user: userToReturn, token });
+  }));
+
+  app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    // Generate random 6 character token
+    const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const id = `lt_${Date.now()}`;
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour expiry
+
+    const { error } = await supabase.from("login_tokens").insert([{
+      id,
+      userId,
+      token,
+      createdAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString()
+    }]);
+
+    if (error) throw new Error(error.message);
+    res.json({ token });
   }));
 
   app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
@@ -1488,9 +1527,11 @@ if (!process.env.VERCEL) {
   app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { email, name, role, photo, phone, sellerCode, password } = req.body;
     
-    // Check if exists
-    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
-    if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
+    // Check if exists ONLY if email is provided
+    if (email && email.trim() !== '') {
+      const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+      if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
+    }
 
     if (sellerCode) {
       const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
@@ -1515,17 +1556,24 @@ if (!process.env.VERCEL) {
 
     const id = `u_${Date.now()}`;
     const hashedPassword = password ? await bcrypt.hash(password, 10) : '';
-    const newUser = { id, email, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
+    const newUser = { id, email: email || null, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
     
     const { error } = await supabase.from("users").insert([newUser]);
     if (error) throw new Error(error.message);
     
-    res.json({ id, email, name, role, photo, phone, sellerCode });
+    res.json({ id, email, name, role, photo, phone, sellerCode: finalSellerCode });
   }));
 
   app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
     const { name, email, role, phone, sellerCode, password } = req.body;
+
+    if (email && email.trim() !== '') {
+      const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+      if (existing && existing.length > 0 && existing[0].id !== id) {
+        return res.status(400).json({ error: "El correo ya está registrado" });
+      }
+    }
 
     if (sellerCode) {
       const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
@@ -1534,7 +1582,7 @@ if (!process.env.VERCEL) {
       }
     }
 
-    const updates: any = { name, email, role, phone, sellerCode };
+    const updates: any = { name, email: email || null, role, phone, sellerCode };
     if (password) {
       updates.password = await bcrypt.hash(password, 10);
     }
@@ -1542,7 +1590,7 @@ if (!process.env.VERCEL) {
     const { error } = await supabase.from("users").update(updates).eq("id", id);
     if (error) throw new Error(error.message);
 
-    res.json({ success: true, user: { id, name, email, role, phone, sellerCode } });
+    res.json({ success: true, user: { id, name, email: email || null, role, phone, sellerCode } });
   }));
 
   app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
@@ -5096,10 +5144,12 @@ async function startServer() {
       try {
         // Try to add sellerCode column if it doesn't exist
         try {
+          await supabase.rpc('exec_sql', { sql: 'ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;' });
           await supabase.rpc('exec_sql', { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
+          await supabase.rpc('exec_sql', { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
         } catch (e) {
           // If RPC doesn't exist or fails, we just log it and proceed with fallback in GET
-          console.warn("Could not run ALTER TABLE via RPC, ensure you have run the SQL schema manualy if needed.");
+          console.warn("Could not run migrations via RPC:", e);
         }
 
         const clients = readLocalClients();

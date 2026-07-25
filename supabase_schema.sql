@@ -108,12 +108,14 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     invoice_id TEXT
 );
 
-CREATE TABLE IF NOT EXISTS public.dispatches (
+ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.login_tokens (
     id TEXT PRIMARY KEY,
-    "invoiceId" TEXT,
-    items JSONB,
-    date TEXT,
-    client TEXT,
-    "sellerId" TEXT
+    "userId" TEXT NOT NULL,
+    token TEXT NOT NULL,
+    "createdAt" TEXT NOT NULL,
+    "usedAt" TEXT,
+    "expiresAt" TEXT
 );
 

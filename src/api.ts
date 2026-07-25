@@ -654,6 +654,19 @@ export const api = {
     return res.json();
   },
 
+  generateLoginToken: async (userId: string): Promise<{ token: string }> => {
+    const res = await fetchWithAuth('/api/admin/generate-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al generar token');
+    }
+    return res.json();
+  },
+
   askGemini: async (message: string, history: Array<{ role: 'user' | 'model'; content: string }> = []): Promise<{ reply: string }> => {
     const res = await fetchWithAuth('/api/gemini/chat', {
       method: 'POST',

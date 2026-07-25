@@ -148,9 +148,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [verifyingClient, setVerifyingClient] = useState<any | null>(null);
-  const [clientCodeVerifyInput, setClientCodeVerifyInput] = useState('');
-  const [clientCodeError, setClientCodeError] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [sellerSignature, setSellerSignature] = useState<string | null>(() => {
@@ -2410,20 +2407,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                 <div
                                   key={c.id}
                                   onClick={() => {
-                                    if (c.clientCode && c.clientCode.trim() !== '') {
-                                      setVerifyingClient(c);
-                                      setClientCodeVerifyInput('');
-                                      setClientCodeError(false);
-                                    } else {
-                                      const cName = c.companyName ? `${c.name} - ${c.companyName}` : c.name;
-                                      setClient(cName);
-                                      setNit(c.nit || '');
-                                      setPhone(c.phone || '');
-                                      setAddress(c.address || '');
-                                      setIsEditingAddress(false);
-                                      setShowSearchClientModal(false);
-                                      checkClientDebt(cName);
-                                    }
+                                    const cName = c.companyName ? `${c.name} - ${c.companyName}` : c.name;
+                                    setClient(cName);
+                                    setNit(c.nit || '');
+                                    setPhone(c.phone || '');
+                                    setAddress(c.address || '');
+                                    setIsEditingAddress(false);
+                                    setShowSearchClientModal(false);
+                                    checkClientDebt(cName);
                                   }}
                                   className="p-4 bg-white border border-slate-100 hover:border-teal-400 rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer text-left space-y-2 relative group"
                                 >
@@ -2935,96 +2926,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       )}
 
       {/* Final closing area for modals */}
-      {verifyingClient && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden"
-          >
-            <div className="p-6 text-center space-y-4">
-              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <AlertCircle size={32} />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">Verificación de Cliente</h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Ingresa el código de 4 dígitos para acceder al formulario de venta de <b>{verifyingClient.name}</b></p>
-              </div>
-
-              <div className="space-y-2">
-                <input 
-                  type="text"
-                  maxLength={4}
-                  autoFocus
-                  value={clientCodeVerifyInput}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setClientCodeVerifyInput(val);
-                    setClientCodeError(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (clientCodeVerifyInput === verifyingClient.clientCode) {
-                        const c = verifyingClient;
-                        const cName = c.companyName ? `${c.name} - ${c.companyName}` : c.name;
-                        setClient(cName);
-                        setNit(c.nit || '');
-                        setPhone(c.phone || '');
-                        setAddress(c.address || '');
-                        setIsEditingAddress(false);
-                        setShowSearchClientModal(false);
-                        checkClientDebt(cName);
-                        setVerifyingClient(null);
-                      } else {
-                        setClientCodeError(true);
-                      }
-                    }
-                  }}
-                  className={cn(
-                    "w-full text-center text-4xl font-black tracking-[0.5em] py-4 rounded-2xl border-2 outline-none transition-all",
-                    clientCodeError ? "border-red-500 bg-red-50 text-red-600 shake" : "border-slate-100 bg-slate-50 text-slate-900 focus:border-blue-500 focus:bg-white"
-                  )}
-                  placeholder="0000"
-                />
-                {clientCodeError && (
-                  <p className="text-xs font-bold text-red-600 animate-bounce">Código incorrecto. Inténtalo de nuevo.</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  onClick={() => setVerifyingClient(null)}
-                  className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-all text-xs uppercase tracking-wider"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    if (clientCodeVerifyInput === verifyingClient.clientCode) {
-                      const c = verifyingClient;
-                      const cName = c.companyName ? `${c.name} - ${c.companyName}` : c.name;
-                      setClient(cName);
-                      setNit(c.nit || '');
-                      setPhone(c.phone || '');
-                      setAddress(c.address || '');
-                      setIsEditingAddress(false);
-                      setShowSearchClientModal(false);
-                      checkClientDebt(cName);
-                      setVerifyingClient(null);
-                    } else {
-                      setClientCodeError(true);
-                    }
-                  }}
-                  className="py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all text-xs uppercase tracking-wider shadow-lg shadow-blue-200"
-                >
-                  Verificar
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
       {showSignaturePad && (
         <SignaturePad 
           onSave={handleSaveSignature}

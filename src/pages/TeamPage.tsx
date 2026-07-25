@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { User, Role } from '../types';
-import { Mail, Shield, Plus, Upload, X, Phone, Pencil } from 'lucide-react';
+import { Mail, Shield, Plus, Upload, X, Phone, Pencil, Key, Copy, Check } from 'lucide-react';
 import { cn } from '../utils';
 
 interface TeamPageProps {
@@ -20,6 +20,8 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [generatedTokens, setGeneratedTokens] = useState<Record<string, string>>({});
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -31,6 +33,21 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
       setUsers(u);
       setLoading(false);
     });
+  };
+
+  const handleGenerateToken = async (userId: string) => {
+    try {
+      const { token } = await api.generateLoginToken(userId);
+      setGeneratedTokens(prev => ({ ...prev, [userId]: token }));
+    } catch (err: any) {
+      alert(err.message || 'Error al generar token');
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedToken(text);
+    setTimeout(() => setCopiedToken(null), 2000);
   };
 
   const generateRandomCode = () => {
@@ -88,7 +105,7 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
     setEditMember({ 
       id: u.id, 
       name: u.name, 
-      email: u.email, 
+      email: u.email || '', 
       role: u.role, 
       phone: u.phone || '', 
       sellerCode: u.sellerCode || '',
@@ -172,10 +189,12 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                     CÓDIGO: {u.sellerCode}
                   </div>
                 )}
-                <div className="flex items-center gap-1.5">
-                  <Mail size={14} className="text-teal-500" />
-                  <span>{u.email}</span>
-                </div>
+                {u.email && (
+                  <div className="flex items-center gap-1.5">
+                    <Mail size={14} className="text-teal-500" />
+                    <span>{u.email}</span>
+                  </div>
+                )}
                 {(user.role === 'admin' || user.id === u.id) && u.phone && (
                   <div className="flex items-center gap-1.5">
                     <Phone size={14} className="text-teal-500" />
@@ -191,6 +210,32 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                 {u.role === 'admin' && <Shield size={14} />}
                 {u.role === 'admin' ? 'Administrador' : 'Vendedor'}
               </div>
+
+              {user.role === 'admin' && (
+                <div className="mt-4 w-full space-y-2 relative z-10">
+                  {!generatedTokens[u.id] ? (
+                    <button 
+                      onClick={() => handleGenerateToken(u.id)}
+                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Key size={12} />
+                      Generar Token de Acceso
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-2 animate-in fade-in slide-in-from-top-2">
+                      <div className="flex-1 text-center font-mono font-black text-emerald-700 text-lg tracking-[0.2em]">
+                        {generatedTokens[u.id]}
+                      </div>
+                      <button 
+                        onClick={() => copyToClipboard(generatedTokens[u.id])}
+                        className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                      >
+                        {copiedToken === generatedTokens[u.id] ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {user?.email === 'seseffff942@gmail.com' && (
                 <button 
@@ -236,8 +281,8 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                     <input type="text" value={newMember.name} onChange={e => setNewMember({...newMember, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" required placeholder="Nombre completo" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico</label>
-                    <input type="email" value={newMember.email} onChange={e => setNewMember({...newMember, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" required placeholder="correo@ejemplo.com" />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico (Opcional)</label>
+                    <input type="email" value={newMember.email} onChange={e => setNewMember({...newMember, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="correo@ejemplo.com" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono / WhatsApp</label>
@@ -291,8 +336,8 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                     <input type="text" value={editMember.name} onChange={e => setEditMember({...editMember, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" required placeholder="Nombre completo" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico</label>
-                    <input type="email" value={editMember.email} onChange={e => setEditMember({...editMember, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" required placeholder="correo@ejemplo.com" />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Correo Electrónico (Opcional)</label>
+                    <input type="email" value={editMember.email} onChange={e => setEditMember({...editMember, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="correo@ejemplo.com" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono / WhatsApp</label>

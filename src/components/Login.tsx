@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Mail, User as UserIcon, Monitor, Smartphone, Sparkles, AlertTriangle, CheckCircle, ArrowRight, RefreshCw, Star, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, User as UserIcon, Monitor, Smartphone, Sparkles, AlertTriangle, CheckCircle, ArrowRight, RefreshCw, Star, ShieldCheck, Key } from 'lucide-react';
 import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -21,8 +21,8 @@ export function Login({ onLogin }: LoginProps) {
 
   const [mode, setMode] = useState<'login'>('login');
   
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [sellerCode, setSellerCode] = useState('');
+  const [token, setToken] = useState('');
   
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
   
@@ -32,11 +32,11 @@ export function Login({ onLogin }: LoginProps) {
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) return setError('Por favor, ingresa tu correo y contraseña');
+    if (!sellerCode || !token) return setError('Por favor, ingresa tu código de vendedor y token de acceso');
     
     setLoading(true);
     try {
-      const user = await api.login(email, password);
+      const user = await api.login(sellerCode, token);
       onLogin(user, device);
     } catch (err: any) {
       setError(err.message || 'Error de autenticación. Verifica tus credenciales.');
@@ -239,33 +239,34 @@ export function Login({ onLogin }: LoginProps) {
                   
                   {/* Login Identifier block */}
                   <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Código de Acceso / Usuario</label>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Código de Vendedor</label>
                     <div className="relative group/input">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
+                      <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input:text-emerald-400" size={16} />
                       <input
                         type="text"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="Ingresa tu código o correo"
+                        value={sellerCode}
+                        onChange={(e) => setSellerCode(e.target.value)}
+                        placeholder="Ingresa tu código de 4 dígitos"
                         className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
                         required
                       />
                     </div>
                   </div>
 
-                  {/* Password block */}
+                  {/* Token block */}
                   <div className="space-y-2">
                     <div className="flex justify-between items-center ml-1">
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Contraseña</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Token de Acceso</label>
+                      <span className="text-[10px] font-bold text-emerald-500/60 uppercase tracking-tighter">Solicitalo a un Admin</span>
                     </div>
                     <div className="relative group/input2">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input2:text-emerald-400" size={16} />
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition-colors group-focus-within/input2:text-emerald-400" size={16} />
                       <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-500 text-sm font-semibold focus:ring-4 focus:ring-emerald-500/5"
+                        type="text"
+                        value={token}
+                        onChange={(e) => setToken(e.target.value.toUpperCase())}
+                        placeholder="INGRESA TU TOKEN"
+                        className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/10 focus:border-emerald-500/50 outline-none transition-all bg-white/[0.02] hover:bg-white/[0.04] text-white placeholder-slate-600 text-sm font-black focus:ring-4 focus:ring-emerald-500/5 tracking-[0.2em]"
                         required
                       />
                     </div>
