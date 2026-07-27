@@ -245,7 +245,8 @@ const upload = multer({ storage, fileFilter: imageFilter, limits: { fileSize: 20
 
 export const app = express();
 app.set("trust proxy", 1);
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Webhook endpoint
 app.get("/api/webhooks", (req: any, res: any) => {
@@ -310,13 +311,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Security Middleware: DDoS Protection / Rate Limiting
+// Security Middleware: DDoS Protection / Rate Limiting (validate: false prevents Vercel proxy headers crash)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 2000, // limit each IP to 2000 requests per windowMs to allow short-polling
   message: { error: "Demasiadas peticiones desde esta IP, por favor inténtalo de nuevo después de 15 minutos." },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: false
 });
 
 const loginLimiter = rateLimit({
@@ -324,13 +326,11 @@ const loginLimiter = rateLimit({
   max: 10, // Limit each IP to 10 login requests per window
   message: { error: "Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos." },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: false
 });
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", loginLimiter);
-
-app.use(express.json({ limit: "10mb" })); // Also limit JSON payload to minimize exposure to large payloads
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Trigger DB seeding in the background so we don't delay startup
 if (!process.env.VERCEL) {
