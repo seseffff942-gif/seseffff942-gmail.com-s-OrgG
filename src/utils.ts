@@ -34,6 +34,40 @@ export function isTecunProduct(product: { name?: string; category?: string } | n
   );
 }
 
+export function is100gProduct(product: { name?: string; category?: string } | null | undefined): boolean {
+  if (!product) return false;
+  const nameL = (product.name || '').toLowerCase();
+  const catL = (product.category || '').toLowerCase();
+  const combined = `${nameL} ${catL}`;
+  return /100\s*(g|gr|gram|gramos)\b/i.test(combined) || 
+         combined.includes('100g') || 
+         combined.includes('100 g') || 
+         combined.includes('100gr') || 
+         combined.includes('100 gr') || 
+         combined.includes('100gramos') || 
+         combined.includes('100 gramos');
+}
+
+export function getCriticalStockThreshold(product: { name?: string; category?: string } | null | undefined): number {
+  if (!product) return 5;
+  const nameL = (product.name || '').toLowerCase();
+  const catL = (product.category || '').toLowerCase();
+
+  const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
+  const isNexlabet = nameL.includes('nexlabet');
+  const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
+
+  if ((isSA && !isNexlabet) || isOtherCritical) {
+    return 120;
+  }
+
+  if (is100gProduct(product)) {
+    return 25;
+  }
+
+  return 5;
+}
+
 export function isCriticalStock(product: { name?: string; category?: string; stock?: number }): boolean {
   if (!product) return false;
   if (isTecunProduct(product)) return false;
@@ -48,15 +82,9 @@ export function isCriticalStock(product: { name?: string; category?: string; sto
     return false;
   }
 
-  const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
-  const isNexlabet = nameL.includes('nexlabet');
-  const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
-
-  if ((isSA && !isNexlabet) || isOtherCritical) {
-    return stock < 120;
-  }
+  const threshold = getCriticalStockThreshold(product);
   
-  return stock <= 5;
+  return stock <= threshold;
 }
 
 export function doesNotNeedStock(product: { name?: string; category?: string } | null | undefined): boolean {

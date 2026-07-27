@@ -1287,7 +1287,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                  gridDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
               }
               const isOutOfStock = gridDisplayStock === 0 && !product.is_external && !isExempt;
-              const isCriticalStock = gridDisplayStock > 0 && gridDisplayStock <= 5 && !product.is_external && !isExempt;
+              const isCriticalStockVal = gridDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: gridDisplayStock }) && !product.is_external && !isExempt;
               
               return (
                 <div
@@ -1522,7 +1522,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       listDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
                     }
                     const isOutOfStock = listDisplayStock === 0 && !product.is_external && !isExempt;
-                    const isCriticalStock = listDisplayStock > 0 && listDisplayStock <= 5 && !product.is_external && !isExempt;
+                    const isCriticalStockVal = listDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: listDisplayStock }) && !product.is_external && !isExempt;
 
                     return (
                       <tr 
@@ -1554,7 +1554,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                     ? "text-emerald-700 bg-emerald-50" 
                                     : isOutOfStock 
                                       ? "text-red-700 bg-red-50" 
-                                      : isCriticalStock 
+                                      : isCriticalStockVal 
                                         ? "text-amber-700 bg-amber-50" 
                                         : "text-slate-500 bg-slate-100"
                                 )}>
@@ -1771,7 +1771,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   }
                 }
                 const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p);
-                const isCriticalStock = individualStock > 0 && individualStock <= 5 && !p.is_external && !doesNotNeedStock(p);
+                const isCriticalStockVal = individualStock > 0 && isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) && !p.is_external && !doesNotNeedStock(p);
                 
                 return (
                   <div 
@@ -1799,7 +1799,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex flex-col gap-0.5">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Existencia</span>
                         <span className={cn(
-                          p.is_external ? "text-emerald-600" : (isOutOfStock ? "text-red-500" : (isCriticalStock ? "text-amber-600" : "text-slate-800")),
+                          p.is_external ? "text-emerald-600" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
                           "text-xs font-black"
                         )}>
                           {p.is_external ? 'Lote Externo' : `${individualStock} uds`}
@@ -2842,7 +2842,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 
                 <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar">
                   <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
-                    Los siguientes productos tienen un nivel de stock bajo (5 unidades o menos). Considere reabastecerlos pronto para evitar detener las ventas.
+                    Los siguientes productos tienen un nivel de stock bajo o crítico. Considere reabastecerlos pronto para evitar detener las ventas.
                   </p>
                   
                   {activeCriticalProducts.length === 0 ? (

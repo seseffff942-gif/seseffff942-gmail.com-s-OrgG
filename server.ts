@@ -512,6 +512,47 @@ if (!process.env.VERCEL) {
     return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
   };
 
+  const is100gProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
+    if (!product) return false;
+    const nameL = (product.name || '').toLowerCase();
+    const catL = (product.category || '').toLowerCase();
+    const combined = `${nameL} ${catL}`;
+    return /100\s*(g|gr|gram|gramos)\b/i.test(combined) || 
+           combined.includes('100g') || 
+           combined.includes('100 g') || 
+           combined.includes('100gr') || 
+           combined.includes('100 gr') || 
+           combined.includes('100gramos') || 
+           combined.includes('100 gramos');
+  };
+
+  const getCriticalStockThreshold = (product: { name?: string; category?: string } | null | undefined): number => {
+    if (!product) return 5;
+    const nameL = (product.name || '').toLowerCase();
+    const catL = (product.category || '').toLowerCase();
+
+    const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
+    const isNexlabet = nameL.includes('nexlabet');
+    const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
+
+    if ((isSA && !isNexlabet) || isOtherCritical) {
+      return 120;
+    }
+
+    if (is100gProduct(product)) {
+      return 25;
+    }
+
+    return 5;
+  };
+
+  const isCriticalStock = (product: { name?: string; category?: string } | null | undefined, currentStock?: number): boolean => {
+    if (!product) return false;
+    const stock = currentStock !== undefined ? currentStock : ((product as any).stock || 0);
+    const threshold = getCriticalStockThreshold(product);
+    return stock <= threshold;
+  };
+
   // ======== API ERROR WRAPPER ========
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -1893,8 +1934,8 @@ if (!process.env.VERCEL) {
         await createNotification('restock', 'Stock Agregado', `Se agregaron ${Math.abs(diff)} unidades a ${originalProduct.name}. Nuevo stock: ${stock}.`, { productId: id });
       } else if (stock === 0) {
         await createNotification('out_of_stock', 'Producto Agotado', `${originalProduct.name} se ha quedado sin stock.`, { productId: id });
-      } else if (stock <= 5) {
-        await createNotification('low_stock', 'Stock Crítico', `Solo quedan ${stock} unidades de ${originalProduct.name}.`, { productId: id });
+      } else if (isCriticalStock(originalProduct, stock)) {
+        await createNotification('low_stock', 'Stock Crítico', `Solo quedan ${stock} unidades de ${originalProduct.name} (límite crítico: ${getCriticalStockThreshold(originalProduct)} uds).`, { productId: id });
       } else {
         await createNotification('low_stock', 'Stock Modificado', `Se redujo el stock de ${originalProduct.name} en ${Math.abs(diff)} unidades. Nuevo stock: ${stock}.`, { productId: id });
       }
@@ -2736,17 +2777,11 @@ if (!process.env.VERCEL) {
               }
             }
           }
-        } else if (!isExemptFromStock && currentStock >= 120 && newStock < 120) {
-          const nameL = (product.name || '').toLowerCase();
-          const catL = (product.category || '').toLowerCase();
-          
-          const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
-          const isNexlabet = nameL.includes('nexlabet');
-          const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
-
-          if ((isSA && !isNexlabet) || isOtherCritical) {
+        } else if (!isExemptFromStock) {
+          const threshold = getCriticalStockThreshold(product);
+          if (currentStock > threshold && newStock <= threshold && newStock > 0) {
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-            const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado de 120 unidades. (Stock actual: ${newStock}).`;
+            const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
             const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin of admins) {
