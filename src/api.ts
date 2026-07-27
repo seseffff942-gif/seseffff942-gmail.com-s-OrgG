@@ -798,6 +798,30 @@ export const api = {
     });
   },
 
+  getExcludedCriticalProducts: async (): Promise<string[]> => {
+    try {
+      const res = await fetchWithAuth('/api/inventory/excluded-critical');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data?.excludedIds) ? data.excludedIds : [];
+    } catch {
+      return [];
+    }
+  },
+
+  updateExcludedCriticalProducts: async (excludedIds: string[]): Promise<boolean> => {
+    try {
+      const res = await fetchWithAuth('/api/inventory/excluded-critical', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excludedIds })
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
   getSuppliers: async (): Promise<any[]> => {
     const res = await fetchWithAuth('/api/suppliers');
     if (!res.ok) throw new Error('Error al obtener proveedores');

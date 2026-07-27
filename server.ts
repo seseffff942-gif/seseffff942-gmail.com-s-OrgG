@@ -3609,6 +3609,65 @@ if (!process.env.VERCEL) {
     invalidateCache("folio_map");
   }));
 
+  app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req: any, res: any) => {
+    let excludedIds: string[] = [];
+    const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
+    if (fs.existsSync(EXCLUDED_FILE)) {
+      try {
+        excludedIds = JSON.parse(fs.readFileSync(EXCLUDED_FILE, "utf-8"));
+      } catch (err) {}
+    }
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-critical-config").single();
+      if (sysRow && sysRow.photo) {
+        const parsed = JSON.parse(sysRow.photo);
+        if (Array.isArray(parsed)) {
+          excludedIds = parsed;
+        }
+      }
+    } catch (e) {}
+    if (!Array.isArray(excludedIds)) excludedIds = [];
+    res.json({ excludedIds });
+  }));
+
+  app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { excludedIds } = req.body;
+    const list = Array.isArray(excludedIds) ? excludedIds : [];
+    
+    // Save locally
+    const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
+    try {
+      fs.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
+    } catch (err) {}
+
+    // Save in Supabase
+    try {
+      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-critical-config").single();
+      if (existing) {
+        await supabase.from("users").update({
+          photo: JSON.stringify(list),
+          name: "Critical Stock Exclusions",
+          email: "system-critical@agricovet.com",
+          role: "system"
+        }).eq("id", "sys-critical-config");
+      } else {
+        await supabase.from("users").insert([{
+          id: "sys-critical-config",
+          name: "Critical Stock Exclusions",
+          email: "system-critical@agricovet.com",
+          role: "system",
+          password: "",
+          photo: JSON.stringify(list),
+          phone: ""
+        }]);
+      }
+    } catch (e) {
+      console.error("Failed to save critical stock exclusions to Supabase:", e);
+    }
+
+    res.json({ success: true, excludedIds: list });
+  }));
+
   app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req: any, res: any) => {
     let template = "";
     const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");

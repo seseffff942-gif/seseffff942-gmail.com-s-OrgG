@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase } from 'lucide-react';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert } from 'lucide-react';
 import { cn, doesNotNeedStock, isCriticalStock } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
@@ -54,9 +54,75 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     localStorage.setItem('inventoryViewMode', inventoryViewMode);
   }, [inventoryViewMode]);
 
+  const isAdmin = user.role === 'admin' || user.email === 'seseffff942@gmail.com';
+
   // Custom dialog state to replace native prompt
   const [showEditFieldModal, setShowEditFieldModal] = useState(false);
   const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
+  const [criticalModalTab, setCriticalModalTab] = useState<'active' | 'excluded'>('active');
+  const [selectedCriticalForBatch, setSelectedCriticalForBatch] = useState<string[]>([]);
+  const [excludedCriticalIds, setExcludedCriticalIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('excluded_critical_product_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const toggleExcludeCritical = (productId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!isAdmin) return;
+    setExcludedCriticalIds(prev => {
+      const updated = prev.includes(productId)
+        ? prev.filter(id => id !== productId)
+        : [...prev, productId];
+      localStorage.setItem('excluded_critical_product_ids', JSON.stringify(updated));
+      api.updateExcludedCriticalProducts(updated);
+      return updated;
+    });
+    setSelectedCriticalForBatch(prev => prev.filter(id => id !== productId));
+  };
+
+  const excludeBatchFromCritical = () => {
+    if (!isAdmin || selectedCriticalForBatch.length === 0) return;
+    setExcludedCriticalIds(prev => {
+      const set = new Set([...prev, ...selectedCriticalForBatch]);
+      const updated = Array.from(set);
+      localStorage.setItem('excluded_critical_product_ids', JSON.stringify(updated));
+      api.updateExcludedCriticalProducts(updated);
+      return updated;
+    });
+    setSelectedCriticalForBatch([]);
+  };
+
+  const restoreBatchToCritical = () => {
+    if (!isAdmin || selectedCriticalForBatch.length === 0) return;
+    setExcludedCriticalIds(prev => {
+      const updated = prev.filter(id => !selectedCriticalForBatch.includes(id));
+      localStorage.setItem('excluded_critical_product_ids', JSON.stringify(updated));
+      api.updateExcludedCriticalProducts(updated);
+      return updated;
+    });
+    setSelectedCriticalForBatch([]);
+  };
+
+  const toggleSelectCriticalBatch = (productId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!isAdmin) return;
+    setSelectedCriticalForBatch(prev =>
+      prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]
+    );
+  };
+
+  const activeCriticalProducts = useMemo(() => {
+    return products.filter(p => !p.is_external && !excludedCriticalIds.includes(p.id) && isCriticalStock(p));
+  }, [products, excludedCriticalIds]);
+
+  const excludedCriticalProducts = useMemo(() => {
+    return isAdmin ? products.filter(p => excludedCriticalIds.includes(p.id)) : [];
+  }, [products, excludedCriticalIds, isAdmin]);
+
   const [editProductField, setEditProductField] = useState<{
     product: Product;
     field: 'name' | 'stock' | 'price' | 'image' | 'category';
@@ -89,10 +155,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await api.getProducts();
+      const [data, allUsers, serverExcluded] = await Promise.all([
+        api.getProducts(),
+        api.getUsers(),
+        api.getExcludedCriticalProducts()
+      ]);
       setProducts(data.map(p => ({ ...p, stock: Number(p.stock) || 0, price: Number(p.price) || 0 })));
-      const allUsers = await api.getUsers();
       setUsers(allUsers);
+      if (Array.isArray(serverExcluded)) {
+        setExcludedCriticalIds(serverExcluded);
+        localStorage.setItem('excluded_critical_product_ids', JSON.stringify(serverExcluded));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -108,7 +181,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       if (uploadingImageProductId) return;
 
       try {
-        const data = await api.getProducts();
+        const [data, serverExcluded] = await Promise.all([
+          api.getProducts(),
+          api.getExcludedCriticalProducts()
+        ]);
         const mappedData = data.map(p => ({ 
           ...p, 
           stock: Number(p.stock) || 0, 
@@ -116,7 +192,6 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         }));
 
         setProducts(prev => {
-          // Compare only if we are not in the middle of an operation that changes the state
           if (uploadingImageProductId) return prev;
           
           const hasChanged = prev.length !== mappedData.length || 
@@ -127,6 +202,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           }
           return prev;
         });
+
+        if (Array.isArray(serverExcluded)) {
+          setExcludedCriticalIds(serverExcluded);
+          localStorage.setItem('excluded_critical_product_ids', JSON.stringify(serverExcluded));
+        }
       } catch (err) {}
     }, 15000); // 15 seconds is more reasonable for a real-time-ish feel
     return () => clearInterval(interval);
@@ -526,7 +606,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Stock Crítico o Agotado</span>
               <div className="flex items-center justify-between">
                 <h3 className="text-xl sm:text-2xl font-black text-slate-800 leading-none">
-                  <span className="notranslate" translate="no">{products.filter(p => !p.is_external && isCriticalStock(p)).length}</span> <span className="text-xs font-semibold text-slate-500">artículos</span>
+                  <span className="notranslate" translate="no">{activeCriticalProducts.length}</span> <span className="text-xs font-semibold text-slate-500">artículos</span>
                 </h3>
                 <span className="text-[10px] bg-amber-50 text-amber-800 px-2 py-1 rounded-lg font-black group-hover:bg-[#0b4d2c] group-hover:text-white transition-all uppercase tracking-wider">
                   Ver Todo
@@ -1039,7 +1119,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       className={cn(
                       "text-[10px] sm:text-xs font-bold px-3 py-1 rounded-lg",
                       user.role === 'admin' ? "cursor-pointer hover:border-emerald-200 border border-transparent transition-all" : "",
-                      doesNotNeedStock(selectedProduct) || selectedProduct.is_external ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
+                      doesNotNeedStock(selectedProduct) || selectedProduct.is_external || (isAdmin && excludedCriticalIds.includes(selectedProduct.id)) ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
                     )}>
                       {selectedProduct.is_external ? "Bajo Pedido (Externo) - Clic para cambiar" : (doesNotNeedStock(selectedProduct) ? `Exento de Stock (${selectedProduct.stock} en físico)` : `${selectedProduct.stock} unidades en stock`)}
                     </p>
@@ -1201,7 +1281,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         ) : inventoryViewMode === 'grid' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {filteredProducts.map((product) => {
-              const isExempt = doesNotNeedStock(product);
+              const isExempt = doesNotNeedStock(product) || (isAdmin && excludedCriticalIds.includes(product.id));
               let gridDisplayStock = product.stock;
               if (product.variants && product.variants.length > 0) {
                  gridDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
@@ -1436,7 +1516,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredProducts.map((product) => {
-                    const isExempt = doesNotNeedStock(product);
+                    const isExempt = doesNotNeedStock(product) || (isAdmin && excludedCriticalIds.includes(product.id));
                     let listDisplayStock = product.stock;
                     if (product.variants && product.variants.length > 0) {
                       listDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
@@ -2391,102 +2471,454 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-lg w-full overflow-hidden"
+            className={cn(
+              "bg-white rounded-3xl shadow-2xl border border-slate-100 w-full overflow-hidden flex flex-col max-h-[90vh]",
+              isAdmin ? "max-w-2xl" : "max-w-lg"
+            )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-black text-slate-850 text-base flex items-center gap-2">
-                <AlertCircle size={18} className="text-amber-600 animate-pulse" />
-                <span>Productos en Stock Crítico</span>
-                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-black">
-                  {products.filter(p => !p.is_external && isCriticalStock(p)).length}
-                </span>
-              </h3>
-              <button 
-                onClick={() => setIsCriticalModalOpen(false)}
-                className="p-1.5 rounded-full text-slate-400 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            
-            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar">
-              <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
-                Los siguientes productos tienen un nivel de stock bajo (5 unidades o menos). Considere reabastecerlos pronto para evitar detener las ventas.
-              </p>
-              
-              {products.filter(p => !p.is_external && isCriticalStock(p)).length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <Package size={36} className="mx-auto text-slate-300 mb-2" />
-                  <p className="text-sm font-bold">¡Excelente! No hay productos con stock crítico.</p>
-                </div>
-              ) : (
-                products.filter(p => !p.is_external && isCriticalStock(p)).map((p) => {
-                  const CategoryIcon = getCategoryIcon(p.category || 'Otros');
-                  const isOutOfStock = p.stock <= 0;
-                  return (
-                    <div 
-                      key={p.id} 
-                      onClick={() => {
-                        setSelectedProduct(p);
-                        setShowDetailModal(true);
-                        setIsCriticalModalOpen(false);
-                      }}
-                      className="flex items-center justify-between p-4 bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-100 rounded-2xl group transition-all duration-200 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center shrink-0 text-slate-400">
-                          {p.image ? (
-                            <img 
-                              src={p.image} 
-                              alt={p.name} 
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover rounded-xl"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = getFallbackImage(p.category || '');
-                              }}
-                            />
-                          ) : (
-                            <CategoryIcon size={16} className="text-[#0b4d2c]" />
-                          )}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-slate-800 text-sm group-hover:text-[#0b4d2c] transition-colors leading-tight">
-                            {p.name}
-                          </h4>
-                          <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
-                            <span className="font-bold uppercase tracking-wider">{p.category || 'Otros'}</span>
-                            <span>•</span>
-                            <span className="font-mono">SKU: {p.id.split('-')[0]}</span>
-                          </span>
-                        </div>
+            {isAdmin ? (
+              /* ADMIN MANAGEMENT VIEW */
+              <>
+                {/* Modal Header with Tabs */}
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                  <div className="flex justify-between items-center mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-100">
+                        <AlertCircle size={20} className="animate-pulse" />
                       </div>
-                      
-                      <div className="text-right shrink-0">
-                        <span className={cn(
-                          "inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black uppercase tracking-wider shadow-2xs",
-                          isOutOfStock 
-                            ? "bg-red-50 text-red-700 border border-red-100 animate-pulse" 
-                            : "bg-amber-50 text-amber-700 border border-amber-100"
-                        )}>
-                          {isOutOfStock ? 'Agotado 0 Uds' : `${p.stock} Uds`}
-                        </span>
+                      <div>
+                        <h3 className="font-black text-slate-850 text-base">Gestión de Stock Crítico</h3>
+                        <p className="text-xs text-slate-400 font-medium">Excluye productos de esta sección sin afectarlos en el inventario</p>
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
-            
-            <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
-              <button 
-                type="button"
-                onClick={() => setIsCriticalModalOpen(false)}
-                className="px-6 py-3 bg-[#0b4d2c] hover:bg-[#07361e] text-white font-black rounded-2xl transition-all text-xs uppercase tracking-wider cursor-pointer shadow-md"
-              >
-                Entendido
-              </button>
-            </div>
+                    <button 
+                      onClick={() => setIsCriticalModalOpen(false)}
+                      className="p-2 rounded-full text-slate-400 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* Navigation Tabs */}
+                  <div className="flex bg-slate-200/60 p-1 rounded-2xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCriticalModalTab('active');
+                        setSelectedCriticalForBatch([]);
+                      }}
+                      className={cn(
+                        "flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer",
+                        criticalModalTab === 'active'
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      )}
+                    >
+                      <AlertCircle size={14} className={criticalModalTab === 'active' ? "text-amber-600" : ""} />
+                      <span>En Críticos</span>
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-[10px] font-black",
+                        criticalModalTab === 'active' ? "bg-amber-100 text-amber-800" : "bg-slate-300/60 text-slate-600"
+                      )}>
+                        {activeCriticalProducts.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCriticalModalTab('excluded');
+                        setSelectedCriticalForBatch([]);
+                      }}
+                      className={cn(
+                        "flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer",
+                        criticalModalTab === 'excluded'
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      )}
+                    >
+                      <EyeOff size={14} className={criticalModalTab === 'excluded' ? "text-slate-700" : ""} />
+                      <span>Excluidos / Ocultos</span>
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-[10px] font-black",
+                        criticalModalTab === 'excluded' ? "bg-slate-800 text-white" : "bg-slate-300/60 text-slate-600"
+                      )}>
+                        {excludedCriticalProducts.length}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Explanatory Banner & Batch Action Bar */}
+                <div className="px-6 pt-4 pb-2 bg-amber-50/40 border-b border-amber-100/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <p className="text-[11px] text-amber-900/80 font-medium leading-tight">
+                    {criticalModalTab === 'active' 
+                      ? "Selecciona los productos que deseas eliminar de esta sección. Seguirán disponibles en tu inventario."
+                      : "Productos que has quitado de la sección de críticos. Puedes volver a incluir alguno cuando desees."}
+                  </p>
+
+                  {/* Batch Action Buttons */}
+                  {criticalModalTab === 'active' && activeCriticalProducts.length > 0 && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedCriticalForBatch.length === activeCriticalProducts.length) {
+                            setSelectedCriticalForBatch([]);
+                          } else {
+                            setSelectedCriticalForBatch(activeCriticalProducts.map(p => p.id));
+                          }
+                        }}
+                        className="text-[11px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 cursor-pointer shadow-2xs"
+                      >
+                        {selectedCriticalForBatch.length === activeCriticalProducts.length ? <CheckSquare size={13} className="text-[#0b4d2c]" /> : <Square size={13} />}
+                        <span>{selectedCriticalForBatch.length === activeCriticalProducts.length ? 'Desmarcar' : 'Todos'}</span>
+                      </button>
+
+                      {selectedCriticalForBatch.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={excludeBatchFromCritical}
+                          className="text-[11px] font-black bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        >
+                          <EyeOff size={13} />
+                          <span>Quitar {selectedCriticalForBatch.length} seleccionados</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {criticalModalTab === 'excluded' && excludedCriticalProducts.length > 0 && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedCriticalForBatch.length === excludedCriticalProducts.length) {
+                            setSelectedCriticalForBatch([]);
+                          } else {
+                            setSelectedCriticalForBatch(excludedCriticalProducts.map(p => p.id));
+                          }
+                        }}
+                        className="text-[11px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 cursor-pointer shadow-2xs"
+                      >
+                        {selectedCriticalForBatch.length === excludedCriticalProducts.length ? <CheckSquare size={13} className="text-[#0b4d2c]" /> : <Square size={13} />}
+                        <span>{selectedCriticalForBatch.length === excludedCriticalProducts.length ? 'Desmarcar' : 'Todos'}</span>
+                      </button>
+
+                      {selectedCriticalForBatch.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={restoreBatchToCritical}
+                          className="text-[11px] font-black bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        >
+                          <RotateCcw size={13} />
+                          <span>Restablecer {selectedCriticalForBatch.length}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Body / Product List */}
+                <div className="p-6 overflow-y-auto space-y-3 custom-scrollbar flex-1 min-h-[300px]">
+                  {criticalModalTab === 'active' ? (
+                    activeCriticalProducts.length === 0 ? (
+                      <div className="text-center py-16 text-slate-400 flex flex-col items-center">
+                        <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
+                          <CheckCircle size={32} />
+                        </div>
+                        <p className="text-sm font-black text-slate-700">¡Excelente!</p>
+                        <p className="text-xs text-slate-400 mt-1 max-w-xs">No hay productos en stock crítico o todos han sido excluidos.</p>
+                      </div>
+                    ) : (
+                      activeCriticalProducts.map((p) => {
+                        const CategoryIcon = getCategoryIcon(p.category || 'Otros');
+                        const isOutOfStock = p.stock <= 0;
+                        const isSelected = selectedCriticalForBatch.includes(p.id);
+
+                        return (
+                          <div 
+                            key={p.id} 
+                            className={cn(
+                              "flex items-center justify-between p-3.5 rounded-2xl border transition-all duration-200 gap-3 group",
+                              isSelected
+                                ? "bg-amber-50/80 border-amber-300 shadow-xs"
+                                : "bg-slate-50 hover:bg-white border-slate-200/80 hover:border-slate-300"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {/* Selection Checkbox */}
+                              <button
+                                type="button"
+                                onClick={(e) => toggleSelectCriticalBatch(p.id, e)}
+                                className="text-slate-400 hover:text-amber-600 transition-colors cursor-pointer shrink-0"
+                              >
+                                {isSelected ? (
+                                  <CheckSquare size={18} className="text-amber-600" />
+                                ) : (
+                                  <Square size={18} />
+                                )}
+                              </button>
+
+                              {/* Product Image */}
+                              <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden text-slate-400">
+                                {p.image ? (
+                                  <img 
+                                    src={p.image} 
+                                    alt={p.name} 
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = getFallbackImage(p.category || '');
+                                    }}
+                                  />
+                                ) : (
+                                  <CategoryIcon size={16} className="text-[#0b4d2c]" />
+                                )}
+                              </div>
+
+                              {/* Info */}
+                              <div className="min-w-0 flex-1">
+                                <h4 
+                                  onClick={() => {
+                                    setSelectedProduct(p);
+                                    setShowDetailModal(true);
+                                    setIsCriticalModalOpen(false);
+                                  }}
+                                  className="font-bold text-slate-800 text-sm hover:text-[#0b4d2c] transition-colors leading-tight truncate cursor-pointer"
+                                >
+                                  {p.name}
+                                </h4>
+                                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 font-medium">
+                                  <span className="font-bold uppercase tracking-wider">{p.category || 'Otros'}</span>
+                                  <span>•</span>
+                                  <span className="font-mono">SKU: {p.id.split('-')[0]}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Stock & Single Action */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={cn(
+                                "inline-flex items-center px-2.5 py-1 rounded-xl text-[11px] font-black uppercase tracking-wider",
+                                isOutOfStock 
+                                  ? "bg-red-100 text-red-800 border border-red-200 animate-pulse" 
+                                  : "bg-amber-100 text-amber-800 border border-amber-200"
+                              )}>
+                                {isOutOfStock ? '0 Uds' : `${p.stock} Uds`}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={(e) => toggleExcludeCritical(p.id, e)}
+                                title="Quitar de esta sección (permanece en inventario)"
+                                className="px-2.5 py-1.5 bg-slate-200/80 hover:bg-amber-100 text-slate-600 hover:text-amber-800 rounded-xl font-bold text-xs transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                <EyeOff size={13} />
+                                <span className="hidden sm:inline">Quitar</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )
+                  ) : (
+                    /* EXCLUDED TAB LIST */
+                    excludedCriticalProducts.length === 0 ? (
+                      <div className="text-center py-16 text-slate-400 flex flex-col items-center">
+                        <Eye size={36} className="mx-auto text-slate-300 mb-2" />
+                        <p className="text-sm font-bold text-slate-600">No hay productos excluidos</p>
+                        <p className="text-xs text-slate-400 mt-1 max-w-xs">Los productos que quites de la lista de críticos aparecerán aquí para que puedas gestionarlos.</p>
+                      </div>
+                    ) : (
+                      excludedCriticalProducts.map((p) => {
+                        const CategoryIcon = getCategoryIcon(p.category || 'Otros');
+                        const isSelected = selectedCriticalForBatch.includes(p.id);
+
+                        return (
+                          <div 
+                            key={p.id} 
+                            className={cn(
+                              "flex items-center justify-between p-3.5 rounded-2xl border transition-all duration-200 gap-3",
+                              isSelected
+                                ? "bg-emerald-50 border-emerald-300"
+                                : "bg-slate-50 border-slate-200/80 hover:bg-white"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {/* Selection Checkbox */}
+                              <button
+                                type="button"
+                                onClick={(e) => toggleSelectCriticalBatch(p.id, e)}
+                                className="text-slate-400 hover:text-[#0b4d2c] transition-colors cursor-pointer shrink-0"
+                              >
+                                {isSelected ? (
+                                  <CheckSquare size={18} className="text-[#0b4d2c]" />
+                                ) : (
+                                  <Square size={18} />
+                                )}
+                              </button>
+
+                              {/* Image */}
+                              <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden text-slate-400 opacity-75">
+                                {p.image ? (
+                                  <img 
+                                    src={p.image} 
+                                    alt={p.name} 
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = getFallbackImage(p.category || '');
+                                    }}
+                                  />
+                                ) : (
+                                  <CategoryIcon size={16} className="text-[#0b4d2c]" />
+                                )}
+                              </div>
+
+                              {/* Info */}
+                              <div className="min-w-0 flex-1">
+                                <h4 className="font-bold text-slate-800 text-sm leading-tight truncate">
+                                  {p.name}
+                                </h4>
+                                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 font-medium">
+                                  <span className="font-bold uppercase tracking-wider">{p.category || 'Otros'}</span>
+                                  <span>•</span>
+                                  <span className="font-mono">Stock actual: {p.stock} Uds</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Restore Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => toggleExcludeCritical(p.id, e)}
+                              title="Volver a incluir en la lista de stock crítico"
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+                            >
+                              <RotateCcw size={13} />
+                              <span>Reincluir</span>
+                            </button>
+                          </div>
+                        );
+                      })
+                    )
+                  )}
+                </div>
+                
+                {/* Modal Footer */}
+                <div className="p-4 sm:p-6 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {activeCriticalProducts.length} artículo(s) crítico(s) activos
+                  </span>
+                  <button 
+                    type="button"
+                    onClick={() => setIsCriticalModalOpen(false)}
+                    className="px-6 py-2.5 bg-[#0b4d2c] hover:bg-[#07361e] text-white font-black rounded-2xl transition-all text-xs uppercase tracking-wider cursor-pointer shadow-md"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* REGULAR NON-ADMIN READ-ONLY VIEW */
+              <>
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <h3 className="font-black text-slate-850 text-base flex items-center gap-2">
+                    <AlertCircle size={18} className="text-amber-600 animate-pulse" />
+                    <span>Productos en Stock Crítico</span>
+                    <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-black">
+                      {activeCriticalProducts.length}
+                    </span>
+                  </h3>
+                  <button 
+                    onClick={() => setIsCriticalModalOpen(false)}
+                    className="p-1.5 rounded-full text-slate-400 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                
+                <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar">
+                  <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
+                    Los siguientes productos tienen un nivel de stock bajo (5 unidades o menos). Considere reabastecerlos pronto para evitar detener las ventas.
+                  </p>
+                  
+                  {activeCriticalProducts.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Package size={36} className="mx-auto text-slate-300 mb-2" />
+                      <p className="text-sm font-bold">¡Excelente! No hay productos con stock crítico.</p>
+                    </div>
+                  ) : (
+                    activeCriticalProducts.map((p) => {
+                      const CategoryIcon = getCategoryIcon(p.category || 'Otros');
+                      const isOutOfStock = p.stock <= 0;
+                      return (
+                        <div 
+                          key={p.id} 
+                          onClick={() => {
+                            setSelectedProduct(p);
+                            setShowDetailModal(true);
+                            setIsCriticalModalOpen(false);
+                          }}
+                          className="flex items-center justify-between p-4 bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-100 rounded-2xl group transition-all duration-200 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center shrink-0 text-slate-400">
+                              {p.image ? (
+                                <img 
+                                  src={p.image} 
+                                  alt={p.name} 
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover rounded-xl"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = getFallbackImage(p.category || '');
+                                  }}
+                                />
+                              ) : (
+                                <CategoryIcon size={16} className="text-[#0b4d2c]" />
+                              )}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-sm group-hover:text-[#0b4d2c] transition-colors leading-tight">
+                                {p.name}
+                              </h4>
+                              <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+                                <span className="font-bold uppercase tracking-wider">{p.category || 'Otros'}</span>
+                                <span>•</span>
+                                <span className="font-mono">SKU: {p.id.split('-')[0]}</span>
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right shrink-0">
+                            <span className={cn(
+                              "inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black uppercase tracking-wider shadow-2xs",
+                              isOutOfStock 
+                                ? "bg-red-50 text-red-700 border border-red-100 animate-pulse" 
+                                : "bg-amber-50 text-amber-700 border border-amber-100"
+                            )}>
+                              {isOutOfStock ? 'Agotado 0 Uds' : `${p.stock} Uds`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                
+                <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                  <button 
+                    type="button"
+                    onClick={() => setIsCriticalModalOpen(false)}
+                    className="px-6 py-3 bg-[#0b4d2c] hover:bg-[#07361e] text-white font-black rounded-2xl transition-all text-xs uppercase tracking-wider cursor-pointer shadow-md"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         </div>
       )}
