@@ -166,13 +166,15 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
        rebana la imagen) parta esta linea por la mitad. */
     .foot-note { margin-top: 8px; padding: 8px 12px; font-size: 8pt; color: #1A4D2E; font-weight: 600; page-break-inside: avoid; break-inside: avoid; }
 
-    /* Cuentas para deposito */
-    .banks { width: 100%; margin-top: 14px; border-collapse: collapse; page-break-inside: avoid; break-inside: avoid; }
-    .banks td { width: 48%; text-align: center; vertical-align: middle; padding: 4px; }
+    /* Cuentas para deposito. Compacto a proposito: cuanto mas bajo el bloque
+       de cierre, mas facturas caben en una sola hoja. page-break-inside:avoid
+       hace que se mueva entero a la pagina siguiente en vez de partirse. */
+    .banks { width: 100%; margin-top: 8px; border-collapse: collapse; page-break-inside: avoid; break-inside: avoid; }
+    .banks td { width: 48%; text-align: center; vertical-align: middle; padding: 1px 4px; }
     .banks td.gap { width: 4%; }
-    .bank-title { font-size: 8pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; margin-bottom: 3px; }
-    .bank-acct { font-size: 10.5pt; font-weight: 900; color: #000; margin: 2px 0; }
-    .bank-owner { font-size: 8pt; font-weight: 700; color: #555; margin: 2px 0; }
+    .bank-title { font-size: 7.5pt; font-weight: 800; color: #1A4D2E; text-transform: uppercase; }
+    .bank-acct { font-size: 9.5pt; font-weight: 900; color: #000; }
+    .bank-owner { font-size: 7.5pt; font-weight: 700; color: #555; text-align: center; padding-top: 1px; }
   </style>
 </head>
 <body>
@@ -240,18 +242,11 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
 
   <table class="banks">
     <tr>
-      <td>
-        <div class="bank-title">Depositar a: BANCO INDUSTRIAL</div>
-        <div class="bank-acct">035-015252-6</div>
-        <div class="bank-owner">Agricovet de Guatemala</div>
-      </td>
+      <td><span class="bank-title">Depositar a: Banco Industrial</span> <span class="bank-acct">035-015252-6</span></td>
       <td class="gap">&nbsp;</td>
-      <td>
-        <div class="bank-title">Depositar a: BANRURAL</div>
-        <div class="bank-acct">3580029532</div>
-        <div class="bank-owner">Agricovet de Guatemala</div>
-      </td>
+      <td><span class="bank-title">Depositar a: Banrural</span> <span class="bank-acct">3580029532</span></td>
     </tr>
+    <tr><td class="bank-owner" colspan="3">Ambas cuentas a nombre de Agricovet de Guatemala</td></tr>
   </table>
 
   <div class="foot-note">Cambio o devoluciones tienen vigencia de 8 días.</div>
@@ -987,11 +982,17 @@ export async function printHtml(html: string) {
  * html2pdf rasteriza el HTML en una imagen larga y la corta en paginas: NO
  * repite el <thead> como si hace la impresion nativa. Por eso paginamos a mano
  * y repetimos el encabezado de la tabla al inicio de cada pagina.
+ *
+ * Solo se ocupa de los items. El cierre (totales, complemento cambiario,
+ * leyenda, cuentas y pie) se deja fluir: cada uno de esos bloques lleva
+ * page-break-inside:avoid, asi que html2pdf mueve entero el que no quepa en
+ * lugar de partirlo. Antes se forzaba un salto para mandar TODO el cierre a
+ * una pagina propia, pero eso desperdiciaba hasta media hoja en blanco.
  */
 export function planificarPaginasItems(
   alturas: number[],
-  o: { pageHeight: number; preTableTop: number; theadH: number; trailingH: number; safety: number }
-): { paginas: number[][]; saltoAntesDeCierre: boolean } {
+  o: { pageHeight: number; preTableTop: number; theadH: number; safety: number }
+): number[][] {
   const paginas: number[][] = [[]];
   // La primera pagina arranca ya ocupada por el encabezado del documento
   // (emisor, cliente…) mas el encabezado de la tabla.
@@ -1011,10 +1012,7 @@ export function planificarPaginasItems(
     usado += h;
   }
 
-  // El cierre (totales + leyenda) va en la ultima pagina si cabe; si no, salta
-  // a una pagina propia para no quedar partido.
-  const saltoAntesDeCierre = usado + o.trailingH + o.safety > o.pageHeight;
-  return { paginas, saltoAntesDeCierre };
+  return paginas;
 }
 
 /**
@@ -1049,14 +1047,14 @@ function paginarItemsParaPdf(
     const preTableTop = tablaRect.top - contTop;
     const theadH = (thead as HTMLElement).offsetHeight;
     const alturas = filas.map((f) => f.getBoundingClientRect().height);
-    const trailingH = Math.max(0, cont.getBoundingClientRect().height - (tablaRect.top - contTop + tablaRect.height));
 
-    const { paginas, saltoAntesDeCierre } = planificarPaginasItems(alturas, {
-      pageHeight, preTableTop, theadH, trailingH, safety: 10,
+    const paginas = planificarPaginasItems(alturas, {
+      pageHeight, preTableTop, theadH, safety: 10,
     });
 
-    // Una sola pagina y sin salto de cierre: nada que paginar.
-    if (paginas.length <= 1 && !saltoAntesDeCierre) return html;
+    // Los items caben en una sola tabla: no hay <thead> que repetir, y el
+    // cierre lo reparte html2pdf con las reglas de page-break del CSS.
+    if (paginas.length <= 1) return html;
 
     const theadHTML = thead.outerHTML;
     const filasHTML = filas.map((f) => f.outerHTML);
@@ -1080,8 +1078,6 @@ function paginarItemsParaPdf(
       parent.insertBefore(tbl, marcador);
     });
 
-    // Si el cierre no cabe en la ultima pagina, se empuja a una pagina propia.
-    if (saltoAntesDeCierre) parent.insertBefore(nuevoSalto(), marcador);
     parent.removeChild(marcador);
 
     return cont.innerHTML;
