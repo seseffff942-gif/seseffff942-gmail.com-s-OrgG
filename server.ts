@@ -35,7 +35,7 @@ const initialDb = {
     { id: "u2b", name: "Ventas 2", email: "ventas2@agricovet.com", role: "seller", photo: "https://i.pravatar.cc/150?u=5", password: "123" },
     { id: "u3", name: "Vendedor 3", email: "ll4961839@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=12", password: "123" },
     { id: "u4", name: "Vendedor 4", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
-    { id: "u5", name: "Vendedor 5", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
+    { id: "u5", name: "Erick Juárez", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
     { id: "u6", name: "Lima Lopez", email: "limalopez22@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
   ],
   products: [
@@ -199,6 +199,11 @@ async function seedDatabase(force: boolean = false) {
     
     // Delete the removed products from the actual database to fulfill user request
     await supabase.from("products").delete().in('name', ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
+
+    // Ensure jerickottoniel@gmail.com is named Erick Juárez
+    try {
+      await supabase.from("users").update({ name: "Erick Juárez" }).ilike("email", "jerickottoniel@gmail.com");
+    } catch (e) {}
 
     const { data: defaultUsers, error: uErr } = await supabase.from("users").select("id").limit(1);
     if (uErr) console.warn("[Seed] Error checking users:", uErr.message);
@@ -1310,16 +1315,33 @@ if (!process.env.VERCEL) {
 
   // AUTH
   app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
-    const { email: identifier, password: tokenProvided } = req.body;
+    const { email: identifierInput, password: tokenProvided } = req.body;
+    const identifier = (identifierInput || '').trim();
     let foundUser = null;
+
+    if (!identifier) {
+      return res.status(400).json({ error: "Ingresa tu Código de Vendedor / Administrador" });
+    }
+
+    if (!tokenProvided) {
+      return res.status(400).json({ error: "Ingresa tu Token de Acceso" });
+    }
+
+    // Check if user is attempting to log in with an email address
+    if (identifier.includes('@') && identifier.toLowerCase() !== 'seseffff942@gmail.com') {
+      return res.status(400).json({ 
+        error: "El inicio de sesión por correo está desactivado. Por favor, ingresa con tu CÓDIGO DE VENDEDOR o CÓDIGO DE ADMINISTRADOR." 
+      });
+    }
+
     try {
       // ONLY try by sellerCode
-      const { data: usersByCode, error: errByCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+      const { data: usersByCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
       if (usersByCode && usersByCode.length > 0) {
         foundUser = usersByCode[0];
       }
       
-      // Fallback: If no user found by sellerCode, check if it's the main admin email
+      // Fallback: If no user found by sellerCode, allow main super admin email
       if (!foundUser && identifier.toLowerCase() === 'seseffff942@gmail.com') {
         const { data: adminUsers } = await supabase.from("users").select("*").ilike("email", identifier);
         if (adminUsers && adminUsers.length > 0) {
@@ -1337,7 +1359,9 @@ if (!process.env.VERCEL) {
       );
     }
 
-    if (!foundUser) return res.status(401).json({ error: "Usuario no encontrado" });
+    if (!foundUser) {
+      return res.status(401).json({ error: "Código de Vendedor / Administrador no encontrado o no registrado." });
+    }
     
     // Check for one-time token
     let isMatch = false;
@@ -1346,7 +1370,7 @@ if (!process.env.VERCEL) {
         .from("login_tokens")
         .select("*")
         .eq("userId", foundUser.id)
-        .eq("token", tokenProvided)
+        .eq("token", tokenProvided.trim().toUpperCase())
         .is("usedAt", null);
 
       if (tokenErr) {
@@ -1365,7 +1389,7 @@ if (!process.env.VERCEL) {
 
       if (tokens && tokens.length > 0) {
         const tokenData = tokens[0];
-        // Check expiry (e.g., 24 hours)
+        // Check expiry
         const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
         if (!expiresAt || expiresAt > new Date()) {
           isMatch = true;
@@ -1377,9 +1401,7 @@ if (!process.env.VERCEL) {
       console.error("Error checking token:", tokenCheckErr);
     }
 
-    // Backup: Allow password for the super admin only if token fails? 
-    // Or just strictly token. User said "que el inicio de sesion sea con un token unico de 1 uso".
-    // I will allow password for seseffff942@gmail.com as a safety net.
+    // Safety net: Allow password ONLY for super admin seseffff942@gmail.com if token check fails
     if (!isMatch && foundUser.email === 'seseffff942@gmail.com' && foundUser.password) {
       if (foundUser.password.startsWith('$2')) {
         isMatch = await bcrypt.compare(tokenProvided, foundUser.password);
@@ -1388,7 +1410,9 @@ if (!process.env.VERCEL) {
       }
     }
     
-    if (!isMatch) return res.status(401).json({ error: "Token inválido o ya utilizado" });
+    if (!isMatch) {
+      return res.status(401).json({ error: "Token de acceso inválido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador." });
+    }
     
     const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
     
@@ -1473,88 +1497,15 @@ if (!process.env.VERCEL) {
   }));
 
   app.post("/api/auth/register-intent", async (req, res) => {
-    const { email } = req.body;
-    
-    // VERIFY IF USER EXISTS IN DB BEFORE SENDING CODE
-    const { data: users, error } = await supabase.from("users").select("id").ilike("email", email);
-    if (error || !users || users.length === 0) {
-      return res.status(401).json({ error: "Este correo no está registrado ni autorizado por el administrador." });
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    verificationCodes[email.toLowerCase()] = code;
-
-    const emailUser = process.env.EMAIL_USER;
-    const emailPass = process.env.EMAIL_PASS;
-
-    if (emailUser && emailPass) {
-        try {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: emailUser,
-                    pass: emailPass
-                }
-            });
-
-            await transporter.sendMail({
-                from: `"Agricovet" <${emailUser}>`,
-                to: email,
-                subject: "Código de Seguridad - Agricovet",
-                text: `Tu código de acceso/verificación es: ${code}`,
-                html: `
-                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;">
-                        <h2 style="color: #4f46e5;">Código de Verificación</h2>
-                        <p>Hola,</p>
-                        <p>Has solicitado un código para acceder al sistema de <b>Agricovet</b>.</p>
-                        <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #111827; border-radius: 8px; margin: 20px 0;">
-                            ${code}
-                        </div>
-                        <p style="color: #6b7280; font-size: 14px;">Si no solicitaste este código, puedes ignorar este correo.</p>
-                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                        <p style="font-size: 12px; color: #9ca3af; text-align: center;">© 2026 Agricovet. Todos los derechos reservados.</p>
-                    </div>
-                `
-            });
-            console.log(`Verification code sent to ${email}`);
-        } catch (e: any) {
-            console.error("Nodemailer error:", e.message);
-            // Fallback to Formspree if configured or just error
-            return res.status(500).json({ error: "Error enviando el correo de verificación. Contacta al administrador." });
-        }
-    } else {
-        console.warn("SMTP credentials not configured.");
-    }
-    
-    // Devolvemos el código para permitir que la aplicación funcione y muestre el código al usuario al registrarse
-    res.json({ success: true, code });
+    return res.status(400).json({ 
+      error: "El registro público por correo está desactivado. Los miembros del equipo deben ser creados desde el Panel de Administración y acceder mediante Código de Vendedor / Administrador y Token de Acceso." 
+    });
   });
 
   app.post("/api/auth/register", asyncHandler(async (req: any, res: any) => {
-    const { name, email, password, code } = req.body;
-    const emailLower = email.toLowerCase();
-    
-    if (verificationCodes[emailLower] !== code) {
-        return res.status(400).json({ error: "Código incorrecto o expirado" });
-    }
-
-    const { data: users } = await supabase.from("users").select("*").ilike("email", emailLower);
-    let user = users && users.length > 0 ? users[0] : null;
-    
-    if (!user) {
-        return res.status(401).json({ error: "Usuario no autorizado. Contacta al administrador." });
-    }
-    
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user.password = hashedPassword;
-    if (name) user.name = name;
-    await supabase.from("users").update({ password: hashedPassword, name: user.name }).eq('id', user.id);
-
-    delete verificationCodes[emailLower];
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    const userToReturn = { ...user };
-    delete userToReturn.password;
-    res.json({ user: userToReturn, token });
+    return res.status(400).json({ 
+      error: "El registro por correo está desactivado. Para acceder, solicita un Código de Vendedor / Administrador y un Token de Acceso a tu Administrador." 
+    });
   }));
 
   app.put("/api/users/:id/password", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -2636,7 +2587,7 @@ if (!process.env.VERCEL) {
       }
     }
 
-    const saleOwner = req.user.email; // The person clicking execute sale gets the invoice
+    const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
 
     // Auto-register client if not exists
     if (client) {
@@ -2991,7 +2942,7 @@ if (!process.env.VERCEL) {
 
   app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    let { client, nit, phone, address, items, isOwed, notes, sellerSignature } = req.body;
+    let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
     
     // Fetch old invoice
@@ -3378,7 +3329,9 @@ if (!process.env.VERCEL) {
             }
 
             updateData.notes = notes;
-            await supabase.from("invoices").update(updateData).eq('id', id);
+            if (sellerId !== undefined) { updateData.sellerId = sellerId; }
+            if (sellerId !== undefined) { updateData.sellerId = sellerId; }
+    await supabase.from("invoices").update(updateData).eq('id', id);
             invalidateCache("folio_map");
             invalidateCache("products");
             await syncInvoiceToPermanentBackup(id);

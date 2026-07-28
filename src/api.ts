@@ -405,7 +405,7 @@ export const api = {
     return res.json();
   },
 
-  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
+  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerId?: string; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth('/api/invoices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -429,7 +429,7 @@ export const api = {
     }
   },
 
-  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerSignature?: string }): Promise<Invoice> => {
+  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerId?: string; sellerSignature?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth(`/api/invoices/${id}/full`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

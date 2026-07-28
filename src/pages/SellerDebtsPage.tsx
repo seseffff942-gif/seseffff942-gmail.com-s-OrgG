@@ -25,9 +25,11 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
   const [suggestEditText, setSuggestEditText] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
     loadInvoices();
+    api.getUsers().then(setUsers).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -83,10 +85,23 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
 
   const totalPending = filteredInvoices.reduce((acc, inv) => acc + (inv.totalAmount - inv.paidAmount), 0);
 
+  function getSellerName(email: string) {
+    if (!email) return 'Sin Vendedor';
+    const eLower = email.toLowerCase();
+    if (eLower.includes('jerickottoniel')) return 'Erick Juárez';
+    const u = users.find(user => 
+      (user.email && user.email.toLowerCase() === eLower) || 
+      user.id === email || 
+      (user.sellerCode && user.sellerCode.toLowerCase() === eLower)
+    );
+    if (u && u.name) return u.name;
+    return email.includes('@') ? email.split('@')[0] : email;
+  }
+
   const renderInvoiceList = () => {
     const grouped: Record<string, Invoice[]> = {};
     filteredInvoices.forEach(inv => {
-      const sellerKey = (inv.sellerId || 'Desconocido').split('@')[0];
+      const sellerKey = getSellerName(inv.sellerId || '');
       if (!grouped[sellerKey]) grouped[sellerKey] = [];
       grouped[sellerKey].push(inv);
     });

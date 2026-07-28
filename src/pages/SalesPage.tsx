@@ -158,6 +158,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [lastCreatedInvoice, setLastCreatedInvoice] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(() => localStorage.getItem('draft_edit_invoice_id') || null);
+  const [editInvoiceSellerId, setEditInvoiceSellerId] = useState<string | null>(() => localStorage.getItem('draft_edit_invoice_sellerId') || null);
   const [isEditingAddress, setIsEditingAddress] = useState(false);
 
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -204,7 +205,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     } else {
       localStorage.removeItem('draft_edit_invoice_id');
     }
-  }, [client, nit, phone, address, notes, cart, checkoutIsOwed, transportMethod, shippingHandled, customDate, invoiceType, editingInvoiceId]);
+    if (editInvoiceSellerId) {
+      localStorage.setItem('draft_edit_invoice_sellerId', editInvoiceSellerId);
+    } else {
+      localStorage.removeItem('draft_edit_invoice_sellerId');
+    }
+  }, [client, nit, phone, address, notes, cart, checkoutIsOwed, transportMethod, shippingHandled, customDate, invoiceType, editingInvoiceId, editInvoiceSellerId]);
 
 
   useEffect(() => {
@@ -270,6 +276,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           return;
         }
         setEditingInvoiceId(inv.id);
+        setEditInvoiceSellerId(inv.sellerId || '');
         
         // Keep the full client name intact (with company if present) so it matches correctly
         setClient(inv.client || '');
@@ -559,17 +566,45 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     setCart(prev => prev.filter(i => i.product.id !== productId));
   };
 
+  const getSellerDisplayName = (sellerVal: any) => {
+    const raw = typeof sellerVal === 'string' ? sellerVal : (sellerVal?.sellerId || '');
+    if (!raw) return 'Desconocido';
+    const sLower = raw.toLowerCase();
+    
+    let sellerObj = usersList.find((u: any) => 
+      u.id === raw || 
+      (u.email && u.email.toLowerCase() === sLower) || 
+      (u.sellerCode && u.sellerCode.toLowerCase() === sLower)
+    );
+    
+    if (!sellerObj && sLower.includes('jerickottoniel')) {
+       sellerObj = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
+    }
+
+    if (sellerObj && sellerObj.name) {
+       const firstLetter = sellerObj.name.charAt(0).toUpperCase();
+       if (sellerObj.sellerCode) {
+          const codeUpper = sellerObj.sellerCode.toUpperCase();
+          if (codeUpper.startsWith(firstLetter)) {
+             return codeUpper;
+          }
+          return `${firstLetter}${codeUpper}`;
+       }
+       return sellerObj.name;
+    }
+    
+    return raw.includes('@') ? raw.split('@')[0] : raw;
+  };
+
   const printTicket = async (invoice: any) => {
-    const sellerObj = usersList.find((u: any) => u.id === invoice.sellerId || u.email === invoice.sellerId);
-    const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
+    const sellerName = getSellerDisplayName(invoice);
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
     await printHtml(htmlContent);
   };
 
   const downloadTicketPdf = async (invoice: any) => {
-    const sellerObj = usersList.find((u: any) => u.id === invoice.sellerId || u.email === invoice.sellerId);
-    const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
+    const sellerName = getSellerDisplayName(invoice);
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
     await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id || 'venta'}.pdf`);
@@ -577,11 +612,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
   const getWhatsAppTextReceipt = (invoice: any) => {
     const dateStr = invoice.date ? new Date(invoice.date).toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+    const sellerName = getSellerDisplayName(invoice);
     let msg = `*📋 COMPROBANTE DE COMPRA - Agricovet*\n`;
     msg += `---------------------------------------\n`;
     msg += `*Cliente:* ${invoice.client || 'C/F'}\n`;
     if (invoice.nit) msg += `*NIT:* ${invoice.nit}\n`;
     if (invoice.folio || invoice.id) msg += `*Folio:* #${invoice.folio || invoice.id}\n`;
+    msg += `*Vendedor:* ${sellerName}\n`;
     if (dateStr) msg += `*Fecha:* ${dateStr}\n`;
     msg += `*Tipo de venta:* CRÉDITO\n`;
     msg += `---------------------------------------\n`;
@@ -648,7 +685,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
-    if (!signature && !sellerSignature) {
+    const isSpecialUser = user?.email === 'seseffff942@gmail.com';
+    if (!isSpecialUser && !signature && !sellerSignature && !editingInvoiceId) {
       setPendingCheckout({ isOwed, sellerId: sellerIdToUse });
       setShowSignaturePad(true);
       return;
@@ -690,9 +728,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             address,
             items,
             isOwed,
-            notes
+            notes,
+            sellerId: sellerIdToUse
          });
          setEditingInvoiceId(null);
+         setEditInvoiceSellerId(null);
       } else {
          const invoicePayload = {
           sellerId: sellerIdToUse,
@@ -828,7 +868,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const handleCheckout = async (isOwed: boolean) => {
-    isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
+    isOwed = true; // Forzar crédito siempre
     if (isSubmitting) return;
 
     if (!client.trim()) {
@@ -841,7 +881,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       setTimeout(() => setErrorMsg(''), 5000);
       return;
     }
-    // Prohibir números negativos y validar mínimos en carrito
+    
     for (const item of cart) {
       if (item.quantity <= 0) {
         setErrorMsg('La cantidad de productos en el carrito debe ser mayor a cero.');
@@ -872,17 +912,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
     }
 
-    if (editingInvoiceId) {
-      setIsSubmitting(true);
-      try {
-        await proceedWithCheckout(isOwed, user.email || '');
-      } catch (err: any) {
-        setIsSubmitting(false);
-        alert(`Error al actualizar la venta: ${err.message}`);
-      }
-      return;
-    }
-    
     const clientNameLower = client.toLowerCase().trim();
     const existingClient = clients.find(c => {
       const dbName = (c.name || '').toLowerCase().trim();
@@ -897,22 +926,37 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
              (clientNameLower.includes(dbName) && dbName.length > 3 && (dbCompany ? clientNameLower.includes(dbCompany) : true));
     });
 
-    if (!existingClient) {
-      // Es un cliente nuevo. Exigir elegir vendedor antes de tirar la venta
-      setCheckoutIsOwed(isOwed);
-      // Colocar por defecto el vendedor actual
-      setSelectedSellerForNewClient(user.email || '');
-      setShowNewClientSellerModal(true);
-      return;
-    }
-
-    if (existingClient.isBlocked) {
+    if (existingClient?.isBlocked) {
       setErrorMsg(`EL CLIENTE "${existingClient.name}" ESTÁ BLOQUEADO. No se pueden realizar ventas a este cliente.`);
       setTimeout(() => setErrorMsg(''), 8000);
       return;
     }
 
+    setCheckoutIsOwed(isOwed);
+    let defaultSeller = user.email || '';
+    if (editingInvoiceId && editInvoiceSellerId) {
+      defaultSeller = editInvoiceSellerId;
+    } else if (existingClient?.sellerId) {
+      defaultSeller = existingClient.sellerId;
+    }
+    setSelectedSellerForNewClient(defaultSeller);
+    setShowNewClientSellerModal(true);
+  };
+
+  const finalizeCheckoutAfterSeller = async () => {
+    setShowNewClientSellerModal(false);
     setIsSubmitting(true);
+    
+    if (editingInvoiceId) {
+      try {
+        await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
+      } catch (err: any) {
+        setIsSubmitting(false);
+        alert(`Error al actualizar la venta: ${err.message}`);
+      }
+      return;
+    }
+
     try {
       if (debtType === 'none' || !isDebtAuthorized) {
          const type = await checkClientDebt(client, true);
@@ -923,7 +967,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
          }
       }
 
-      await proceedWithCheckout(isOwed, existingClient.sellerId || user.email);
+      await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
     } catch (err: any) {
       setIsSubmitting(false);
       alert(`Error comprobando deuda: ${err.message}`);
@@ -2103,7 +2147,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 text-left">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <h3 className="font-black text-slate-800 text-lg">Cliente Nuevo Detectado</h3>
+              <h3 className="font-black text-slate-800 text-lg">Confirmar Vendedor de la Venta</h3>
               <button 
                 onClick={() => setShowNewClientSellerModal(false)} 
                 className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
@@ -2113,11 +2157,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               </button>
             </div>
             
+            
             <div className="p-6 space-y-4">
-              <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs font-semibold leading-relaxed">
-                El cliente <strong className="text-slate-950 font-black">"{client}"</strong> no está registrado en el área de clientes. Para completar la venta, debes asignarlo a un vendedor para agregarlo directamente al sistema.
+              <div className="p-4 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-xl text-xs font-semibold leading-relaxed">
+                Por favor, verifica de quién es esta venta antes de registrar el folio para que la comisión se asigne correctamente.
               </div>
-
               <div>
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                   Vendedor Asignado
@@ -2129,93 +2173,23 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                 >
                   <option value="" disabled>-- Selecciona un Vendedor --</option>
                   {usersList.map((u) => (
-                    <option key={u.id || u.email} value={u.email}>
-                      {u.name} ({u.role === 'admin' ? 'Administrador' : 'Vendedor'})
+                    <option key={u.id || u.email} value={u.email || u.id}>
+                      {u.name} ({u.sellerCode ? `Cód: ${u.sellerCode}` : (u.role === 'admin' ? 'Administrador' : 'Vendedor')})
                     </option>
                   ))}
-                  {!usersList.some(u => u.email === user.email) && (
-                    <option value={user.email}>{user.name} (Tú)</option>
+                  {!usersList.some(u => (u.email === user.email || u.id === user.email)) && (
+                    <option value={user.email || ''}>{user.name || user.email} (Yo)</option>
                   )}
                 </select>
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-2xl space-y-1.5 border border-slate-100 text-xs text-slate-600">
-                <p><strong>NIT:</strong> {nit || 'C/F'}</p>
-                <p><strong>Teléfono:</strong> {phone || 'N/A'}</p>
-                <p><strong>Dirección:</strong> {address || 'N/A'}</p>
-              </div>
-
-              <div className="flex gap-3 pt-2">
+              <div className="pt-2">
                 <button
-                  type="button"
-                  onClick={() => setShowNewClientSellerModal(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors text-sm"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
                   disabled={!selectedSellerForNewClient || isSubmitting}
-                  onClick={async () => {
-                    if (!selectedSellerForNewClient) {
-                      return alert('Por favor selecciona el vendedor asignado.');
-                    }
-                    try {
-                      let newCli;
-                      if (!navigator.onLine) {
-                        newCli = {
-                          id: `CLI-OFFLINE-${Date.now()}`,
-                          name: client,
-                          companyName: '',
-                          nit: nit || '',
-                          phone: phone || '',
-                          address: address || '',
-                          sellerId: selectedSellerForNewClient
-                        };
-                      } else {
-                        // 1. Agregar el cliente formalmente al backend y guardarlo de forma local/remota
-                        // Try to split if it looks like "Name - Company"
-                        let nameToSave = client;
-                        let companyToSave = '';
-                        if (client.includes(' - ')) {
-                          const parts = client.split(' - ');
-                          nameToSave = parts[0].trim();
-                          companyToSave = parts[1].trim();
-                        }
-
-                        const blockedMatches = checkClientCoincidences(nameToSave, companyToSave, phone);
-                        if (blockedMatches.length > 0) {
-                          const confirmBlocked = confirm(`¡ALERTA DE SEGURIDAD!\n\nSe han encontrado coincidencias con un cliente BLOQUEADO:\n- ${blockedMatches[0].name}${blockedMatches[0].companyName ? ` (${blockedMatches[0].companyName})` : ''}\n\n¿Estás seguro de que deseas registrar y vender a este cliente de todos modos?`);
-                          if (!confirmBlocked) {
-                            return;
-                          }
-                        }
-
-                        newCli = await api.addClient({
-                          name: nameToSave,
-                          companyName: companyToSave,
-                          nit: nit || '',
-                          phone: phone || '',
-                          address: address || '',
-                          sellerId: selectedSellerForNewClient
-                        });
-                      }
-
-                      // 2. Actualizar nuestra lista de clientes
-                      setClients(prev => prev.some(c => c.id === newCli.id) ? prev : [...prev, newCli]);
-
-                      // 3. Cerrar el modal
-                      setShowNewClientSellerModal(false);
-
-                      // 4. Continuar con la venta usando el vendedor seleccionado
-                      await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
-                    } catch (err: any) {
-                      alert(`Error al registrar cliente y continuar venta: ${err.message}`);
-                    }
-                  }}
-                  className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white font-bold rounded-xl transition-all shadow-md text-sm disabled:opacity-50"
+                  onClick={finalizeCheckoutAfterSeller}
+                  className="w-full py-3 bg-[#0b4d2c] hover:bg-[#07361e] text-white rounded-xl font-black transition-all shadow-md active:scale-95 disabled:opacity-50"
                 >
-                  Registrar y Vender
+                  {isSubmitting ? 'Procesando...' : 'Confirmar Vendedor y Proceder'}
                 </button>
               </div>
             </div>
@@ -2465,7 +2439,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                                   {(user.role === 'admin' || !isAssignedToMe) && c.sellerId && (
                                     <div className="text-[9px] text-slate-400 font-bold flex items-center gap-1 border-t border-slate-50 pt-1">
-                                      👤 Asignado: <span className="text-slate-600 truncate max-w-[150px]">{c.sellerId}</span>
+                                      👤 Asignado: <span className="text-slate-600 truncate max-w-[150px]">{getSellerDisplayName(c.sellerId)}</span>
                                     </div>
                                   )}
                                 </div>

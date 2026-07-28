@@ -213,8 +213,15 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
 
   const getClientSellerName = (sellerId?: string) => {
     if (!sellerId) return 'No asignado';
-    const s = users.find(u => u.email === sellerId || u.id === sellerId);
-    return s ? s.name : sellerId;
+    const sLower = sellerId.toLowerCase();
+    if (sLower.includes('jerickottoniel')) return 'Erick Juárez';
+    const s = users.find(u => 
+      (u.email && u.email.toLowerCase() === sLower) || 
+      u.id === sellerId || 
+      (u.sellerCode && u.sellerCode.toLowerCase() === sLower)
+    );
+    if (s && s.name) return s.name;
+    return sellerId.includes('@') ? sellerId.split('@')[0] : sellerId;
   };
 
   const getClientInitials = (name: string) => {

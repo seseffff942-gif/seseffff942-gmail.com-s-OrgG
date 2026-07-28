@@ -1,0 +1,1432 @@
+[
+  {
+    "id": "CLI-1781710565463",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Eliel Betancourt ",
+    "companyName": "Agroveterinaria La cumbre",
+    "nit": "2861-94813",
+    "phone": "40555635",
+    "address": "Aldea la cumbre calle principal chacte San Luis peten",
+    "createdAt": "2026-06-17T15:36:05.463Z"
+  },
+  {
+    "id": "CLI-1781976681781",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Iris Reyes",
+    "companyName": "Agroveerinaria Alexa",
+    "nit": "80384269",
+    "phone": "59276477",
+    "address": "Santa Elena Peten",
+    "createdAt": "2026-06-20T17:31:21.781Z"
+  },
+  {
+    "id": "CLI-1781920286878",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Elio Arreaza",
+    "companyName": "Agro. El potro",
+    "nit": "74927094",
+    "phone": "32909595",
+    "address": "Aun costado de agencias Way, Poptun Petén",
+    "createdAt": "2026-06-20T01:51:26.878Z"
+  },
+  {
+    "id": "CLI-1782402833761",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Edy Rosales",
+    "companyName": "Agroveterinatia El Finquero",
+    "nit": "68932332",
+    "phone": "32230681",
+    "address": "Calle principal Aldea Potrero Grande, frente a gasolinera FyJ, Granados Baja Verapaz",
+    "createdAt": "2026-06-25T15:53:53.761Z"
+  },
+  {
+    "id": "CLI-1781920094143",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Francisco zepeda",
+    "companyName": "Agro. Monte verde",
+    "nit": "93435738",
+    "phone": "50515036",
+    "address": "Caserio san joaquin, la Libertad Petén en caja rural",
+    "createdAt": "2026-06-20T01:48:14.143Z"
+  },
+  {
+    "id": "CLI-1782506416259",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Marvin Reyes",
+    "companyName": "Agriveteria Eben-Ezer",
+    "nit": "100002234",
+    "phone": "4973-6800",
+    "address": "Santa Elena flores peten frente a gasolinera texaco",
+    "createdAt": "2026-06-26T20:40:16.259Z"
+  },
+  {
+    "id": "CLI-1782251699717",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Cesar Castro",
+    "companyName": "Agro El Esfuerzo 2",
+    "nit": "334110696",
+    "phone": "56338120",
+    "address": "Barrio El Mitchal, Morales Izabal",
+    "createdAt": "2026-06-23T21:54:59.717Z"
+  },
+  {
+    "id": "CLI-1782524144338",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Walter Caal",
+    "companyName": "Agriveteria el centro",
+    "nit": "Cf",
+    "phone": "4581-4981",
+    "address": "Raxruha alta Verapaz frente a gasolinera Genesis cerca de banrrural",
+    "createdAt": "2026-06-27T01:35:44.338Z"
+  },
+  {
+    "id": "CLI-1782146416177",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Fernando Zamora",
+    "companyName": "Fernando Zamora",
+    "nit": "Cf",
+    "phone": "37028230",
+    "address": "Barrio candelaria taller la bendición número 3 san Benito Petén",
+    "createdAt": "2026-06-22T16:40:16.177Z"
+  },
+  {
+    "id": "CLI-1782514196347",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Brayan Rocael Catun Milian",
+    "companyName": "Agroveteria Eben Ezer",
+    "nit": "Cf",
+    "phone": "5885-5631",
+    "address": "",
+    "createdAt": "2026-06-26T22:49:56.347Z"
+  },
+  {
+    "id": "CLI-1781712045914",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Erick Betancourt",
+    "companyName": "Erick Betancourt",
+    "nit": "//",
+    "phone": "49057285",
+    "address": "Agroveterinaria el Canche las Posas Sayaxche Peten",
+    "createdAt": "2026-06-17T16:00:45.914Z"
+  },
+  {
+    "id": "CLI-1782418971470",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Manolo Aguilon",
+    "companyName": "Agro La Semilla",
+    "nit": "C/f",
+    "phone": "50682964",
+    "address": "Barrio San Miguel, Cubulco Baja Verapaz",
+    "createdAt": "2026-06-25T20:22:51.470Z"
+  },
+  {
+    "id": "CLI-1781713421265",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Hugo Sutuj",
+    "companyName": "Agro El Corral",
+    "nit": "87618036",
+    "phone": "31663329",
+    "address": "Calle principal frente a panadería las Delicias, el chal peten",
+    "createdAt": "2026-06-17T16:23:41.265Z"
+  },
+  {
+    "id": "CLI-1782238422188",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Miguel Ángel Moya",
+    "companyName": "Comercial y Agroservicio Moya",
+    "nit": "50925466",
+    "phone": "47876429",
+    "address": "",
+    "createdAt": "2026-06-23T18:13:42.188Z"
+  },
+  {
+    "id": "CLI-1782574283344",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "EDGAR CAAL",
+    "companyName": "Agro. Flor del campo",
+    "nit": "C/F",
+    "phone": "3287-6871",
+    "address": "Barrio el centro a un costado de Guatex, fray Bartolome De Las Casas alta Verapaz ",
+    "createdAt": "2026-06-27T15:31:23.344Z"
+  },
+  {
+    "id": "CLI-1782489667274",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Reyna González",
+    "companyName": "Comercial Morales",
+    "nit": "22615849",
+    "phone": "37954017",
+    "address": "Aldea San Gabriel, San Miguel Chicaj, frente al mercado",
+    "createdAt": "2026-06-26T16:01:07.274Z"
+  },
+  {
+    "id": "CLI-1782320788851",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Erick Osorio",
+    "companyName": "Agroveteria el Canche",
+    "nit": "63396173",
+    "phone": "5966-7144",
+    "address": "Sayarche Petén",
+    "createdAt": "2026-06-24T17:06:28.851Z"
+  },
+  {
+    "id": "CLI-1781713667898",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Angel España",
+    "companyName": "Agro El Chal",
+    "nit": "//",
+    "phone": "46565332",
+    "address": "Media cuadra de Banrural, el chal peten",
+    "createdAt": "2026-06-17T16:27:47.898Z"
+  },
+  {
+    "id": "CLI-1782145111014",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "José Adolfo García",
+    "companyName": "Distribuidora San Judas",
+    "nit": "82586810",
+    "phone": "31029631",
+    "address": "4a Av. 1-50, Cantón Agua Tibia, Palencia",
+    "createdAt": "2026-06-22T16:18:31.014Z"
+  },
+  {
+    "id": "CLI-1782481590216",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Agencia Tecun",
+    "companyName": "Nery Sandoval",
+    "nit": "5282136",
+    "phone": "58039758",
+    "address": "Ruta 4 4-03 zona 1, Salama Baja Verapaz",
+    "createdAt": "2026-06-26T13:46:30.216Z"
+  },
+  {
+    "id": "CLI-1781713536568",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Frander Barrera",
+    "companyName": "Violeta Agropecuaria",
+    "nit": "//",
+    "phone": "33822611",
+    "address": "//",
+    "createdAt": "2026-06-17T16:25:36.568Z"
+  },
+  {
+    "id": "CLI-1782505856782",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Julio Moralez",
+    "companyName": "Ferroagro Paxcaman",
+    "nit": "29671302",
+    "phone": "5831-5952",
+    "address": "Calle principal ruta a Melchor aldea Paxcaman, Flores Petén",
+    "createdAt": "2026-06-26T20:30:56.782Z"
+  },
+  {
+    "id": "CLI-1782498320119",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Marta Yat",
+    "companyName": "Agroveterinatia Dónde Martita",
+    "nit": "44249268",
+    "phone": "41416293",
+    "address": "Barrio Abajo, frente a Pollolandia, San Jerónimo Baja Verapaz",
+    "createdAt": "2026-06-26T18:25:20.119Z"
+  },
+  {
+    "id": "CLI-1782226516695",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Deivid Vicente",
+    "companyName": "Agroveteria El Cachorrito",
+    "nit": "39375188",
+    "phone": "3385-6625",
+    "address": "Calle principal san Benito Petén en la entrada del mercadito frente a despensa familiar",
+    "createdAt": "2026-06-23T14:55:16.695Z"
+  },
+  {
+    "id": "CLI-1782574788623",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Omar Osorio ",
+    "companyName": "Agro. El canche ",
+    "nit": "63396173",
+    "phone": "5001-0304",
+    "address": "Sayaxche Petén ",
+    "createdAt": "2026-06-27T15:39:48.623Z"
+  },
+  {
+    "id": "CLI-1782503572888",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Aroldo Sacul",
+    "companyName": "Agriveteria el campo",
+    "nit": "Cf",
+    "phone": "5800-3279",
+    "address": "Aldea la nueva san Diego la libertad Petén",
+    "createdAt": "2026-06-26T19:52:52.888Z"
+  },
+  {
+    "id": "CLI-1782318343740",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Wilson Rodríguez",
+    "companyName": "Agropet WR, Tienda De Mascotas",
+    "nit": "75517418",
+    "phone": "53696212",
+    "address": "Lote 7 manzana 49, Canton Central, Canalitos, a la par de pollo pinulito",
+    "createdAt": "2026-06-24T16:25:43.740Z"
+  },
+  {
+    "id": "CLI-1782337200598",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Wilder Joel Cortez Jiménez",
+    "companyName": "Agriveteria el éxito",
+    "nit": "103293930",
+    "phone": "46883174",
+    "address": "Calle principal frente a Pollolandia Sacpuy san Andrés Petén",
+    "createdAt": "2026-06-24T21:40:00.598Z"
+  },
+  {
+    "id": "CLI-1782330507869",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Edin Villeda",
+    "companyName": "Agroveteria el Ganadero",
+    "nit": "35619422",
+    "phone": "3088-3254",
+    "address": "Calle principal a un costado de fuentes del norte Fray Bartolomé de las casas alta Verapaz",
+    "createdAt": "2026-06-24T19:48:27.869Z"
+  },
+  {
+    "id": "CLI-1781919846125",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "SHERLINA MARROQUÍN",
+    "companyName": "Agro. Sherlina",
+    "nit": "108992918",
+    "phone": "53673970",
+    "address": "Km. 464 ruta a santa Ana, Finca los cerritos",
+    "createdAt": "2026-06-20T01:44:06.125Z"
+  },
+  {
+    "id": "CLI-1785154109292",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Junior Galdanez",
+    "companyName": "Agroveterinaria Galdanez",
+    "nit": "120588617",
+    "phone": "5919-4985",
+    "address": "Calle principal frente a gasolinera don rolando las cruces Petén",
+    "createdAt": "2026-07-27T12:08:29.292Z"
+  },
+  {
+    "id": "CLI-1782321021277",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Oscar Girón",
+    "companyName": "Agronorsa",
+    "nit": "Cf",
+    "phone": "5208-2125",
+    "address": "Barrio nuevo teculutan Zacapa",
+    "createdAt": "2026-06-24T17:10:21.277Z"
+  },
+  {
+    "id": "CLI-1781830274489",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Roni Vicente",
+    "companyName": "Agroveterinaria el Buen Sembrador",
+    "nit": "//",
+    "phone": "3013-7229",
+    "address": "Santa Elena flores Petén  Cerca de la tranca del mercado viejo de Santa Elena",
+    "createdAt": "2026-06-19T00:51:14.489Z"
+  },
+  {
+    "id": "CLI-1781830417780",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Luis Carranza",
+    "companyName": "Agroveterinaria El Ganadero",
+    "nit": "34742573",
+    "phone": "30435385",
+    "address": "Calle principal a la par de Domino&#39;s pizza, Dolores Petén",
+    "createdAt": "2026-06-19T00:53:37.780Z"
+  },
+  {
+    "id": "CLI-1782323252065",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Verta Amperez",
+    "companyName": "Agroveteria el campo",
+    "nit": "Cf",
+    "phone": "5841-2089",
+    "address": "Calle principal frente a iglesia profesia universal San Diego la libertad Petén",
+    "createdAt": "2026-06-24T17:47:32.065Z"
+  },
+  {
+    "id": "CLI-1782574707635",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "José Nufio",
+    "companyName": "Agro. El Canche",
+    "nit": "C/F",
+    "phone": "4236-8906",
+    "address": "Calle principal frente al. Mercadito crucita san andres Peten ",
+    "createdAt": "2026-06-27T15:38:27.635Z"
+  },
+  {
+    "id": "CLI-1782574642365",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "MATEO CHOC",
+    "companyName": "AGRO. EL AMIGO ",
+    "nit": "335692214",
+    "phone": "5523-7734",
+    "address": "Fray Bartolome De Las Casas alta Verapaz, calle principal frente a la iglesia adventista ",
+    "createdAt": "2026-06-27T15:37:22.365Z"
+  },
+  {
+    "id": "CLI-1785154273702",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "César pop",
+    "companyName": "Agroveterinaria Rodríguez",
+    "nit": "Cf",
+    "phone": "3657-0846",
+    "address": "Dejar en tienda el niño san Benito Petén",
+    "createdAt": "2026-07-27T12:11:13.702Z"
+  },
+  {
+    "id": "CLI-1782574104439",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "ANDERSON GARCÍA ",
+    "companyName": "Agro. El chamaco",
+    "nit": "C/F",
+    "phone": "4873-6570",
+    "address": "Barrio san juan, frente a Farmacia bienestar, Cubulco baja Verapaz ",
+    "createdAt": "2026-06-27T15:28:24.439Z"
+  },
+  {
+    "id": "CLI-1782504505360",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Edwin López",
+    "companyName": "Agrocomercializadora el campesino",
+    "nit": "87584220",
+    "phone": "4656-1439",
+    "address": "Calle principal ruta a calzada mopan sabanetas doleres Petén",
+    "createdAt": "2026-06-26T20:08:25.360Z"
+  },
+  {
+    "id": "CLI-1781833437725",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Wilman Chonay",
+    "companyName": "Agro Chonay",
+    "nit": "49889613",
+    "phone": "55994224",
+    "address": "//",
+    "createdAt": "2026-06-19T01:43:57.725Z"
+  },
+  {
+    "id": "CLI-1782167029455",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Jonatan Acevedo",
+    "companyName": "Agroservicios el Jona",
+    "nit": "327966343",
+    "phone": "5727-0351",
+    "address": "Calle principal aldea las marias la libertad Petén frente a iglesia evangelio completo",
+    "createdAt": "2026-06-22T22:23:49.455Z"
+  },
+  {
+    "id": "CLI-1782574348098",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "ERMIDES RECINOS",
+    "companyName": "Agro. Norte",
+    "nit": "C/F",
+    "phone": "3000-1660",
+    "address": "A un costado de restaurante cristal, naranjo frontera la Libertad Petén ",
+    "createdAt": "2026-06-27T15:32:28.098Z"
+  },
+  {
+    "id": "CLI-1785182567158",
+    "sellerId": "Erick Juarez (Vendedor)",
+    "name": "Wilman Chonay",
+    "companyName": "Agropecuaria Chonay",
+    "nit": "49889613",
+    "phone": "5599-4224",
+    "address": "Barrio el centro frente a iglesia nazareno, Dolores Petén",
+    "createdAt": "2026-07-27T20:02:47.158Z"
+  },
+  {
+    "id": "CLI-1782154737981",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Abraham calel",
+    "companyName": "Ferroagro el ganadero",
+    "nit": "1994534-5",
+    "phone": "4617-1289",
+    "address": "Naranjo frontera la libertad Petén al otro lado del ferri",
+    "createdAt": "2026-06-22T18:58:57.981Z"
+  },
+  {
+    "id": "CLI-1782574019714",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "ELMER CASTILLO ",
+    "companyName": "AGRO. ESMERALDA ",
+    "nit": "39208087",
+    "phone": "3917-6004",
+    "address": "Barrio el centro a una cuadra del parque, camino a la Cruz jerez, Jerez Jutiapa",
+    "createdAt": "2026-06-27T15:26:59.714Z"
+  },
+  {
+    "id": "CLI-1781834375201",
+    "sellerId": "seseffff942@gmail.com",
+    "name": "Geovani Hernandez",
+    "companyName": "Agroventas el cordero",
+    "nit": "91627516",
+    "phone": "59183373",
+    "address": "Santa Elena Peten",
+    "createdAt": "2026-06-19T01:59:35.201Z"
+  },
+  {
+    "id": "CLI-1785203981807",
+    "sellerId": "Erick Juarez (Vendedor)",
+    "name": "José Medrano",
+    "companyName": "Finca los 3 hermanos",
+    "nit": "Cf",
+    "phone": "4089-1766",
+    "address": "San Benito Petén, se entrega en finca",
+    "createdAt": "2026-07-28T01:59:41.807Z"
+  },
+  {
+    "id": "CLI-1782411532714",
+    "sellerId": "seseffff942@gmail.com",
+    "name": "Tienda scarlet",
+    "companyName": "Tienda scarlet",
+    "nit": "//",
+    "phone": "//",
+    "address": "A un lado del consulado mexicano santa Elena peten",
+    "createdAt": "2026-06-25T18:18:52.714Z"
+  },
+  {
+    "id": "CLI-1782421656970",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Luis Arévalo",
+    "companyName": "Agro Adonai",
+    "nit": "104211350",
+    "phone": "49134303",
+    "address": "Barrio Magdalena, Cubulco Baja Verapaz",
+    "createdAt": "2026-06-25T21:07:36.970Z"
+  },
+  {
+    "id": "CLI-1781712849091",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Fredy Vicente",
+    "companyName": "Agroveterinaria Vicente",
+    "nit": "25817485",
+    "phone": "30505438",
+    "address": "Calle principal a un costado del parque, Santa Ana peten",
+    "createdAt": "2026-06-17T16:14:09.091Z"
+  },
+  {
+    "id": "CLI-1781713801388",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Jaime Sagastume",
+    "companyName": "Agro Los amigos",
+    "nit": "//",
+    "phone": "53667022",
+    "address": "Calle principal, aldea los angeles, a la par de armería cazadores, el chal peten",
+    "createdAt": "2026-06-17T16:30:01.388Z"
+  },
+  {
+    "id": "CLI-1782497492721",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Alex Pintó Juarez",
+    "companyName": "Agroveteria Pedro Pablo",
+    "nit": "6784449-9",
+    "phone": "5945-0390",
+    "address": "Calle principal frente a gasolinera La Paz san Fransisco Petén",
+    "createdAt": "2026-06-26T18:11:32.721Z"
+  },
+  {
+    "id": "CLI-1782745652173",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Isidoro Zacarías",
+    "companyName": "Agropecuaria La Espiga",
+    "nit": "20153716",
+    "phone": "40890561",
+    "address": "2a Av. 1-55 zona 3 San José Pinula",
+    "createdAt": "2026-06-29T15:07:32.173Z"
+  },
+  {
+    "id": "CLI-1782764448489",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Geovani Hernández",
+    "companyName": "Agrovtas. El cordero",
+    "nit": "91627516",
+    "phone": "59183373",
+    "address": "Santa Elena peten",
+    "createdAt": "2026-06-29T20:20:48.489Z"
+  },
+  {
+    "id": "CLI-1782764616093",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Rony Vicente",
+    "companyName": "Agros. El sembrador",
+    "nit": "36786888",
+    "phone": "30137229",
+    "address": "3a Av zona, calle de la tranca, santa Elena peten",
+    "createdAt": "2026-06-29T20:23:36.093Z"
+  },
+  {
+    "id": "CLI-1782772396782",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "David Anselmo Sucup Betancourt",
+    "companyName": "David Anselmo Sucup Betancourt",
+    "nit": "Cf",
+    "phone": "32867023",
+    "address": "Barrio Morazán fray Bartolomé de las casa",
+    "createdAt": "2026-06-29T22:33:16.782Z"
+  },
+  {
+    "id": "CLI-1782958062279",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "JOSE FELIX",
+    "companyName": "AGROSERVICIO LOS PLANES",
+    "nit": "92838057",
+    "phone": "32606105",
+    "address": "CALLE PRINCIPAL, LOTE 33A2, ALDEA LOS PLANES, PALENCIA GUATEMALA",
+    "createdAt": "2026-07-02T02:07:42.279Z"
+  },
+  {
+    "id": "CLI-1782961263876",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "DANIEL POP",
+    "companyName": "AGROSERVICIOS EL GRANJERO",
+    "nit": "C/F",
+    "phone": "38230923",
+    "address": "SAN FERNANDO CHAHAL BSRRIO EL FRENTE A GASOLINERA SHELL, CALLE PRINCIPAL QUE CONDUCE A MUNICIPAL",
+    "createdAt": "2026-07-02T03:01:03.876Z"
+  },
+  {
+    "id": "CLI-1783001929463",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Francisco Cuc",
+    "companyName": "Agropecuaria la granja",
+    "nit": "113640269",
+    "phone": "33664225",
+    "address": "Calle principal, fray Bartolomé de las casas Av. A un costado de oficina el shaday",
+    "createdAt": "2026-07-02T14:18:49.463Z"
+  },
+  {
+    "id": "CLI-1783002119224",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Agro servicios rancho escondido",
+    "companyName": "Arístides Lemus",
+    "nit": "54209854",
+    "phone": "46918295",
+    "address": "Calle principal, a 100 metros de gasolinera el paraíso, el paraíso, Palencia",
+    "createdAt": "2026-07-02T14:21:59.224Z"
+  },
+  {
+    "id": "CLI-1783002448859",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Julia Mendez",
+    "companyName": "Agro. Media luna",
+    "nit": "57460345",
+    "phone": "33676745",
+    "address": "Colonia Bambi 2 a un costado del mercado, Santo Tomás de Castilla Izabal.",
+    "createdAt": "2026-07-02T14:27:28.859Z"
+  },
+  {
+    "id": "CLI-1783003094488",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Alfonso Bac",
+    "companyName": "Agros. El Sembrador",
+    "nit": "C/F",
+    "phone": "31414060",
+    "address": "Zona 3 Sebastián, San Cristóbal Verapaz, frente a peluquería Velásquez",
+    "createdAt": "2026-07-02T14:38:14.488Z"
+  },
+  {
+    "id": "CLI-1783003332785",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Sara Ipiña",
+    "companyName": "Ferroagro morales",
+    "nit": "83623493",
+    "phone": "51533493",
+    "address": "Aldea chacalate, San Luis peten km 330 Primer túmulo a la par de caja rural",
+    "createdAt": "2026-07-02T14:42:12.785Z"
+  },
+  {
+    "id": "CLI-1783003977103",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Teodoro Vicente",
+    "companyName": "Agro. Los primos",
+    "nit": "C/F",
+    "phone": "58819911",
+    "address": "Aldea manos unidas, Sayaxche Peten",
+    "createdAt": "2026-07-02T14:52:57.103Z"
+  },
+  {
+    "id": "CLI-1783004270132",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Mariano Lee Juárez",
+    "companyName": "Agroveterinaria El Ganader",
+    "nit": "19970021",
+    "phone": "55575663",
+    "address": "A una cuadra de banrural y del parque, Sansare El Progreso",
+    "createdAt": "2026-07-02T14:57:50.132Z"
+  },
+  {
+    "id": "CLI-1783047239737",
+    "sellerId": "limalopez22@gmail.com",
+    "name": "DISTRIBUIDORA HYC",
+    "companyName": "DISTRIBUIDORA HYC",
+    "nit": "30515955",
+    "phone": "46940127",
+    "address": "BARRIO EL PORVENIR, RESIDENCIALES BUGAMBILIAS, CASA #1 SAN BENITO",
+    "createdAt": "2026-07-03T02:53:59.737Z"
+  },
+  {
+    "id": "CLI-1783047395259",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "FREDY CHOC",
+    "companyName": "AGRO LA MONTAÑITA",
+    "nit": "C/F",
+    "phone": "37118858",
+    "address": "CHISEC ALTA VERAPAZ,  CALLE PRINCIPAL FRENTE A GENESIS EMPRESARIAL",
+    "createdAt": "2026-07-03T02:56:35.259Z"
+  },
+  {
+    "id": "CLI-1783047642091",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "PABLO AROCHE",
+    "companyName": "DISTRIBUIDORA BELLO PROGRESO",
+    "nit": "C/F",
+    "phone": "58140616",
+    "address": "ZONA 0 A UN COSTADO DE JUZGADO DE PAZ, SANSARE EL PROGRESO",
+    "createdAt": "2026-07-03T03:00:42.091Z"
+  },
+  {
+    "id": "CLI-1783054638581",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "JUAN PINEDA",
+    "companyName": "AGRO MI ARLET",
+    "nit": "C/F",
+    "phone": "30642945",
+    "address": "ALDEA PRIMERA SABANA, CALLE PRINCIPAL SANTA ROSA DE LIMA, SANTA ROSA",
+    "createdAt": "2026-07-03T04:57:18.581Z"
+  },
+  {
+    "id": "CLI-1783054900351",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "ALEX SOLIS",
+    "companyName": "AGRO SOLIS",
+    "nit": "C/F",
+    "phone": "4765 5380",
+    "address": "LA LIBERTAD PETEN, CALLE PRINCIPAL FRENTE A MOTOPARTES GONZALES",
+    "createdAt": "2026-07-03T05:01:40.351Z"
+  },
+  {
+    "id": "CLI-1783055308124",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "JOHN  CARRETO",
+    "companyName": "DEPOSITO LA BENDICION",
+    "nit": "C/F",
+    "phone": "46638462",
+    "address": "10A. CALLE 1-82 FRENTE A PARQUE EL MANGUITO, NUEVA SANTA ROSA, SANTA ROSA",
+    "createdAt": "2026-07-03T05:08:28.124Z"
+  },
+  {
+    "id": "CLI-1783055728189",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "MYNOR FRANCO",
+    "companyName": "TIENDA MI MASCOTA FELIZ",
+    "nit": "C/F",
+    "phone": "59215184",
+    "address": "INTERIO C.C SANTA ROSA, NUEVA SANTA ROSA, SANTA ROSA",
+    "createdAt": "2026-07-03T05:15:28.189Z"
+  },
+  {
+    "id": "CLI-1783096977485",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Felipe Contreras",
+    "companyName": "Agropecuaria Mardoqueo",
+    "nit": "335397581",
+    "phone": "4694-7281",
+    "address": "Calle principal en medio de gasolinera puma y gasolinera shel Chaal alta Verapaz",
+    "createdAt": "2026-07-03T16:42:57.485Z"
+  },
+  {
+    "id": "CLI-1783097885699",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Floridalma Solares",
+    "companyName": "Alimentos Del Campo",
+    "nit": "33847916",
+    "phone": "33206402",
+    "address": "9a calle 0-72 zona 2 a un costado de Banco azteca, Nueva Santa Rosa, Santa Rosa",
+    "createdAt": "2026-07-03T16:58:05.699Z"
+  },
+  {
+    "id": "CLI-1783098863562",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Junior Ortiz",
+    "companyName": "Agroveterinaria el granjero",
+    "nit": "369751795",
+    "phone": "45856773",
+    "address": "Aldea ixcamune las cruces Petén  a un costado de la iglesia  camino bíblico a dos cuadras  de la calle central",
+    "createdAt": "2026-07-03T17:14:23.562Z"
+  },
+  {
+    "id": "CLI-1782573933774",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "ELDER MORATAYA ",
+    "companyName": "AGRÍCOLA SAN ANDRES ",
+    "nit": "24461628",
+    "phone": "4064-3142",
+    "address": "Ave. Vicente Cozza, Morales Izabal",
+    "createdAt": "2026-06-27T15:25:33.774Z"
+  },
+  {
+    "id": "CLI-1782484439881",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Omar Vasquez",
+    "companyName": "Agroveterinatia San Miguel",
+    "nit": "22614060",
+    "phone": "37750383",
+    "address": "Canton San Juan, frente a Escuela de Párvulos, San Miguel Chicaj, Baja Verapaz",
+    "createdAt": "2026-06-26T14:33:59.881Z"
+  },
+  {
+    "id": "CLI-1782574426784",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "DANIEL LUIS",
+    "companyName": "Agro. Rural",
+    "nit": "119125528",
+    "phone": "4780-1027",
+    "address": "Ave. Telgua 81-40, Santa Elena Flores Petén ",
+    "createdAt": "2026-06-27T15:33:46.784Z"
+  },
+  {
+    "id": "CLI-1783110686002",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Carlos Ruano",
+    "companyName": "Agropecuaria el Vaquero",
+    "nit": "Cf",
+    "phone": "5328-4723",
+    "address": "Calle principal frente a farmacia don Carlos Ixcan playa grande el quiché",
+    "createdAt": "2026-07-03T20:31:26.002Z"
+  },
+  {
+    "id": "CLI-1783111960158",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Ingrid Grijalva",
+    "companyName": "Agroservicio Alexito",
+    "nit": "DPI. 1873738762201",
+    "phone": "52206611",
+    "address": "Barrio El Calvario, Aldea El Teocinte, Santa Cruz Naranjo Santa Rosa",
+    "createdAt": "2026-07-03T20:52:40.158Z"
+  },
+  {
+    "id": "CLI-1783114522915",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Agroveterinaria el amigo",
+    "companyName": "César López",
+    "nit": "25629883",
+    "phone": "3019-3334",
+    "address": "Tienda el niño san Benito Petén",
+    "createdAt": "2026-07-03T21:35:22.915Z"
+  },
+  {
+    "id": "CLI-1783351115100",
+    "sellerId": "limalopez22@gmail.com",
+    "name": "Katherine Hernández",
+    "companyName": "//",
+    "nit": "C/F",
+    "phone": "4991 6405",
+    "address": "Banrural monjitas",
+    "createdAt": "2026-07-06T15:18:35.100Z"
+  },
+  {
+    "id": "CLI-1783517155842",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Claudia Noche",
+    "companyName": "Agro La Bodeguita",
+    "nit": "78201721",
+    "phone": "57555425",
+    "address": "Barrio El centro, frente a farmacia Salud y Vida, La Unión Zacapa",
+    "createdAt": "2026-07-08T13:25:55.842Z"
+  },
+  {
+    "id": "CLI-1783521058122",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Victor Leonor",
+    "companyName": "Multiservicios El Campesino",
+    "nit": "69883653",
+    "phone": "42434853",
+    "address": "Barrio El Centro, a la par de Banrural, La Unión Zacapa",
+    "createdAt": "2026-07-08T14:30:58.122Z"
+  },
+  {
+    "id": "CLI-1784158291446",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Yoni Orlando Mateo Carias",
+    "companyName": "Agroveterinaria La Mascota",
+    "nit": "90888510",
+    "phone": "5426-5399",
+    "address": "Aldea el remate cruce a camino real flores peten",
+    "createdAt": "2026-07-15T23:31:31.446Z"
+  },
+  {
+    "id": "CLI-1783530311720",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Frander barrera",
+    "companyName": "Violeta Agroveterinaria",
+    "nit": "328326097",
+    "phone": "3383-3611",
+    "address": "Aldea Los Ángeles Santa Ana Petén calle principal que conduce al cartucho",
+    "createdAt": "2026-07-08T17:05:11.720Z"
+  },
+  {
+    "id": "CLI-1783551449538",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "David Tzub",
+    "companyName": "Agropecuaria la franja",
+    "nit": "48140651",
+    "phone": "4030-3620",
+    "address": "Calle principal fray Bartolomé de las casas a.v barrio Santa Rosa frente a motorepuestos don nacho",
+    "createdAt": "2026-07-08T22:57:29.538Z"
+  },
+  {
+    "id": "CLI-1781711847741",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Ronaldo catalan",
+    "companyName": "Agroveterinaria Catalan",
+    "nit": "68481489",
+    "phone": "//",
+    "address": "Aldea Nueva Libertad Sayaxche Peten",
+    "createdAt": "2026-06-17T15:57:27.741Z"
+  },
+  {
+    "id": "CLI-1783789786087",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Ludim Esau Méndez Mansilla",
+    "companyName": "",
+    "nit": "Cf",
+    "phone": "4517-7203",
+    "address": "La libertad Petén",
+    "createdAt": "2026-07-11T17:09:46.087Z"
+  },
+  {
+    "id": "CLI-1783971152811",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Elmer Gallego",
+    "companyName": "Veterinaria El Establo",
+    "nit": "89808347",
+    "phone": "32675646",
+    "address": "Calle principal, Playitas Morales Izabal",
+    "createdAt": "2026-07-13T19:32:32.811Z"
+  },
+  {
+    "id": "CLI-1784050077706",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Ángel Cervantes",
+    "companyName": "Agroveterinaria el Porvenir",
+    "nit": "110584937",
+    "phone": "3030-7191",
+    "address": "Calle principal barrio el porvenir frente a ferretería el ahorro sayarche Petén",
+    "createdAt": "2026-07-14T17:27:57.706Z"
+  },
+  {
+    "id": "CLI-1784050491539",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Agroveterinatia San Diego",
+    "companyName": "René Urrutia",
+    "nit": "52516784",
+    "phone": "46122248",
+    "address": "Barrio El Centro, calle principal, San Diego Zacapa",
+    "createdAt": "2026-07-14T17:34:51.539Z"
+  },
+  {
+    "id": "CLI-1784051375583",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Yeimy Catalán",
+    "companyName": "Agroveterinaria DR",
+    "nit": "324506252",
+    "phone": "3103-4557",
+    "address": "Calle principal cruce dos aguadas san Andrés Petén",
+    "createdAt": "2026-07-14T17:49:35.583Z"
+  },
+  {
+    "id": "CLI-1784062137542",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Elvi René López",
+    "companyName": "Ferro Agro La Granja",
+    "nit": "84665556",
+    "phone": "33450316",
+    "address": "Barrio El Amate, a un costado de Municipalidad, Cabañas Zacapa",
+    "createdAt": "2026-07-14T20:48:57.542Z"
+  },
+  {
+    "id": "CLI-1784137176648",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Gladys De León",
+    "companyName": "Agropecuaria El Agricultor",
+    "nit": "107877767",
+    "phone": "54127515",
+    "address": "6a Av. 2-83 zona 1 Salama Baja Verapaz",
+    "createdAt": "2026-07-15T17:39:36.648Z"
+  },
+  {
+    "id": "CLI-1784152640469",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "René González",
+    "companyName": "Comercial González",
+    "nit": "100303528",
+    "phone": "41823988",
+    "address": "Frente a La Torre, Los Amates Izabal",
+    "createdAt": "2026-07-15T21:57:20.469Z"
+  },
+  {
+    "id": "CLI-1784158643696",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Hugo René Choc",
+    "companyName": "Agroveterinaria Del Norte",
+    "nit": "1611 15039 0609 Maria Rodríguez",
+    "phone": "3059-9806",
+    "address": "Aldea las posas Sayarche Petén frente al mercado",
+    "createdAt": "2026-07-15T23:37:23.696Z"
+  },
+  {
+    "id": "CLI-1782574516118",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "ARNOLDO RAMIREZ ",
+    "companyName": "Agro. Transito &quot;Diagripet&quot; ",
+    "nit": "112126944",
+    "phone": "3124-6352",
+    "address": "Calle principal aldea las ruinas la Libertad Petén, a un costado de farmacia fuente de vida",
+    "createdAt": "2026-06-27T15:35:16.118Z"
+  },
+  {
+    "id": "CLI-1783107350364",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Siriaco valle",
+    "companyName": "Agroveteria el agricultor #2",
+    "nit": "Cf",
+    "phone": "4032-7960",
+    "address": "1 calle principal frente al parque La Paz Ixcan playa grande el quiché",
+    "createdAt": "2026-07-03T19:35:50.364Z"
+  },
+  {
+    "id": "CLI-1783446809247",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Adonias León",
+    "companyName": "Servicios y Negocios Torre Fuerte S.A.",
+    "nit": "103909826",
+    "phone": "42304100",
+    "address": "A una cuadra del parque, Agroservicio Alvarado, Rio Hondo Zacapa",
+    "createdAt": "2026-07-07T17:53:29.247Z"
+  },
+  {
+    "id": "CLI-1783531834081",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Marco Antonio Díaz Oliva",
+    "companyName": "Distribuidora Anali",
+    "nit": "6139078",
+    "phone": "48137729",
+    "address": "Barrio La Estación, Gualan Zacapa",
+    "createdAt": "2026-07-08T17:30:34.081Z"
+  },
+  {
+    "id": "CLI-1783692068747",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Geovany Noe García López",
+    "companyName": "Agropecuaria Santa Elena",
+    "nit": "Cf",
+    "phone": "5783-3528",
+    "address": "Calle principal Santa Elena flores Petén a un costado de agencias Way",
+    "createdAt": "2026-07-10T14:01:08.747Z"
+  },
+  {
+    "id": "CLI-1783717444505",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Telma Toc",
+    "companyName": "Agro Los Dos",
+    "nit": "31468578",
+    "phone": "40210041",
+    "address": "Calle principal, Aldea Buenos Aires, Livingston Izabal",
+    "createdAt": "2026-07-10T21:04:04.505Z"
+  },
+  {
+    "id": "CLI-1783981185515",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Daniel García Ávalos",
+    "companyName": "Agro La Mazorca",
+    "nit": "28365763",
+    "phone": "50096295",
+    "address": "Lote 392 A calle principal, Cantón Central Chuarrancho, Guatemala",
+    "createdAt": "2026-07-13T22:19:45.515Z"
+  },
+  {
+    "id": "CLI-1784046198757",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Conrado Ortiz",
+    "companyName": "Agroservicios Coty Ortiz",
+    "nit": "27849473",
+    "phone": "45238713",
+    "address": "Zona 0 sector Policía, El Jicaro El Progreso",
+    "createdAt": "2026-07-14T16:23:18.757Z"
+  },
+  {
+    "id": "CLI-1784053658412",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "César Noyola",
+    "companyName": "Agroveterinaria la Cosecha",
+    "nit": "86112376",
+    "phone": "5860-3895",
+    "address": "aldea la máquina flores peten, ruta hacia Melchor de Mencos calle principal ",
+    "createdAt": "2026-07-14T18:27:38.412Z"
+  },
+  {
+    "id": "CLI-1784157782071",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Marlon Ninrod Garrido Fajardo",
+    "companyName": "Agroveterinaria el Sembrador",
+    "nit": "Cf",
+    "phone": "4016-4026",
+    "address": "Ruta a tikal, aldea el caoba flores peten frente a restaurante Gonzales",
+    "createdAt": "2026-07-15T23:23:02.071Z"
+  },
+  {
+    "id": "CLI-1782574575820",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "JOSÉ ORDOÑEZ",
+    "companyName": "Agro. El agricultor ",
+    "nit": "C/F",
+    "phone": "4046-3029",
+    "address": "Barrio el centro a un costado de casa de los pasteles, San Luis Peten ",
+    "createdAt": "2026-06-27T15:36:15.820Z"
+  },
+  {
+    "id": "CLI-1782406798896",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Robelio Peláez",
+    "companyName": "Agroveterinatia Eben Ezer",
+    "nit": "102916381",
+    "phone": "51604713",
+    "address": "Barrio El Tamarindo, Santa Cruz El Chol Baja Verapaz",
+    "createdAt": "2026-06-25T16:59:58.896Z"
+  },
+  {
+    "id": "CLI-1784328001922",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Bernabé García",
+    "companyName": "Agro del Sur",
+    "nit": "11427016-3",
+    "phone": "48364001",
+    "address": "Camino que conduce a Santa Cruz frontera, Chacte san Luis Petén",
+    "createdAt": "2026-07-17T22:40:01.922Z"
+  },
+  {
+    "id": "CLI-1784331282376",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "José Carlos Acosta",
+    "companyName": "Agroveterinaria Madrid",
+    "nit": "81222394",
+    "phone": "4214-7075",
+    "address": "Barrio el progreso la libertad Petén en la terminal de buses",
+    "createdAt": "2026-07-17T23:34:42.376Z"
+  },
+  {
+    "id": "CLI-1784386897471",
+    "sellerId": "limalopez22@gmail.com",
+    "name": "ABNER GUERRA",
+    "companyName": "Detailing la bendición",
+    "nit": "Cf",
+    "phone": "5718-1055",
+    "address": "Aldea Buenos Aires, Livingston Izabal, detailing la bendición",
+    "createdAt": "2026-07-18T15:01:37.471Z"
+  },
+  {
+    "id": "CLI-1784577220142",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Felipe Tuch",
+    "companyName": "Agroveterinaria san Cristóbal",
+    "nit": "Cf",
+    "phone": "50003283",
+    "address": "Barrio buena vista, frente al monumento la libertad Petén",
+    "createdAt": "2026-07-20T19:53:40.142Z"
+  },
+  {
+    "id": "CLI-1784577582573",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Yesli Gonzales",
+    "companyName": "Agroveterinaria la Yunta",
+    "nit": "Cf",
+    "phone": "3652-4974",
+    "address": "Caserío nueva vista hermosa km 35 la libertad Petén",
+    "createdAt": "2026-07-20T19:59:42.573Z"
+  },
+  {
+    "id": "CLI-1784580134232",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Victor Alvarado",
+    "companyName": "Agroveterinatia El Éxito",
+    "nit": "54224969",
+    "phone": "33077617",
+    "address": "Mercado municipal local 4, Santa Cruz El Chol, Baja Verapaz",
+    "createdAt": "2026-07-20T20:42:14.232Z"
+  },
+  {
+    "id": "CLI-1784663017460",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Silverio Ceballos",
+    "companyName": "Multinegocios  Fertiagro",
+    "nit": "Cf",
+    "phone": "5873-2030",
+    "address": "Aldea el cartucho Santa Ana Petén calle principal entrada a mano izquierda",
+    "createdAt": "2026-07-21T19:43:37.460Z"
+  },
+  {
+    "id": "CLI-1784647723226",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Noe Moscoso",
+    "companyName": "Comercial Alfa y Omega",
+    "nit": "101666098",
+    "phone": "44823705",
+    "address": "Frente al parque central, Morazán El Progreso",
+    "createdAt": "2026-07-21T15:28:43.226Z"
+  },
+  {
+    "id": "CLI-1783608397538",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Martin Martinez",
+    "companyName": "Distribuidora Los Robles",
+    "nit": "25545159",
+    "phone": "40531716",
+    "address": "2a calle, 10-40B zona 1 a un costado de banrural, Chiquimula Chiquimula",
+    "createdAt": "2026-07-09T14:46:37.538Z"
+  },
+  {
+    "id": "CLI-1784748207072",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Julio Cesar Culajay",
+    "companyName": "Agropecuaria El Sembrador",
+    "nit": "18082807",
+    "phone": "46234381",
+    "address": "Lote 55 Av. Principal, Aldea El Paraíso Palencia",
+    "createdAt": "2026-07-22T19:23:27.072Z"
+  },
+  {
+    "id": "CLI-1784830394774",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Alex Sierra",
+    "companyName": "Agroveterinaria Sierra",
+    "nit": "77309995",
+    "phone": "3176-3231",
+    "address": "Calle principal frente a agencias way, la libertad Petén",
+    "createdAt": "2026-07-23T18:13:14.774Z"
+  },
+  {
+    "id": "CLI-1784831697734",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Fabián Morente",
+    "companyName": "Agroservicio Rodríguez",
+    "nit": "60952946",
+    "phone": "31577699",
+    "address": "3a Av. Zona 2 Barrio San Miguel, calle Alegre, Cubulco Baja Verapaz",
+    "createdAt": "2026-07-23T18:34:57.734Z"
+  },
+  {
+    "id": "CLI-1784838201131",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Carlos René Bo",
+    "companyName": "Agropecuaria la buena",
+    "nit": "Cf",
+    "phone": "4796-8513",
+    "address": "Barrio el centro, frente a cooperativa copsama, Chisec Alta Verapaz",
+    "createdAt": "2026-07-23T20:23:21.131Z"
+  },
+  {
+    "id": "CLI-1784840803967",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Fredy Orlando Cuxum",
+    "companyName": "Mi Agro Mascota",
+    "nit": "106619594",
+    "phone": "33638907",
+    "address": "Calle principal, a la vuelta de farmacia Waleska",
+    "createdAt": "2026-07-23T21:06:43.967Z"
+  },
+  {
+    "id": "CLI-1784847596845",
+    "sellerId": "seseffff942@gmail.com",
+    "name": "Emanuel lima",
+    "companyName": "Emanuel lima",
+    "nit": "//",
+    "phone": "41497479",
+    "address": "Santa Elena Petén",
+    "createdAt": "2026-07-23T22:59:56.845Z"
+  },
+  {
+    "id": "CLI-1784915389973",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Darwin Larios",
+    "companyName": "Agro Chapin",
+    "nit": "34747818",
+    "phone": "51360229",
+    "address": "Casa De Pinto, Rio Hondo Zacapa",
+    "createdAt": "2026-07-24T17:49:49.973Z"
+  },
+  {
+    "id": "CLI-1784933708492",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Walter Oroman",
+    "companyName": "Agroveterinaria El Granjero",
+    "nit": "5396654-6",
+    "phone": "3364-4498",
+    "address": "Calle principal, aldea el Tamaris ,la libertad, Petén",
+    "createdAt": "2026-07-24T22:55:08.492Z"
+  },
+  {
+    "id": "CLI-1782160866911",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Luisa Tzarax Pérez",
+    "companyName": "Ferroagro el Ferry",
+    "nit": "38012979",
+    "phone": "4644-2736",
+    "address": "Calle principal aldea el naranjo la libertad Petén aún costado de distribuidora la económica",
+    "createdAt": "2026-06-22T20:41:06.911Z"
+  },
+  {
+    "id": "CLI-1783090240748",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Walter Solares",
+    "companyName": "Agroveterinatia Rinconcito",
+    "nit": "99686805",
+    "phone": "31624612",
+    "address": "A un costado de Iglesia Católica, San José Rinconcito, Santa Rosa De Lima Santa Rosa",
+    "createdAt": "2026-07-03T14:50:40.748Z"
+  },
+  {
+    "id": "CLI-1783106656488",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Susana del Valle",
+    "companyName": "Agroveteria el Agricultor #1",
+    "nit": "8396493",
+    "phone": "5151-4441",
+    "address": "Zona 1 calle principal Ixcan playa grande el quiché frente a librería arcoíris",
+    "createdAt": "2026-07-03T19:24:16.488Z"
+  },
+  {
+    "id": "CLI-1783527341104",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Everson Timoteo Paiz",
+    "companyName": "Multiservicios Paiz",
+    "nit": "66322073",
+    "phone": "46730781",
+    "address": "Km. 186.8 a un costado de gasolina Paiz, ruta hacia La Unión Zacapa, Aldea El Chaguiton, Gustan Zacapa",
+    "createdAt": "2026-07-08T16:15:41.104Z"
+  },
+  {
+    "id": "CLI-1783710275568",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Ermides Gamaliel Recinos Mazariegos",
+    "companyName": "Agronorte",
+    "nit": "48588059",
+    "phone": "30001660",
+    "address": "Aldea el naranjo la libertad Petén a un costado de restaurante cristal",
+    "createdAt": "2026-07-10T19:04:35.568Z"
+  },
+  {
+    "id": "CLI-1784226928281",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Julia Mendez",
+    "companyName": "Agro Media Luna",
+    "nit": "57460345",
+    "phone": "36676745",
+    "address": "Colonia Bambi 2 a un costado del mercado, Santo Tomás De Castilla, Izabal",
+    "createdAt": "2026-07-16T18:35:28.281Z"
+  },
+  {
+    "id": "CLI-1784668199873",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Jaime Sagastume",
+    "companyName": "Agroveterinaria los amigos",
+    "nit": "Cf",
+    "phone": "53667022",
+    "address": "Calle principal, aldea Los Ángeles, ala par armería cazadores el chal Petén",
+    "createdAt": "2026-07-21T21:09:59.873Z"
+  },
+  {
+    "id": "CLI-1784309708909",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Rosy Calderòn",
+    "companyName": "Agroveterinaria el Corral",
+    "nit": "Cf",
+    "phone": "5038-7164",
+    "address": "Aldea vista hermosa las cruces Petén frente a iglesia católica calle principal (los chorros)",
+    "createdAt": "2026-07-17T17:35:08.909Z"
+  },
+  {
+    "id": "CLI-1784312366953",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Karen de León",
+    "companyName": "Ferroagro Lagunitas",
+    "nit": "Cf",
+    "phone": "5526-6946",
+    "address": "Caserío Lagunitas ruta al naranjo frente a la escuela",
+    "createdAt": "2026-07-17T18:19:26.953Z"
+  },
+  {
+    "id": "CLI-1784313128327",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Brenda Duarte",
+    "companyName": "Agroveterinaria los 3 hermanos",
+    "nit": "90007131",
+    "phone": "3267-5258",
+    "address": "Aldea cruce dos aguadas san Andrés Petén",
+    "createdAt": "2026-07-17T18:32:08.327Z"
+  },
+  {
+    "id": "CLI-1784315039439",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Elder Morataya",
+    "companyName": "Agricola San Andrés",
+    "nit": "24461628",
+    "phone": "40643142",
+    "address": "Av. Vicente Coza, Morales Izabal",
+    "createdAt": "2026-07-17T19:03:59.439Z"
+  },
+  {
+    "id": "CLI-1784327621574",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Ana Estrada",
+    "companyName": "Insumos Global",
+    "nit": "Cf",
+    "phone": "3066-4630",
+    "address": "La libertad Petén frente a chatarrera, salida ruta al naranjo",
+    "createdAt": "2026-07-17T22:33:41.574Z"
+  },
+  {
+    "id": "CLI-1783716577832",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Carlos Humberto Villalta Reyes",
+    "companyName": "Ferroagro El Aguila",
+    "nit": "55276512",
+    "phone": "5560-9519",
+    "address": "Calle principal barrio el recuerdo la libertad Petén",
+    "createdAt": "2026-07-10T20:49:37.832Z"
+  },
+  {
+    "id": "CLI-1784219191572",
+    "sellerId": "gruasytransportesali@gmail.com",
+    "name": "Kevin Robles",
+    "companyName": "Agropecuaria Del Puerto",
+    "nit": "105807133",
+    "phone": "58411317",
+    "address": "14 calle y 20Av. Esquina, en gasolinera Shell Plaza Caribe, Puerto Barrios Izabal",
+    "createdAt": "2026-07-16T16:26:31.572Z"
+  },
+  {
+    "id": "CLI-1783723838530",
+    "sellerId": "seseffff942@gmail.com",
+    "name": "Sérgio lima",
+    "companyName": "Sérgio lima",
+    "nit": "//",
+    "phone": "50007840",
+    "address": "San Benito Petén",
+    "createdAt": "2026-07-10T22:50:38.530Z"
+  },
+  {
+    "id": "CLI-1784845464903",
+    "sellerId": "jerickottoniel@gmail.com",
+    "name": "Daniel Pop",
+    "companyName": "Agroveterinaria el Granjero",
+    "nit": "Cf",
+    "phone": "3823-0923",
+    "address": "San Fernando Chaal A.V barrio el centro frente a gasolinera Shell calle principal que conduce a la municipalidad",
+    "createdAt": "2026-07-23T22:24:24.903Z"
+  }
+]

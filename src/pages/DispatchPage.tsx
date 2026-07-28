@@ -67,6 +67,11 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    api.getUsers().then(setUsers).catch(console.error);
+  }, []);
   const [dispatchedItems, setDispatchedItems] = useState<Record<string, number>>({});
   const [pendingProduct, setPendingProduct] = useState<{ productId: string, productName: string, maxQty: number } | null>(null);
   const [quantityInput, setQuantityInput] = useState<number>(1);
@@ -265,6 +270,19 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
     }
   };
 
+  function getSellerName(sellerId?: string) {
+    if (!sellerId) return 'Sistema';
+    const sLower = sellerId.toLowerCase();
+    if (sLower.includes('jerickottoniel')) return 'Erick Juárez';
+    const u = users.find(user => 
+      (user.email && user.email.toLowerCase() === sLower) || 
+      user.id === sellerId || 
+      (user.sellerCode && user.sellerCode.toLowerCase() === sLower)
+    );
+    if (u && u.name) return u.name;
+    return sellerId.includes('@') ? sellerId.split('@')[0] : sellerId;
+  }
+
   const generatePDF = async () => {
     if (!selectedInvoice) return;
 
@@ -384,7 +402,7 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
             <strong>Fecha Egreso:</strong> ${new Date().toLocaleDateString()}<br>
             <strong>Pago:</strong> ${selectedInvoice.paymentMethod || 'CREDITO'}<br>
             <strong>Estado:</strong> <span style="color: #ea580c; font-weight: 900;">PENDIENTE</span><br>
-            <strong>Responsable:</strong> ${selectedInvoice.seller || 'Sistema'}
+            <strong>Responsable:</strong> ${getSellerName(selectedInvoice.sellerId || selectedInvoice.seller)}
           </div>
         </div>
       </div>

@@ -576,7 +576,7 @@ async function convertAllImagesToBase64(container: HTMLElement) {
   await Promise.allSettled(promises);
 }
 
-export function compilePrintTemplate(templateText: string, invoice: any, sellerName: string): string {
+export function compilePrintTemplate(templateText: string, invoice: any, sellerName?: string): string {
   try {
     const formatGT = (num: number) => {
       const n = Number(num);
@@ -585,6 +585,17 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     const isCredit = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
     const phoneVal = invoice.phone || invoice.customerPhone || 'N/A';
     const addressVal = invoice.address || 'Ciudad';
+
+    // Búsqueda exhaustiva del nombre del vendedor (incluye invoice.name) para evitar que aparezca como "desconocido"
+    const effectiveSellerName = 
+      (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
+      invoice.sellerName ||
+      invoice.seller ||
+      invoice.createdByName ||
+      invoice.userName ||
+      invoice.user ||
+      invoice.name ||
+      'vendedor';
 
     const clientPhoneLine = phoneVal ? ('<div class="metadata-line">' + phoneVal + '</div>') : '';
     const clientAddressLine = addressVal ? ('<div class="metadata-line">' + addressVal + '</div>') : '';
@@ -671,10 +682,11 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       }).join('\n');
     });
 
-    // Base substitutions
+    // Base substitutions (soporta cliente desde invoice.client, invoice.customerName o invoice.name)
+    const clientName = String(invoice.client || invoice.customerName || invoice.name || '');
     t = t.replace(/\{\{id\}\}/g, String(invoice.id || ''));
-    t = t.replace(/\{\{client\}\}/g, String(invoice.client || ''));
-    t = t.replace(/\{\{customerName\}\}/g, String(invoice.client || ''));
+    t = t.replace(/\{\{client\}\}/g, clientName);
+    t = t.replace(/\{\{customerName\}\}/g, clientName);
     t = t.replace(/\{\{customerNit\}\}/g, String(invoice.nit || 'CF'));
     t = t.replace(/\{\{customerAddress\}\}/g, String(invoice.address || 'Ciudad'));
     t = t.replace(/\{\{clientPhoneLine\}\}/g, clientPhoneLine);
@@ -685,7 +697,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{date\}\}/g, invoice.date ? (isNaN(new Date(invoice.date).getTime()) ? '' : new Date(invoice.date).toISOString().split('T')[0]) : '');
     t = t.replace(/\{\{paymentForm\}\}/g, isCredit ? 'CREDITO' : 'CONTADO');
     t = t.replace(/\{\{status\}\}/g, isCredit ? 'POR COBRAR' : (invoice.status === 'cancelled' || invoice.status === 'rejected' ? 'ANULADA' : 'PAGADO'));
-    t = t.replace(/\{\{sellerName\}\}/g, sellerName);
+    t = t.replace(/\{\{sellerName\}\}/g, effectiveSellerName);
     t = t.replace(/\{\{itemsTableRows\}\}/g, itemsTableRows);
     t = t.replace(/\{\{totalAmount\}\}/g, formatGT(invoice.totalAmount || 0));
     t = t.replace(/\{\{paidAmount\}\}/g, formatGT(invoice.paidAmount || 0));
@@ -736,10 +748,22 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
   }
 }
 
-export function generateDeliveryLetterHtml(invoice: any, sellerName: string): string {
+export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): string {
   const dateStr = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const logoUrl = localStorage.getItem('app_logo_url') || `${window.location.origin}/agricovet.png`;
   
+  const effectiveSellerName = 
+    (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
+    invoice.sellerName ||
+    invoice.seller ||
+    invoice.createdByName ||
+    invoice.userName ||
+    invoice.user ||
+    invoice.name ||
+    'vendedor';
+
+  const clientName = invoice.client || invoice.customerName || invoice.name || 'N/A';
+
   return `
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #333; line-height: 1.6;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #0b4d2c; padding-bottom: 20px;">
@@ -750,7 +774,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName: string): st
         </div>
         <div style="text-align: right; font-size: 14px;">
           <p style="margin: 0;">Fecha de Emisión: ${dateStr}</p>
-          <p style="margin: 0;">Vendedor: ${sellerName}</p>
+          <p style="margin: 0;">Vendedor: ${effectiveSellerName}</p>
         </div>
       </div>
 
@@ -759,7 +783,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName: string): st
         <table style="width: 100%; font-size: 14px;">
           <tr>
             <td style="padding: 5px 0; width: 120px;"><strong>Nombre/Razón:</strong></td>
-            <td>${invoice.client}</td>
+            <td>${clientName}</td>
           </tr>
           <tr>
             <td style="padding: 5px 0;"><strong>NIT/CF:</strong></td>
@@ -786,7 +810,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName: string): st
             </tr>
           </thead>
           <tbody>
-            ${invoice.items.map((item: any) => {
+            ${(invoice.items || []).map((item: any) => {
               const c = item.color || item.variant?.color;
               const s = item.size || item.variant?.size;
               let varStr = '';
@@ -929,4 +953,3 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
   // @ts-ignore
   html2pdf().from(element).set(opt).save();
 }
-

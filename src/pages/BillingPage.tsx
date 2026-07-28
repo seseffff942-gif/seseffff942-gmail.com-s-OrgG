@@ -313,9 +313,33 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
      return acc + (inv.totalAmount - (inv.paidAmount || 0));
   }, 0);
 
-  function getSellerName(email: string) {
-    const u = users.find(user => user.email === email);
-    return u ? u.name : (email || '').split('@')[0];
+    function getSellerName(email: string) {
+    if (!email) return 'Sin Vendedor';
+    const eLower = email.toLowerCase();
+    
+    let u = users.find(user => 
+      (user.email && user.email.toLowerCase() === eLower) || 
+      user.id === email || 
+      (user.sellerCode && user.sellerCode.toLowerCase() === eLower)
+    );
+    
+    if (!u && eLower.includes('jerickottoniel')) {
+       u = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
+    }
+
+    if (u && u.name) {
+       const firstLetter = u.name.charAt(0).toUpperCase();
+       if (u.sellerCode) {
+          const codeUpper = u.sellerCode.toUpperCase();
+          if (codeUpper.startsWith(firstLetter)) {
+             return codeUpper;
+          }
+          return `${firstLetter}${codeUpper}`;
+       }
+       return u.name;
+    }
+    
+    return email.includes('@') ? email.split('@')[0] : email;
   }
 
   // Grouping and list rendering
@@ -688,16 +712,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   };
 
     const printInvoice = async (invoice: Invoice) => {
-    const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
-    const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
+    const sellerName = getSellerName(invoice.sellerId || '');
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
     await printHtml(htmlContent);
   };
 
   const downloadInvoicePdf = async (invoice: Invoice) => {
-    const sellerObj = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
-    const sellerName = sellerObj ? sellerObj.name : (invoice.sellerId || 'Desconocido').split('@')[0];
+    const sellerName = getSellerName(invoice.sellerId || '');
 
     const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
     await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id}.pdf`);
@@ -756,7 +778,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <div className="flex items-center gap-8 mt-4 sm:mt-0">
             <div className="text-right hidden md:block">
               <p className="text-xs text-neutral-500">Vendedor</p>
-              <p className="text-sm font-medium">{(invoice.sellerId || 'Desconocido').split('@')[0]}</p>
+              <p className="text-sm font-medium">{getSellerName(invoice.sellerId || '')}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-neutral-500">Total Factura</p>
@@ -1360,7 +1382,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
               >
                 <option value="all">Todos</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.email} className="notranslate" translate="no">{u.name || u.email.split('@')[0]}</option>
+                  <option key={u.id} value={u.email} className="notranslate" translate="no">{getSellerName(u.email || u.id)}</option>
                 ))}
               </select>
             </div>
@@ -1998,7 +2020,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     </div>
                     <div className="text-right">
                       <span className="text-slate-400 block font-bold">Vendedor</span>
-                      <span className="font-extrabold text-slate-200">{(selectedInvoiceForModal.sellerId || '').split('@')[0]}</span>
+                      <span className="font-extrabold text-slate-200">{getSellerName(selectedInvoiceForModal.sellerId || '')}</span>
                     </div>
                   </div>
                   <div className="border-t border-slate-800 pt-4 grid grid-cols-3 gap-2">

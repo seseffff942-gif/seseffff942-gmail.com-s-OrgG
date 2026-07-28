@@ -87,9 +87,33 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       setManualFolio('');
     }
   }, [selectedViewInvoice]);
-  function getSellerName(email: string) {
-    const u = users.find(user => user.email === email);
-    return u ? u.name || email.split('@')[0] : (email || '').split('@')[0];
+    function getSellerName(email: string) {
+    if (!email) return 'Sin Vendedor';
+    const eLower = email.toLowerCase();
+    
+    let u = users.find(user => 
+      (user.email && user.email.toLowerCase() === eLower) || 
+      user.id === email || 
+      (user.sellerCode && user.sellerCode.toLowerCase() === eLower)
+    );
+    
+    if (!u && eLower.includes('jerickottoniel')) {
+       u = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
+    }
+
+    if (u && u.name) {
+       const firstLetter = u.name.charAt(0).toUpperCase();
+       if (u.sellerCode) {
+          const codeUpper = u.sellerCode.toUpperCase();
+          if (codeUpper.startsWith(firstLetter)) {
+             return codeUpper;
+          }
+          return `${firstLetter}${codeUpper}`;
+       }
+       return u.name;
+    }
+    
+    return email.includes('@') ? email.split('@')[0] : email;
   }
   const getLocalDateStr = (d = new Date()) => {
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -1263,7 +1287,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 >
                   <option value="all">Todos</option>
                   {users.map(u => (
-                    <option key={u.id} value={u.email}>{u.name || u.email.split('@')[0]}</option>
+                    <option key={u.id} value={u.email}>{getSellerName(u.email || u.id)}</option>
                   ))}
                 </select>
               </div>
@@ -1732,8 +1756,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 )}
                 <button
                   onClick={() => {
-                    const sellerObj = users.find(u => u.id === selectedViewInvoice.sellerId || u.email === selectedViewInvoice.sellerId);
-                    const sellerName = sellerObj ? sellerObj.name : (selectedViewInvoice.sellerId || 'Desconocido').split('@')[0];
+                    const sellerName = getSellerName(selectedViewInvoice.sellerId || '');
                     const html = compilePrintTemplate(printTemplate, selectedViewInvoice, sellerName);
                     downloadHtmlAsPdf(html, `factura-${selectedViewInvoice.folio || selectedViewInvoice.id}.pdf`);
                   }}
