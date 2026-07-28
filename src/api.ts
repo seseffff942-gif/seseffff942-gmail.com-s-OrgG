@@ -982,11 +982,15 @@ export const api = {
     return data;
   },
 
-  certificarFel: async (invoiceId: string, tipoDte?: string) => {
+  certificarFel: async (
+    invoiceId: string,
+    tipoDte?: string,
+    receptor?: { nit?: string; nombre?: string }
+  ) => {
     const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/certificar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipoDte }),
+      body: JSON.stringify({ tipoDte, receptor }),
     });
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'No se pudo certificar la factura');

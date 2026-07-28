@@ -2593,7 +2593,16 @@ if (!process.env.VERCEL) {
       totalAmount: total,
       paidAmount: isOwed ? 0 : total,
       status: isOwed ? 'pending' : 'paid',
-      date: customDate ? new Date(customDate).toISOString() : new Date().toISOString()
+      // OJO ZONA HORARIA: si customDate viene como "YYYY-MM-DD" (dia elegido en
+      // Guatemala), NO usar new Date("YYYY-MM-DD") -> eso lo interpreta como
+      // medianoche UTC, que en Guatemala (UTC-6) cae el dia ANTERIOR y la
+      // factura salia con la fecha corrida un dia. Se ancla al mediodia de
+      // Guatemala para que el dia calendario quede firme.
+      date: customDate
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
+            ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+            : new Date(customDate).toISOString())
+        : new Date().toISOString()
     };
     invoiceDataRaw['clientName'] = client;
     invoiceDataRaw['customerPhone'] = phone || "";
@@ -4950,7 +4959,7 @@ ${productsContext}`;
 
   app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const permitidos = [
-      'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'direccion', 'municipio',
+      'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'correo_emisor', 'direccion', 'municipio',
       'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
       'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
       'infile_url', 'tipo_dte_default',
@@ -5036,8 +5045,16 @@ ${productsContext}`;
       return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
     }
 
+    // Se pueden ajustar nombre y NIT del receptor antes de emitir; el folio y
+    // la factura interna no se tocan.
+    const receptorBody = req.body?.receptor;
+    const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre)
+      ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
+      : undefined;
+
     const resultado = await felServicio.certificarFactura(supabase, invoice, {
       tipoDte: req.body?.tipoDte,
+      receptor,
     });
     res.json(resultado);
   }));

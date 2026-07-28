@@ -18,11 +18,25 @@ import { construirXmlAnulacion, construirXmlDTE } from './xml';
 export type EstadoFEL = 'pendiente' | 'enviado' | 'certificado' | 'error' | 'anulado';
 export type TipoDTE = 'FACT' | 'FCAM' | 'NCRE' | 'NDEB' | 'NABN' | 'RDON';
 
+/**
+ * Plazo de la factura cambiaria, en dias. Por regla del negocio siempre es 30:
+ * define la fecha de vencimiento del abono en el XML y debe coincidir con la
+ * leyenda impresa (ver DIAS_CREDITO_FCAM en src/utils.ts).
+ */
+const DIAS_CREDITO_FCAM = 30;
+
+/** Datos del receptor que se pueden ajustar antes de emitir (nombre y NIT). */
+export interface ReceptorOverride {
+  nit?: string;
+  nombre?: string;
+}
+
 export interface ConfigFEL {
   nit_emisor?: string;
   nombre_emisor?: string;
   nombre_comercial?: string;
   direccion?: string;
+  correo_emisor?: string;
   codigo_establecimiento?: number;
   afiliacion_iva?: string;
   iva_incluido?: boolean;
@@ -256,7 +270,7 @@ export interface ResultadoCertificacion {
 export async function certificarFactura(
   supabase: any,
   invoice: any,
-  opciones: { tipoDte?: TipoDTE } = {}
+  opciones: { tipoDte?: TipoDTE; receptor?: ReceptorOverride } = {}
 ): Promise<ResultadoCertificacion> {
   const inicio = Date.now();
   const config = await obtenerConfig(supabase);
@@ -266,6 +280,23 @@ export async function certificarFactura(
   const tipoDte: TipoDTE = opciones.tipoDte ?? ((config?.tipo_dte_default as TipoDTE) || 'FCAM');
 
   const { totales, advertencias, nitReceptor } = prepararDTE(invoice);
+
+  // Se pueden ajustar el nombre y el NIT del receptor antes de emitir (p. ej.
+  // una venta a CF que al facturar necesita el NIT real). Solo afecta el DTE:
+  // la factura interna y su folio no se tocan. Si no se envia override, se usan
+  // los datos de la factura.
+  const nitOverride = (opciones.receptor?.nit ?? '').toString().trim();
+  const nombreOverride = (opciones.receptor?.nombre ?? '').toString().trim();
+  const nitReceptorFinal = nitOverride || nitReceptor;
+  const nombreReceptorFinal = nombreOverride || invoice.client || 'Consumidor Final';
+
+  // Si el override trae un NIT real, la advertencia de "se emitira como CF"
+  // (que prepararDTE agrega cuando la factura no tiene NIT) ya no aplica.
+  if (nitOverride && !esConsumidorFinal(nitOverride)) {
+    const i = advertencias.findIndex((a) => a.includes('consumidor final (CF)'));
+    if (i >= 0) advertencias.splice(i, 1);
+  }
+
   if (faltantes.length) {
     advertencias.push(`Falta completar la configuracion del emisor: ${faltantes.join(', ')}.`);
   }
@@ -289,6 +320,11 @@ export async function certificarFactura(
     monto_gravable: totales.totalMontoGravable,
     monto_iva: totales.totalMontoIva,
     gran_total: totales.granTotal,
+    // Receptor efectivo con el que se emite (puede diferir del cliente de la
+    // factura). Se guarda para que la representacion grafica impresa coincida
+    // exactamente con lo certificado ante SAT.
+    receptor_nit: nitReceptorFinal || 'CF',
+    receptor_nombre: nombreReceptorFinal,
     intentos: (existente?.intentos ?? 0) + 1,
     actualizado_en: new Date().toISOString(),
   };
@@ -306,15 +342,17 @@ export async function certificarFactura(
   // se enviaria y se puede revisar antes de la primera certificacion real.
   let xmlEnviado: string | null = null;
   if (faltantes.length === 0) {
-    const dias = extraerDiasCredito(invoice);
+    // Vencimiento del abono a 30 dias (plazo estandar del negocio), coherente
+    // con la leyenda impresa de la factura cambiaria.
     const fechaBase = new Date(invoice.date || Date.now());
-    const vencimiento = new Date(fechaBase.getTime() + dias * 86400000).toISOString().slice(0, 10);
+    const vencimiento = new Date(fechaBase.getTime() + DIAS_CREDITO_FCAM * 86400000).toISOString().slice(0, 10);
 
     xmlEnviado = construirXmlDTE(
       {
         nit: config!.nit_emisor!,
         nombre: config!.nombre_emisor!,
         nombreComercial: config!.nombre_comercial,
+        correo: config!.correo_emisor,
         direccion: config!.direccion!,
         codigoPostal: config!.codigo_postal,
         municipio: config!.municipio,
@@ -323,7 +361,7 @@ export async function certificarFactura(
         codigoEstablecimiento: config!.codigo_establecimiento!,
         afiliacionIva: config!.afiliacion_iva,
       },
-      { nit: nitReceptor || 'CF', nombre: invoice.client, direccion: invoice.address },
+      { nit: nitReceptorFinal || 'CF', nombre: nombreReceptorFinal, direccion: invoice.address, correo: invoice.email || invoice.clientEmail },
       totales,
       {
         tipo: (tipoDte === 'FCAM' ? 'FCAM' : 'FACT'),
@@ -395,7 +433,9 @@ export async function certificarFactura(
 
     return {
       documento: data,
-      advertencias,
+      // Las alertas de una certificacion exitosa (p. ej. el aviso de SandBox en
+      // pruebas) se suman a las advertencias para que queden a la vista.
+      advertencias: resp.alertas?.length ? [...advertencias, ...resp.alertas] : advertencias,
       certificado: !!resp.exito,
       mensaje: resp.mensaje,
     };

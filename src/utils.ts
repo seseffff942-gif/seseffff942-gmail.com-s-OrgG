@@ -95,21 +95,35 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
 
     /* Tabla de items */
     table.items { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    /* Al partirse el documento en varias paginas, el encabezado de la tabla se
+       repite arriba de cada pagina: sin esto, la pagina 2 muestra cifras sin
+       saber a que columna corresponden. */
+    table.items thead { display: table-header-group; }
+    table.items tfoot { display: table-footer-group; }
     table.items thead th { font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; text-align: left; padding: 7px 8px; border-bottom: 1.5px solid #d1d5db; }
     table.items thead th.r { text-align: right; }
+    /* Identificacion fiscal repetida en cada pagina. Va DENTRO del <thead>:
+       Chrome repite el encabezado de tabla al imprimir, y al ir en el flujo
+       normal no puede montarse sobre la primera fila (un elemento fijo si lo
+       hacia). */
+    table.items thead th.doc-id { font-size: 7pt; text-transform: none; letter-spacing: 0; color: #1A4D2E; font-weight: 700; text-align: left; padding: 0 8px 5px; border-bottom: none; }
     table.items tbody td { font-size: 9.4pt; padding: 6px 8px; border-bottom: 1px solid #f0f1f2; vertical-align: top; }
     table.items tbody td.r { text-align: right; }
     table.items tbody tr:nth-child(even) td { background: #fafafa; }
+    /* Una linea de producto nunca se parte a la mitad entre dos paginas. */
+    table.items tbody tr { page-break-inside: avoid; }
 
     /* Totales */
-    .totals { width: 46%; margin-left: auto; margin-top: 10px; border-collapse: collapse; }
+    .totals { width: 46%; margin-left: auto; margin-top: 10px; border-collapse: collapse; page-break-inside: avoid; }
     .totals td { padding: 4px 6px; font-size: 9.6pt; }
     .totals td.r { text-align: right; }
     .totals tr.grand td { border-top: 1.5px solid #1A4D2E; font-weight: 800; font-size: 11.5pt; color: #1A4D2E; padding-top: 8px; }
 
     /* Bloque legal FEL */
     .fel-legend { margin-top: 14px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 12px; font-size: 7.5pt; color: #4b5563; text-align: justify; line-height: 1.45; page-break-inside: avoid; }
-    .foot-note { margin-top: 8px; font-size: 8pt; color: #1A4D2E; font-weight: 600; }
+    /* padding-top + break-inside:avoid evitan que el corte de pagina (html2pdf
+       rebana la imagen) parta esta linea por la mitad. */
+    .foot-note { margin-top: 8px; padding: 8px 12px; font-size: 8pt; color: #1A4D2E; font-weight: 600; page-break-inside: avoid; break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -145,6 +159,7 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
 
   <table class="items">
     <thead>
+      {{FEL_CONT}}
       <tr>
         <th style="width:52%;">Producto</th>
         <th class="r" style="width:14%;">Cantidad</th>
@@ -171,6 +186,7 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
     <tr class="grand"><td>Total a Pagar</td><td class="r">Q {{dueAmount}}</td></tr>
   </table>
 
+  {{FEL_COMPLEMENTO}}
   {{FEL_LEYENDA}}
   <div class="foot-note">Cambio o devoluciones tienen vigencia de 8 días.</div>
 </body>
@@ -211,13 +227,48 @@ export interface FelPrintData {
 /** Texto oficial de la frase segun tipo/escenario configurado (Tipo 1, Esc 1). */
 const FRASE_FEL = 'Sujeto a pagos trimestrales ISR.';
 
+/** NIT del certificador (INFILE, S.A.), que aparece en la representacion grafica. */
+const NIT_CERTIFICADOR = '12521337';
+
+/**
+ * Plazo de la factura cambiaria, en dias. Por regla del negocio la leyenda
+ * siempre indica 30 dias (debe coincidir con el vencimiento del abono que
+ * server/fel calcula para el XML).
+ */
+const DIAS_CREDITO_FCAM = 30;
+
 /** Formatea una fecha como dd/mm/yyyy. */
+/** Zona horaria del negocio. Guatemala es UTC-6 (sin horario de verano). */
+export const TZ_GUATEMALA = 'America/Guatemala';
+
+/**
+ * Dia calendario en Guatemala (YYYY-MM-DD) de una fecha/timestamp.
+ *
+ * Se calcula SIEMPRE en hora de Guatemala, no en la del dispositivo: asi la
+ * fecha que ve el usuario y el filtro de "folios de hoy" coinciden aunque el
+ * timestamp se guarde en UTC o el equipo tenga otra zona. Sin esto, entre las
+ * 18:00 y medianoche de Guatemala el dia en UTC ya cambio y la factura salia
+ * con la fecha del dia anterior / no aparecia en los folios del dia.
+ */
+export function diaGuatemala(fecha?: any): string {
+  const d = fecha !== undefined ? new Date(fecha) : new Date();
+  if (isNaN(d.getTime())) return '';
+  // en-CA produce el formato YYYY-MM-DD.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
+}
+
 function fechaDDMMYYYY(fecha: any, conHora = false): string {
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  const base = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
-  return conHora ? `${base} ${p(d.getHours())}:${p(d.getMinutes())}` : base;
+  // en-GB produce DD/MM/YYYY y HH:MM (24h), siempre en hora de Guatemala.
+  const base = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ_GUATEMALA, day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(d);
+  if (!conHora) return base;
+  const hora = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ_GUATEMALA, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(d);
+  return `${base} ${hora}`;
 }
 
 /**
@@ -239,6 +290,37 @@ interface FragmentosFel {
   bloqueFallback: string;
 }
 
+/**
+ * Bloque "COMPLEMENTO FACTURA CAMBIARIA" para el PDF: los mismos abonos que se
+ * envian en el complemento del XML. Solo aplica a un FCAM ya certificado.
+ *
+ * El vencimiento y el monto se derivan con la MISMA formula del XML
+ * (fecha de la factura + 30 dias; monto = gran total), asi la representacion
+ * grafica coincide con lo certificado ante SAT.
+ */
+function complementoCambiariaHtml(felDoc: any, invoice: any): string {
+  const cert = !!(felDoc && felDoc.estado === 'certificado' && felDoc.numero_autorizacion);
+  const esFcam = felDoc?.tipo_dte === 'FCAM';
+  if (!cert || !esFcam) return '';
+
+  const fechaBase = new Date(invoice?.date || Date.now());
+  const venc = new Date(fechaBase.getTime() + DIAS_CREDITO_FCAM * 86400000).toISOString().slice(0, 10);
+  const monto = Number(felDoc.gran_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return `<div style="margin-top:10px; border:1px solid #1A4D2E; border-radius:6px; overflow:hidden; page-break-inside:avoid; break-inside:avoid; font-size:8.5pt; color:#333;">
+    <div style="background:#1A4D2E; color:#fff; text-align:center; font-weight:700; letter-spacing:0.04em; padding:4px 6px; font-size:8pt;">COMPLEMENTO FACTURA CAMBIARIA</div>
+    <table style="width:100%; border-collapse:collapse;">
+      <tr>
+        <td style="padding:4px 10px;"><b>NÚMERO DE ABONO:</b> 1</td>
+        <td style="padding:4px 10px;"><b>FECHA DE VENCIMIENTO:</b> ${venc}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 10px;" colspan="2"><b>MONTO DE ABONO:</b> Q ${monto}</td>
+      </tr>
+    </table>
+  </div>`;
+}
+
 function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
   const doc = fel?.documento;
   if (!doc || doc.estado !== 'certificado' || !doc.numero_autorizacion) return null;
@@ -250,7 +332,6 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
   const esFcam = doc.tipo_dte === 'FCAM';
   const razon = fel?.emisor?.nombre || '';
   const comercial = fel?.emisor?.nombreComercial || '';
-  const dias = Number(fel?.creditDays || 0);
   const fechaCert = fechaDDMMYYYY(doc.fecha_certificacion, true);
   const tipoTexto = esFcam ? 'Factura Cambiaria Electrónica (Libre de Protesto)' : 'Factura Electrónica';
   const esPrueba = String(doc.serie || '').toUpperCase().includes('PRUEBA') || fel?.emisor?.ambiente === 'pruebas';
@@ -264,7 +345,8 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
                     <div class="info-detail-item" style="margin-top:6px; border-top:1px dashed #E2E8F0; padding-top:6px;"><strong>Documento:</strong> ${tipoTexto}</div>
                     <div class="info-detail-item"><strong>Serie:</strong> ${doc.serie || ''} &nbsp;·&nbsp; <strong>Número:</strong> <span style="color:#b91c1c; font-weight:bold;">${doc.numero || ''}</span></div>
                     <div class="info-detail-item"><strong>No. Autorización:</strong><br/><span style="font-family:monospace; font-size:8pt; word-break:break-all;">${doc.numero_autorizacion}</span></div>
-                    <div class="info-detail-item"><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A.</div>`;
+                    <div class="info-detail-item"><strong>Frase:</strong> ${FRASE_FEL}</div>
+                    <div class="info-detail-item"><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A. · NIT: ${NIT_CERTIFICADOR}</div>`;
 
   const ivaRows = `
             <tr>
@@ -277,7 +359,7 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
             </tr>`;
 
   const leyendaCambiaria = esFcam
-    ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'} se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon}</strong> el valor total de <strong>Q ${fmt(doc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
+    ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${DIAS_CREDITO_FCAM} días se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon}</strong> el valor total de <strong>Q ${fmt(doc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
     : '';
 
   const bannerPrueba = esPrueba
@@ -286,7 +368,7 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
 
   const leyenda = `
     <div style="margin-top:8px; padding:7px 11px; border:1px solid #1A4D2E; border-radius:6px; font-size:7.4pt; color:#333; text-align:justify; line-height:1.4; page-break-inside:avoid;">
-      ${bannerPrueba}${leyendaCambiaria}<span style="font-style:italic; color:#666;">Frase: ${FRASE_FEL} Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span>
+      ${bannerPrueba}${leyendaCambiaria}<span style="font-style:italic; color:#666;">Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span>
     </div>`;
 
   // Bloque de respaldo (si la plantilla es personalizada y faltan las anclas):
@@ -297,7 +379,8 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
       <div><strong>Emisor:</strong> ${razon} · <strong>NIT:</strong> ${fel?.emisor?.nit || ''}</div>
       <div><strong>Serie:</strong> ${doc.serie || ''} · <strong>Número:</strong> ${doc.numero || ''}</div>
       <div><strong>No. Autorización:</strong> <span style="font-family:monospace;">${doc.numero_autorizacion}</span></div>
-      <div><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A.</div>
+      <div><strong>Frase:</strong> ${FRASE_FEL}</div>
+      <div><strong>Certificación:</strong> ${fechaCert} · INFILE, S.A. · NIT: ${NIT_CERTIFICADOR}</div>
       <div style="margin-top:4px;"><strong>Gravable:</strong> Q ${fmt(doc.monto_gravable)} · <strong>IVA:</strong> Q ${fmt(doc.monto_iva)} · <strong>Total:</strong> Q ${fmt(doc.gran_total)}</div>
       ${leyenda}
     </div>`;
@@ -357,27 +440,38 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       const felDoctype = felCert ? (esFcam ? 'FACTURA CAMBIARIA ELECTRÓNICA<br/>LIBRE DE PROTESTO' : 'FACTURA ELECTRÓNICA') : 'COMPROBANTE DE VENTA';
       const felSerieNum = felCert ? `<div class="r"><b>Serie:</b> ${felDoc.serie || ''} &nbsp; <b>No.:</b> <span class="num">${felDoc.numero || ''}</span></div>` : '';
       const felDocDetails = felCert
-        ? `<div class="kv" style="margin-top:6px; border-top:1px dashed #e5e7eb; padding-top:5px;"><b>Documento:</b> ${tipoTexto}</div><div class="kv"><b>No. Autorización:</b><br/><span style="font-family:monospace; font-size:8pt; word-break:break-all;">${felDoc.numero_autorizacion}</span></div><div class="kv"><b>Certificación:</b> ${fechaDDMMYYYY(felDoc.fecha_certificacion, true)} &middot; INFILE, S.A.</div>`
+        ? `<div class="kv" style="margin-top:6px; border-top:1px dashed #e5e7eb; padding-top:5px;"><b>Documento:</b> ${tipoTexto}</div><div class="kv"><b>No. Autorización:</b><br/><span style="font-family:monospace; font-size:8pt; word-break:break-all;">${felDoc.numero_autorizacion}</span></div><div class="kv"><b>Frase:</b> ${FRASE_FEL}</div><div class="kv"><b>Certificación:</b> ${fechaDDMMYYYY(felDoc.fecha_certificacion, true)} &middot; INFILE, S.A. &middot; NIT: ${NIT_CERTIFICADOR}</div>`
         : '';
       const felIvaRows = felCert
         ? `<tr><td class="muted">Monto Gravable</td><td class="r muted">Q ${fmtQ(felDoc.monto_gravable)}</td></tr><tr><td class="muted">IVA (12%)</td><td class="r muted">Q ${fmtQ(felDoc.monto_iva)}</td></tr>`
         : '';
       let felLeyenda = '';
       if (felCert) {
-        const dias = Number(fel?.creditDays || 0);
         const esPrueba = String(felDoc.serie || '').toUpperCase().includes('PRUEBA') || fel?.emisor?.ambiente === 'pruebas';
         const banner = esPrueba ? `<span style="color:#92400e; font-weight:800;">DOCUMENTO DE PRUEBA &middot; SIN VALIDEZ FISCAL. </span>` : '';
         const camb = esFcam
-          ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${dias > 0 ? dias + ' días' : 'la vista'} se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon || emNombre}</strong> el valor total de <strong>Q ${fmtQ(felDoc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
+          ? `Por esta <strong>FACTURA CAMBIARIA girada LIBRE DE PROTESTO</strong>, a ${DIAS_CREDITO_FCAM} días se servirá(n) usted(es) pagar a la orden o endoso de <strong>${razon || emNombre}</strong> el valor total de <strong>Q ${fmtQ(felDoc.gran_total)}</strong> por lo que aquí se extiende. El comprador declara haber recibido la mercadería a su entera satisfacción, da por bueno el valor total de este título de crédito y se compromete a pagarlo en la fecha de vencimiento. Esta factura no se considera cancelada si no la ampara el recibo de caja correspondiente. `
           : '';
-        felLeyenda = `<div class="fel-legend">${banner}${camb}<span style="font-style:italic;">Frase: ${FRASE_FEL} Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span></div>`;
+        felLeyenda = `<div class="fel-legend">${banner}${camb}<span style="font-style:italic;">Representación gráfica de un DTE generado y certificado electrónicamente ante la SAT.</span></div>`;
       }
 
+      // Fila dentro del <thead>: Chrome repite el encabezado de la tabla en
+      // cada pagina impresa, asi que una hoja 2 suelta sigue identificando al
+      // DTE (serie, numero y autorizacion). Al ir en el flujo normal no puede
+      // montarse sobre la primera fila, como si pasaba con un elemento fijo.
+      const felCont = felCert
+        ? `<tr><th class="doc-id" colspan="4">${emNombre} &middot; ${tipoTexto} &middot; Serie ${felDoc.serie || ''} &middot; No. ${felDoc.numero || ''} &middot; Autorización ${felDoc.numero_autorizacion}</th></tr>`
+        : '';
+
+      const felComplemento = complementoCambiariaHtml(felDoc, invoice);
+
       t = t.replace(/\{\{FEL_EMISOR\}\}/g, felEmisor)
+           .replace(/\{\{FEL_CONT\}\}/g, felCont)
            .replace(/\{\{FEL_DOCTYPE\}\}/g, felDoctype)
            .replace(/\{\{FEL_SERIE_NUM\}\}/g, felSerieNum)
            .replace(/\{\{FEL_DOC_DETAILS\}\}/g, felDocDetails)
            .replace(/\{\{FEL_IVA_ROWS\}\}/g, felIvaRows)
+           .replace(/\{\{FEL_COMPLEMENTO\}\}/g, felComplemento)
            .replace(/\{\{FEL_LEYENDA\}\}/g, felLeyenda);
     } else {
       // ---- Plantilla antigua: inyeccion por anclas (compatibilidad) ----
@@ -428,13 +522,14 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         // Quitar la leyenda de futbol (si existe) — no va en documento fiscal
         t = t.replace(/⚽ ¡VIVIENDO LA PASIÓN DEL FÚTBOL CON AGRICOVET! 🥅/g, '');
 
-        // 4) Leyenda compacta al final. Si las anclas principales existieron, solo
-        // la leyenda; si la plantilla es personalizada y no matchearon, el bloque
-        // de respaldo completo.
+        // 4) Complemento cambiario (abonos) + leyenda al final. Si las anclas
+        // principales existieron, se agrega el complemento y la leyenda; si la
+        // plantilla es personalizada y no matchearon, el bloque de respaldo.
+        const felComplemento = complementoCambiariaHtml(fel?.documento, invoice);
         if (ok || t !== taglineAntes) {
-          t = t.replace(/<\/body>/i, frag.leyenda + '\n</body>');
+          t = t.replace(/<\/body>/i, felComplemento + frag.leyenda + '\n</body>');
         } else {
-          t = t.replace(/<\/body>/i, frag.bloqueFallback + '\n</body>');
+          t = t.replace(/<\/body>/i, frag.bloqueFallback + felComplemento + '\n</body>');
         }
       }
     }
@@ -477,11 +572,19 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       }).join('\n');
     });
 
+    // Receptor: si el DTE se certifico con datos ajustados (nombre/NIT distintos
+    // a los de la venta), la representacion grafica debe mostrar EXACTAMENTE lo
+    // certificado ante SAT, no el cliente original de la factura.
+    const felDocRec: any = fel?.documento;
+    const felCertRec = !!(felDocRec && felDocRec.estado === 'certificado');
+    const custName = (felCertRec && felDocRec.receptor_nombre) ? felDocRec.receptor_nombre : (invoice.client || '');
+    const custNit = (felCertRec && felDocRec.receptor_nit) ? felDocRec.receptor_nit : (invoice.nit || 'CF');
+
     // Base substitutions
     t = t.replace(/\{\{id\}\}/g, String(invoice.id || ''));
-    t = t.replace(/\{\{client\}\}/g, String(invoice.client || ''));
-    t = t.replace(/\{\{customerName\}\}/g, String(invoice.client || ''));
-    t = t.replace(/\{\{customerNit\}\}/g, String(invoice.nit || 'CF'));
+    t = t.replace(/\{\{client\}\}/g, String(custName));
+    t = t.replace(/\{\{customerName\}\}/g, String(custName));
+    t = t.replace(/\{\{customerNit\}\}/g, String(custNit));
     t = t.replace(/\{\{customerAddress\}\}/g, String(invoice.address || 'Ciudad'));
     t = t.replace(/\{\{clientPhoneLine\}\}/g, clientPhoneLine);
     t = t.replace(/\{\{clientAddressLine\}\}/g, clientAddressLine);
@@ -513,6 +616,11 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{logoUrl\}\}/g, logoUrl);
     t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, logoUrl);
     t = t.replace(/\{\{origin\}\}/g, window.location.origin);
+
+    // Red de seguridad: si una plantilla guardada trae un marcador FEL que esta
+    // rama no sustituyo, se elimina. Nunca debe imprimirse "{{FEL_...}}" literal
+    // en la representacion grafica de un documento fiscal.
+    t = t.replace(/\{\{FEL_[A-Z_]+\}\}/g, '');
 
     return t;
   } catch (e) {
@@ -776,19 +884,145 @@ export function printHtml(html: string) {
   setTimeout(restoreApp, 20000);
 }
 
+/**
+ * Reparte las filas de items en paginas para el PDF descargado.
+ *
+ * FUNCION PURA (sin DOM): recibe las alturas ya medidas y devuelve que filas
+ * van en cada pagina. Se separa asi del navegador para poder probarla sola,
+ * porque html2pdf.js no se puede ejecutar fuera del navegador.
+ *
+ * html2pdf rasteriza el HTML en una imagen larga y la corta en paginas: NO
+ * repite el <thead> como si hace la impresion nativa. Por eso paginamos a mano
+ * y repetimos el encabezado de la tabla al inicio de cada pagina.
+ */
+export function planificarPaginasItems(
+  alturas: number[],
+  o: { pageHeight: number; preTableTop: number; theadH: number; trailingH: number; safety: number }
+): { paginas: number[][]; saltoAntesDeCierre: boolean } {
+  const paginas: number[][] = [[]];
+  // La primera pagina arranca ya ocupada por el encabezado del documento
+  // (emisor, cliente…) mas el encabezado de la tabla.
+  let usado = o.preTableTop + o.theadH;
+
+  for (let i = 0; i < alturas.length; i++) {
+    const h = alturas[i];
+    const disponible = o.pageHeight - usado - o.safety;
+    const actual = paginas[paginas.length - 1];
+    // Si la fila no cabe y la pagina ya tiene al menos una fila, se abre una
+    // pagina nueva que arranca solo con el encabezado de tabla repetido.
+    if (actual.length > 0 && h > disponible) {
+      paginas.push([]);
+      usado = o.theadH;
+    }
+    paginas[paginas.length - 1].push(i);
+    usado += h;
+  }
+
+  // El cierre (totales + leyenda) va en la ultima pagina si cabe; si no, salta
+  // a una pagina propia para no quedar partido.
+  const saltoAntesDeCierre = usado + o.trailingH + o.safety > o.pageHeight;
+  return { paginas, saltoAntesDeCierre };
+}
+
+/**
+ * Toma el HTML compilado y, midiendo las alturas reales en el navegador,
+ * reparte la tabla de items en varias tablas (una por pagina) repitiendo el
+ * <thead> en cada una. Devuelve el HTML ya paginado. Si no encuentra la tabla
+ * de items o cabe todo, devuelve el HTML sin cambios.
+ */
+function paginarItemsParaPdf(
+  html: string,
+  geometria: { contentWidthIn: number; contentHeightIn: number }
+): string {
+  const PX_POR_PULGADA = 96;
+  const anchoPx = geometria.contentWidthIn * PX_POR_PULGADA;
+
+  const cont = document.createElement('div');
+  cont.style.cssText = `position:absolute; left:-99999px; top:0; width:${anchoPx}px; visibility:hidden;`;
+  cont.innerHTML = html;
+  document.body.appendChild(cont);
+
+  try {
+    const tabla = cont.querySelector('table.items') as HTMLTableElement | null;
+    const thead = tabla?.querySelector('thead');
+    const filas = tabla ? Array.from(tabla.querySelectorAll('tbody > tr')) as HTMLElement[] : [];
+    if (!tabla || !thead || filas.length === 0) return html;
+
+    const contTop = cont.getBoundingClientRect().top;
+    const tablaRect = tabla.getBoundingClientRect();
+    // La altura de una pagina en px de layout: el mismo ancho en px equivale al
+    // ancho de contenido del PDF, asi que la regla de tres da la altura util.
+    const pageHeight = (geometria.contentHeightIn / geometria.contentWidthIn) * anchoPx;
+    const preTableTop = tablaRect.top - contTop;
+    const theadH = (thead as HTMLElement).offsetHeight;
+    const alturas = filas.map((f) => f.getBoundingClientRect().height);
+    const trailingH = Math.max(0, cont.getBoundingClientRect().height - (tablaRect.top - contTop + tablaRect.height));
+
+    const { paginas, saltoAntesDeCierre } = planificarPaginasItems(alturas, {
+      pageHeight, preTableTop, theadH, trailingH, safety: 10,
+    });
+
+    // Una sola pagina y sin salto de cierre: nada que paginar.
+    if (paginas.length <= 1 && !saltoAntesDeCierre) return html;
+
+    const theadHTML = thead.outerHTML;
+    const filasHTML = filas.map((f) => f.outerHTML);
+    const parent = tabla.parentNode!;
+    const marcador = document.createComment('items-paginados');
+    parent.insertBefore(marcador, tabla);
+    tabla.remove();
+
+    const nuevoSalto = () => {
+      const pb = document.createElement('div');
+      pb.className = 'html2pdf__page-break';
+      pb.style.pageBreakBefore = 'always';
+      return pb;
+    };
+
+    paginas.forEach((indices, idx) => {
+      if (idx > 0) parent.insertBefore(nuevoSalto(), marcador);
+      const tbl = document.createElement('table');
+      tbl.className = 'items';
+      tbl.innerHTML = theadHTML + '<tbody>' + indices.map((i) => filasHTML[i]).join('') + '</tbody>';
+      parent.insertBefore(tbl, marcador);
+    });
+
+    // Si el cierre no cabe en la ultima pagina, se empuja a una pagina propia.
+    if (saltoAntesDeCierre) parent.insertBefore(nuevoSalto(), marcador);
+    parent.removeChild(marcador);
+
+    return cont.innerHTML;
+  } finally {
+    document.body.removeChild(cont);
+  }
+}
+
 export function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
+  const MARGEN_IN = 0.3;
+  // Letter (8.5 x 11 in) menos los margenes: area util donde entra el contenido.
+  const geometria = { contentWidthIn: 8.5 - 2 * MARGEN_IN, contentHeightIn: 11 - 2 * MARGEN_IN };
+
+  let htmlFinal = html;
+  try {
+    htmlFinal = paginarItemsParaPdf(html, geometria);
+  } catch (e) {
+    // Si la medicion/paginado falla, se descarga sin paginar (comportamiento
+    // anterior): mejor un PDF sin encabezado repetido que ningun PDF.
+    console.error('No se pudo paginar la tabla de items; se descarga sin paginar:', e);
+  }
+
   const opt = {
-    margin: [0.3, 0.3, 0.3, 0.3],
+    margin: [MARGEN_IN, MARGEN_IN, MARGEN_IN, MARGEN_IN],
     filename: filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true },
     jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] }
   };
-  
+
   const element = document.createElement('div');
-  element.innerHTML = html;
-  
+  element.innerHTML = htmlFinal;
+
   // @ts-ignore
   html2pdf().from(element).set(opt).save();
 }

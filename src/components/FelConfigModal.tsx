@@ -19,6 +19,7 @@ const CAMPOS_TEXTO: { clave: string; etiqueta: string; placeholder?: string }[] 
   { clave: 'nit_emisor', etiqueta: 'NIT del emisor', placeholder: '120894769' },
   { clave: 'nombre_emisor', etiqueta: 'Razón social' },
   { clave: 'nombre_comercial', etiqueta: 'Nombre comercial' },
+  { clave: 'correo_emisor', etiqueta: 'Correo del emisor', placeholder: 'facturacion@agricovet.com' },
   { clave: 'direccion', etiqueta: 'Dirección fiscal' },
   { clave: 'municipio', etiqueta: 'Municipio', placeholder: 'GUATEMALA' },
   { clave: 'departamento', etiqueta: 'Departamento', placeholder: 'GUATEMALA' },

@@ -20,6 +20,8 @@ export interface EmisorXML {
   nit: string;
   nombre: string;
   nombreComercial?: string;
+  /** Correo del emisor. SAT lo valida en produccion; no debe ir vacio. */
+  correo?: string;
   direccion: string;
   codigoPostal?: string;
   municipio?: string;
@@ -34,6 +36,8 @@ export interface ReceptorXML {
   nit: string;
   nombre: string;
   direccion?: string;
+  /** Correo del receptor (opcional): si se envia, INFILE le remite el DTE. */
+  correo?: string;
 }
 
 export interface OpcionesXML {
@@ -136,7 +140,7 @@ export function construirXmlDTE(
     <dte:DTE ID="DatosCertificados">
       <dte:DatosEmision ID="DatosEmision">
         <dte:DatosGenerales CodigoMoneda="${escaparXml(moneda)}" FechaHoraEmision="${escaparXml(fechaEmision)}" Tipo="${tipo}" />
-        <dte:Emisor AfiliacionIVA="${escaparXml(emisor.afiliacionIva || 'GEN')}" CodigoEstablecimiento="${escaparXml(emisor.codigoEstablecimiento)}" CorreoEmisor="" NITEmisor="${escaparXml(nitPlano(emisor.nit))}" NombreComercial="${escaparXml(emisor.nombreComercial || emisor.nombre)}" NombreEmisor="${escaparXml(emisor.nombre)}">
+        <dte:Emisor AfiliacionIVA="${escaparXml(emisor.afiliacionIva || 'GEN')}" CodigoEstablecimiento="${escaparXml(emisor.codigoEstablecimiento)}" CorreoEmisor="${escaparXml(emisor.correo || '')}" NITEmisor="${escaparXml(nitPlano(emisor.nit))}" NombreComercial="${escaparXml(emisor.nombreComercial || emisor.nombre)}" NombreEmisor="${escaparXml(emisor.nombre)}">
           <dte:DireccionEmisor>
             <dte:Direccion>${escaparXml(emisor.direccion)}</dte:Direccion>
             <dte:CodigoPostal>${escaparXml(emisor.codigoPostal || '01001')}</dte:CodigoPostal>
@@ -145,7 +149,7 @@ export function construirXmlDTE(
             <dte:Pais>${escaparXml((emisor.pais || 'GT').toUpperCase())}</dte:Pais>
           </dte:DireccionEmisor>
         </dte:Emisor>
-        <dte:Receptor IDReceptor="${escaparXml(nitPlano(receptor.nit))}" NombreReceptor="${escaparXml(receptor.nombre || 'Consumidor Final')}">
+        <dte:Receptor${receptor.correo ? ` CorreoReceptor="${escaparXml(receptor.correo)}"` : ''} IDReceptor="${escaparXml(nitPlano(receptor.nit))}" NombreReceptor="${escaparXml(receptor.nombre || 'Consumidor Final')}">
           <dte:DireccionReceptor>
             <dte:Direccion>${escaparXml(receptor.direccion || 'Ciudad')}</dte:Direccion>
             <dte:CodigoPostal>01001</dte:CodigoPostal>

@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -44,9 +44,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [isPaying, setIsPaying] = useState(false);
   const [groupBy, setGroupBy] = useState<'date' | 'seller' | 'client'>('date');
 
-  const getLocalDateStr = (d = new Date()) => {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-  };
+  // Dia calendario en Guatemala (no en la zona del dispositivo), para que el
+  // filtro de "hoy" coincida con la fecha que ve el usuario.
+  const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
@@ -300,22 +300,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     let matchDate = true;
     if (dateViewMode === 'day') {
       if (!i.date) return false;
-      if (i.date.startsWith(filterDate)) {
-        matchDate = true;
-      } else {
-        try {
-          const d = new Date(i.date);
-          const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-          matchDate = adjusted.toISOString().split('T')[0] === filterDate;
-        } catch {
-          matchDate = false;
-        }
-      }
+      // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
+      matchDate = diaGuatemala(i.date) === filterDate;
     } else {
       const invDate = new Date(i.date);
       const now = new Date();
       if (dateFilter === 'today') {
-        matchDate = invDate.toDateString() === now.toDateString();
+        matchDate = diaGuatemala(invDate) === diaGuatemala(now);
       } else if (dateFilter === 'week') {
         const startOfWeek = getStartOfCurrentWeek();
         matchDate = invDate >= startOfWeek;
@@ -2296,6 +2287,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         <FelPanel
           invoice={invoiceFel}
           user={user}
+          onDescargarPdf={() => downloadInvoicePdf(invoiceFel)}
           onClose={() => {
             setInvoiceFel(null);
             // Refrescar todo: una anulacion FEL tambien anula la factura

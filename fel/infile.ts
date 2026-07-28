@@ -31,8 +31,35 @@ export interface RespuestaCertificacion {
   xmlCertificado?: string;
   codigo?: string;
   mensaje?: string;
+  /**
+   * Alertas informativas que acompanan una respuesta EXITOSA. La mas importante
+   * en pruebas: el aviso de que el documento se proceso en el SandBox de INFILE
+   * y "no debe ser usado como comprobante fiscal".
+   */
+  alertas?: string[];
   /** Respuesta cruda completa del certificador, para guardarla integra. */
   respuestaCompleta?: any;
+}
+
+/**
+ * Extrae los mensajes legibles de cualquiera de los arreglos de errores/alertas
+ * que devuelve INFILE. Segun la version del servicio, el detalle puede venir en
+ * `descripcion_errores` (formato anterior) o en `descripcion_alertas_sat` /
+ * `descripcion_alertas_infile` (formato del proceso unificado v2). Se soportan
+ * todos para no perder nunca el motivo real de un rechazo.
+ */
+function extraerMensajes(arr: any): string[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((e: any) => {
+      if (!e) return '';
+      if (typeof e === 'string') return e;
+      const texto = e.mensaje_error ?? e.mensaje ?? e.descripcion ?? '';
+      if (!texto) return '';
+      const ctx = [e.fuente, e.numeral].filter(Boolean).join(' ');
+      return ctx ? `${texto} (${ctx})` : String(texto);
+    })
+    .filter(Boolean);
 }
 
 export class InfileNoConfiguradoError extends Error {
@@ -110,6 +137,13 @@ async function llamarInfile(
   }
 
   if (json?.resultado) {
+    // En modalidad de pruebas (SandBox) el documento se certifica pero llega
+    // con alertas advirtiendo que no tiene validez fiscal: se conservan para
+    // mostrarlas y no confundir una prueba con una emision real.
+    const alertas = [
+      ...extraerMensajes(json.descripcion_alertas_infile),
+      ...extraerMensajes(json.descripcion_alertas_sat),
+    ];
     return {
       exito: true,
       numeroAutorizacion: json.uuid,
@@ -118,21 +152,23 @@ async function llamarInfile(
       fecha: json.fecha,
       // INFILE devuelve el XML certificado en base64 en 'xml_certificado'.
       xmlCertificado: json.xml_certificado,
+      alertas: alertas.length ? alertas : undefined,
       respuestaCompleta: json,
     };
   }
 
-  const errores = Array.isArray(json?.descripcion_errores) ? json.descripcion_errores : [];
-  const mensajes = errores
-    .slice(0, 5)
-    .map((e: any) => e?.mensaje_error)
-    .filter(Boolean)
-    .join(' | ');
+  // El detalle del rechazo puede venir en cualquiera de estos tres arreglos
+  // segun la version del servicio; se revisan todos para no perder el motivo.
+  const mensajes = [
+    ...extraerMensajes(json?.descripcion_errores),
+    ...extraerMensajes(json?.descripcion_alertas_sat),
+    ...extraerMensajes(json?.descripcion_alertas_infile),
+  ];
 
   return {
     exito: false,
     codigo: 'RECHAZADO',
-    mensaje: mensajes || json?.descripcion || 'El certificador rechazo el documento sin detalle.',
+    mensaje: mensajes.slice(0, 5).join(' | ') || json?.descripcion || 'El certificador rechazo el documento sin detalle.',
     respuestaCompleta: json,
   };
 }
@@ -197,13 +233,16 @@ export async function consultarNit(
     });
     const json: any = await res.json().catch(() => null);
 
-    const nombre = json?.nombre ?? json?.Nombre ?? null;
+    // El servicio devuelve el nombre en 'razon_social' (formato oficial). Se
+    // mantienen 'nombre'/'Nombre' como respaldo por si otra version lo usa.
+    const nombre = json?.razon_social ?? json?.nombre ?? json?.Nombre ?? null;
+    if (json?.resultado && nombre) return { valido: true, nit: limpio, nombre };
     if (nombre) return { valido: true, nit: limpio, nombre };
 
     return {
       valido: false,
       nit: limpio,
-      mensaje: json?.mensaje ?? json?.descripcion ?? 'El NIT no aparece registrado en SAT.',
+      mensaje: json?.descripcion ?? json?.mensaje ?? 'NIT no encontrado en base de datos.',
     };
   } catch (e: any) {
     return {

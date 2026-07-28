@@ -4,7 +4,7 @@ import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -190,10 +190,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | 'personal' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
   const [shippingHandled, setShippingHandled] = useState(() => localStorage.getItem('draft_shippingHandled') === 'true');
   const [customDate, setCustomDate] = useState<string>(() => {
+    const hoy = diaGuatemala();
     const saved = localStorage.getItem('draft_customDate');
-    if (saved) return saved;
-    const d = new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    // Solo se conserva el borrador si es de HOY o futuro. Una fecha vieja
+    // (un borrador quedado de otro dia) no debe fijarse como fecha de venta:
+    // por eso antes la fecha aparecia con el dia anterior aunque ya fuera otro.
+    if (saved && saved >= hoy) return saved;
+    return hoy;
   });
 
   useEffect(() => {
@@ -778,8 +781,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       setInvoiceType('agricola');
       setTransportMethod('');
       setShippingHandled(false);
-      const d = new Date();
-      setCustomDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0]);
+      setCustomDate(diaGuatemala());
       setDebtType('none');
       setIsDebtAuthorized(false);
       setIsSubmitting(false);

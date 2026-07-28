@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileCheck2, Clock, AlertTriangle, XCircle, Ban, RefreshCw, X, Copy, Check, Download } from 'lucide-react';
+import { FileCheck2, Clock, AlertTriangle, XCircle, Ban, RefreshCw, X, Copy, Check, Download, FileDown } from 'lucide-react';
 import { api } from '../api';
 import type { EstadoFacturaFEL, EstadoFEL, Invoice, User } from '../types';
 import { cn } from '../utils';
@@ -16,6 +16,12 @@ const ESTILOS: Record<EstadoFEL, { texto: string; clase: string; Icono: any }> =
 
 const quetzales = (n?: number | null) =>
   `Q${Number(n ?? 0).toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** "CF" / "C/F" / vacio identifican a un consumidor final: no se verifica en SAT. */
+const esConsumidorFinal = (nit: string): boolean => {
+  const n = String(nit || '').toUpperCase().replace(/[\s/\-.]/g, '');
+  return n === '' || n === 'CF' || n === 'CONSUMIDORFINAL';
+};
 
 /** Distintivo compacto para listados de facturas. */
 export function FelBadge({ estado, onClick }: { estado: EstadoFEL; onClick?: () => void }) {
@@ -41,6 +47,8 @@ interface FelPanelProps {
   invoice: Invoice;
   user: User;
   onClose: () => void;
+  /** Descarga la representacion grafica (PDF propio) de la factura. */
+  onDescargarPdf?: () => void;
 }
 
 /**
@@ -48,7 +56,7 @@ interface FelPanelProps {
  * certificar. Funciona aunque INFILE no este configurado todavia; en ese caso
  * muestra el desglose ya calculado y explica que falta.
  */
-export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
+export function FelPanel({ invoice, user, onClose, onDescargarPdf }: FelPanelProps) {
   const [datos, setDatos] = useState<EstadoFacturaFEL | null>(null);
   const [cargando, setCargando] = useState(true);
   const [procesando, setProcesando] = useState(false);
@@ -61,11 +69,21 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
   // Flujo de anulacion: requiere motivo y confirmacion explicita
   const [mostrandoAnulacion, setMostrandoAnulacion] = useState(false);
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
+  // Datos del receptor editables ANTES de emitir (no tocan el folio ni la
+  // factura interna; solo cambian el receptor con el que se certifica).
+  const [receptorNit, setReceptorNit] = useState('');
+  const [receptorNombre, setReceptorNombre] = useState('');
 
   const cargar = async () => {
     try {
       setError(null);
-      setDatos(await api.getFelEstado(invoice.id));
+      const d = await api.getFelEstado(invoice.id);
+      setDatos(d);
+      // Prefill de los datos editables del receptor: lo ya emitido tiene
+      // prioridad; si no, los datos de la factura.
+      const doc: any = d?.documento;
+      setReceptorNit(doc?.receptor_nit ?? d?.nitReceptor ?? '');
+      setReceptorNombre(doc?.receptor_nombre ?? invoice.client ?? '');
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo consultar el estado FEL');
     } finally {
@@ -83,7 +101,10 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
     setError(null);
     setAviso(null);
     try {
-      const r = await api.certificarFel(invoice.id);
+      // Se envia el receptor editado (nombre + NIT). El folio y la factura
+      // interna no se modifican.
+      const receptor = { nit: receptorNit.trim(), nombre: receptorNombre.trim() };
+      const r = await api.certificarFel(invoice.id, undefined, receptor);
       setAviso(r?.certificado ? 'Factura certificada correctamente.' : r?.mensaje ?? null);
       await cargar();
     } catch (e: any) {
@@ -102,11 +123,15 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
   };
 
   const verificarNit = async () => {
-    if (!datos?.nitReceptor) return;
+    const nitConsulta = (receptorNit || datos?.nitReceptor || '').trim();
+    if (!nitConsulta) return;
     setVerificandoNit(true);
     setNitVerificado(null);
     try {
-      setNitVerificado(await api.consultarNitFel(datos.nitReceptor));
+      const r = await api.consultarNitFel(nitConsulta);
+      setNitVerificado(r);
+      // Si SAT devuelve el nombre registrado, se autocompleta el receptor.
+      if (r?.valido && r?.nombre) setReceptorNombre(r.nombre);
     } catch (e: any) {
       setNitVerificado({ valido: false, mensaje: e?.message ?? 'No se pudo consultar' });
     } finally {
@@ -206,40 +231,82 @@ export function FelPanel({ invoice, user, onClose }: FelPanelProps) {
               </div>
             )}
 
-            <div className="border border-slate-200 rounded-xl px-3.5 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  NIT del receptor
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    'font-mono text-sm font-bold',
-                    datos?.nitReceptor ? 'text-slate-700' : 'text-amber-600'
-                  )}>
-                    {datos?.nitReceptor || 'CF (consumidor final)'}
+            {/* Descarga la representacion grafica (nuestro PDF) del DTE. Solo
+                para documentos vigentes: si fue anulado ya no procede. */}
+            {estado === 'certificado' && onDescargarPdf && (
+              <button
+                onClick={onDescargarPdf}
+                className="w-full py-2.5 rounded-xl font-bold text-white bg-[#00696a] hover:bg-[#004f50] transition-colors cursor-pointer text-sm flex items-center justify-center gap-2"
+              >
+                <FileDown size={15} /> Descargar PDF del DTE
+              </button>
+            )}
+
+            {/* Datos del receptor. Editables mientras no se haya certificado
+                (p. ej. una venta a CF que al facturar necesita el NIT real).
+                El folio y la factura interna NO se modifican. */}
+            {esAdmin && estado !== 'certificado' && estado !== 'anulado' ? (
+              <div className="border border-slate-200 rounded-xl px-3.5 py-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Datos del receptor (para FEL)
                   </span>
-                  {datos?.nitReceptor && !datos?.esConsumidorFinal && (
+                  <span className="text-[9px] text-slate-400">No cambia el folio</span>
+                </div>
+
+                <label className="block">
+                  <span className="text-[10px] font-semibold text-slate-500">Nombre / Razón social</span>
+                  <input
+                    value={receptorNombre}
+                    onChange={(e) => setReceptorNombre(e.target.value)}
+                    placeholder="Consumidor Final"
+                    className="mt-1 w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-400"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-semibold text-slate-500">NIT (o CF)</span>
+                  <div className="relative mt-1">
+                    <input
+                      value={receptorNit}
+                      onChange={(e) => setReceptorNit(e.target.value)}
+                      placeholder="CF"
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 pr-24 bg-white text-slate-700 font-mono focus:outline-none focus:ring-1 focus:ring-teal-400"
+                    />
                     <button
                       onClick={verificarNit}
-                      disabled={verificandoNit}
-                      className="text-[10px] font-bold px-2 py-1 rounded-lg bg-teal-50 text-[#00696a] hover:bg-teal-100 border border-teal-100 cursor-pointer disabled:opacity-50"
+                      disabled={verificandoNit || !receptorNit.trim() || esConsumidorFinal(receptorNit)}
+                      className="absolute right-1 top-1 bottom-1 text-[10px] font-bold px-2.5 rounded-md bg-teal-50 text-[#00696a] hover:bg-teal-100 border border-teal-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {verificandoNit ? 'Consultando…' : 'Verificar en SAT'}
+                      {verificandoNit ? 'Consultando…' : 'Verificar SAT'}
                     </button>
-                  )}
-                </div>
+                  </div>
+                </label>
+
+                {nitVerificado && (
+                  <p className={cn(
+                    'text-[11px] leading-snug',
+                    nitVerificado.valido ? 'text-emerald-700' : 'text-red-600'
+                  )}>
+                    {nitVerificado.valido
+                      ? <>✓ Registrado en SAT como: <b>{nitVerificado.nombre}</b> (nombre autocompletado)</>
+                      : <>✗ {nitVerificado.mensaje}</>}
+                  </p>
+                )}
               </div>
-              {nitVerificado && (
-                <p className={cn(
-                  'text-[11px] mt-1.5 leading-snug',
-                  nitVerificado.valido ? 'text-emerald-700' : 'text-red-600'
-                )}>
-                  {nitVerificado.valido
-                    ? <>✓ Registrado en SAT como: <b>{nitVerificado.nombre}</b></>
-                    : <>✗ {nitVerificado.mensaje}</>}
+            ) : (
+              <div className="border border-slate-200 rounded-xl px-3.5 py-2.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Receptor certificado
+                </span>
+                <p className="text-sm font-bold text-slate-700 mt-1">
+                  {(doc as any)?.receptor_nombre || invoice.client || 'Consumidor Final'}
                 </p>
-              )}
-            </div>
+                <p className="font-mono text-xs text-slate-500 mt-0.5">
+                  NIT: {(doc as any)?.receptor_nit || datos?.nitReceptor || 'CF'}
+                </p>
+              </div>
+            )}
 
             {/* Desglose fiscal: el dato clave es que el gran total NO cambia */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
