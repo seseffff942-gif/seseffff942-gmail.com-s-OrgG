@@ -21,7 +21,9 @@ export default defineConfig(() => {
         injectManifest: {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
         },
-        includeAssets: ['agricovet.png', 'bottle.png', 'box.png', 'logo.png.png', 'vaquitas.jpg', 'whatsapp.wav'],
+        // bottle.png y box.png se eliminaron: estaban corruptos y ahora los
+        // marcadores de "sin imagen" son SVG embebidos (no requieren red).
+        includeAssets: ['agricovet.png', 'logo.png.png', 'vaquitas.jpg', 'whatsapp.wav'],
         manifest: {
           name: 'Agricovet App',
           short_name: 'Agricovet',

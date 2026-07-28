@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import { Invoice, Payment, User } from '../types';
+import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
+import { FelBadge, FelPanel } from '../components/FelPanel';
+import { FelConfigModal } from '../components/FelConfigModal';
 
 interface BillingPageProps {
   user: User;
@@ -24,6 +26,11 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  // Estado FEL por factura. Se carga una sola vez por lote, sin polling: el
+  // estado solo cambia cuando alguien certifica un documento.
+  const [felEstados, setFelEstados] = useState<Record<string, EstadoFEL>>({});
+  const [invoiceFel, setInvoiceFel] = useState<Invoice | null>(null);
+  const [showFelConfig, setShowFelConfig] = useState(false);
   const [shippingModalConfig, setShippingModalConfig] = useState<{ id: string } | null>(null);
   const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string } | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
@@ -37,9 +44,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [isPaying, setIsPaying] = useState(false);
   const [groupBy, setGroupBy] = useState<'date' | 'seller' | 'client'>('date');
 
-  const getLocalDateStr = (d = new Date()) => {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-  };
+  // Dia calendario en Guatemala (no en la zona del dispositivo), para que el
+  // filtro de "hoy" coincida con la fecha que ve el usuario.
+  const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
@@ -138,10 +145,26 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     try {
       const data = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
       setInvoices(Array.isArray(data) ? data : []);
+      cargarEstadosFel();
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Carga en una sola peticion el estado FEL de todas las facturas visibles.
+   * Las facturas sin documento quedan como 'sin_emitir'.
+   */
+  const cargarEstadosFel = async () => {
+    try {
+      const r = await api.getFelDocumentos();
+      const mapa: Record<string, EstadoFEL> = {};
+      for (const d of r?.documentos ?? []) mapa[d.invoice_id] = d.estado;
+      setFelEstados(mapa);
+    } catch {
+      // Si falla, los distintivos muestran 'sin emitir'. No es critico.
     }
   };
 
@@ -236,8 +259,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           }
       }
       loadInvoices();
-    } catch(err) {
-      alert("Error al actualizar estado");
+    } catch(err: any) {
+      // Mostrar el mensaje real del servidor (p. ej. el aviso de que la factura
+      // tiene un DTE certificado y debe anularse ante SAT) en vez de uno generico.
+      alert(err?.message || "Error al actualizar estado");
     }
   };
 
@@ -275,22 +300,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     let matchDate = true;
     if (dateViewMode === 'day') {
       if (!i.date) return false;
-      if (i.date.startsWith(filterDate)) {
-        matchDate = true;
-      } else {
-        try {
-          const d = new Date(i.date);
-          const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-          matchDate = adjusted.toISOString().split('T')[0] === filterDate;
-        } catch {
-          matchDate = false;
-        }
-      }
+      // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
+      matchDate = diaGuatemala(i.date) === filterDate;
     } else {
       const invDate = new Date(i.date);
       const now = new Date();
       if (dateFilter === 'today') {
-        matchDate = invDate.toDateString() === now.toDateString();
+        matchDate = diaGuatemala(invDate) === diaGuatemala(now);
       } else if (dateFilter === 'week') {
         const startOfWeek = getStartOfCurrentWeek();
         matchDate = invDate >= startOfWeek;
@@ -593,6 +609,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             FOLIO {inv.folio}
                           </span>
                         )}
+                        {!isCancelled && (
+                          <FelBadge
+                            estado={felEstados[inv.id] ?? 'sin_emitir'}
+                            onClick={() => setInvoiceFel(inv)}
+                          />
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1.5 flex-wrap">
                         <span className="font-semibold text-slate-550">{inv.id}</span>
@@ -711,17 +733,32 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   };
 
-    const printInvoice = async (invoice: Invoice) => {
+  // Carga los datos FEL de una factura para incrustarlos en la impresion.
+  // Si la factura no esta certificada (o falla la consulta), devuelve undefined
+  // y el PDF sale como comprobante normal sin datos fiscales.
+  const obtenerFelParaImpresion = async (invoice: Invoice) => {
+    try {
+      const e = await api.getFelEstado(invoice.id);
+      // Siempre se devuelven los datos del emisor (para el encabezado); el
+      // documento solo aporta datos fiscales cuando esta certificado.
+      return { documento: e?.documento ?? null, emisor: (e as any).emisor, creditDays: (invoice as any).creditDays };
+    } catch { /* sin conexion FEL: se imprime con datos basicos */ }
+    return undefined;
+  };
+
+  const printInvoice = async (invoice: Invoice) => {
     const sellerName = getSellerName(invoice.sellerId || '');
 
-    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
+    const fel = await obtenerFelParaImpresion(invoice);
+    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName, fel);
     await printHtml(htmlContent);
   };
 
   const downloadInvoicePdf = async (invoice: Invoice) => {
     const sellerName = getSellerName(invoice.sellerId || '');
 
-    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
+    const fel = await obtenerFelParaImpresion(invoice);
+    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName, fel);
     await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id}.pdf`);
   };
 
@@ -1248,6 +1285,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <p className="text-slate-400 mt-1 font-medium text-sm">
             {user.role === 'admin' ? 'Gestión avanzada de cuentas por cobrar, abonos y folios' : 'Monitoreo de ventas diarias y créditos'}
           </p>
+          {user.role === 'admin' && (
+            <button
+              onClick={() => setShowFelConfig(true)}
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+            >
+              <Settings2 size={12} /> Configuración FEL
+            </button>
+          )}
         </div>
         
         {/* Statistical Bento Deck */}
@@ -2253,10 +2298,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         title="Guía de Envío" 
       />
       {showSignaturePad && (
-        <SignaturePad 
+        <SignaturePad
           onSave={handleReviewSignature}
           onClose={() => setShowSignaturePad(false)}
           title="Firma de Revisión (Admin)"
+        />
+      )}
+      {showFelConfig && <FelConfigModal onClose={() => setShowFelConfig(false)} />}
+      {invoiceFel && (
+        <FelPanel
+          invoice={invoiceFel}
+          user={user}
+          onDescargarPdf={() => downloadInvoicePdf(invoiceFel)}
+          onClose={() => {
+            setInvoiceFel(null);
+            // Refrescar todo: una anulacion FEL tambien anula la factura
+            loadInvoices();
+          }}
         />
       )}
     </div>

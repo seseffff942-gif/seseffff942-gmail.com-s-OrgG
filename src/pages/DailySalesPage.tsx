@@ -31,7 +31,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -115,9 +115,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     
     return email.includes('@') ? email.split('@')[0] : email;
   }
-  const getLocalDateStr = (d = new Date()) => {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-  };
+  // Dia calendario en Guatemala (no en la zona del dispositivo).
+  const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
@@ -133,7 +132,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     loadData();
     api.getUsers().then(setUsers).catch(console.error);
     api.getPrintTemplate().then(data => setPrintTemplate(data.template || DEFAULT_PRINT_TEMPLATE)).catch(() => {});
-    const interval = setInterval(loadData, 120000);
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No recargar si nadie esta mirando
+      loadData();
+    }, 120000);
     return () => clearInterval(interval);
   }, [filterDate]);
 
@@ -230,22 +232,13 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     let matchDate = true;
     if (dateViewMode === 'day') {
       if (!i.date) return false;
-      if (i.date.startsWith(filterDate)) {
-        matchDate = true;
-      } else {
-        try {
-          const d = new Date(i.date);
-          const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-          matchDate = adjusted.toISOString().split('T')[0] === filterDate;
-        } catch {
-          matchDate = false;
-        }
-      }
+      // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
+      matchDate = diaGuatemala(i.date) === filterDate;
     } else {
       const invDate = new Date(i.date);
       const now = new Date();
       if (dateFilter === 'today') {
-        matchDate = invDate.toDateString() === now.toDateString();
+        matchDate = diaGuatemala(invDate) === diaGuatemala(now);
       } else if (dateFilter === 'week') {
         const startOfWeek = getStartOfCurrentWeek();
         matchDate = invDate >= startOfWeek;

@@ -8,6 +8,55 @@ interface SignaturePadProps {
   title?: string;
 }
 
+/**
+ * Recorta el espacio vacio alrededor del trazo.
+ *
+ * Reemplaza a `getTrimmedCanvas()` de react-signature-canvas, que depende de
+ * `trim-canvas` (paquete solo CommonJS, sin build para modulos ES). Vite no
+ * puede resolver su export por defecto y falla en tiempo de ejecucion con
+ * "import_trim_canvas.default is not a function", justo al guardar la firma.
+ */
+function recortarCanvas(origen: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = origen.getContext('2d');
+  if (!ctx) return origen;
+
+  const { width, height } = origen;
+  if (!width || !height) return origen;
+
+  const pixeles = ctx.getImageData(0, 0, width, height).data;
+  let arriba = height, abajo = 0, izq = width, der = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Canal alfa: si no es transparente, forma parte del trazo.
+      if (pixeles[(y * width + x) * 4 + 3] !== 0) {
+        if (y < arriba) arriba = y;
+        if (y > abajo) abajo = y;
+        if (x < izq) izq = x;
+        if (x > der) der = x;
+      }
+    }
+  }
+
+  // Lienzo en blanco: devolverlo tal cual evita dimensiones negativas.
+  if (der < izq || abajo < arriba) return origen;
+
+  const margen = 4;
+  izq = Math.max(0, izq - margen);
+  arriba = Math.max(0, arriba - margen);
+  der = Math.min(width - 1, der + margen);
+  abajo = Math.min(height - 1, abajo + margen);
+
+  const recorte = document.createElement('canvas');
+  recorte.width = der - izq + 1;
+  recorte.height = abajo - arriba + 1;
+  recorte.getContext('2d')?.drawImage(
+    origen, izq, arriba, recorte.width, recorte.height,
+    0, 0, recorte.width, recorte.height
+  );
+  return recorte;
+}
+
 const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "Firma Requerida" }) => {
   const sigPad = useRef<SignatureCanvas>(null);
 
@@ -16,11 +65,21 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "F
   };
 
   const save = () => {
-    if (sigPad.current?.isEmpty()) {
+    if (!sigPad.current || sigPad.current.isEmpty()) {
       alert("Por favor, firma antes de guardar.");
       return;
     }
-    const signatureData = sigPad.current?.getTrimmedCanvas().toDataURL('image/png');
+
+    let signatureData: string | undefined;
+    try {
+      signatureData = recortarCanvas(sigPad.current.getCanvas()).toDataURL('image/png');
+    } catch (err) {
+      // Si el recorte falla por cualquier motivo, guardar la firma completa
+      // es preferible a perder lo que el usuario acaba de trazar.
+      console.warn('No se pudo recortar la firma, se guarda completa:', err);
+      signatureData = sigPad.current.getCanvas().toDataURL('image/png');
+    }
+
     if (signatureData) {
       onSave(signatureData);
     }

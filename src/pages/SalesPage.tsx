@@ -4,8 +4,9 @@ import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
+import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
 interface SalesPageProps {
   user: User;
@@ -43,6 +44,30 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientAddress, setNewClientAddress] = useState('');
   const [newClientSellerId, setNewClientSellerId] = useState('');
+  // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
+  const [consultandoNit, setConsultandoNit] = useState(false);
+  const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const consultarNitCliente = async () => {
+    const n = newClientNit.trim();
+    if (!n) { setNitResultado({ ok: false, texto: 'Ingresa un NIT primero.' }); return; }
+    setConsultandoNit(true);
+    setNitResultado(null);
+    try {
+      const r = await api.consultarNitFel(n);
+      if (r.valido && r.nombre) {
+        setNewClientName(prev => (!prev.trim() || prev === r.nombre) ? (r.nombre || prev) : prev);
+        if (r.nit) setNewClientNit(r.nit);
+        setNitResultado({ ok: true, texto: `Encontrado en SAT: ${r.nombre}` });
+      } else {
+        setNitResultado({ ok: false, texto: r.mensaje || 'NIT no encontrado en SAT.' });
+      }
+    } catch (err: any) {
+      setNitResultado({ ok: false, texto: err?.message || 'No se pudo consultar el NIT.' });
+    } finally {
+      setConsultandoNit(false);
+    }
+  };
 
   // Client Debt States
   const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
@@ -119,10 +144,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   };
 
-  const getFallbackImage = (category: string) => {
-    if (category && category.toLowerCase().includes('agro')) return '/bottle.png';
-    return '/box.png';
-  };
   
   const [client, setClient] = useState(() => localStorage.getItem('draft_client') || '');
   const [nit, setNit] = useState(() => localStorage.getItem('draft_nit') || '');
@@ -170,10 +191,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | 'personal' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
   const [shippingHandled, setShippingHandled] = useState(() => localStorage.getItem('draft_shippingHandled') === 'true');
   const [customDate, setCustomDate] = useState<string>(() => {
+    const hoy = diaGuatemala();
     const saved = localStorage.getItem('draft_customDate');
-    if (saved) return saved;
-    const d = new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    // Solo se conserva el borrador si es de HOY o futuro. Una fecha vieja
+    // (un borrador quedado de otro dia) no debe fijarse como fecha de venta:
+    // por eso antes la fecha aparecia con el dia anterior aunque ya fuera otro.
+    if (saved && saved >= hoy) return saved;
+    return hoy;
   });
 
   const checkClientCoincidences = (name: string, companyName: string, phone: string) => {
@@ -327,8 +351,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
     }
     // Sync check - version 2026.06.15.0100
-    const interval = setInterval(async () => {
-      if (document.hidden) return; // Don't sync if tab is hidden
+    const sincronizar = async () => {
       try {
         const p = await api.getProducts();
         setProducts(prev => {
@@ -346,9 +369,22 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           return prev;
         });
       } catch (err) {}
-    }, 10000); // 10 seconds is enough for real-time inventory
-    
-    return () => clearInterval(interval);
+    };
+
+    // 30s en lugar de 10s: reduce a un tercio las peticiones al servidor.
+    // Es imperceptible porque al volver a la pestana se refresca al instante.
+    const interval = setInterval(() => {
+      if (document.hidden) return; // No consumir servidor si nadie esta mirando
+      sincronizar();
+    }, 30000);
+
+    const alVolver = () => { if (!document.hidden) sincronizar(); };
+    document.addEventListener('visibilitychange', alVolver);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', alVolver);
+    };
   }, []);
 
   useEffect(() => {
@@ -805,8 +841,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       setInvoiceType('agricola');
       setTransportMethod('');
       setShippingHandled(false);
-      const d = new Date();
-      setCustomDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0]);
+      setCustomDate(diaGuatemala());
       setDebtType('none');
       setIsDebtAuthorized(false);
       setIsSubmitting(false);
@@ -1183,15 +1218,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                     {/* Image space */}
                     <div className="relative h-36 sm:h-44 overflow-hidden bg-slate-50/60 border-b border-slate-100 flex items-center justify-center p-5 group-hover:bg-slate-50 transition-colors">
-                      <img 
-                        src={product.image || getFallbackImage(product.category)} 
+                      <ProductImage 
+                        src={product.image} category={product.category} 
                         alt={product.name} 
                         className={cn(
                           "max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-500 drop-shadow-sm",
                           hasNoStock && "opacity-40"
-                        )} 
-                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getFallbackImage(product.category); }}
-                        referrerPolicy="no-referrer"
+                        )}
                       />
                       
                       {/* Plus icon triggers options modal */}
@@ -1346,6 +1379,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       setNewClientPhone('');
                       setNewClientAddress('');
                       setNewClientSellerId(user.email || '');
+                      setNitResultado(null);
                       setShowSearchClientModal(true);
                     }}
                     placeholder="Buscar o registrar cliente..."
@@ -2241,6 +2275,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   setNewClientPhone('');
                   setNewClientAddress('');
                   setNewClientSellerId(user.email || '');
+                  setNitResultado(null);
                   setClientModalTab('create');
                 }}
                 className={cn(
@@ -2511,13 +2546,30 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                       NIT / Identificación
                     </label>
-                    <input
-                      type="text"
-                      value={newClientNit}
-                      onChange={(e) => setNewClientNit(e.target.value)}
-                      placeholder="Ej. 123456-7 (C/F por defecto)"
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={newClientNit}
+                        onChange={(e) => { setNewClientNit(e.target.value); setNitResultado(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); consultarNitCliente(); } }}
+                        placeholder="Ej. 123456-7 (C/F por defecto)"
+                        className="w-full pl-4 pr-28 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={consultarNitCliente}
+                        disabled={consultandoNit || !newClientNit.trim()}
+                        title="Buscar el nombre en SAT por el NIT"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-bold text-[11px] bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
+                      </button>
+                    </div>
+                    {nitResultado && (
+                      <p className={`text-[11px] mt-1.5 ml-1 leading-snug ${nitResultado.ok ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {nitResultado.ok ? '✓ ' : '⚠ '}{nitResultado.texto}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -2588,6 +2640,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       }
                       if (!newClientSellerId) {
                         return alert('Por favor asigna un vendedor para el cliente.');
+                      }
+                      // No duplicar por NIT (CF puede repetirse)
+                      const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+                      const nitN = normNit(newClientNit);
+                      if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
+                        const dup = clients.find((c: any) => normNit(c.nit) === nitN);
+                        if (dup) {
+                          return alert(`Ya existe un cliente con el NIT ${newClientNit.trim()}: "${dup.name}". No se puede duplicar.`);
+                        }
                       }
 
                       setIsSubmitting(true);

@@ -1,4 +1,5 @@
 // AI Studio Deployment Heartbeat: 2026-06-18 V2
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import multer from "multer";
@@ -14,15 +15,32 @@ import webpush from "web-push";
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
+import * as felServicio from "./fel/servicio";
+import * as infileApi from "./fel/infile";
 
-const JWT_SECRET = process.env.JWT_SECRET || "default_stable_secret_for_agricovet_dev";
+// Exige una variable de entorno. Falla al arrancar si falta, en lugar de
+// caer silenciosamente a una base de datos que no corresponde.
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value || !value.trim()) {
+    console.error(
+      `\n[FATAL] Falta la variable de entorno ${name}.\n` +
+      `El servidor no arranca sin ella para evitar conectarse a una base de datos equivocada.\n` +
+      `Definela en tu archivo .env (usa .env.example como guia).\n`
+    );
+    process.exit(1);
+  }
+  return value.trim();
+}
+
+const JWT_SECRET = requireEnv("JWT_SECRET");
 
 import { createClient } from '@supabase/supabase-js';
-const envUrl = process.env.SUPABASE_URL;
-const supabaseUrl = envUrl && envUrl.startsWith('http') ? envUrl : 'https://vedgedsbuajueynnyvpn.supabase.co';
-const envKey = process.env.SUPABASE_ANON_KEY;
-const supabaseKey = envKey && envKey.length > 10 ? envKey : 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
+const supabaseUrl = requireEnv("SUPABASE_URL");
+const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
 
 
 // Initial Seed Data
@@ -174,7 +192,7 @@ const initialDb = {
     { id: "p133", name: "FOLIAR PLUS", category: "Foragro", stock: 100, price: 50.00 },
     { id: "p134", name: "PIKUDO 20 SC", category: "Foragro", stock: 100, price: 50.00 },
     { id: "p135", name: "forza 60 WP", category: "Foragro", stock: 100, price: 50.00 },
-    { id: "p136", name: "foranex 25.7", category: "Foragro", stock: 100, price: 50.00 },
+    { id: "p139", name: "foranex 25.7", category: "Foragro", stock: 100, price: 50.00 },
   ],
   offers: []
 };
@@ -309,8 +327,13 @@ const sanitizeInput = (obj: any): any => {
   return obj;
 };
 
+// Rutas que legitimamente reciben HTML en el cuerpo y NO deben sanitizarse
+// (la sanitizacion escaparia < > " y corromperia la plantilla de impresion).
+const RUTAS_SIN_SANITIZAR = ['/api/invoices/print-template'];
+
 app.use((req, res, next) => {
-  if (req.body) req.body = sanitizeInput(req.body);
+  const esRutaHtml = RUTAS_SIN_SANITIZAR.some(p => req.path.startsWith(p));
+  if (!esRutaHtml && req.body) req.body = sanitizeInput(req.body);
   if (req.query) req.query = sanitizeInput(req.query);
   if (req.params) req.params = sanitizeInput(req.params);
   next();
@@ -557,6 +580,36 @@ if (!process.env.VERCEL) {
     const threshold = getCriticalStockThreshold(product);
     return stock <= threshold;
   };
+
+  // Devuelve al inventario las cantidades de una factura (al anularla o
+  // rechazarla). Respeta variantes y omite productos externos. Se usa tanto
+  // al cambiar el estado de la factura como al anular su DTE ante SAT.
+  async function restaurarStockDeFactura(invoice: any) {
+    for (const item of (invoice.items || [])) {
+       const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+       const product = prods?.[0];
+       if (product && !product.is_external) {
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+          let variantObj = null;
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            if (varIndex !== -1) {
+               variantObj = variantsToUpdate[varIndex];
+            }
+          }
+
+          if (variantObj && variantObj.stock !== undefined) {
+             const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+             variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+             const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+             if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
+          } else {
+             const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+             if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
+          }
+       }
+    }
+  }
 
   // ======== API ERROR WRAPPER ========
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
@@ -953,7 +1006,18 @@ if (!process.env.VERCEL) {
     }
   }
 
+  // Los "respaldos permanentes" en JSON vienen del sistema original y estan
+  // DESACTIVADOS por defecto por tres razones:
+  //  1. En Vercel el sistema de archivos es efimero: nunca persistieron nada.
+  //  2. Reescriben el archivo COMPLETO en cada venta/abono: cada vez mas
+  //     lento a medida que crece el historial.
+  //  3. Nada del sistema los lee. La base de datos es la fuente de verdad
+  //     (los XML de FEL, por ejemplo, ya se guardan en fel_documentos).
+  // Para activarlos en desarrollo: ENABLE_JSON_BACKUP=true en el .env
+  const JSON_BACKUP_ENABLED = process.env.ENABLE_JSON_BACKUP === 'true';
+
   async function syncInvoiceToPermanentBackup(id: string, invoiceObj?: any) {
+    if (!JSON_BACKUP_ENABLED) return;
     try {
       const backupPath = path.join(process.cwd(), "invoices_permanent_backup.json");
       let invoicesList: any[] = [];
@@ -984,6 +1048,7 @@ if (!process.env.VERCEL) {
   }
 
   async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
+    if (!JSON_BACKUP_ENABLED) return;
     try {
       const backupPath = path.join(process.cwd(), "payments_permanent_backup.json");
       let paymentsList: any[] = [];
@@ -1168,7 +1233,24 @@ if (!process.env.VERCEL) {
     } catch (e) {}
 
     const localList = readLocalClients();
-    
+
+    // Validacion por NIT: no permitir dos clientes con el mismo NIT real.
+    // "CF" / "C/F" (consumidor final) es generico y SI puede repetirse.
+    const normalizarNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitNuevo = normalizarNit(nit);
+    const esConsumidorFinal = nitNuevo === '' || nitNuevo === 'CF' || nitNuevo === 'CONSUMIDORFINAL';
+    if (!esConsumidorFinal) {
+      const yaExiste = [...existingList, ...localList].find(
+        (c: any) => c && normalizarNit(c.nit) === nitNuevo
+      );
+      if (yaExiste) {
+        return res.status(409).json({
+          error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
+          clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
+        });
+      }
+    }
+
     const findMatch = (list: any[]) => {
       return list.find(c => {
         if (!c || !c.name) return false;
@@ -2791,11 +2873,24 @@ if (!process.env.VERCEL) {
       totalAmount: total,
       paidAmount: isOwed ? 0 : total,
       status: isOwed ? 'pending' : 'paid',
-      date: customDate ? new Date(customDate).toISOString() : new Date().toISOString()
+      // OJO ZONA HORARIA: si customDate viene como "YYYY-MM-DD" (dia elegido en
+      // Guatemala), NO usar new Date("YYYY-MM-DD") -> eso lo interpreta como
+      // medianoche UTC, que en Guatemala (UTC-6) cae el dia ANTERIOR y la
+      // factura salia con la fecha corrida un dia. Se ancla al mediodia de
+      // Guatemala para que el dia calendario quede firme.
+      date: customDate
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
+            ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+            : new Date(customDate).toISOString())
+        : new Date().toISOString()
     };
     invoiceDataRaw['clientName'] = client;
     invoiceDataRaw['customerPhone'] = phone || "";
     invoiceDataRaw['deliveryAddress'] = address || "";
+    // El NIT tambien se guarda en su propia columna, no solo dentro de `notes`.
+    // Se mantiene el prefijo en `notes` por compatibilidad con las facturas
+    // historicas y con las plantillas de impresion que lo leen de ahi.
+    invoiceDataRaw['nit'] = nit || "";
     
     let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
     
@@ -2816,6 +2911,9 @@ if (!process.env.VERCEL) {
           const bareInvoice = { ...fallbackInvoice1 };
           delete bareInvoice['phone'];
           delete bareInvoice['address'];
+          // Si la base no tuviera la columna `nit`, se descarta igual que las
+          // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
+          delete bareInvoice['nit'];
           const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
           if(retryError2) throw new Error(retryError2.message);
       }
@@ -3213,6 +3311,24 @@ if (!process.env.VERCEL) {
     const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
     if (!invoice) return res.status(404).json({ error: "No encontrada" });
 
+    // PROTECCION FISCAL: no dejar anular/rechazar por la via normal una factura
+    // que tiene un DTE certificado ante SAT. Anularla solo aqui dejaria la venta
+    // cancelada en el sistema pero el documento seguiria VALIDO ante SAT. Debe
+    // pasar por la anulacion FEL (que anula ante SAT y ademas cancela la factura
+    // y restaura el stock). Ver POST /api/invoices/:id/fel/anular.
+    if ((status === 'cancelled' || status === 'rejected')
+        && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+      const docFel: any = await felServicio.obtenerDocumentoPorFactura(supabase, id);
+      if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
+        return res.status(409).json({
+          error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
+                 "Para anularla, usa \"Anular documento ante SAT\" en el panel FEL: ese proceso " +
+                 "anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.",
+          requiereAnulacionFel: true,
+        });
+      }
+    }
+
     let updateData: any = { status };
 
     if (status !== invoice.status) {
@@ -3225,31 +3341,7 @@ if (!process.env.VERCEL) {
 
     if (status === 'cancelled' || status === 'rejected') {
       if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-          // Restore stock
-          for (const item of invoice.items) {
-             const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
-             const product = prods?.[0];
-             if (product && !product.is_external) {
-                let variantsToUpdate = product.variants ? [...product.variants] : [];
-                let variantObj = null;
-                if (item.variantId) {
-                  const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-                  if (varIndex !== -1) {
-                     variantObj = variantsToUpdate[varIndex];
-                  }
-                }
-                
-                if (variantObj && variantObj.stock !== undefined) {
-                   const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-                   variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-                   const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
-                   if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-                } else {
-                   const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
-                   if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-                }
-             }
-          }
+          await restaurarStockDeFactura(invoice);
       }
     }
 
@@ -3330,8 +3422,7 @@ if (!process.env.VERCEL) {
 
             updateData.notes = notes;
             if (sellerId !== undefined) { updateData.sellerId = sellerId; }
-            if (sellerId !== undefined) { updateData.sellerId = sellerId; }
-    await supabase.from("invoices").update(updateData).eq('id', id);
+            await supabase.from("invoices").update(updateData).eq('id', id);
             invalidateCache("folio_map");
             invalidateCache("products");
             await syncInvoiceToPermanentBackup(id);
@@ -5188,6 +5279,199 @@ ${productsContext}`;
       generatedCount, 
       message: `Se actualizaron ${generatedCount} productos rápidamente usando la base de datos de Agricovet.` 
     });
+  }));
+
+  // ======== FACTURA ELECTRONICA (FEL) ========
+  // La logica vive en fel/servicio.ts. Estos endpoints solo exponen consulta,
+  // configuracion y el disparo de la certificacion.
+
+  // Configuracion del emisor. Incluye que campos faltan por llenar.
+  app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
+    const config = await felServicio.obtenerConfig(supabase);
+    const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
+    res.json({
+      config: publica,
+      // Nunca se devuelven las llaves; solo si ya estan cargadas.
+      credencialesCargadas: !!(infile_llave_firma && infile_llave_token),
+      camposFaltantes: felServicio.configIncompleta(config),
+    });
+  }));
+
+  app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const permitidos = [
+      'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'correo_emisor', 'direccion', 'municipio',
+      'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
+      'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
+      'infile_url', 'tipo_dte_default',
+    ];
+    const cambios: any = {};
+    for (const c of permitidos) {
+      if (req.body[c] !== undefined && req.body[c] !== '') cambios[c] = req.body[c];
+    }
+    if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
+      return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
+    }
+    const config = await felServicio.guardarConfig(supabase, cambios);
+    const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
+    res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
+  }));
+
+  // Estado FEL de una factura, con el desglose fiscal ya calculado.
+  app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    // Un vendedor solo puede ver sus propias facturas.
+    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+      return res.status(403).json({ error: "No tienes acceso a esta factura" });
+    }
+
+    const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+    const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
+
+    // Datos del emisor para la representacion grafica (factura impresa).
+    const felConfig = await felServicio.obtenerConfig(supabase);
+    const emisor = {
+      nit: felConfig?.nit_emisor ?? '',
+      nombre: felConfig?.nombre_emisor ?? '',
+      nombreComercial: felConfig?.nombre_comercial ?? '',
+      ambiente: felConfig?.ambiente ?? 'pruebas',
+    };
+
+    res.json({
+      documento,
+      estado: documento?.estado ?? 'sin_emitir',
+      nitReceptor,
+      esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
+      emisor,
+      desglose: {
+        montoGravable: totales.totalMontoGravable,
+        montoIva: totales.totalMontoIva,
+        granTotal: totales.granTotal,
+      },
+      advertencias,
+    });
+  }));
+
+  // Listado para la pantalla de control FEL.
+  // Un vendedor solo ve los documentos de sus propias facturas.
+  app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
+    let documentos = await felServicio.listarDocumentos(supabase, {
+      estado: req.query.estado,
+      limite: Number(req.query.limite) || 200,
+    });
+
+    if (req.user.role !== 'admin') {
+      const { data: propias } = await supabase
+        .from("invoices").select("id").eq("sellerId", req.user.id);
+      const permitidas = new Set((propias || []).map((f: any) => f.id));
+      documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
+    }
+    const resumen = documentos.reduce((acc: any, d: any) => {
+      acc[d.estado] = (acc[d.estado] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({ documentos, resumen, total: documentos.length });
+  }));
+
+  // Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
+  app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    if (invoice.status === 'cancelled' || invoice.status === 'rejected') {
+      return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
+    }
+
+    // Se pueden ajustar nombre y NIT del receptor antes de emitir; el folio y
+    // la factura interna no se tocan.
+    const receptorBody = req.body?.receptor;
+    const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre)
+      ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
+      : undefined;
+
+    const resultado = await felServicio.certificarFactura(supabase, invoice, {
+      tipoDte: req.body?.tipoDte,
+      receptor,
+    });
+    res.json(resultado);
+  }));
+
+  // Anula ante SAT un DTE certificado. Tramite fiscal formal: exige motivo.
+  app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const motivo = String(req.body?.motivo || '').trim();
+    if (motivo.length < 5) {
+      return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
+    }
+
+    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+    try {
+      const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
+
+      // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
+      // un documento fiscal anulado no puede seguir como venta activa. Se
+      // restaura el stock igual que en una anulacion normal.
+      if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+        await restaurarStockDeFactura(invoice);
+        await supabase.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
+        invalidateCache("products");
+        invalidateCache("folio_map");
+        (resultado as any).facturaAnulada = true;
+      }
+
+      res.json(resultado);
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });
+    }
+  }));
+
+  // Descarga el XML de un documento FEL (enviado o certificado). Pensado para
+  // cuando el certificador pide "mandame el XML para revisar que paso".
+  app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { data: facturas } = await supabase.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
+    const invoice = facturas && facturas[0];
+    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+      return res.status(403).json({ error: "No tienes acceso a esta factura" });
+    }
+
+    const doc: any = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+    if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
+
+    const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
+    let xml: string | null = tipo === 'certificado' ? doc.xml_certificado : doc.xml_enviado;
+    if (!xml) return res.status(404).json({ error: `Esta factura no tiene XML ${tipo}.` });
+
+    // INFILE devuelve el XML certificado en base64; se decodifica al vuelo.
+    if (!xml.trim().startsWith('<')) {
+      try {
+        const decodificado = Buffer.from(xml, 'base64').toString('utf-8');
+        if (decodificado.trim().startsWith('<')) xml = decodificado;
+      } catch {}
+    }
+
+    const nombre = `DTE-${tipo}-${doc.numero_autorizacion || req.params.id}.xml`;
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.send(xml);
+  }));
+
+  // Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
+  app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const config = await felServicio.obtenerConfig(supabase);
+    if (!config?.infile_usuario || !config?.infile_llave_token) {
+      return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
+    }
+    const resultado = await infileApi.consultarNit(req.params.nit, {
+      usuario: config.infile_usuario,
+      llaveToken: config.infile_llave_token,
+    });
+    res.json(resultado);
   }));
 
 // Global Error Handler for API routes

@@ -37,6 +37,9 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     isBlocked: false
   });
   const [adding, setAdding] = useState(false);
+  // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
+  const [consultandoNit, setConsultandoNit] = useState(false);
+  const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
 
   const generateRandomCode = () => {
@@ -100,6 +103,34 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     return coincidences;
   };
 
+  // Consulta el NIT en SAT (vía INFILE) y autocompleta el nombre del cliente.
+  // El usuario puede editar el valor después: solo es un punto de partida.
+  const consultarNit = async () => {
+    const nit = newClient.nit.trim();
+    if (!nit) { setNitResultado({ ok: false, texto: 'Ingresa un NIT primero.' }); return; }
+    setConsultandoNit(true);
+    setNitResultado(null);
+    try {
+      const r = await api.consultarNitFel(nit);
+      if (r.valido && r.nombre) {
+        // Se rellena el nombre solo si está vacío o si el usuario lo confirma,
+        // para no pisar algo que ya escribió.
+        setNewClient(prev => ({
+          ...prev,
+          name: (!prev.name.trim() || prev.name === r.nombre) ? (r.nombre || prev.name) : prev.name,
+          nit: r.nit || prev.nit,
+        }));
+        setNitResultado({ ok: true, texto: `Encontrado en SAT: ${r.nombre}` });
+      } else {
+        setNitResultado({ ok: false, texto: r.mensaje || 'NIT no encontrado en SAT.' });
+      }
+    } catch (err: any) {
+      setNitResultado({ ok: false, texto: err?.message || 'No se pudo consultar el NIT.' });
+    } finally {
+      setConsultandoNit(false);
+    }
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClient.name || !newClient.sellerId) {
@@ -113,14 +144,26 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       if (!confirmBlocked) return;
     }
 
+    // Validacion instantanea: no duplicar por NIT (CF puede repetirse).
+    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitN = normNit(newClient.nit);
+    if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
+      const dup = clients.find(c => normNit(c.nit) === nitN);
+      if (dup) {
+        alert(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}". No se puede duplicar.`);
+        return;
+      }
+    }
     setAdding(true);
     try {
       const added = await api.addClient(newClient);
       setClients(prev => prev.some(c => c.id === added.id) ? prev : [added, ...prev]);
       setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '', clientCode: '', isBlocked: false });
+      setNitResultado(null);
       setShowAddForm(false);
-    } catch (err) {
-      alert("Error al agregar cliente");
+    } catch (err: any) {
+      // Muestra el mensaje real del servidor (p. ej. NIT duplicado).
+      alert(err?.message || "Error al agregar cliente");
     } finally {
       setAdding(false);
     }
@@ -871,18 +914,35 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                     />
                   </div>
 
-                  {/* NIT/ID */}
+                  {/* NIT/ID con consulta a SAT */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
                       NIT / Identificación
                     </label>
-                    <input 
-                      type="text" 
-                      placeholder="Ej. 1029384-5"
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
-                      value={newClient.nit} 
-                      onChange={e => setNewClient({...newClient, nit: e.target.value})}
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Ej. 1029384-5"
+                        className="w-full pl-4 pr-28 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={newClient.nit}
+                        onChange={e => { setNewClient({...newClient, nit: e.target.value}); setNitResultado(null); }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); consultarNit(); } }}
+                      />
+                      <button
+                        type="button"
+                        onClick={consultarNit}
+                        disabled={consultandoNit || !newClient.nit.trim()}
+                        title="Buscar el nombre en SAT por el NIT"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-bold text-[11px] bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
+                      </button>
+                    </div>
+                    {nitResultado && (
+                      <p className={`text-[11px] mt-1.5 ml-1 leading-snug ${nitResultado.ok ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {nitResultado.ok ? '✓ ' : '⚠ '}{nitResultado.texto}
+                      </p>
+                    )}
                   </div>
 
                   {/* Código de Cliente */}

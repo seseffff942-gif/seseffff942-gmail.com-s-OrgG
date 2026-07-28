@@ -1,4 +1,4 @@
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification } from './types';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL } from './types';
 
 // Safe JSON parser to handle non-JSON responses from proxy or rate limters
 const safeJson = async (res: Response) => {
@@ -405,7 +405,7 @@ export const api = {
     return res.json();
   },
 
-  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerId?: string; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
+  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth('/api/invoices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1065,5 +1065,82 @@ export const api = {
     localStorage.setItem('app_user', JSON.stringify(data.user));
     
     return data.user;
-  }
+  },
+
+  // ======== FEL (Factura Electronica) ========
+  getFelEstado: async (invoiceId: string): Promise<EstadoFacturaFEL> => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo consultar el estado FEL');
+    return data;
+  },
+
+  certificarFel: async (
+    invoiceId: string,
+    tipoDte?: string,
+    receptor?: { nit?: string; nombre?: string }
+  ) => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/certificar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipoDte, receptor }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo certificar la factura');
+    return data;
+  },
+
+  anularFel: async (invoiceId: string, motivo: string) => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo anular el documento');
+    return data;
+  },
+
+  descargarFelXml: async (invoiceId: string, tipo: 'enviado' | 'certificado'): Promise<Blob> => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/fel/xml?tipo=${tipo}`);
+    if (!res.ok) {
+      const d = await safeJson(res);
+      throw new Error(d?.error || 'No se pudo descargar el XML');
+    }
+    return res.blob();
+  },
+
+  consultarNitFel: async (nit: string): Promise<{ valido: boolean; nit?: string; nombre?: string; mensaje?: string }> => {
+    const res = await fetchWithAuth(`/api/fel/consulta-nit/${encodeURIComponent(nit)}`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo consultar el NIT');
+    return data;
+  },
+
+  getFelDocumentos: async (estado?: string) => {
+    const url = estado ? `/api/fel/documentos?estado=${encodeURIComponent(estado)}` : '/api/fel/documentos';
+    const res = await fetchWithAuth(url);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron listar los documentos FEL');
+    return data;
+  },
+
+  getFelConfig: async () => {
+    const res = await fetchWithAuth('/api/fel/config');
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo leer la configuracion FEL');
+    return data;
+  },
+
+  guardarFelConfig: async (cambios: Record<string, any>) => {
+    const res = await fetchWithAuth('/api/fel/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cambios),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo guardar la configuracion FEL');
+    return data;
+  },
+
 };
