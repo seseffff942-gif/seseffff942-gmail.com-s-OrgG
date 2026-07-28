@@ -3208,7 +3208,7 @@ if (!process.env.VERCEL) {
 
   app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate } = req.body;
+    const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate, sellerId } = req.body;
     
     const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
     if (!invoice) return res.status(404).json({ error: "No encontrada" });
