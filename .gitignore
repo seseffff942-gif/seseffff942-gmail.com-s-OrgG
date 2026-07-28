@@ -17,3 +17,4 @@ clients_local.json
 notifications_local.json
 offers_extra.json
 push_subscriptions.json
+excluded_critical.json
