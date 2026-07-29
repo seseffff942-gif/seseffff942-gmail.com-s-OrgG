@@ -6,7 +6,7 @@
  * Correr SIEMPRE despues de tocar fel/calculos.ts. Un descuadre de un
  * centavo aqui se traduce en un rechazo de SAT en produccion.
  */
-import { calcularTotales, validarCuadre, desglosarIVA } from './calculos';
+import { calcularTotales, validarCuadre, desglosarIVA } from './calculos.js';
 
 let fallos = 0;
 const check = (nombre: string, cond: boolean, extra = '') => {

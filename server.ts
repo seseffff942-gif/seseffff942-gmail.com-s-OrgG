@@ -15,8 +15,8 @@ import webpush from "web-push";
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
-import * as felServicio from "./fel/servicio";
-import * as infileApi from "./fel/infile";
+import * as felServicio from "./fel/servicio.js";
+import * as infileApi from "./fel/infile.js";
 
 // Exige una variable de entorno. Falla al arrancar si falta, en lugar de
 // caer silenciosamente a una base de datos que no corresponde.
