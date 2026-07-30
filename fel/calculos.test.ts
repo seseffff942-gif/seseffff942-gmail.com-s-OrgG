@@ -79,17 +79,18 @@ for (const { cantidad, totalDeseado, nota } of casos231) {
   const item = calcularItem({ cantidad, precioUnitario: totalDeseado / cantidad });
 
   // Esto es literalmente lo que hace SAT al validar la linea.
-  const precioSegunSat = +(item.precioUnitario * item.cantidad).toFixed(2);
+  const precioSegunSat = item.precioUnitario * item.cantidad;
+  const diferencia = Math.abs(precioSegunSat - item.precio);
 
   check(
     `${cantidad} x Q${item.precioUnitario} (${nota})`,
-    precioSegunSat === item.precio,
-    `SAT calcula ${precioSegunSat}, el XML declara ${item.precio}`
+    diferencia < 0.01,
+    `SAT calcula ${+precioSegunSat.toFixed(6)}, el XML declara ${item.precio} (dif ${+diferencia.toFixed(6)})`
   );
   check(
-    `  descuento no negativo`,
-    item.descuento >= 0,
-    `descuento ${item.descuento}`
+    `  el precio unitario conserva 4 decimales`,
+    item.precioUnitario === +(totalDeseado / cantidad).toFixed(4),
+    `unitario ${item.precioUnitario}`
   );
   check(
     `  el cliente sigue pagando Q${totalDeseado}`,
@@ -98,17 +99,14 @@ for (const { cantidad, totalDeseado, nota } of casos231) {
   );
 }
 
-// Los precios exactos no deben inventar un descuento.
-const exacto = calcularItem({ cantidad: 2, precioUnitario: 25.0 });
-check('precio exacto no genera descuento', exacto.descuento === 0, `descuento ${exacto.descuento}`);
+// Sin descuento comercial, la linea no debe inventar ninguno.
+const exacto = calcularItem({ cantidad: 13, precioUnitario: 180 / 13 });
+check('no se inventa descuento de cuadre', exacto.descuento === 0, `descuento ${exacto.descuento}`);
 
-// Un descuento comercial real se conserva y se suma al de redondeo.
+// Un descuento comercial real se conserva tal cual.
 const conDesc = calcularItem({ cantidad: 4, precioUnitario: 10.0, descuento: 5.0 });
 check('descuento comercial se respeta', conDesc.total === 35.0, `total ${conDesc.total}`);
-check(
-  'descuento comercial cumple 2.3.1',
-  +(conDesc.precioUnitario * conDesc.cantidad).toFixed(2) === conDesc.precio
-);
+check('descuento comercial no se altera', conDesc.descuento === 5.0, `descuento ${conDesc.descuento}`);
 
 console.log(`\n${fallos === 0 ? '*** TODAS LAS PRUEBAS PASARON ***' : `*** ${fallos} PRUEBAS FALLARON ***`}\n`);
 process.exit(fallos === 0 ? 0 : 1);
