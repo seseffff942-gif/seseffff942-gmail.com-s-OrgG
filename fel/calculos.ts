@@ -39,6 +39,17 @@ export function redondearMoneda(valor: number): number {
 }
 
 /**
+ * Redondea hacia arriba a 2 decimales.
+ *
+ * Se normaliza a 6 decimales antes del techo porque en punto flotante
+ * 7.77 * 100 da 777.0000000000001, y un Math.ceil directo lo subiria a 7.78.
+ */
+function techoMoneda(valor: number): number {
+  const factor = Math.pow(10, DECIMALES_MONEDA);
+  return Math.ceil(redondear(valor * factor, DECIMALES_FISCAL)) / factor;
+}
+
+/**
  * Descompone un monto que YA incluye IVA en su base gravable y su impuesto.
  * El IVA se obtiene por resta para garantizar que las partes sumen el total.
  */
@@ -76,10 +87,35 @@ export interface ItemFEL {
 
 /**
  * Calcula una linea de la factura en el formato que exige el DTE.
+ *
+ * REGLA 2.3.1 DE SAT: al recibir el XML, SAT NO confia en el campo Precio,
+ * lo recalcula como PrecioUnitario x Cantidad con los valores que le llegaron.
+ * Si no coincide, rechaza el documento con FEL-GUI-15.
+ *
+ * Por eso el precio unitario se redondea ANTES de multiplicar, no despues.
+ * Antes se calculaba el precio con el unitario sin redondear y se declaraba
+ * el unitario ya redondeado: una linea de 13 unidades a Q180.00 (unitario
+ * 13.846153...) viajaba como PrecioUnitario 13.85 y Precio 180.00, y SAT
+ * calculaba 13.85 x 13 = 180.05 y la rechazaba.
+ *
+ * El redondeo del unitario es HACIA ARRIBA para que el descuento resultante
+ * nunca sea negativo: SAT tampoco acepta descuentos negativos.
+ *
+ * La diferencia de redondeo se declara como descuento, igual que un descuento
+ * comercial. El total de la linea —lo que el cliente paga— no cambia.
  */
 export function calcularItem(linea: LineaFactura): ItemFEL {
-  const precio = redondearMoneda(linea.cantidad * linea.precioUnitario);
-  const descuento = redondearMoneda(linea.descuento ?? 0);
+  // Lo que el sistema le cobra al cliente por esta linea. Es el valor que
+  // debe preservarse: todo lo demas se acomoda alrededor de el.
+  const totalReal = redondearMoneda(
+    linea.cantidad * linea.precioUnitario - (linea.descuento ?? 0)
+  );
+
+  const precioUnitario = techoMoneda(linea.precioUnitario);
+  const precio = redondearMoneda(linea.cantidad * precioUnitario);
+
+  // Absorbe el descuento comercial y la diferencia de redondeo del unitario.
+  const descuento = redondearMoneda(precio - totalReal);
   const total = redondearMoneda(precio - descuento);
 
   const { montoGravable, montoIva } = desglosarIVA(total);
@@ -87,7 +123,7 @@ export function calcularItem(linea: LineaFactura): ItemFEL {
   return {
     descripcion: linea.descripcion ?? '',
     cantidad: linea.cantidad,
-    precioUnitario: redondearMoneda(linea.precioUnitario),
+    precioUnitario,
     precio,
     descuento,
     total,

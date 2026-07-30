@@ -6,7 +6,7 @@
  * Correr SIEMPRE despues de tocar fel/calculos.ts. Un descuadre de un
  * centavo aqui se traduce en un rechazo de SAT en produccion.
  */
-import { calcularTotales, validarCuadre, desglosarIVA } from './calculos.js';
+import { calcularTotales, validarCuadre, desglosarIVA, calcularItem } from './calculos.js';
 
 let fallos = 0;
 const check = (nombre: string, cond: boolean, extra = '') => {
@@ -60,6 +60,55 @@ const t5 = calcularTotales([{ cantidad: 10, precioUnitario: 50.0, descuento: 75.
 console.log(`  500.00 - 75.50 = Q${t5.granTotal}`);
 check('cuadre con descuento', validarCuadre(t5).valido);
 check('total correcto', t5.granTotal === 424.5);
+
+console.log('\n=== 6. Regla 2.3.1 de SAT: Precio == PrecioUnitario x Cantidad ===');
+// SAT recalcula el Precio con los valores del XML. Si el precio unitario se
+// redondea despues de multiplicar, no cuadra y rechaza con FEL-GUI-15.
+// El primer caso es el rechazo real recibido: 13 unidades por Q180.00.
+const casos231: Array<{ cantidad: number; totalDeseado: number; nota: string }> = [
+  { cantidad: 13, totalDeseado: 180.0, nota: 'rechazo real FEL-GUI-15' },
+  { cantidad: 3, totalDeseado: 100.0, nota: '100/3 no divide exacto' },
+  { cantidad: 7, totalDeseado: 50.0, nota: '50/7 no divide exacto' },
+  { cantidad: 6, totalDeseado: 1000.0, nota: '1000/6 periodico' },
+  { cantidad: 9, totalDeseado: 0.99, nota: 'centavos' },
+  { cantidad: 1, totalDeseado: 7.77, nota: 'exacto, no debe generar descuento' },
+  { cantidad: 2, totalDeseado: 50.0, nota: 'exacto, no debe generar descuento' },
+];
+
+for (const { cantidad, totalDeseado, nota } of casos231) {
+  const item = calcularItem({ cantidad, precioUnitario: totalDeseado / cantidad });
+
+  // Esto es literalmente lo que hace SAT al validar la linea.
+  const precioSegunSat = +(item.precioUnitario * item.cantidad).toFixed(2);
+
+  check(
+    `${cantidad} x Q${item.precioUnitario} (${nota})`,
+    precioSegunSat === item.precio,
+    `SAT calcula ${precioSegunSat}, el XML declara ${item.precio}`
+  );
+  check(
+    `  descuento no negativo`,
+    item.descuento >= 0,
+    `descuento ${item.descuento}`
+  );
+  check(
+    `  el cliente sigue pagando Q${totalDeseado}`,
+    item.total === totalDeseado,
+    `total ${item.total}`
+  );
+}
+
+// Los precios exactos no deben inventar un descuento.
+const exacto = calcularItem({ cantidad: 2, precioUnitario: 25.0 });
+check('precio exacto no genera descuento', exacto.descuento === 0, `descuento ${exacto.descuento}`);
+
+// Un descuento comercial real se conserva y se suma al de redondeo.
+const conDesc = calcularItem({ cantidad: 4, precioUnitario: 10.0, descuento: 5.0 });
+check('descuento comercial se respeta', conDesc.total === 35.0, `total ${conDesc.total}`);
+check(
+  'descuento comercial cumple 2.3.1',
+  +(conDesc.precioUnitario * conDesc.cantidad).toFixed(2) === conDesc.precio
+);
 
 console.log(`\n${fallos === 0 ? '*** TODAS LAS PRUEBAS PASARON ***' : `*** ${fallos} PRUEBAS FALLARON ***`}\n`);
 process.exit(fallos === 0 ? 0 : 1);
