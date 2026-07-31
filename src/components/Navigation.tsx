@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Product, AppNotification } from '../types';
 import { cn } from '../utils';
-import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield } from 'lucide-react';
+import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield, Receipt } from 'lucide-react';
 import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
@@ -916,6 +916,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     { id: 'sales', label: 'Ventas', icon: ShoppingCart, roles: ['admin', 'seller'] },
     { id: 'my-sales', label: 'Mis Ventas', icon: FileText, roles: ['seller'] },
     { id: 'billing', label: 'Facturación', icon: FileText, roles: ['admin'] },
+    { id: 'recibos-caja', label: 'Recibos de Caja', icon: Receipt, roles: ['admin', 'seller'] },
     { id: 'daily-sales', label: 'Ventas Diarias', icon: Leaf, roles: ['admin'] },
     { id: 'business-debts', label: 'Compras', icon: CreditCard, roles: ['admin'] },
     { id: 'seller-debts', label: 'Registro Ventas', icon: ClipboardList, roles: ['seller'] },

@@ -16,6 +16,7 @@ import { HomePage } from './pages/HomePage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
+import { ReciboCajaModulo } from './components/recibo-caja';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
 
@@ -269,6 +270,7 @@ export default function App() {
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'daily-sales' && <DailySalesPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}

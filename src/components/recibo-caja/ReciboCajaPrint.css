@@ -1,0 +1,249 @@
+/* ==========================================
+   AGRICOBET - RECIBO DE CAJA TÉRMICO (80mm / 72mm)
+   Diseño Minimalista, Limpio y Ligero
+   ========================================== */
+
+/* Contenedor del Ticket Térmico en pantalla */
+.recibo-preview-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1.5rem;
+  background-color: #f8fafc;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+/* Contenedor del Ticket Térmico con 72mm útil (para rollo de 80mm) */
+.recibo-ticket-container {
+  width: 72mm;
+  min-width: 72mm;
+  max-width: 72mm;
+  margin: 0 auto;
+  padding: 3mm 2.5mm;
+  background: #ffffff;
+  color: #000000;
+  font-family: 'Courier New', Courier, monospace, system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.25;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+  border: 1px solid #e2e8f0;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+/* Encabezado */
+.recibo-header {
+  text-align: center;
+  border-bottom: 1.5px dashed #000000;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.recibo-company-title {
+  color: #000000;
+  font-weight: 900;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+}
+
+.recibo-company-sub {
+  font-size: 9px;
+  color: #333333;
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.recibo-tag {
+  display: inline-block;
+  background-color: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Folio y Fecha Badge */
+.recibo-meta-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+
+.recibo-folio-num {
+  color: #dc2626;
+  font-weight: 900;
+  font-size: 12px;
+}
+
+/* Datos del Cliente y Venta */
+.recibo-section-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  border-bottom: 1px dashed #cbd5e1;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+}
+
+.recibo-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.recibo-field-label {
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.recibo-field-value {
+  text-align: right;
+  word-break: break-word;
+  font-weight: 600;
+}
+
+/* Tabla de Productos / Pagos */
+.recibo-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+
+.recibo-table th {
+  background-color: #f8fafc;
+  color: #0f172a;
+  border-bottom: 1.5px solid #000000;
+  text-transform: uppercase;
+  font-size: 8.5px;
+  padding: 3px 2px;
+  text-align: left;
+}
+
+.recibo-table td {
+  padding: 4px 2px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+
+/* Resumen de Efectivo Limpio */
+.recibo-cash-section {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1.5px solid #000000;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 8px 0;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.recibo-cash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 3px;
+  margin-bottom: 5px;
+}
+
+.recibo-cash-title {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #000000;
+}
+
+.recibo-cash-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 2px;
+  color: #0f172a;
+}
+
+.recibo-cash-amount.change-val {
+  color: #000000;
+  font-size: 13.5px;
+  font-weight: 900;
+}
+
+.recibo-signature-space {
+  margin: 22px auto 6px auto;
+  width: 75%;
+  border-bottom: 1px solid #000000;
+}
+
+.recibo-footer {
+  text-align: center;
+  margin-top: 8px;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 6px;
+  font-size: 9px;
+  color: #334155;
+}
+
+.recibo-notice {
+  font-size: 8px;
+  color: #475569;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* ==========================================
+   CONFIGURACIÓN DE IMPRESIÓN AISLADA (80mm)
+   ========================================== */
+@media print {
+  /* Ocultar toda la interfaz web */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Mostrar exclusivamente el recibo térmico */
+  #printable-receipt, #printable-receipt * {
+    visibility: visible !important;
+  }
+
+  #printable-receipt {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 72mm !important;
+    min-width: 72mm !important;
+    max-width: 72mm !important;
+    margin: 0 !important;
+    padding: 1mm 1mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 0mm;
+  }
+}
