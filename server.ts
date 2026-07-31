@@ -433,43 +433,41 @@ if (!process.env.VERCEL) {
     }
 
     const map: Record<string, number> = {};
+    const usedFolios = new Set<number>();
+
     if (invoices && invoices.length > 0) {
       console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
-      let currentFolio = startFrom;
       
-      invoices.forEach((inv, index) => {
-        if (!inv.id) return;
-
-        // Skip cancelled or rejected invoices
-        if (inv.status === 'cancelled' || inv.status === 'rejected') {
-           return;
-        }
-
-        // Check for manual folio in notes
-        let manualFolio: number | null = null;
+      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123)
+      invoices.forEach((inv) => {
+        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
         if (inv.notes && inv.notes.includes("|||FOLIO:")) {
           const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
           if (match && match[1]) {
-            manualFolio = parseInt(match[1]);
+            const manualFolio = parseInt(match[1], 10);
+            if (!isNaN(manualFolio)) {
+              map[String(inv.id)] = manualFolio;
+              usedFolios.add(manualFolio);
+            }
           }
-        }
-
-        if (manualFolio !== null) {
-          map[String(inv.id)] = manualFolio;
-          // If the manual folio is equal or greater than our sequence, 
-          // we jump ahead for the next automated one to avoid collisions
-          if (manualFolio >= currentFolio) {
-            currentFolio = manualFolio + 1;
-          }
-        } else {
-          // Rule: Skip 812
-          if (currentFolio === 812) {
-            currentFolio++;
-          }
-          map[String(inv.id)] = currentFolio;
-          currentFolio++;
         }
       });
+
+      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio
+      let currentFolio = startFrom;
+      invoices.forEach((inv) => {
+        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+        if (map[String(inv.id)] !== undefined) return; // already locked
+
+        while (usedFolios.has(currentFolio) || currentFolio === 812) {
+          currentFolio++;
+        }
+
+        map[String(inv.id)] = currentFolio;
+        usedFolios.add(currentFolio);
+        currentFolio++;
+      });
+
       console.log(`Folio map generated: ${Object.keys(map).length} active entries.`);
     } else {
       console.log("No invoices found for folio map generation.");
@@ -2647,13 +2645,7 @@ if (!process.env.VERCEL) {
   app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
     let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
-    
-    // Only allow custom dates if the user is seseffff942@gmail.com
-    const isSpecialUser = req.user && req.user.email === 'seseffff942@gmail.com';
-    if (!isSpecialUser) {
-      customDate = undefined;
-    }
-    
+
     // Prohibir venta si no hay productos
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "No se puede realizar una venta sin productos." });
@@ -2851,6 +2843,14 @@ if (!process.env.VERCEL) {
 
     const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     
+    // Compute next folio and lock it in notes so backdating never shifts folios
+    const currentFolioMap = await getFolioMap();
+    const existingFolioValues = Object.values(currentFolioMap);
+    const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
+    let assignedFolio = maxFolio > 0 ? maxFolio + 1 : 1;
+    if (assignedFolio === 812) assignedFolio = 813;
+    let folioFlag = `|||FOLIO:${assignedFolio}`;
+
     let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
     let baseNotes = (nit || "");
     let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
@@ -2868,7 +2868,7 @@ if (!process.env.VERCEL) {
     const invoiceDataRaw: any = {
       id,
       sellerId: saleOwner,
-      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag,
+      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
       items: processedItems,
       totalAmount: total,
       paidAmount: isOwed ? 0 : total,
@@ -3040,7 +3040,7 @@ if (!process.env.VERCEL) {
 
   app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId } = req.body;
+    let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId, customDate, date } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
     
     // Fetch old invoice
@@ -3159,23 +3159,39 @@ if (!process.env.VERCEL) {
       reconstructedBaseNotes += "|||" + f;
     }
 
+    // Ensure current folio is locked permanently so date changes never alter or shift folios
+    if (!reconstructedBaseNotes.includes("|||FOLIO:")) {
+      const currentFolioMap = await getFolioMap();
+      const existingFolio = currentFolioMap[String(oldInvoice.id)];
+      if (existingFolio) {
+        reconstructedBaseNotes += `|||FOLIO:${existingFolio}`;
+      }
+    }
+
     if (!reconstructedBaseNotes.includes("|||EDITED:true")) {
         reconstructedBaseNotes += "|||EDITED:true";
     }
 
     let newNotes = reconstructedBaseNotes;
+    invalidateCache("folio_map");
     if (needsAuth) {
         newNotes += "|||AUTH:pending";
     } else {
         newNotes += "|||AUTH:authorized"; // Mark authorized if no issue
     }
 
+    const targetDate = customDate || date;
     const updatedDataRaw: any = {
         notes: newNotes,
         items: formattedItems,
         totalAmount: total,
         status: isOwed ? 'pending' : (oldInvoice.paidAmount >= total ? 'paid' : (oldInvoice.status === 'sent' ? 'sent' : 'pending'))
     };
+    if (targetDate) {
+      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+        ? new Date(`${targetDate}T12:00:00-06:00`).toISOString()
+        : (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
+    }
     updatedDataRaw['clientName'] = client;
     updatedDataRaw['customerPhone'] = phone || '';
     updatedDataRaw['deliveryAddress'] = address || '';
@@ -5472,6 +5488,108 @@ ${productsContext}`;
       llaveToken: config.infile_llave_token,
     });
     res.json(resultado);
+  }));
+
+  // ======== RECIBOS DE CAJA ENDPOINTS ========
+  const RECIBOS_CAJA_FILE = path.join(process.cwd(), 'recibos_caja_local.json');
+
+  function readLocalRecibosCaja(): any[] {
+    try {
+      if (fs.existsSync(RECIBOS_CAJA_FILE)) {
+        const raw = fs.readFileSync(RECIBOS_CAJA_FILE, 'utf-8');
+        return JSON.parse(raw) || [];
+      }
+    } catch (e) {
+      console.warn("Could not read local recibos_caja file:", e);
+    }
+    return [];
+  }
+
+  function saveLocalReciboCaja(recibo: any) {
+    try {
+      const list = readLocalRecibosCaja();
+      list.unshift(recibo);
+      fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
+    } catch (e) {
+      console.warn("Could not save to local recibos_caja file:", e);
+    }
+  }
+
+  app.get('/api/recibos-caja', asyncHandler(async (req: any, res: any) => {
+    try {
+      const { data, error } = await supabase
+        .from('recibos_caja')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        return res.json(data);
+      }
+    } catch (e) {
+      console.warn("Supabase recibos_caja query fallback:", e);
+    }
+
+    const localList = readLocalRecibosCaja();
+    res.json(localList);
+  }));
+
+  app.post('/api/recibos-caja', asyncHandler(async (req: any, res: any) => {
+    const { 
+      cliente_nombre, 
+      cliente_nit, 
+      cliente_codigo, 
+      cantidad_letras, 
+      facturas, 
+      cheques, 
+      efectivo_total, 
+      monto_total, 
+      observaciones, 
+      cajero_nombre,
+      fecha
+    } = req.body;
+
+    if (!cliente_nombre || cliente_nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
+    }
+
+    const localList = readLocalRecibosCaja();
+    const nextSeq = localList.length + 152;
+    const folioStr = `P Nº ${String(nextSeq).padStart(6, '0')}`;
+
+    const newRecibo = {
+      id: crypto.randomUUID(),
+      folio: folioStr,
+      numero_secuencial: nextSeq,
+      fecha: fecha || new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      cliente_nombre: cliente_nombre.trim(),
+      cliente_nit: cliente_nit || 'CF',
+      cliente_codigo: cliente_codigo || '',
+      cantidad_letras: cantidad_letras || 'Cero quetzales',
+      facturas: Array.isArray(facturas) ? facturas : [],
+      cheques: Array.isArray(cheques) ? cheques : [],
+      efectivo_total: Number(efectivo_total) || 0,
+      monto_total: Number(monto_total) || 0,
+      observaciones: observaciones || '',
+      cajero_nombre: cajero_nombre || 'CAJERO RECEPTOR',
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from('recibos_caja')
+        .insert([newRecibo])
+        .select();
+
+      if (!error && data && data[0]) {
+        saveLocalReciboCaja(data[0]);
+        return res.status(201).json(data[0]);
+      }
+    } catch (e) {
+      console.warn("Supabase insert recibo_caja fallback to local file:", e);
+    }
+
+    saveLocalReciboCaja(newRecibo);
+    res.status(201).json(newRecibo);
   }));
 
 // Global Error Handler for API routes

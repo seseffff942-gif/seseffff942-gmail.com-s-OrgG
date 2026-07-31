@@ -3,10 +3,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
 import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
+import { ReciboCajaComponent } from '../components/recibo-caja';
 
 interface SalesPageProps {
   user: User;
@@ -47,6 +48,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
   const [consultandoNit, setConsultandoNit] = useState(false);
   const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [showReciboModal, setShowReciboModal] = useState(false);
 
   const consultarNitCliente = async () => {
     const n = newClientNit.trim();
@@ -191,13 +193,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | 'personal' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
   const [shippingHandled, setShippingHandled] = useState(() => localStorage.getItem('draft_shippingHandled') === 'true');
   const [customDate, setCustomDate] = useState<string>(() => {
-    const hoy = diaGuatemala();
     const saved = localStorage.getItem('draft_customDate');
-    // Solo se conserva el borrador si es de HOY o futuro. Una fecha vieja
-    // (un borrador quedado de otro dia) no debe fijarse como fecha de venta:
-    // por eso antes la fecha aparecia con el dia anterior aunque ya fuera otro.
-    if (saved && saved >= hoy) return saved;
-    return hoy;
+    if (saved) return saved;
+    return diaGuatemala();
   });
 
   const checkClientCoincidences = (name: string, companyName: string, phone: string) => {
@@ -765,7 +763,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             items,
             isOwed,
             notes,
-            sellerId: sellerIdToUse
+            sellerId: sellerIdToUse,
+            customDate: customDate || undefined
          });
          setEditingInvoiceId(null);
          setEditInvoiceSellerId(null);
@@ -782,7 +781,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           invoiceType: invoiceType as 'agricola' | 'veterinaria',
           creditDays: invoiceType === 'agricola' ? 60 : 30,
           debtAlert: debtType !== 'none',
-          customDate: user?.email === 'seseffff942@gmail.com' ? (customDate || undefined) : undefined,
+          customDate: customDate || undefined,
           transportMethod: transportMethod || undefined,
           sellerSignature: finalSignature || undefined
         };
@@ -792,7 +791,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             ...invoicePayload,
             id: `offline-${Date.now()}`,
             status: 'pending',
-            date: invoicePayload.customDate ? new Date(invoicePayload.customDate).toISOString() : new Date().toISOString(),
+            date: invoicePayload.customDate
+              ? (/^\d{4}-\d{2}-\d{2}$/.test(invoicePayload.customDate)
+                  ? new Date(`${invoicePayload.customDate}T12:00:00-06:00`).toISOString()
+                  : new Date(invoicePayload.customDate).toISOString())
+              : new Date().toISOString(),
             authStatus: debtType !== 'none' || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
             total: items.reduce((sum, item) => sum + (item.price * item.quantity), 0),
             isOffline: true
@@ -811,7 +814,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                  ...invoicePayload,
                  id: `offline-${Date.now()}`,
                  status: 'pending',
-                 date: invoicePayload.customDate ? new Date(invoicePayload.customDate).toISOString() : new Date().toISOString(),
+                 date: invoicePayload.customDate
+                   ? (/^\d{4}-\d{2}-\d{2}$/.test(invoicePayload.customDate)
+                       ? new Date(`${invoicePayload.customDate}T12:00:00-06:00`).toISOString()
+                       : new Date(invoicePayload.customDate).toISOString())
+                   : new Date().toISOString(),
                  authStatus: debtType !== 'none' || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
                  total: items.reduce((sum, item) => sum + (item.price * item.quantity), 0),
                  isOffline: true
@@ -1101,14 +1108,27 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         <div className="flex flex-col gap-4.5 p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
           
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                <span className="w-2.5 h-6 rounded-full bg-[#0b4d2c] block" />
-                Catálogo de Productos
-              </h2>
-              <p className="text-xs text-slate-400 mt-1 font-bold uppercase tracking-wider">
-                Selecciona insumos veterianarios y agrícolas para procesar la venta
-              </p>
+            <div className="flex items-center justify-between sm:justify-start gap-4">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-6 rounded-full bg-[#0b4d2c] block" />
+                  Catálogo de Productos
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 font-bold uppercase tracking-wider">
+                  Selecciona insumos veterianarios y agrícolas para procesar la venta
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowReciboModal(true)}
+                className="px-3.5 py-2 bg-[#0c1b47] hover:bg-[#162a66] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer shrink-0 border border-[#0c1b47]/20 active:scale-95"
+                title="Ver e Imprimir Recibo de Caja Térmico (80mm)"
+              >
+                <Receipt size={16} className="text-emerald-400" />
+                <span className="hidden sm:inline">Ver / Imprimir Recibo</span>
+                <span className="sm:hidden">Recibo</span>
+              </button>
             </div>
             
             <div className="relative w-full sm:max-w-md">
@@ -1469,22 +1489,20 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
             {/* Shipment details */}
             <div className="border-t border-slate-200/60 pt-3 space-y-3">
-              {user?.email === 'seseffff942@gmail.com' && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Fecha de la Venta</label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-[#0b4d2c] outline-none font-bold text-slate-800 transition-all text-xs"
-                    />
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                      <Clock size={14} />
-                    </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Fecha de la Venta</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={customDate}
+                    onChange={(e) => setCustomDate(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-[#0b4d2c] outline-none font-bold text-slate-800 transition-all text-xs cursor-pointer"
+                  />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                    <Clock size={14} />
                   </div>
                 </div>
-              )}
+              </div>
 
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Transporte de Envío</label>
               <div className="grid grid-cols-3 gap-2">
@@ -2976,6 +2994,17 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           onClose={() => setShowSignaturePad(false)}
           title="Firma del Vendedor"
         />
+      )}
+
+      {/* MODAL DE RECIBO DE CAJA AGRICOBET (80mm / 72mm) */}
+      {showReciboModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[94vh] overflow-y-auto p-2 sm:p-4 relative animate-in zoom-in-95 border border-slate-100">
+            <ReciboCajaComponent 
+              onClose={() => setShowReciboModal(false)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

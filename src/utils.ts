@@ -348,16 +348,38 @@ export const TZ_GUATEMALA = 'America/Guatemala';
  * con la fecha del dia anterior / no aparecia en los folios del dia.
  */
 export function diaGuatemala(fecha?: any): string {
-  const d = fecha !== undefined ? new Date(fecha) : new Date();
+  if (fecha === undefined || fecha === null || fecha === '') {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(new Date());
+  }
+  if (typeof fecha === 'string') {
+    const trimmed = fecha.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
+      return trimmed.slice(0, 10);
+    }
+  }
+  const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  // en-CA produce el formato YYYY-MM-DD.
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
 }
 
 function fechaDDMMYYYY(fecha: any, conHora = false): string {
+  if (!fecha) return '';
+  if (typeof fecha === 'string') {
+    const trimmed = fecha.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [y, m, dStr] = trimmed.split('-');
+      return `${dStr}/${m}/${y}`;
+    }
+    if (!conHora && /^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
+      const [y, m, dStr] = trimmed.slice(0, 10).split('-');
+      return `${dStr}/${m}/${y}`;
+    }
+  }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  // en-GB produce DD/MM/YYYY y HH:MM (24h), siempre en hora de Guatemala.
   const base = new Intl.DateTimeFormat('en-GB', {
     timeZone: TZ_GUATEMALA, day: '2-digit', month: '2-digit', year: 'numeric',
   }).format(d);

@@ -429,7 +429,7 @@ export const api = {
     }
   },
 
-  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerId?: string; sellerSignature?: string }): Promise<Invoice> => {
+  updateFullInvoice: async (id: string, data: { client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; sellerId?: string; sellerSignature?: string; customDate?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth(`/api/invoices/${id}/full`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1140,6 +1140,25 @@ export const api = {
     });
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'No se pudo guardar la configuracion FEL');
+    return data;
+  },
+
+  // ======== RECIBOS DE CAJA ========
+  getRecibosCaja: async () => {
+    const res = await fetchWithAuth('/api/recibos-caja');
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar los recibos de caja');
+    return data;
+  },
+
+  createReciboCaja: async (recibo: any) => {
+    const res = await fetchWithAuth('/api/recibos-caja', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recibo),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo guardar el recibo de caja');
     return data;
   },
 
