@@ -326,111 +326,163 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       });
   }, [recibos, searchTerm, filtroFecha, orden]);
 
+  // SI EL USUARIO NO ES SESEFFFF942@GMAIL.COM, MOSTRAR MENSAJE AMIGABLE DE "ESTAMOS TRABAJANDO EN ESTA SECCIÓN"
+  if ((user?.email || '').toLowerCase().trim() !== 'seseffff942@gmail.com') {
+    return (
+      <div className="min-h-[75vh] flex flex-col items-center justify-center p-6 bg-slate-50 font-sans">
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200/80 shadow-xl text-center space-y-6 relative overflow-hidden">
+          <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative inline-flex items-center justify-center">
+            <div className="w-20 h-20 bg-amber-50 border border-amber-200 text-amber-600 rounded-3xl flex items-center justify-center shadow-inner">
+              <RefreshCw className="w-10 h-10 animate-spin text-amber-600" style={{ animationDuration: '8s' }} />
+            </div>
+            <div className="absolute -bottom-1 -right-1 bg-teal-600 text-white p-1.5 rounded-full border-2 border-white shadow-sm">
+              <Receipt className="w-4 h-4" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <span className="inline-block text-[11px] font-black uppercase tracking-widest text-amber-700 bg-amber-100/90 px-3.5 py-1 rounded-full border border-amber-200/70">
+              🚧 Módulo en Desarrollo
+            </span>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+              Estamos trabajando en esta sección
+            </h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              El módulo contable de <strong>Recibos de Caja</strong> se encuentra actualmente en fase de construcción y optimización. Muy pronto estará disponible para todo el equipo.
+            </p>
+          </div>
+
+          <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs text-slate-500 flex items-center gap-3">
+            <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-2xs text-amber-600 shrink-0">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <span className="text-left font-medium leading-normal">
+              Si necesitas emitir o verificar un recibo de caja urgente, por favor comunícate con la administración principal.
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // SOLUCIÓN ASÍNCRONA / IFRAME PARA EVITAR CONGELAMIENTO EN IMPRESIÓN
   const handleImprimirSeguro = () => {
     if (!ticketRef.current || isPrinting) return;
     setIsPrinting(true);
 
-    try {
-      // Crear un iframe invisible para aislar el proceso de impresión del DOM principal
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0px';
-      iframe.style.height = '0px';
-      iframe.style.border = '0px';
-      document.body.appendChild(iframe);
+    setTimeout(() => {
+      try {
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0px';
+        iframe.style.height = '0px';
+        iframe.style.border = '0px';
+        iframe.style.visibility = 'hidden';
+        document.body.appendChild(iframe);
 
-      const doc = iframe.contentWindow?.document;
-      if (!doc) {
-        // Fallback asíncrono con setTimeout
-        setTimeout(() => {
-          window.print();
+        const doc = iframe.contentWindow?.document;
+        if (!doc) {
           setIsPrinting(false);
+          return;
+        }
+
+        const ticketHTML = ticketRef.current?.outerHTML || '';
+
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Imprimir Recibo - Agricovet</title>
+              <style>
+                @page { size: 80mm auto; margin: 0mm; }
+                body { margin: 0; padding: 2mm; font-family: 'Courier New', Courier, monospace; background: #ffffff; color: #000000; }
+                .recibo-ticket-container { width: 72mm; margin: 0 auto; box-shadow: none; border: none; }
+                .recibo-header { text-align: center; border-bottom: 1.5px dashed #000; padding-bottom: 6px; margin-bottom: 8px; }
+                .recibo-company-title { font-weight: 900; font-size: 13px; text-transform: uppercase; }
+                .recibo-company-sub { font-size: 9px; margin-top: 2px; font-weight: 700; }
+                .recibo-tag { display: inline-block; border: 1px solid #000; font-size: 9px; font-weight: 800; padding: 1px 6px; margin-top: 4px; }
+                .recibo-meta-box { display: flex; justify-content: space-between; border: 1px solid #000; padding: 4px; margin-bottom: 8px; font-size: 10px; }
+                .recibo-folio-num { color: #dc2626; font-weight: 900; font-size: 12px; }
+                .recibo-section-grid { border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px; font-size: 10.5px; }
+                .recibo-field-row { display: flex; justify-content: space-between; }
+                .recibo-field-label { font-weight: 700; }
+                .recibo-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px; }
+                .recibo-table th { border-bottom: 1.5px solid #000; font-size: 8.5px; text-align: left; padding: 3px 2px; }
+                .recibo-table td { padding: 4px 2px; border-bottom: 1px solid #e2e8f0; }
+                .recibo-cash-section { border: 1.5px solid #000; padding: 6px; margin: 8px 0; }
+                .recibo-cash-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+                .recibo-signature-space { margin: 22px auto 6px auto; width: 75%; border-bottom: 1px solid #000; }
+                .recibo-footer { text-align: center; margin-top: 8px; border-top: 1px dashed #000; padding-top: 6px; font-size: 9px; }
+              </style>
+            </head>
+            <body>
+              ${ticketHTML}
+            </body>
+          </html>
+        `);
+        doc.close();
+
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (e) {
+            console.warn('Print iframe execution error:', e);
+          } finally {
+            setTimeout(() => {
+              if (iframe.parentNode) {
+                iframe.parentNode.removeChild(iframe);
+              }
+              setIsPrinting(false);
+            }, 500);
+          }
         }, 150);
-        return;
-      }
 
-      const ticketHTML = ticketRef.current.outerHTML;
-
-      doc.open();
-      doc.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Imprimir Recibo - Agricovet</title>
-            <style>
-              @page { size: 80mm auto; margin: 0mm; }
-              body { margin: 0; padding: 2mm; font-family: 'Courier New', Courier, monospace; background: #ffffff; color: #000000; }
-              .recibo-ticket-container { width: 72mm; margin: 0 auto; box-shadow: none; border: none; }
-              .recibo-header { text-align: center; border-bottom: 1.5px dashed #000; padding-bottom: 6px; margin-bottom: 8px; }
-              .recibo-company-title { font-weight: 900; font-size: 13px; text-transform: uppercase; }
-              .recibo-company-sub { font-size: 9px; margin-top: 2px; font-weight: 700; }
-              .recibo-tag { display: inline-block; border: 1px solid #000; font-size: 9px; font-weight: 800; padding: 1px 6px; margin-top: 4px; }
-              .recibo-meta-box { display: flex; justify-content: space-between; border: 1px solid #000; padding: 4px; margin-bottom: 8px; font-size: 10px; }
-              .recibo-folio-num { color: #dc2626; font-weight: 900; font-size: 12px; }
-              .recibo-section-grid { border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px; font-size: 10.5px; }
-              .recibo-field-row { display: flex; justify-content: space-between; }
-              .recibo-field-label { font-weight: 700; }
-              .recibo-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px; }
-              .recibo-table th { border-bottom: 1.5px solid #000; font-size: 8.5px; text-align: left; padding: 3px 2px; }
-              .recibo-table td { padding: 4px 2px; border-bottom: 1px solid #e2e8f0; }
-              .recibo-cash-section { border: 1.5px solid #000; padding: 6px; margin: 8px 0; }
-              .recibo-cash-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
-              .recibo-signature-space { margin: 22px auto 6px auto; width: 75%; border-bottom: 1px solid #000; }
-              .recibo-footer { text-align: center; margin-top: 8px; border-top: 1px dashed #000; padding-top: 6px; font-size: 9px; }
-            </style>
-          </head>
-          <body>
-            ${ticketHTML}
-          </body>
-        </html>
-      `);
-      doc.close();
-
-      // Disparar impresión asíncrona aislando la ventana
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-          setIsPrinting(false);
-        }, 1000);
-      }, 250);
-
-    } catch (err) {
-      console.error('Error durante la impresión iframe:', err);
-      setTimeout(() => {
-        window.print();
+      } catch (err) {
+        console.error('Error durante la impresión iframe:', err);
         setIsPrinting(false);
-      }, 150);
-    }
+      }
+    }, 50);
   };
 
-  // Descargar PDF Térmico
+  // Descargar PDF Térmico sin congelar la pantalla
   const handleDescargarPDF = async () => {
-    if (!ticketRef.current || !selectedReciboForPrint) return;
+    if (!ticketRef.current || !selectedReciboForPrint || descargandoPDF) return;
     setDescargandoPDF(true);
-    try {
-      const html2pdfModule = (await import('html2pdf.js')).default;
-      const element = ticketRef.current;
 
-      const opt = {
-        margin: [2, 2, 2, 2] as [number, number, number, number],
-        filename: `Recibo_Agricovet_${selectedReciboForPrint.folio.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 3, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: [80, Math.max(160, Math.ceil(element.offsetHeight * 0.264583 + 20))] as [number, number], orientation: 'portrait' as const }
-      };
+    setTimeout(async () => {
+      try {
+        const html2pdfModule = (await import('html2pdf.js')).default;
+        const element = ticketRef.current;
+        if (!element) return;
 
-      await html2pdfModule().set(opt).from(element).save();
-    } catch (err) {
-      console.error('Error al generar PDF:', err);
-      handleImprimirSeguro();
-    } finally {
-      setDescargandoPDF(false);
-    }
+        const opt = {
+          margin: [2, 2, 2, 2] as [number, number, number, number],
+          filename: `Recibo_Agricovet_${selectedReciboForPrint.folio.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+          image: { type: 'jpeg' as const, quality: 0.95 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          jsPDF: { unit: 'mm', format: [80, Math.max(160, Math.ceil(element.offsetHeight * 0.264583 + 20))] as [number, number], orientation: 'portrait' as const }
+        };
+
+        const pdfPromise = html2pdfModule().set(opt).from(element).save();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Generación de PDF agotó el tiempo de espera')), 5000)
+        );
+
+        await Promise.race([pdfPromise, timeoutPromise]);
+      } catch (err) {
+        console.error('Error al generar PDF:', err);
+        handleImprimirSeguro();
+      } finally {
+        setDescargandoPDF(false);
+      }
+    }, 50);
   };
 
   return (
