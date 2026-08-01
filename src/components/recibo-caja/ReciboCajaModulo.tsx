@@ -429,6 +429,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       const f = new Date(r.created_at || r.fecha);
       return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
     });
+    const montoMes = recMes.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
     return { count: recMes.length, monto: montoMes };
   }, [recibos]);
 
