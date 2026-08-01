@@ -196,7 +196,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   const handleSelectClient = (client: Client) => {
     setFormClienteNombre(client.name);
     setFormClienteNit(client.nit || 'CF');
-    setFormClienteCodigo(client.clientCode || client.id || '');
+    setFormClienteCodigo(client.clientCode || '');
     setClientSearchQuery(client.name);
     setShowClientDropdown(false);
   };
@@ -764,15 +764,16 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       <input
                         type="text"
                         required
-                        value={formClienteNombre || clientSearchQuery}
+                        value={clientSearchQuery}
                         onChange={e => {
                           const val = e.target.value;
-                          setFormClienteNombre(val);
+                          // Al escribir limpiamos la selección previa
+                          setFormClienteNombre('');
                           setClientSearchQuery(val);
                           setShowClientDropdown(true);
                         }}
                         onFocus={() => setShowClientDropdown(true)}
-                        placeholder="Comienza a escribir para desplegar coincidencias..."
+                        placeholder="Escribe el nombre, NIT o código del cliente..."
                         className="w-full pl-3 pr-8 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:border-slate-500 focus:outline-none"
                       />
                       {searchingClients ? (
@@ -782,13 +783,13 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       )}
                     </div>
 
-                    {/* CAJA O MENÚ FLOTANTE (DROPDOWN VISUAL OBLIGATORIO) */}
+                    {/* DROPDOWN CON RESULTADOS DE BÚSQL */}
                     {showClientDropdown && filteredClientsForTypeahead.length > 0 && (
-                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto divide-y divide-slate-100">
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto divide-y divide-slate-100">
                         {filteredClientsForTypeahead.map(client => (
                           <div
                             key={client.id}
-                            onClick={() => handleSelectClient(client)}
+                            onMouseDown={e => { e.preventDefault(); handleSelectClient(client); }}
                             className="p-2.5 hover:bg-slate-50 cursor-pointer flex justify-between items-center transition-colors"
                           >
                             <div>
@@ -796,10 +797,10 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                                 {client.name} {client.companyName ? `(${client.companyName})` : ''}
                               </span>
                               <span className="text-[10px] text-slate-500 font-mono">
-                                NIT: {client.nit || 'CF'} | Código: {client.clientCode || client.id}
+                                NIT: {client.nit || 'CF'}{client.clientCode ? ` | Cód: ${client.clientCode}` : ''}
                               </span>
                             </div>
-                            <Check className="w-4 h-4 text-slate-700 opacity-0 hover:opacity-100 shrink-0" />
+                            <Check className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           </div>
                         ))}
                       </div>
