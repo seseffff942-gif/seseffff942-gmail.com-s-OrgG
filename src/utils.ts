@@ -268,10 +268,13 @@ export function formatMoney(num: number | undefined | string) {
  * This is crucial for html2pdf.js and window.print() to correctly render images
  * without CORS or loading race condition issues.
  */
-async function getBase64Image(url: string): Promise<string> {
+async function getBase64Image(url: string, timeoutMs: number = 2000): Promise<string> {
   if (!url || url.startsWith('data:')) return url;
   try {
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) return url;
     const blob = await res.blob();
     return new Promise((resolve) => {
@@ -950,38 +953,10 @@ export async function printHtml(html: string) {
     #print-receipt-section { display: none; }
   `;
 
-  // 4. Wait for all images to load
-  const images = Array.from(printSec.querySelectorAll('img'));
-  let loadedCount = 0;
-  let printTriggered = false;
-
-  const triggerPrint = () => {
-    if (printTriggered) return;
-    printTriggered = true;
+  // 4. Trigger print cleanly and fast
+  setTimeout(() => {
     window.print();
-  };
-
-  const onImageLoaded = () => {
-    loadedCount++;
-    if (loadedCount >= images.length) {
-      setTimeout(triggerPrint, 500);
-    }
-  };
-
-  if (images.length === 0) {
-    setTimeout(triggerPrint, 500);
-  } else {
-    images.forEach((img) => {
-      if (img.complete && img.naturalWidth > 0) {
-        onImageLoaded();
-      } else {
-        img.addEventListener('load', onImageLoaded);
-        img.addEventListener('error', onImageLoaded);
-      }
-    });
-    // Safety timeout
-    setTimeout(triggerPrint, 6000);
-  }
+  }, 100);
 
   // 5. Cleanup after print
   const restoreApp = () => {
@@ -991,7 +966,7 @@ export async function printHtml(html: string) {
     }
   };
   window.addEventListener('afterprint', restoreApp, { once: true });
-  setTimeout(restoreApp, 20000);
+  setTimeout(restoreApp, 5000);
 }
 
 /**
@@ -1137,11 +1112,31 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
   };
 
   const element = document.createElement('div');
+  element.style.position = 'absolute';
+  element.style.left = '-9999px';
+  element.style.top = '0';
+  element.style.width = '800px';
+  element.style.backgroundColor = '#ffffff';
   element.innerHTML = htmlFinal;
+  document.body.appendChild(element);
 
-  // Convert images to base64 before passing to html2pdf
-  await convertAllImagesToBase64(element);
+  try {
+    // Convert images to base64 before passing to html2pdf
+    await convertAllImagesToBase64(element);
 
-  // @ts-ignore
-  html2pdf().from(element).set(opt).save();
+    // @ts-ignore
+    if (typeof html2pdf !== 'undefined') {
+      // @ts-ignore
+      await html2pdf().from(element).set(opt).save();
+    } else {
+      const html2pdfModule = (await import('html2pdf.js')).default;
+      await html2pdfModule().from(element).set(opt).save();
+    }
+  } catch (err) {
+    console.error('Error al generar o descargar PDF:', err);
+  } finally {
+    if (document.body.contains(element)) {
+      document.body.removeChild(element);
+    }
+  }
 }

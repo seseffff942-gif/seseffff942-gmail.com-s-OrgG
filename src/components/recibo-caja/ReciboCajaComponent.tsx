@@ -94,13 +94,13 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
 
   // Cálculos dinámicos
   const totalPagar = recibo.items.reduce(
-    (sum, item) => sum + (item.cantidad * item.precioUnitario), 
+    (sum, item) => sum + ((Number(item.cantidad) || 0) * (Number(item.precioUnitario) || 0)), 
     0
   );
 
-  const cambioEfectivo = Math.max(0, recibo.efectivoRecibido - totalPagar);
-  const esSaldoFaltante = recibo.efectivoRecibido < totalPagar;
-  const saldoFaltante = totalPagar - recibo.efectivoRecibido;
+  const cambioEfectivo = Math.max(0, (Number(recibo.efectivoRecibido) || 0) - totalPagar);
+  const esSaldoFaltante = (Number(recibo.efectivoRecibido) || 0) < totalPagar;
+  const saldoFaltante = totalPagar - (Number(recibo.efectivoRecibido) || 0);
 
   // Handlers para actualizar datos
   const updateField = (field: keyof DatosRecibo, value: any) => {
@@ -357,8 +357,9 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
                     <input
                       type="number"
                       min="1"
-                      value={item.cantidad}
-                      onChange={(e) => handleUpdateItem(item.id, 'cantidad', parseFloat(e.target.value) || 0)}
+                      value={item.cantidad || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => handleUpdateItem(item.id, 'cantidad', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                       className="w-14 px-2 py-1 border border-slate-300 rounded text-center text-xs font-bold bg-white"
                       title="Cantidad"
                     />
@@ -374,14 +375,15 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
                     <input
                       type="number"
                       step="0.5"
-                      value={item.precioUnitario}
-                      onChange={(e) => handleUpdateItem(item.id, 'precioUnitario', parseFloat(e.target.value) || 0)}
+                      value={item.precioUnitario || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => handleUpdateItem(item.id, 'precioUnitario', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                       className="w-20 px-2 py-1 border border-slate-300 rounded text-right text-xs font-bold bg-white"
                       title="Precio Unitario"
                     />
 
                     <span className="w-20 text-right text-xs font-extrabold text-[#0c1b47]">
-                      Q{(item.cantidad * item.precioUnitario).toFixed(2)}
+                      Q{((Number(item.cantidad) || 0) * (Number(item.precioUnitario) || 0)).toFixed(2)}
                     </span>
 
                     <button
@@ -422,8 +424,9 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
                     <input
                       type="number"
                       step="5"
-                      value={recibo.efectivoRecibido}
-                      onChange={(e) => updateField('efectivoRecibido', parseFloat(e.target.value) || 0)}
+                      value={recibo.efectivoRecibido || ''}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateField('efectivoRecibido', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                       className="w-full pl-6 pr-1 bg-transparent text-emerald-400 font-black text-sm border-none focus:outline-none"
                     />
                   </div>

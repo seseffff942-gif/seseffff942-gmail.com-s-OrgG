@@ -933,8 +933,9 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                           type="number"
                           step="0.01"
                           min="0"
-                          value={fac.valor}
-                          onChange={e => handleUpdateFactura(idx, 'valor', parseFloat(e.target.value) || 0)}
+                          value={fac.valor || ''}
+                          onFocus={e => e.target.select()}
+                          onChange={e => handleUpdateFactura(idx, 'valor', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                           className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-right text-xs font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400"
                         />
                       </div>
@@ -995,8 +996,9 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                           <input
                             type="number"
                             step="0.5"
-                            value={ch.valor}
-                            onChange={e => handleUpdateCheque(idx, 'valor', parseFloat(e.target.value) || 0)}
+                            value={ch.valor || ''}
+                            onFocus={e => e.target.select()}
+                            onChange={e => handleUpdateCheque(idx, 'valor', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                             className="w-full px-2 py-1 border border-slate-300 rounded text-right text-xs font-bold bg-white text-slate-900"
                           />
                         </div>

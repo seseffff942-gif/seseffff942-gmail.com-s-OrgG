@@ -1664,10 +1664,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                 <span className="text-[11px] font-bold text-slate-500">Q</span>
                                 <input 
                                   type="number" 
-                                  value={item.overridePrice ?? item.product.price}
+                                  value={item.overridePrice !== undefined ? item.overridePrice : item.product.price}
+                                  onFocus={(e) => e.target.select()}
                                   onChange={(e) => {
-                                      const newPrice = parseFloat(e.target.value);
-                                      setCart(prev => prev.map((it, i) => i === idx ? { ...it, overridePrice: newPrice >= 0 ? newPrice : 0 } : it));
+                                      const val = e.target.value;
+                                      if (val === '') {
+                                          setCart(prev => prev.map((it, i) => i === idx ? { ...it, overridePrice: undefined } : it));
+                                      } else {
+                                          const newPrice = parseFloat(val);
+                                          setCart(prev => prev.map((it, i) => i === idx ? { ...it, overridePrice: isNaN(newPrice) ? 0 : Math.max(0, newPrice) } : it));
+                                      }
                                   }}
                                   className={cn(
                                     "w-20 px-2 py-1 text-xs font-black text-slate-800 bg-slate-50 border rounded-lg focus:bg-white focus:ring-1 focus:ring-[#0b4d2c] outline-none shadow-sm",
