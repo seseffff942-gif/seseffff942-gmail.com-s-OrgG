@@ -2845,7 +2845,7 @@ if (!process.env.VERCEL) {
     
     // Compute next folio and lock it in notes so backdating never shifts folios
     const currentFolioMap = await getFolioMap();
-    const existingFolioValues = Object.values(currentFolioMap);
+    const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
     const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
     let assignedFolio = maxFolio > 0 ? maxFolio + 1 : 1;
     if (assignedFolio === 812) assignedFolio = 813;

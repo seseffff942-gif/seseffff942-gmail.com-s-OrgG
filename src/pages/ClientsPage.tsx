@@ -5,7 +5,7 @@ import {
   Search, Plus, User as UserIcon, FileText, ChevronRight, 
   CornerDownRight, Users, Edit2, X, Building2, Phone, 
   MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
-  Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle
+  Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../utils';
@@ -37,10 +37,25 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     isBlocked: false
   });
   const [adding, setAdding] = useState(false);
+  const [generatingCodes, setGeneratingCodes] = useState(false);
   // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
   const [consultandoNit, setConsultandoNit] = useState(false);
   const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+
+  const handleGenerateAllCodes = async () => {
+    if (!confirm('¿Deseas asignar automáticamente un código de 4 dígitos a todos los clientes que no tengan uno?')) return;
+    setGeneratingCodes(true);
+    try {
+      const result = await api.generateClientCodes();
+      alert(`¡Listo! Se asignaron códigos a ${result.updatedCount || 0} clientes.`);
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al generar códigos: ${err.message || 'Intente de nuevo'}`);
+    } finally {
+      setGeneratingCodes(false);
+    }
+  };
 
   const generateRandomCode = () => {
     return Math.floor(1000 + Math.random() * 9000).toString();
@@ -321,13 +336,25 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Directorio Premium de Clientes</h1>
           <p className="text-sm text-slate-500 font-medium">Información comercial, asignación de asesores y gestión de facturación en tiempo real.</p>
         </div>
-        <button 
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-md shadow-teal-600/10"
-        >
-          <Plus size={18} />
-          <span>Nuevo Cliente</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleGenerateAllCodes}
+            disabled={generatingCodes}
+            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-md text-xs disabled:opacity-50 cursor-pointer"
+            title="Asignar código de 4 dígitos a todos los clientes sin código"
+          >
+            <Hash size={16} />
+            <span>{generatingCodes ? 'Generando...' : 'Generar Códigos a Todos'}</span>
+          </button>
+
+          <button 
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-md shadow-teal-600/10 text-xs cursor-pointer"
+          >
+            <Plus size={18} />
+            <span>Nuevo Cliente</span>
+          </button>
+        </div>
       </div>
 
       {/* PORTFOLIO ACCUMULATED METRICS */}

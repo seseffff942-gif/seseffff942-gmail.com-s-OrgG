@@ -251,6 +251,16 @@ export const api = {
     return data.client;
   },
 
+  generateClientCodes: async (): Promise<{ success: boolean; updatedCount: number }> => {
+    const res = await fetchWithAuth('/api/clients/generate-codes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Error al generar códigos');
+    return data;
+  },
+
   getMe: async (): Promise<User | null> => {
     const token = localStorage.getItem('app_token');
     if (!token) return null;
