@@ -12,6 +12,7 @@ import {
   X
 } from 'lucide-react';
 import './ReciboCajaPrint.css';
+import { downloadHtmlAsPdf, printHtml } from '../../utils';
 
 export interface ItemRecibo {
   id: string;
@@ -144,46 +145,28 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
     });
   };
 
-  const handleImprimir = () => {
-    setTimeout(() => {
-      try {
-        window.print();
-      } catch (e) {
-        console.warn('Print error:', e);
-      }
-    }, 50);
+  const handleImprimir = async () => {
+    if (!ticketRef.current) return;
+    try {
+      await printHtml(ticketRef.current.outerHTML);
+    } catch (e) {
+      console.warn('Print error:', e);
+    }
   };
 
   const handleDescargarPDF = async () => {
     if (!ticketRef.current || descargando) return;
     setDescargando(true);
-    setTimeout(async () => {
-      try {
-        const html2pdfModule = (await import('html2pdf.js')).default;
-        const element = ticketRef.current;
-        if (!element) return;
-
-        const opt = {
-          margin: [2, 2, 2, 2] as [number, number, number, number],
-          filename: `Recibo_Caja_${recibo.folio.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-          image: { type: 'jpeg' as const, quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
-          jsPDF: { unit: 'mm', format: [80, Math.max(160, Math.ceil(element.offsetHeight * 0.264583 + 20))] as [number, number], orientation: 'portrait' as const }
-        };
-
-        const pdfPromise = html2pdfModule().set(opt).from(element).save();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('PDF generation timeout')), 5000)
-        );
-
-        await Promise.race([pdfPromise, timeoutPromise]);
-      } catch (err) {
-        console.error('Error al generar PDF:', err);
-        handleImprimir();
-      } finally {
-        setDescargando(false);
-      }
-    }, 50);
+    try {
+      await downloadHtmlAsPdf(
+        ticketRef.current.outerHTML, 
+        `Recibo_Caja_${recibo.folio.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+      );
+    } catch (err) {
+      console.error('Error al generar PDF:', err);
+    } finally {
+      setDescargando(false);
+    }
   };
 
   return (

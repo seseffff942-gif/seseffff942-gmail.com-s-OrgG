@@ -20,9 +20,14 @@ import {
   Check,
   ChevronDown,
   Loader2,
-  Hash
+  Hash,
+  Upload, 
+  FileCheck, 
+  CheckSquare, 
+  Building2 
 } from 'lucide-react';
 import './ReciboCajaPrint.css';
+import { downloadHtmlAsPdf, printHtml, formatMoney } from '../../utils';
 import { ReciboCajaDB, FacturaDetalle, ChequeDetalle } from './types';
 import { api } from '../../api';
 import { Client } from '../../types';
@@ -98,6 +103,7 @@ export function numeroALetrasGuatemala(monto: number): string {
 export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobile }) => {
   const [recibos, setRecibos] = useState<ReciboCajaDB[]>([]);
   const [dbClients, setDbClients] = useState<Client[]>([]);
+  const [allInvoices, setAllInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filtroFecha, setFiltroFecha] = useState<string>('todos');
@@ -147,19 +153,25 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   ]);
   const [formCheques, setFormCheques] = useState<ChequeDetalle[]>([]);
   const [formEfectivoTotal, setFormEfectivoTotal] = useState<number>(0);
+  const [formDepositoTotal, setFormDepositoTotal] = useState<number>(0);
+  const [formBoletaRef, setFormBoletaRef] = useState<string>('');
+  const [boletaFile, setBoletaFile] = useState<File | null>(null);
+  const [boletaPreview, setBoletaPreview] = useState<string | null>(null);
   const [formObservaciones, setFormObservaciones] = useState<string>('');
   const [formCajeroNombre, setFormCajeroNombre] = useState<string>(user?.name || 'Juan Carlos Pérez');
 
-  // Cargar clientes y recibos desde Supabase
+  // Cargar clientes, recibos y facturas desde la API
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      const [recibosData, clientesData] = await Promise.all([
+      const [recibosData, clientesData, invoicesData] = await Promise.all([
         api.getRecibosCaja().catch(() => []),
-        api.getClients().catch(() => [])
+        api.getClients().catch(() => []),
+        api.getInvoices().catch(() => [])
       ]);
       setRecibos(Array.isArray(recibosData) ? recibosData : []);
       setDbClients(Array.isArray(clientesData) ? clientesData : []);
+      setAllInvoices(Array.isArray(invoicesData) ? invoicesData : []);
     } catch (err) {
       console.error('Error al cargar datos:', err);
     } finally {
@@ -195,11 +207,9 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   // Clientes filtrados para el Dropdown Flotante con Debounce
   const filteredClientsForTypeahead = useMemo(() => {
     if (!debouncedClientQuery.trim()) {
-      // Sin búsqueda: mostrar todos los clientes (hasta 30) para ver opciones iniciales
       return dbClients.slice(0, 30);
     }
     const q = debouncedClientQuery.toLowerCase();
-    // Con búsqueda: mostrar todas las coincidencias sin límite
     return dbClients.filter(c =>
       (c.name || '').toLowerCase().includes(q) ||
       (c.companyName || '').toLowerCase().includes(q) ||
@@ -207,6 +217,22 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       (c.clientCode || '').toLowerCase().includes(q)
     );
   }, [dbClients, debouncedClientQuery]);
+
+  // Búsqueda de Ventas/Facturas pendientes para el cliente seleccionado
+  const clientPendingInvoices = useMemo(() => {
+    const qName = (formClienteNombre || clientSearchQuery).trim().toLowerCase();
+    if (!qName) return [];
+    const qCode = (formClienteCodigo || '').trim().toLowerCase();
+
+    return allInvoices.filter(inv => {
+      const invClientName = (inv.client || '').trim().toLowerCase();
+      const invClientCode = (inv.clientCode || '').trim().toLowerCase();
+      const matchClient = invClientName.includes(qName) || qName.includes(invClientName) || (qCode && invClientCode === qCode);
+      const isNotCancelled = inv.status !== 'cancelled' && inv.status !== 'rejected';
+      const pendingBalance = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+      return matchClient && isNotCancelled && pendingBalance > 0;
+    });
+  }, [allInvoices, formClienteNombre, clientSearchQuery, formClienteCodigo]);
 
   // Seleccionar un cliente del buscador visual
   const handleSelectClient = (client: Client) => {
@@ -217,17 +243,39 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
     setShowClientDropdown(false);
   };
 
-  // Totales calculados
-  const totalFacturas = formFacturas.reduce((sum, f) => sum + (Number(f.valor) || 0), 0);
-  const totalCheques = formCheques.reduce((sum, c) => sum + (Number(c.valor) || 0), 0);
-  const totalReciboCalculado = totalFacturas + totalCheques + (Number(formEfectivoTotal) || 0);
+  // Totales y cálculos contables
+  // 1. Valor Deuda Total de las Facturas / Folios seleccionados
+  const totalDeudaFolio = useMemo(() => {
+    return formFacturas.reduce((sum, f) => sum + (Number(f.valor) || 0), 0);
+  }, [formFacturas]);
 
-  // Auto-generación de Cantidad en letras
+  // 2. Suma de pagos/abonos ingresados (Cheques + Depósito + Efectivo)
+  const totalCheques = useMemo(() => {
+    return formCheques.reduce((sum, c) => sum + (Number(c.valor) || 0), 0);
+  }, [formCheques]);
+
+  const totalAbonado = useMemo(() => {
+    return (Number(formEfectivoTotal) || 0) + totalCheques + (Number(formDepositoTotal) || 0);
+  }, [formEfectivoTotal, totalCheques, formDepositoTotal]);
+
+  // 3. Saldo Restante del Folio (Se resta el pago abonado del total debido del folio)
+  const saldoRestanteFolio = useMemo(() => {
+    return Math.max(0, totalDeudaFolio - totalAbonado);
+  }, [totalDeudaFolio, totalAbonado]);
+
+  // 4. Cambio / Excedente si se abonó de más
+  const cambioEfectivo = useMemo(() => {
+    return Math.max(0, totalAbonado - totalDeudaFolio);
+  }, [totalAbonado, totalDeudaFolio]);
+
+  const totalReciboCalculado = totalAbonado;
+
+  // Auto-generación de Cantidad en letras basada en lo abonado
   useEffect(() => {
-    if (totalReciboCalculado > 0) {
-      setFormCantidadLetras(numeroALetrasGuatemala(totalReciboCalculado));
+    if (totalAbonado > 0) {
+      setFormCantidadLetras(numeroALetrasGuatemala(totalAbonado));
     }
-  }, [totalReciboCalculado]);
+  }, [totalAbonado]);
 
   // Handlers Facturas
   const handleAddFactura = () => {
@@ -272,11 +320,15 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
     setFormFacturas([{ no_factura: 'F-001', fecha_factura: new Date().toISOString().split('T')[0], valor: 0 }]);
     setFormCheques([]);
     setFormEfectivoTotal(0);
+    setFormDepositoTotal(0);
+    setFormBoletaRef('');
+    setBoletaFile(null);
+    setBoletaPreview(null);
     setFormObservaciones('');
     setFormCajeroNombre(user?.name || 'CAJERO RECEPTOR');
   };
 
-  // Guardar en Supabase
+  // Guardar Recibo de Caja
   const handleGuardarRecibo = async (e: React.FormEvent) => {
     e.preventDefault();
     const clienteNombreFinal = formClienteNombre.trim() || clientSearchQuery.trim();
@@ -284,30 +336,31 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       alert('Por favor, ingresa o selecciona un cliente.');
       return;
     }
-    if (totalReciboCalculado <= 0) {
-      alert('El recibo debe contener al menos un valor de factura, cheque o efectivo.');
+    if (totalAbonado <= 0 && totalDeudaFolio <= 0) {
+      alert('El recibo debe contener al menos el valor del folio o un abono (efectivo, cheque o depósito).');
       return;
     }
 
     setSaving(true);
     try {
-      // Construir la fecha del recibo desde el campo del formulario
       const fechaFormatted = formFechaRecibo
         ? new Date(formFechaRecibo + 'T12:00:00').toLocaleDateString('es-GT', {
             day: '2-digit', month: '2-digit', year: 'numeric'
           })
         : new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
+      const obsDetallada = `DEUDA FOLIO: Q${totalDeudaFolio.toFixed(2)} | ABONADO: Q${totalAbonado.toFixed(2)} | RESTANTE: Q${saldoRestanteFolio.toFixed(2)}${formBoletaRef ? ` | BOLETA: ${formBoletaRef}` : ''}${formObservaciones ? ` | ${formObservaciones}` : ''}`;
+
       const nuevoRecibo: Partial<ReciboCajaDB> = {
         cliente_nombre: clienteNombreFinal,
         cliente_nit: formClienteNit || 'CF',
         cliente_codigo: formClienteCodigo || '',
-        cantidad_letras: formCantidadLetras || numeroALetrasGuatemala(totalReciboCalculado),
+        cantidad_letras: formCantidadLetras || numeroALetrasGuatemala(totalAbonado),
         facturas: formFacturas.filter(f => f.valor > 0 || f.no_factura.trim() !== ''),
         cheques: formCheques.filter(c => c.valor > 0 || c.no_cheque.trim() !== ''),
         efectivo_total: Number(formEfectivoTotal) || 0,
-        monto_total: totalReciboCalculado,
-        observaciones: formObservaciones,
+        monto_total: totalAbonado,
+        observaciones: obsDetallada,
         cajero_nombre: formCajeroNombre || user?.name || 'CAJERO RECEPTOR',
         fecha: fechaFormatted
       };
@@ -380,163 +433,35 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
     return { count: recMes.length, monto: montoMes };
   }, [recibos]);
 
-  // SI EL USUARIO NO ES SESEFFFF942@GMAIL.COM, MOSTRAR MENSAJE AMIGABLE DE "ESTAMOS TRABAJANDO EN ESTA SECCIÓN"
-  if ((user?.email || '').toLowerCase().trim() !== 'seseffff942@gmail.com') {
-    return (
-      <div className="min-h-[75vh] flex flex-col items-center justify-center p-6 bg-slate-50 font-sans">
-        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200/80 shadow-xl text-center space-y-6 relative overflow-hidden">
-          <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-          
-          <div className="relative inline-flex items-center justify-center">
-            <div className="w-20 h-20 bg-amber-50 border border-amber-200 text-amber-600 rounded-3xl flex items-center justify-center shadow-inner">
-              <RefreshCw className="w-10 h-10 animate-spin text-amber-600" style={{ animationDuration: '8s' }} />
-            </div>
-            <div className="absolute -bottom-1 -right-1 bg-teal-600 text-white p-1.5 rounded-full border-2 border-white shadow-sm">
-              <Receipt className="w-4 h-4" />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <span className="inline-block text-[11px] font-black uppercase tracking-widest text-amber-700 bg-amber-100/90 px-3.5 py-1 rounded-full border border-amber-200/70">
-              🚧 Módulo en Desarrollo
-            </span>
-            <h2 className="text-2xl font-black text-slate-800 tracking-tight">
-              Estamos trabajando en esta sección
-            </h2>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              El módulo contable de <strong>Recibos de Caja</strong> se encuentra actualmente en fase de construcción y optimización. Muy pronto estará disponible para todo el equipo.
-            </p>
-          </div>
-
-          <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs text-slate-500 flex items-center gap-3">
-            <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-2xs text-amber-600 shrink-0">
-              <Receipt className="w-4 h-4" />
-            </div>
-            <span className="text-left font-medium leading-normal">
-              Si necesitas emitir o verificar un recibo de caja urgente, por favor comunícate con la administración principal.
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // SOLUCIÓN ASÍNCRONA / IFRAME PARA EVITAR CONGELAMIENTO EN IMPRESIÓN
-  const handleImprimirSeguro = () => {
+  // Impresión nativa limpia sin congelamiento
+  const handleImprimirSeguro = async () => {
     if (!ticketRef.current || isPrinting) return;
     setIsPrinting(true);
-
-    setTimeout(() => {
-      try {
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0px';
-        iframe.style.height = '0px';
-        iframe.style.border = '0px';
-        iframe.style.visibility = 'hidden';
-        document.body.appendChild(iframe);
-
-        const doc = iframe.contentWindow?.document;
-        if (!doc) {
-          setIsPrinting(false);
-          return;
-        }
-
-        const ticketHTML = ticketRef.current?.outerHTML || '';
-
-        doc.open();
-        doc.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Imprimir Recibo - Agricovet</title>
-              <style>
-                @page { size: 80mm auto; margin: 0mm; }
-                body { margin: 0; padding: 2mm; font-family: 'Courier New', Courier, monospace; background: #ffffff; color: #000000; }
-                .recibo-ticket-container { width: 72mm; margin: 0 auto; box-shadow: none; border: none; }
-                .recibo-header { text-align: center; border-bottom: 1.5px dashed #000; padding-bottom: 6px; margin-bottom: 8px; }
-                .recibo-company-title { font-weight: 900; font-size: 13px; text-transform: uppercase; }
-                .recibo-company-sub { font-size: 9px; margin-top: 2px; font-weight: 700; }
-                .recibo-tag { display: inline-block; border: 1px solid #000; font-size: 9px; font-weight: 800; padding: 1px 6px; margin-top: 4px; }
-                .recibo-meta-box { display: flex; justify-content: space-between; border: 1px solid #000; padding: 4px; margin-bottom: 8px; font-size: 10px; }
-                .recibo-folio-num { color: #dc2626; font-weight: 900; font-size: 12px; }
-                .recibo-section-grid { border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px; font-size: 10.5px; }
-                .recibo-field-row { display: flex; justify-content: space-between; }
-                .recibo-field-label { font-weight: 700; }
-                .recibo-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px; }
-                .recibo-table th { border-bottom: 1.5px solid #000; font-size: 8.5px; text-align: left; padding: 3px 2px; }
-                .recibo-table td { padding: 4px 2px; border-bottom: 1px solid #e2e8f0; }
-                .recibo-cash-section { border: 1.5px solid #000; padding: 6px; margin: 8px 0; }
-                .recibo-cash-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
-                .recibo-signature-space { margin: 22px auto 6px auto; width: 75%; border-bottom: 1px solid #000; }
-                .recibo-footer { text-align: center; margin-top: 8px; border-top: 1px dashed #000; padding-top: 6px; font-size: 9px; }
-              </style>
-            </head>
-            <body>
-              ${ticketHTML}
-            </body>
-          </html>
-        `);
-        doc.close();
-
-        setTimeout(() => {
-          try {
-            iframe.contentWindow?.focus();
-            iframe.contentWindow?.print();
-          } catch (e) {
-            console.warn('Print iframe execution error:', e);
-          } finally {
-            setTimeout(() => {
-              if (iframe.parentNode) {
-                iframe.parentNode.removeChild(iframe);
-              }
-              setIsPrinting(false);
-            }, 500);
-          }
-        }, 150);
-
-      } catch (err) {
-        console.error('Error durante la impresión iframe:', err);
-        setIsPrinting(false);
-      }
-    }, 50);
+    try {
+      await printHtml(ticketRef.current.outerHTML);
+    } catch (err) {
+      console.error('Error durante la impresión:', err);
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   // Descargar PDF Térmico sin congelar la pantalla
   const handleDescargarPDF = async () => {
-    if (!ticketRef.current || !selectedReciboForPrint || descargandoPDF) return;
+    if (!ticketRef.current || descargandoPDF) return;
     setDescargandoPDF(true);
-
-    setTimeout(async () => {
-      try {
-        const html2pdfModule = (await import('html2pdf.js')).default;
-        const element = ticketRef.current;
-        if (!element) return;
-
-        const opt = {
-          margin: [2, 2, 2, 2] as [number, number, number, number],
-          filename: `Recibo_Agricovet_${selectedReciboForPrint.folio.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-          image: { type: 'jpeg' as const, quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
-          jsPDF: { unit: 'mm', format: [80, Math.max(160, Math.ceil(element.offsetHeight * 0.264583 + 20))] as [number, number], orientation: 'portrait' as const }
-        };
-
-        const pdfPromise = html2pdfModule().set(opt).from(element).save();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Generación de PDF agotó el tiempo de espera')), 5000)
-        );
-
-        await Promise.race([pdfPromise, timeoutPromise]);
-      } catch (err) {
-        console.error('Error al generar PDF:', err);
-        handleImprimirSeguro();
-      } finally {
-        setDescargandoPDF(false);
-      }
-    }, 50);
+    try {
+      const folioName = selectedReciboForPrint?.folio || 'Recibo';
+      await downloadHtmlAsPdf(
+        ticketRef.current.outerHTML, 
+        `Recibo_Agricovet_${folioName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+      );
+    } catch (err) {
+      console.error('Error al generar PDF:', err);
+      handleImprimirSeguro();
+    } finally {
+      setDescargandoPDF(false);
+    }
   };
 
   return (
@@ -792,7 +717,6 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                         value={clientSearchQuery}
                         onChange={e => {
                           const val = e.target.value;
-                          // Al escribir limpiamos la selección previa
                           setFormClienteNombre('');
                           setClientSearchQuery(val);
                           setShowClientDropdown(true);
@@ -808,7 +732,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       )}
                     </div>
 
-                    {/* DROPDOWN CON RESULTADOS DE BÚSQL */}
+                    {/* DROPDOWN CON RESULTADOS DE BÚSQUEDA */}
                     {showClientDropdown && filteredClientsForTypeahead.length > 0 && (
                       <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto divide-y divide-slate-100">
                         {filteredClientsForTypeahead.map(client => (
@@ -875,7 +799,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                       Cantidad en Letras
-                      {totalReciboCalculado > 0 && (
+                      {totalAbonado > 0 && (
                         <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200">auto</span>
                       )}
                     </label>
@@ -883,18 +807,62 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       type="text"
                       value={formCantidadLetras}
                       onChange={e => setFormCantidadLetras(e.target.value)}
-                      placeholder="Se genera automáticamente al ingresar montos..."
+                      placeholder="Se genera automáticamente al ingresar pagos..."
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold bg-slate-50 focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
                 </div>
+
+                {/* TARJETA DE VENTAS / FACTURAS PENDIENTES DEL CLIENTE SELECCIONADO */}
+                {clientPendingInvoices.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200/90 p-3 rounded-2xl space-y-2 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span>📋</span> Ventas / Folios Pendientes de {formClienteNombre} ({clientPendingInvoices.length})
+                      </span>
+                      <span className="text-[10px] bg-amber-200/80 text-amber-900 px-2.5 py-0.5 rounded-full font-bold">
+                        Haz clic para abonar
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                      {clientPendingInvoices.map((inv: any) => {
+                        const folioDisplay = `Folio #${inv.folio || inv.id?.slice(0, 8)}`;
+                        const saldo = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+                        return (
+                          <div 
+                            key={inv.id}
+                            className="p-2 bg-white border border-amber-200 rounded-xl flex items-center justify-between shadow-2xs hover:border-amber-400 transition"
+                          >
+                            <div>
+                              <span className="text-xs font-black text-slate-800 block">{folioDisplay}</span>
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {inv.date || 'Sin fecha'} • Deuda: Q{inv.totalAmount?.toFixed(2)}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormFacturas([
+                                  { no_factura: folioDisplay, fecha_factura: inv.date || new Date().toISOString().split('T')[0], valor: saldo }
+                                ]);
+                              }}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition shrink-0"
+                            >
+                              Cargar Folio (Q{saldo.toFixed(2)})
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* BLOQUE 2: FACTURAS */}
+              {/* BLOQUE 2: FACTURAS / FOLIOS */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center border-b pb-1">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    2. En Pago de lo Siguiente (Facturas)
+                    2. En Pago de lo Siguiente (Factura / Folio a Pagar)
                   </h3>
                   <button
                     type="button"
@@ -902,19 +870,20 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                     className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg border border-slate-200 flex items-center gap-1 transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    Agregar Factura
+                    Agregar Folio
                   </button>
                 </div>
 
                 <div className="space-y-2">
                   {formFacturas.map((fac, idx) => (
                     <div key={idx} className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 transition">
-                      <div className="w-32">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">No. Factura</label>
+                      <div className="w-36">
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">No. Factura / Folio</label>
                         <input
                           type="text"
                           value={fac.no_factura}
                           onChange={e => handleUpdateFactura(idx, 'no_factura', e.target.value)}
+                          placeholder="Ej. Folio 803"
                           className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:outline-none focus:border-emerald-400"
                         />
                       </div>
@@ -928,7 +897,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                         />
                       </div>
                       <div className="flex-1 min-w-[100px]">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">Valor (Q)</label>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">Valor Deuda (Q)</label>
                         <input
                           type="number"
                           step="0.01"
@@ -951,55 +920,62 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 </div>
               </div>
 
-              {/* BLOQUE 3: CHEQUES */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center border-b pb-1">
+              {/* BLOQUE 3: FORMAS DE PAGO / ABONOS */}
+              <div className="space-y-3 pt-2">
+                <div className="border-b pb-1">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    3. Pago con Cheques (Por Q.)
+                    3. Formas de Pago / Abonos (Cheques, Depósitos, Efectivo)
                   </h3>
-                  <button
-                    type="button"
-                    onClick={handleAddCheque}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg border border-slate-200 flex items-center gap-1 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Agregar Cheque
-                  </button>
                 </div>
 
-                <div className="space-y-2">
+                {/* CHEQUES */}
+                <div className="space-y-2 bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <CreditCard className="w-4 h-4 text-slate-500" /> Cheques
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAddCheque}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 flex items-center gap-1 transition"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Agregar Cheque
+                    </button>
+                  </div>
+
                   {formCheques.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic py-1">Sin cheques agregados (opcional).</p>
+                    <p className="text-[11px] text-slate-400 italic">Sin cheques agregados.</p>
                   ) : (
                     formCheques.map((ch, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div className="w-32">
-                          <label className="block text-[10px] text-slate-400 font-bold uppercase">No. Cheque</label>
+                      <div key={idx} className="flex items-center gap-2 bg-white p-2 border border-slate-200 rounded-lg">
+                        <div className="w-28">
+                          <label className="block text-[9px] text-slate-400 font-bold uppercase">No. Cheque</label>
                           <input
                             type="text"
                             value={ch.no_cheque}
                             onChange={e => handleUpdateCheque(idx, 'no_cheque', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs font-bold bg-white"
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs font-bold"
                           />
                         </div>
-                        <div className="flex-1 min-w-[140px]">
-                          <label className="block text-[10px] text-slate-400 font-bold uppercase">Banco</label>
+                        <div className="flex-1 min-w-[120px]">
+                          <label className="block text-[9px] text-slate-400 font-bold uppercase">Banco</label>
                           <input
                             type="text"
                             value={ch.banco}
                             onChange={e => handleUpdateCheque(idx, 'banco', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs bg-white"
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
                           />
                         </div>
-                        <div className="w-32">
-                          <label className="block text-[10px] text-slate-400 font-bold uppercase">Valor (Q)</label>
+                        <div className="w-28">
+                          <label className="block text-[9px] text-slate-400 font-bold uppercase">Valor (Q)</label>
                           <input
                             type="number"
-                            step="0.5"
+                            step="0.01"
                             value={ch.valor || ''}
                             onFocus={e => e.target.select()}
                             onChange={e => handleUpdateCheque(idx, 'valor', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-right text-xs font-bold bg-white text-slate-900"
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-right text-xs font-bold text-slate-900"
                           />
                         </div>
                         <button
@@ -1007,47 +983,130 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                           onClick={() => handleRemoveCheque(idx)}
                           className="p-1 text-slate-400 hover:text-rose-600 rounded mt-3"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ))
                   )}
                 </div>
+
+                {/* DEPÓSITO / BOLETA DE PAGO */}
+                <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-slate-500" /> Depósito o Transferencia Bancaria (Boleta)
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold uppercase mb-0.5">Monto Depósito (Q)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formDepositoTotal === 0 ? '' : formDepositoTotal}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          const raw = e.target.value;
+                          setFormDepositoTotal(raw === '' ? 0 : (parseFloat(raw) || 0));
+                        }}
+                        placeholder="0.00"
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-right text-xs font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold uppercase mb-0.5">No. Boleta / Transacción</label>
+                      <input
+                        type="text"
+                        value={formBoletaRef}
+                        onChange={e => setFormBoletaRef(e.target.value)}
+                        placeholder="Ej. B-984210"
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold uppercase mb-0.5">Subir Comprobante / Boleta</label>
+                      <label className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer hover:bg-slate-100 transition">
+                        <span className="truncate flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          {boletaFile ? boletaFile.name : 'Adjuntar boleta'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setBoletaFile(file);
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setBoletaPreview(reader.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* EFECTIVO */}
+                <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <DollarSign className="w-4 h-4 text-emerald-600" /> Efectivo Recibido (Q)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formEfectivoTotal === 0 ? '' : formEfectivoTotal}
+                    onFocus={e => e.target.select()}
+                    onChange={e => {
+                      const raw = e.target.value;
+                      setFormEfectivoTotal(raw === '' ? 0 : (parseFloat(raw) || 0));
+                    }}
+                    placeholder="0.00"
+                    className="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-base font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-500 transition"
+                  />
+                </div>
               </div>
 
-              {/* BLOQUE 4: EFECTIVO Y RESUMEN LIMPIO */}
-              <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                  4. Resumen y Efectivo Total
+              {/* BLOQUE 4: RESUMEN CONTABLE DE FOLIO Y ABONOS */}
+              <div className="bg-slate-900 text-white p-4 rounded-xl space-y-3 shadow-md">
+                <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-2">
+                  4. Resumen del Folio y Abono Total
                 </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Efectivo (Q)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formEfectivoTotal === 0 ? '' : formEfectivoTotal}
-                      onChange={e => {
-                        const raw = e.target.value;
-                        setFormEfectivoTotal(raw === '' ? 0 : (parseFloat(raw) || 0));
-                      }}
-                      placeholder="0.00"
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-base font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400 transition"
-                    />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                  <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Deuda Total Folio</span>
+                    <p className="text-base font-black text-amber-400 mt-0.5">Q{totalDeudaFolio.toFixed(2)}</p>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold">Total Cheques</span>
-                    <p className="text-base font-bold text-slate-800 mt-0.5">Q{totalCheques.toFixed(2)}</p>
+                  <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Cheques + Depósito</span>
+                    <p className="text-base font-bold text-teal-400 mt-0.5">Q{(totalCheques + (Number(formDepositoTotal) || 0)).toFixed(2)}</p>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-slate-300">
-                    <span className="text-[10px] text-slate-500 uppercase font-bold">TOTAL RECIBO</span>
-                    <p className="text-lg font-black text-slate-900 mt-0.5">Q{totalReciboCalculado.toFixed(2)}</p>
+                  <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">TOTAL ABONADO</span>
+                    <p className="text-lg font-black text-white mt-0.5">Q{totalAbonado.toFixed(2)}</p>
+                  </div>
+
+                  <div className={`p-2.5 rounded-xl border ${
+                    saldoRestanteFolio > 0 
+                      ? 'bg-rose-950/80 border-rose-700 text-rose-300' 
+                      : 'bg-emerald-950/80 border-emerald-700 text-emerald-300'
+                  }`}>
+                    <span className="text-[10px] uppercase font-bold block opacity-80">
+                      {saldoRestanteFolio > 0 ? 'SALDO RESTANTE' : 'CAMBIO / CANCELADO'}
+                    </span>
+                    <p className="text-lg font-black mt-0.5">
+                      Q{(saldoRestanteFolio > 0 ? saldoRestanteFolio : cambioEfectivo).toFixed(2)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1080,18 +1139,6 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 </div>
               </div>
 
-              {/* Resumen live del recibo */}
-              {totalReciboCalculado > 0 && (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
-                  <div className="text-xs text-slate-600 font-bold">
-                    Total calculado del recibo
-                  </div>
-                  <div className="text-xl font-black text-slate-900">
-                    Q{totalReciboCalculado.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-              )}
-
               {/* Acciones */}
               <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-3">
                 <button
@@ -1103,7 +1150,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || totalReciboCalculado <= 0}
+                  disabled={saving || (totalAbonado <= 0 && totalDeudaFolio <= 0)}
                   className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition disabled:opacity-50 flex items-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
