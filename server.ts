@@ -1177,6 +1177,8 @@ if (!process.env.VERCEL) {
           nit: c.nit || '',
           phone: c.phone || '',
           address: c.address || '',
+          clientCode: c.clientCode || c.client_code || c.clientcode || '',
+          isBlocked: c.isBlocked || c.is_blocked || false,
           createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
         });
       }
@@ -1361,12 +1363,37 @@ if (!process.env.VERCEL) {
 
   // Migration endpoint to generate codes for all clients
   app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const clients = readLocalClients();
-    let updatedCount = 0;
-    const usedCodes = new Set(clients.map(c => c.clientCode).filter(Boolean));
+    let dbClients: any[] = [];
+    try {
+      const { data } = await supabase.from("clients").select("*");
+      if (data) dbClients = data;
+    } catch (e) {}
 
-    for (const client of clients) {
-      if (!client.clientCode || client.clientCode.trim() === '') {
+    const localClients = readLocalClients();
+    
+    // Combine all clients by ID
+    const clientMap = new Map<string, any>();
+    localClients.forEach(c => {
+      if (c && c.id) clientMap.set(c.id, { ...c });
+    });
+    dbClients.forEach(c => {
+      if (c && c.id) {
+        const existing = clientMap.get(c.id) || {};
+        clientMap.set(c.id, {
+          ...existing,
+          id: c.id,
+          name: c.name || existing.name,
+          clientCode: c.clientCode || c.client_code || c.clientcode || existing.clientCode || ''
+        });
+      }
+    });
+
+    const allClients = Array.from(clientMap.values());
+    let updatedCount = 0;
+    const usedCodes = new Set(allClients.map(c => c.clientCode).filter(Boolean));
+
+    for (const client of allClients) {
+      if (!client.clientCode || String(client.clientCode).trim() === '') {
         let code = '';
         let unique = false;
         let attempts = 0;
@@ -1383,7 +1410,9 @@ if (!process.env.VERCEL) {
           // Update local
           updateLocalClient(client.id, { clientCode: code });
           // Update Supabase
-          await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
+          try {
+            await supabase.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
+          } catch (err) {}
           updatedCount++;
         }
       }
