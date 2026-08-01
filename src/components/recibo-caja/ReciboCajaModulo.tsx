@@ -101,6 +101,9 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filtroFecha, setFiltroFecha] = useState<string>('todos');
   const [orden, setOrden] = useState<'desc' | 'asc'>('desc');
+  const [formFechaRecibo, setFormFechaRecibo] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
 
   // Modales
   const [showFormModal, setShowFormModal] = useState<boolean>(false);
@@ -243,12 +246,14 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
     setFormClienteNit('CF');
     setFormClienteCodigo('');
     setClientSearchQuery('');
+    setShowClientDropdown(false);
     setFormCantidadLetras('');
-    setFormFacturas([{ no_factura: 'F-001', fecha_factura: new Date().toLocaleDateString('es-GT'), valor: 0 }]);
+    setFormFechaRecibo(new Date().toISOString().split('T')[0]);
+    setFormFacturas([{ no_factura: 'F-001', fecha_factura: new Date().toISOString().split('T')[0], valor: 0 }]);
     setFormCheques([]);
     setFormEfectivoTotal(0);
     setFormObservaciones('');
-    setFormCajeroNombre(user?.name || 'Juan Carlos Pérez');
+    setFormCajeroNombre(user?.name || 'CAJERO RECEPTOR');
   };
 
   // Guardar en Supabase
@@ -266,35 +271,35 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
     setSaving(true);
     try {
+      // Construir la fecha del recibo desde el campo del formulario
+      const fechaFormatted = formFechaRecibo
+        ? new Date(formFechaRecibo + 'T12:00:00').toLocaleDateString('es-GT', {
+            day: '2-digit', month: '2-digit', year: 'numeric'
+          })
+        : new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
       const nuevoRecibo: Partial<ReciboCajaDB> = {
         cliente_nombre: clienteNombreFinal,
         cliente_nit: formClienteNit || 'CF',
-        cliente_codigo: formClienteCodigo || 'CLI-001',
+        cliente_codigo: formClienteCodigo || '',
         cantidad_letras: formCantidadLetras || numeroALetrasGuatemala(totalReciboCalculado),
         facturas: formFacturas.filter(f => f.valor > 0 || f.no_factura.trim() !== ''),
         cheques: formCheques.filter(c => c.valor > 0 || c.no_cheque.trim() !== ''),
         efectivo_total: Number(formEfectivoTotal) || 0,
         monto_total: totalReciboCalculado,
         observaciones: formObservaciones,
-        cajero_nombre: formCajeroNombre || 'CAJERO RECEPTOR',
-        fecha: new Date().toLocaleDateString('es-GT', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+        cajero_nombre: formCajeroNombre || user?.name || 'CAJERO RECEPTOR',
+        fecha: fechaFormatted
       };
 
       const guardado = await api.createReciboCaja(nuevoRecibo);
-      alert(`Recibo guardado exitosamente con Folio ${guardado.folio}`);
       setShowFormModal(false);
       resetForm();
       cargarDatos();
       setSelectedReciboForPrint(guardado);
     } catch (err: any) {
       console.error('Error al guardar recibo:', err);
-      alert(`Error al guardar en Supabase: ${err.message || 'Intente de nuevo.'}`);
+      alert(`Error al guardar recibo: ${err.message || 'Intente de nuevo.'}`);
     } finally {
       setSaving(false);
     }
@@ -316,6 +321,17 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
           const hoyStr = new Date().toLocaleDateString('es-GT');
           return (r.fecha || '').includes(hoyStr);
         }
+        if (filtroFecha === 'semana') {
+          const now = new Date();
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          const recFecha = new Date(r.created_at || r.fecha);
+          return recFecha >= weekAgo;
+        }
+        if (filtroFecha === 'mes') {
+          const now = new Date();
+          const recFecha = new Date(r.created_at || r.fecha);
+          return recFecha.getMonth() === now.getMonth() && recFecha.getFullYear() === now.getFullYear();
+        }
 
         return true;
       })
@@ -325,6 +341,24 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
         return orden === 'desc' ? timeB - timeA : timeA - timeB;
       });
   }, [recibos, searchTerm, filtroFecha, orden]);
+
+  // Estadísticas rápidas
+  const statsHoy = useMemo(() => {
+    const hoyStr = new Date().toLocaleDateString('es-GT');
+    const recibosHoy = recibos.filter(r => (r.fecha || '').includes(hoyStr.split('/')[0]));
+    const montoHoy = recibosHoy.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
+    return { count: recibosHoy.length, monto: montoHoy };
+  }, [recibos]);
+
+  const statsMes = useMemo(() => {
+    const now = new Date();
+    const recMes = recibos.filter(r => {
+      const f = new Date(r.created_at || r.fecha);
+      return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
+    });
+    const montoMes = recMes.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
+    return { count: recMes.length, monto: montoMes };
+  }, [recibos]);
 
   // SI EL USUARIO NO ES SESEFFFF942@GMAIL.COM, MOSTRAR MENSAJE AMIGABLE DE "ESTAMOS TRABAJANDO EN ESTA SECCIÓN"
   if ((user?.email || '').toLowerCase().trim() !== 'seseffff942@gmail.com') {
@@ -486,48 +520,69 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   };
 
   return (
-    <div className="min-h-screen bg-white p-4 lg:p-8 font-sans text-slate-800">
+    <div className="min-h-screen bg-slate-50 p-4 lg:p-8 font-sans text-slate-800">
       
-      {/* CABECERA MINIMALISTA Y LIMPIA */}
+      {/* CABECERA CON GRADIENTE CORPORATIVO */}
       <div className="max-w-7xl mx-auto mb-6">
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 bg-slate-100 rounded-xl text-slate-700">
-              <Receipt className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-                  Panel Contable
-                </span>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-                  Documentos Permanentes
-                </span>
+        <div className="bg-gradient-to-br from-emerald-900 via-teal-800 to-emerald-700 rounded-2xl p-6 shadow-lg text-white relative overflow-hidden">
+          <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)', backgroundSize: '10px 10px' }} />
+          <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/15 rounded-2xl border border-white/20 backdrop-blur-sm">
+                <Receipt className="w-7 h-7 text-white" />
               </div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 mt-0.5">
-                Gestión de Recibos de Caja
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">
-                Agricovet • Control histórico inmutable e impresión térmica de 80mm
-              </p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/20">
+                    Panel Contable
+                  </span>
+                  <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/20">
+                    Documentos Permanentes
+                  </span>
+                </div>
+                <h1 className="text-xl md:text-2xl font-black tracking-tight text-white">
+                  Recibos de Caja
+                </h1>
+                <p className="text-xs text-emerald-200 font-medium mt-0.5">
+                  AGRICOVET — Control histórico inmutable e impresión térmica 80mm
+                </p>
+              </div>
+            </div>
+
+            {/* Estadísticas rápidas */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
+                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Hoy</div>
+                <div className="text-xl font-black text-white">{statsHoy.count}</div>
+                <div className="text-[10px] text-emerald-300 font-bold">Q{statsHoy.monto.toFixed(0)}</div>
+              </div>
+              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
+                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Este Mes</div>
+                <div className="text-xl font-black text-white">{statsMes.count}</div>
+                <div className="text-[10px] text-emerald-300 font-bold">Q{statsMes.monto.toFixed(0)}</div>
+              </div>
+              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
+                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Total</div>
+                <div className="text-xl font-black text-white">{recibos.length}</div>
+                <div className="text-[10px] text-emerald-300 font-bold">recibos</div>
+              </div>
+              <button
+                onClick={() => { resetForm(); setShowFormModal(true); }}
+                className="px-5 py-3 bg-white text-emerald-900 hover:bg-emerald-50 font-black rounded-xl shadow-md flex items-center gap-2 transition active:scale-95 cursor-pointer text-sm border border-white/80"
+              >
+                <Plus className="w-4 h-4" />
+                Nuevo Recibo
+              </button>
             </div>
           </div>
-
-          <button
-            onClick={() => { resetForm(); setShowFormModal(true); }}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-2 transition active:scale-95 cursor-pointer text-xs shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            Emitir Nuevo Recibo
-          </button>
         </div>
       </div>
 
       {/* CONTENEDOR DE LA PANTALLA PRINCIPAL */}
       <div className="max-w-7xl mx-auto space-y-5">
         
-        {/* BARRA DE BÚSQUEDA Y FILTROS LIMPIOS */}
-        <div className="bg-white rounded-2xl p-3.5 shadow-xs border border-slate-200 flex flex-col sm:flex-row gap-3 items-center justify-between">
+        {/* BARRA DE BÚSQUEDA Y FILTROS MEJORADOS */}
+        <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
@@ -535,24 +590,25 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
               placeholder="Buscar por cliente, NIT o folio..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:bg-white focus:border-slate-400 transition"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:bg-white focus:border-emerald-400 transition"
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-              <button
-                onClick={() => setFiltroFecha('todos')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition ${filtroFecha === 'todos' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
-              >
-                Todos
-              </button>
-              <button
-                onClick={() => setFiltroFecha('hoy')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition ${filtroFecha === 'hoy' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
-              >
-                Hoy
-              </button>
+            <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl">
+              {(['todos', 'hoy', 'semana', 'mes'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFiltroFecha(f)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition capitalize ${
+                    filtroFecha === f
+                      ? 'bg-white text-emerald-800 shadow-sm border border-emerald-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {f === 'todos' ? 'Todos' : f === 'hoy' ? 'Hoy' : f === 'semana' ? '7 Días' : 'Este Mes'}
+                </button>
+              ))}
             </div>
 
             <button
@@ -568,19 +624,19 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
               className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition"
               title="Recargar datos"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
             </button>
           </div>
         </div>
 
-        {/* TABLA HISTÓRICA INMUTABLE - DISEÑO MINIMALISTA */}
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+        {/* TABLA HISTÓRICA INMUTABLE - DISEÑO MEJORADO */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex justify-between items-center">
             <h2 className="text-xs font-bold tracking-wider uppercase text-slate-700 flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-slate-500" />
-              Historial de Recibos Guardados ({recibosFiltrados.length})
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              Historial de Recibos ({recibosFiltrados.length})
             </h2>
-            <span className="text-[10px] bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full font-mono font-medium">
+            <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
               Documentos Permanentes
             </span>
           </div>
@@ -588,56 +644,67 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
           <div className="overflow-x-auto">
             {loading ? (
               <div className="p-12 text-center text-slate-400 font-medium space-y-2">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-600" />
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-600" />
                 <p className="text-xs font-bold">Cargando recibos contables...</p>
               </div>
             ) : recibosFiltrados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 space-y-3">
-                <Receipt className="w-10 h-10 mx-auto text-slate-300" />
-                <p className="text-xs font-bold text-slate-600">No se encontraron recibos de caja en el registro.</p>
-                <button
-                  onClick={() => { resetForm(); setShowFormModal(true); }}
-                  className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition"
-                >
-                  Emitir Recibo
-                </button>
+                <Receipt className="w-12 h-12 mx-auto text-slate-200" />
+                <p className="text-sm font-bold text-slate-500">No se encontraron recibos.</p>
+                <p className="text-xs text-slate-400">{searchTerm ? 'Prueba con otro término de búsqueda.' : 'Emite el primer recibo de caja.'}</p>
+                {!searchTerm && (
+                  <button
+                    onClick={() => { resetForm(); setShowFormModal(true); }}
+                    className="px-4 py-2 bg-emerald-800 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition"
+                  >
+                    Emitir Recibo
+                  </button>
+                )}
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-600 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
+                  <tr className="bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-slate-200">
                     <th className="py-3 px-4">No. Recibo</th>
                     <th className="py-3 px-4">Fecha</th>
-                    <th className="py-3 px-4">Nombre del Cliente</th>
-                    <th className="py-3 px-4">NIT / Código</th>
-                    <th className="py-3 px-4 text-right">Monto Total</th>
+                    <th className="py-3 px-4">Cliente</th>
+                    <th className="py-3 px-4 hidden sm:table-cell">NIT / Código</th>
+                    <th className="py-3 px-4 text-right">Monto</th>
                     <th className="py-3 px-4 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-medium">
                   {recibosFiltrados.map((recibo) => (
-                    <tr key={recibo.id || recibo.folio} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                        {recibo.folio}
+                    <tr
+                      key={recibo.id || recibo.folio}
+                      className="hover:bg-emerald-50/40 transition-colors cursor-pointer group"
+                      onClick={() => setSelectedReciboForPrint(recibo)}
+                    >
+                      <td className="py-3.5 px-4">
+                        <span className="font-mono font-black text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg text-[11px]">
+                          {recibo.folio}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-500">
+                      <td className="py-3.5 px-4 text-slate-500 font-medium">
                         {recibo.fecha}
                       </td>
-                      <td className="py-3 px-4 font-bold text-slate-800">
-                        {recibo.cliente_nombre}
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-800">{recibo.cliente_nombre}</div>
                       </td>
-                      <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
-                        {recibo.cliente_nit} {recibo.cliente_codigo ? `| ${recibo.cliente_codigo}` : ''}
+                      <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px] hidden sm:table-cell">
+                        {recibo.cliente_nit}{recibo.cliente_codigo ? ` | ${recibo.cliente_codigo}` : ''}
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-slate-900 text-sm">
-                        Q{(Number(recibo.monto_total) || 0).toFixed(2)}
+                      <td className="py-3.5 px-4 text-right">
+                        <span className="font-black text-slate-900 text-sm">
+                          Q{(Number(recibo.monto_total) || 0).toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 text-center">
+                      <td className="py-3.5 px-4 text-center">
                         <button
-                          onClick={() => setSelectedReciboForPrint(recibo)}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 mx-auto border border-slate-200 transition"
+                          onClick={(e) => { e.stopPropagation(); setSelectedReciboForPrint(recibo); }}
+                          className="px-3 py-1.5 bg-white hover:bg-emerald-800 hover:text-white text-emerald-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 mx-auto border border-emerald-200 transition shadow-sm group-hover:border-emerald-400"
                         >
-                          <Printer className="w-3.5 h-3.5 text-slate-600" />
+                          <Printer className="w-3.5 h-3.5" />
                           <span>Ver / Imprimir</span>
                         </button>
                       </td>
@@ -756,7 +823,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Código de Cliente
@@ -766,20 +833,35 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       value={formClienteCodigo}
                       onChange={e => setFormClienteCodigo(e.target.value)}
                       placeholder="Ej. CLI-9042"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:border-slate-500 focus:outline-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Fecha del Recibo
+                    </label>
+                    <input
+                      type="date"
+                      value={formFechaRecibo}
+                      onChange={e => setFormFechaRecibo(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:border-emerald-500 focus:outline-none transition bg-white cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                       Cantidad en Letras
+                      {totalReciboCalculado > 0 && (
+                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200">auto</span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={formCantidadLetras}
                       onChange={e => setFormCantidadLetras(e.target.value)}
-                      placeholder="Ej. Ciento cincuenta quetzales exactos"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold bg-slate-50 focus:border-slate-500 focus:outline-none"
+                      placeholder="Se genera automáticamente al ingresar montos..."
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold bg-slate-50 focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
                 </div>
@@ -803,41 +885,42 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
                 <div className="space-y-2">
                   {formFacturas.map((fac, idx) => (
-                    <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div key={idx} className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 transition">
                       <div className="w-32">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase">No. Factura</label>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">No. Factura</label>
                         <input
                           type="text"
                           value={fac.no_factura}
                           onChange={e => handleUpdateFactura(idx, 'no_factura', e.target.value)}
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-xs font-bold bg-white"
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:outline-none focus:border-emerald-400"
                         />
                       </div>
                       <div className="w-36">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase">De Fecha</label>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">De Fecha</label>
                         <input
-                          type="text"
+                          type="date"
                           value={fac.fecha_factura}
                           onChange={e => handleUpdateFactura(idx, 'fecha_factura', e.target.value)}
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-xs bg-white"
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:border-emerald-400 cursor-pointer"
                         />
                       </div>
-                      <div className="flex-1 min-w-[120px]">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase">Valor (Q)</label>
+                      <div className="flex-1 min-w-[100px]">
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">Valor (Q)</label>
                         <input
                           type="number"
-                          step="0.5"
+                          step="0.01"
+                          min="0"
                           value={fac.valor}
                           onChange={e => handleUpdateFactura(idx, 'valor', parseFloat(e.target.value) || 0)}
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-right text-xs font-bold bg-white text-slate-900"
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-right text-xs font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveFactura(idx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded mt-3"
+                        className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition mt-4"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
@@ -967,22 +1050,34 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 </div>
               </div>
 
+              {/* Resumen live del recibo */}
+              {totalReciboCalculado > 0 && (
+                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
+                  <div className="text-xs text-emerald-700 font-bold">
+                    Total calculado del recibo
+                  </div>
+                  <div className="text-xl font-black text-emerald-900">
+                    Q{totalReciboCalculado.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              )}
+
               {/* Acciones */}
               <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-3">
                 <button
                   type="button"
                   onClick={() => setShowFormModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition disabled:opacity-50 flex items-center gap-2"
+                  disabled={saving || totalReciboCalculado <= 0}
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-700 rounded-xl shadow-sm transition disabled:opacity-40 flex items-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  {saving ? 'Guardando en Supabase...' : 'Guardar e Imprimir Recibo'}
+                  {saving ? 'Guardando...' : 'Guardar e Imprimir Recibo'}
                 </button>
               </div>
 
@@ -1046,7 +1141,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                     AGRÍCOLA VETERINARIA DE GUATEMALA
                   </div>
                   <div className="recibo-company-sub">
-                    AGRICOVET - PETÉN
+                    AGRICOVET — PETÉN
                   </div>
                   <div className="text-[9px] text-slate-700 mt-1">
                     Segunda Lotificación, Santa Elena, Petén
@@ -1149,10 +1244,19 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                     </span>
                   </div>
 
-                  <div className="recibo-cash-row">
-                    <span>EFECTIVO:</span>
-                    <span className="font-bold">Q{(Number(selectedReciboForPrint.efectivo_total) || 0).toFixed(2)}</span>
-                  </div>
+                  {(Number(selectedReciboForPrint.efectivo_total) || 0) > 0 && (
+                    <div className="recibo-cash-row">
+                      <span>EFECTIVO:</span>
+                      <span className="font-bold">Q{(Number(selectedReciboForPrint.efectivo_total) || 0).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {selectedReciboForPrint.cheques && selectedReciboForPrint.cheques.length > 0 && (
+                    <div className="recibo-cash-row">
+                      <span>TOTAL CHEQUES:</span>
+                      <span className="font-bold">Q{selectedReciboForPrint.cheques.reduce((s, c) => s + (Number(c.valor) || 0), 0).toFixed(2)}</span>
+                    </div>
+                  )}
 
                   <div className="recibo-cash-row mt-1 pt-1 border-t border-slate-300">
                     <span style={{ fontSize: '11px', fontWeight: 900 }}>
@@ -1180,10 +1284,13 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 {/* Nota Legal */}
                 <div className="recibo-footer">
                   <div className="font-bold text-slate-800 text-[9.5px]">
-                    ¡GRACIAS POR SU COMPRA EN AGRICOBET!
+                    ¡GRACIAS POR SU COMPRA EN AGRICOVET!
                   </div>
                   <div className="recibo-notice">
                     Todo cheque rechazado tendrá recargo automático del 3%.
+                  </div>
+                  <div className="text-[8px] text-slate-500 mt-1">
+                    Emitido por: {selectedReciboForPrint.cajero_nombre || 'CAJERO RECEPTOR'}
                   </div>
                 </div>
               </div>
