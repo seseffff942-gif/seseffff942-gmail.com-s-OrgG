@@ -524,60 +524,57 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 lg:p-8 font-sans text-slate-800">
+    <div className="min-h-screen bg-white p-4 lg:p-8 font-sans text-slate-800">
       
-      {/* CABECERA CON GRADIENTE CORPORATIVO */}
+      {/* CABECERA SIMPLE Y LIMPIA */}
       <div className="max-w-7xl mx-auto mb-6">
-        <div className="bg-gradient-to-br from-emerald-900 via-teal-800 to-emerald-700 rounded-2xl p-6 shadow-lg text-white relative overflow-hidden">
-          <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)', backgroundSize: '10px 10px' }} />
-          <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-white/15 rounded-2xl border border-white/20 backdrop-blur-sm">
-                <Receipt className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/20">
-                    Panel Contable
-                  </span>
-                  <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/20">
-                    Documentos Permanentes
-                  </span>
-                </div>
-                <h1 className="text-xl md:text-2xl font-black tracking-tight text-white">
-                  Recibos de Caja
-                </h1>
-                <p className="text-xs text-emerald-200 font-medium mt-0.5">
-                  AGRICOVET — Control histórico inmutable e impresión térmica 80mm
-                </p>
-              </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-slate-100 rounded-xl text-slate-700">
+              <Receipt className="w-6 h-6" />
             </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                  Panel Contable
+                </span>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                  Documentos Permanentes
+                </span>
+              </div>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 mt-0.5">
+                Gestión de Recibos de Caja
+              </h1>
+              <p className="text-xs text-slate-500 font-medium">
+                Agricovet • Control histórico inmutable e impresión térmica de 80mm
+              </p>
+            </div>
+          </div>
 
-            {/* Estadísticas rápidas */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
-                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Hoy</div>
-                <div className="text-xl font-black text-white">{statsHoy.count}</div>
-                <div className="text-[10px] text-emerald-300 font-bold">Q{statsHoy.monto.toFixed(0)}</div>
-              </div>
-              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
-                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Este Mes</div>
-                <div className="text-xl font-black text-white">{statsMes.count}</div>
-                <div className="text-[10px] text-emerald-300 font-bold">Q{statsMes.monto.toFixed(0)}</div>
-              </div>
-              <div className="bg-white/10 border border-white/20 backdrop-blur-sm rounded-2xl px-4 py-3 text-center min-w-[90px]">
-                <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">Total</div>
-                <div className="text-xl font-black text-white">{recibos.length}</div>
-                <div className="text-[10px] text-emerald-300 font-bold">recibos</div>
-              </div>
-              <button
-                onClick={() => { resetForm(); setShowFormModal(true); }}
-                className="px-5 py-3 bg-white text-emerald-900 hover:bg-emerald-50 font-black rounded-xl shadow-md flex items-center gap-2 transition active:scale-95 cursor-pointer text-sm border border-white/80"
-              >
-                <Plus className="w-4 h-4" />
-                Nuevo Recibo
-              </button>
+          {/* Estadísticas rápidas */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-center min-w-[70px]">
+              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Hoy</div>
+              <div className="text-lg font-black text-slate-900">{statsHoy.count}</div>
+              <div className="text-[10px] text-slate-500 font-bold">Q{statsHoy.monto.toFixed(0)}</div>
             </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-center min-w-[70px]">
+              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Mes</div>
+              <div className="text-lg font-black text-slate-900">{statsMes.count}</div>
+              <div className="text-[10px] text-slate-500 font-bold">Q{statsMes.monto.toFixed(0)}</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-center min-w-[70px]">
+              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total</div>
+              <div className="text-lg font-black text-slate-900">{recibos.length}</div>
+              <div className="text-[10px] text-slate-500 font-bold">recibos</div>
+            </div>
+            <button
+              onClick={() => { resetForm(); setShowFormModal(true); }}
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-2 transition active:scale-95 cursor-pointer text-xs"
+            >
+              <Plus className="w-4 h-4" />
+              Emitir Nuevo Recibo
+            </button>
           </div>
         </div>
       </div>
@@ -585,8 +582,8 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       {/* CONTENEDOR DE LA PANTALLA PRINCIPAL */}
       <div className="max-w-7xl mx-auto space-y-5">
         
-        {/* BARRA DE BÚSQUEDA Y FILTROS MEJORADOS */}
-        <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-3 items-center justify-between">
+        {/* BARRA DE BÚSQUEDA Y FILTROS */}
+        <div className="bg-white rounded-2xl p-3.5 shadow-xs border border-slate-200 flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
@@ -594,7 +591,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
               placeholder="Buscar por cliente, NIT o folio..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:bg-white focus:border-emerald-400 transition"
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:bg-white focus:border-slate-400 transition"
             />
           </div>
 
@@ -604,9 +601,9 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 <button
                   key={f}
                   onClick={() => setFiltroFecha(f)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition capitalize ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
                     filtroFecha === f
-                      ? 'bg-white text-emerald-800 shadow-sm border border-emerald-200'
+                      ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -628,19 +625,19 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
               className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition"
               title="Recargar datos"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
 
-        {/* TABLA HISTÓRICA INMUTABLE - DISEÑO MEJORADO */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex justify-between items-center">
+        {/* TABLA HISTÓRICA INMUTABLE */}
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
             <h2 className="text-xs font-bold tracking-wider uppercase text-slate-700 flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Historial de Recibos ({recibosFiltrados.length})
+              <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+              Historial de Recibos Guardados ({recibosFiltrados.length})
             </h2>
-            <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
+            <span className="text-[10px] bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full font-mono font-medium">
               Documentos Permanentes
             </span>
           </div>
@@ -648,7 +645,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
           <div className="overflow-x-auto">
             {loading ? (
               <div className="p-12 text-center text-slate-400 font-medium space-y-2">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-600" />
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-600" />
                 <p className="text-xs font-bold">Cargando recibos contables...</p>
               </div>
             ) : recibosFiltrados.length === 0 ? (
@@ -659,7 +656,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 {!searchTerm && (
                   <button
                     onClick={() => { resetForm(); setShowFormModal(true); }}
-                    className="px-4 py-2 bg-emerald-800 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition"
+                    className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition"
                   >
                     Emitir Recibo
                   </button>
@@ -668,7 +665,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
             ) : (
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-slate-200">
+                  <tr className="bg-slate-50 text-slate-600 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                     <th className="py-3 px-4">No. Recibo</th>
                     <th className="py-3 px-4">Fecha</th>
                     <th className="py-3 px-4">Cliente</th>
@@ -681,34 +678,30 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                   {recibosFiltrados.map((recibo) => (
                     <tr
                       key={recibo.id || recibo.folio}
-                      className="hover:bg-emerald-50/40 transition-colors cursor-pointer group"
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
                       onClick={() => setSelectedReciboForPrint(recibo)}
                     >
-                      <td className="py-3.5 px-4">
-                        <span className="font-mono font-black text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg text-[11px]">
-                          {recibo.folio}
-                        </span>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                        {recibo.folio}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-500 font-medium">
+                      <td className="py-3 px-4 text-slate-500">
                         {recibo.fecha}
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-800">{recibo.cliente_nombre}</div>
+                      <td className="py-3 px-4 font-bold text-slate-800">
+                        {recibo.cliente_nombre}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px] hidden sm:table-cell">
+                      <td className="py-3 px-4 text-slate-500 font-mono text-[11px] hidden sm:table-cell">
                         {recibo.cliente_nit}{recibo.cliente_codigo ? ` | ${recibo.cliente_codigo}` : ''}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <span className="font-black text-slate-900 text-sm">
-                          Q{(Number(recibo.monto_total) || 0).toLocaleString('es-GT', { minimumFractionDigits: 2 })}
-                        </span>
+                      <td className="py-3 px-4 text-right font-bold text-slate-900 text-sm">
+                        Q{(Number(recibo.monto_total) || 0).toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-3 px-4 text-center">
                         <button
                           onClick={(e) => { e.stopPropagation(); setSelectedReciboForPrint(recibo); }}
-                          className="px-3 py-1.5 bg-white hover:bg-emerald-800 hover:text-white text-emerald-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 mx-auto border border-emerald-200 transition shadow-sm group-hover:border-emerald-400"
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 mx-auto border border-slate-200 transition"
                         >
-                          <Printer className="w-3.5 h-3.5" />
+                          <Printer className="w-3.5 h-3.5 text-slate-600" />
                           <span>Ver / Imprimir</span>
                         </button>
                       </td>
@@ -1061,11 +1054,11 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
               {/* Resumen live del recibo */}
               {totalReciboCalculado > 0 && (
-                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
-                  <div className="text-xs text-emerald-700 font-bold">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+                  <div className="text-xs text-slate-600 font-bold">
                     Total calculado del recibo
                   </div>
-                  <div className="text-xl font-black text-emerald-900">
+                  <div className="text-xl font-black text-slate-900">
                     Q{totalReciboCalculado.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                   </div>
                 </div>
@@ -1083,7 +1076,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                 <button
                   type="submit"
                   disabled={saving || totalReciboCalculado <= 0}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-700 rounded-xl shadow-sm transition disabled:opacity-40 flex items-center gap-2"
+                  className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition disabled:opacity-50 flex items-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   {saving ? 'Guardando...' : 'Guardar e Imprimir Recibo'}
