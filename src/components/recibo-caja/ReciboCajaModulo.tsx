@@ -19,7 +19,8 @@ import {
   FileSpreadsheet,
   Check,
   ChevronDown,
-  Loader2
+  Loader2,
+  Hash
 } from 'lucide-react';
 import './ReciboCajaPrint.css';
 import { ReciboCajaDB, FacturaDetalle, ChequeDetalle } from './types';
@@ -111,6 +112,21 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   const [saving, setSaving] = useState<boolean>(false);
   const [descargandoPDF, setDescargandoPDF] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [generatingCodes, setGeneratingCodes] = useState<boolean>(false);
+
+  const handleGenerateAllCodes = async () => {
+    if (!confirm('¿Deseas generar automáticamente códigos de 4 dígitos para todos los clientes que no tengan uno?')) return;
+    setGeneratingCodes(true);
+    try {
+      const res = await api.generateClientCodes();
+      alert(`¡Éxito! Se generaron/actualizaron códigos para ${res.updatedCount || 0} clientes.`);
+      await cargarDatos();
+    } catch (err: any) {
+      alert(`Error al generar códigos: ${err.message || 'Intente de nuevo'}`);
+    } finally {
+      setGeneratingCodes(false);
+    }
+  };
 
   // Typeahead state con DEBOUNCE
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
@@ -569,8 +585,17 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
               <div className="text-[10px] text-slate-500 font-bold">recibos</div>
             </div>
             <button
+              onClick={handleGenerateAllCodes}
+              disabled={generatingCodes}
+              className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 cursor-pointer text-xs disabled:opacity-50"
+              title="Generar un código de 4 dígitos a todos los clientes que no tengan uno"
+            >
+              <Hash className="w-3.5 h-3.5 text-slate-600" />
+              <span>{generatingCodes ? 'Generando...' : 'Generar Códigos a Clientes'}</span>
+            </button>
+            <button
               onClick={() => { resetForm(); setShowFormModal(true); }}
-              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-2 transition active:scale-95 cursor-pointer text-xs"
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-2 transition active:scale-95 cursor-pointer text-xs shrink-0"
             >
               <Plus className="w-4 h-4" />
               Emitir Nuevo Recibo
