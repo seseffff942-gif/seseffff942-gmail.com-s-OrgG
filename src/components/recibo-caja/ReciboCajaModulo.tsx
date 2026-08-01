@@ -429,9 +429,50 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
       const f = new Date(r.created_at || r.fecha);
       return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
     });
-    const montoMes = recMes.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
     return { count: recMes.length, monto: montoMes };
   }, [recibos]);
+
+  // SI EL USUARIO NO ES SESEFFFF942@GMAIL.COM, MOSTRAR MENSAJE DE "ESTAMOS TRABAJANDO EN ESTA SECCIÓN"
+  if ((user?.email || '').toLowerCase().trim() !== 'seseffff942@gmail.com') {
+    return (
+      <div className="min-h-[75vh] flex flex-col items-center justify-center p-6 bg-slate-50 font-sans">
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200/80 shadow-xl text-center space-y-6 relative overflow-hidden">
+          <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative inline-flex items-center justify-center">
+            <div className="w-20 h-20 bg-amber-50 border border-amber-200 text-amber-600 rounded-3xl flex items-center justify-center shadow-inner">
+              <RefreshCw className="w-10 h-10 animate-spin text-amber-600" style={{ animationDuration: '8s' }} />
+            </div>
+            <div className="absolute -bottom-1 -right-1 bg-teal-600 text-white p-1.5 rounded-full border-2 border-white shadow-sm">
+              <Receipt className="w-4 h-4" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <span className="inline-block text-[11px] font-black uppercase tracking-widest text-amber-700 bg-amber-100/90 px-3.5 py-1 rounded-full border border-amber-200/70">
+              🚧 Módulo en Desarrollo
+            </span>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+              Estamos trabajando en esta sección
+            </h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              El módulo contable de <strong>Recibos de Caja</strong> se encuentra actualmente en fase de construcción y optimización. Muy pronto estará disponible para todo el equipo.
+            </p>
+          </div>
+
+          <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs text-slate-500 flex items-center gap-3">
+            <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-2xs text-amber-600 shrink-0">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <span className="text-left font-medium leading-normal">
+              Si necesitas emitir o verificar un recibo de caja urgente, por favor comunícate con la administración principal.
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Impresión nativa limpia sin congelamiento
   const handleImprimirSeguro = async () => {
