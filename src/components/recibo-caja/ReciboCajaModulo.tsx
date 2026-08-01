@@ -178,14 +178,18 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
   // Clientes filtrados para el Dropdown Flotante con Debounce
   const filteredClientsForTypeahead = useMemo(() => {
-    if (!debouncedClientQuery.trim()) return dbClients.slice(0, 6);
+    if (!debouncedClientQuery.trim()) {
+      // Sin búsqueda: mostrar todos los clientes (hasta 30) para ver opciones iniciales
+      return dbClients.slice(0, 30);
+    }
     const q = debouncedClientQuery.toLowerCase();
-    return dbClients.filter(c => 
+    // Con búsqueda: mostrar todas las coincidencias sin límite
+    return dbClients.filter(c =>
       (c.name || '').toLowerCase().includes(q) ||
       (c.companyName || '').toLowerCase().includes(q) ||
       (c.nit || '').toLowerCase().includes(q) ||
       (c.clientCode || '').toLowerCase().includes(q)
-    ).slice(0, 8);
+    );
   }, [dbClients, debouncedClientQuery]);
 
   // Seleccionar un cliente del buscador visual
@@ -1003,10 +1007,15 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                     </label>
                     <input
                       type="number"
-                      step="1"
-                      value={formEfectivoTotal}
-                      onChange={e => setFormEfectivoTotal(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-base font-bold bg-white text-slate-900 focus:outline-none"
+                      step="0.01"
+                      min="0"
+                      value={formEfectivoTotal === 0 ? '' : formEfectivoTotal}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        setFormEfectivoTotal(raw === '' ? 0 : (parseFloat(raw) || 0));
+                      }}
+                      placeholder="0.00"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-base font-bold bg-white text-slate-900 focus:outline-none focus:border-emerald-400 transition"
                     />
                   </div>
 
