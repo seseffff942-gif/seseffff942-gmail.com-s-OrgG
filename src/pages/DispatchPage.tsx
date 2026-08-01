@@ -20,8 +20,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 // @ts-ignore
-import html2pdf from 'html2pdf.js';
-import { cn } from '../utils';
+import { cn, pdfBlobDesdeElemento, descargarBlob } from '../utils';
 
 interface DispatchPageProps {
   user: User;
@@ -461,19 +460,12 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
     await new Promise(r => setTimeout(r, 400));
     
     try {
-      await html2pdf().from(element).set({
-        margin: 5,
-        filename: `orden_egreso_${selectedInvoice.id}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-          scale: 2, 
-          useCORS: true, 
-          logging: false,
-          letterRendering: true,
-          allowTaint: true
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      }).save();
+      // Antes se usaba html2pdf, que devuelve el documento en blanco (ver el
+      // comentario de pdfBlobDesdeElemento en utils.ts). Los 5 mm de margen del
+      // formato A4 equivalen a 0.197 pulgadas, que es la unidad que usa el armado.
+      const blob = await pdfBlobDesdeElemento(element, { formato: 'a4', margenIn: 5 / 25.4 });
+      if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
+      descargarBlob(blob, `orden_egreso_${selectedInvoice.id}.pdf`);
     } catch (err) {
       console.error("PDF Export error:", err);
     } finally {

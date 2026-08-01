@@ -1,5 +1,3 @@
-// @ts-ignore
-import html2pdf from 'html2pdf.js';
 import { biSealBase64, banruralSealBase64, defaultLogoBase64 } from './sealsBase64';
 
 export function cn(...classes: (string | undefined | null | false)[]) {
@@ -1083,80 +1081,157 @@ function paginarItemsParaPdf(
   }
 }
 
-export async function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
-  const MARGEN_IN = 0.3;
-  // Letter (8.5 x 11 in) menos los margenes: area util donde entra el contenido.
-  const geometria = { contentWidthIn: 8.5 - 2 * MARGEN_IN, contentHeightIn: 11 - 2 * MARGEN_IN };
+const PDF_ESCALA = 2;           // 2x para que el texto no salga pixelado
+const PDF_CALIDAD_JPEG = 0.95;
+
+/** Medidas de pagina en pulgadas, que es la unidad en la que trabaja el armado. */
+const PDF_FORMATOS = {
+  letter: { ancho: 8.5, alto: 11 },
+  a4: { ancho: 8.27, alto: 11.69 },
+} as const;
+
+export interface OpcionesPdf {
+  formato?: keyof typeof PDF_FORMATOS;
+  margenIn?: number;
+  /** Ancho de render del contenido en px. Define cuanto "cabe" a lo ancho. */
+  anchoRenderPx?: number;
+}
+
+/**
+ * Arma un PDF a partir de un elemento YA montado en el DOM y lo devuelve como Blob.
+ *
+ * NO usa html2pdf.js. Esa libreria devuelve un documento vacio (~3 KB, sin la
+ * imagen embebida) aunque html2canvas capture el contenido correctamente; se
+ * verificaron sus cuatro formas de salida —output, outputPdf, toPdf().output y
+ * toPdf().outputPdf— y las cuatro dan el mismo PDF en blanco.
+ *
+ * Aca se hace a mano lo que html2pdf hacia por dentro: capturar con html2canvas
+ * y armar el documento con jsPDF. El corte de paginas respeta los marcadores
+ * .html2pdf__page-break (los deja paginarItemsParaPdf) para no partir una fila
+ * de producto por la mitad; si un tramo aun asi no cabe, se subdivide por altura.
+ */
+export async function pdfBlobDesdeElemento(
+  element: HTMLElement,
+  opciones: OpcionesPdf = {}
+): Promise<Blob> {
+  const formato = opciones.formato ?? 'letter';
+  const margenIn = opciones.margenIn ?? 0.3;
+  const { ancho: anchoPagIn, alto: altoPagIn } = PDF_FORMATOS[formato];
+  const anchoUtilIn = anchoPagIn - 2 * margenIn;
+  const altoUtilIn = altoPagIn - 2 * margenIn;
+
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ]);
+
+  const canvas = await html2canvas(element, {
+    scale: PDF_ESCALA,
+    useCORS: true,
+    logging: false,
+    allowTaint: true,
+    backgroundColor: '#ffffff',
+  });
+
+  const topElemento = element.getBoundingClientRect().top;
+  const cortes = Array.from(element.querySelectorAll('.html2pdf__page-break'))
+    .map((n) => (n as HTMLElement).getBoundingClientRect().top - topElemento)
+    .filter((y) => y > 0)
+    .map((y) => Math.round(y * PDF_ESCALA))
+    .sort((a, b) => a - b);
+
+  const pxPorPagina = Math.floor((altoUtilIn / anchoUtilIn) * canvas.width);
+  const limites = [0, ...cortes, canvas.height];
+
+  const pdf = new jsPDF({ unit: 'in', format: formato, orientation: 'portrait' });
+  let primera = true;
+
+  for (let i = 0; i < limites.length - 1; i++) {
+    let desde = limites[i];
+    const hasta = limites[i + 1];
+    while (desde < hasta) {
+      const alto = Math.min(pxPorPagina, hasta - desde);
+      if (alto < 1) break;
+
+      const trozo = document.createElement('canvas');
+      trozo.width = canvas.width;
+      trozo.height = alto;
+      const ctx = trozo.getContext('2d')!;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, trozo.width, trozo.height);
+      ctx.drawImage(canvas, 0, desde, canvas.width, alto, 0, 0, canvas.width, alto);
+
+      if (!primera) pdf.addPage();
+      pdf.addImage(
+        trozo.toDataURL('image/jpeg', PDF_CALIDAD_JPEG),
+        'JPEG',
+        margenIn,
+        margenIn,
+        anchoUtilIn,
+        (alto * anchoUtilIn) / canvas.width
+      );
+      primera = false;
+      desde += alto;
+    }
+  }
+
+  return pdf.output('blob');
+}
+
+/** Renderiza el HTML fuera de pantalla y devuelve el PDF como Blob. */
+export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): Promise<Blob> {
+  const formato = opciones.formato ?? 'letter';
+  const margenIn = opciones.margenIn ?? 0.3;
+  const { ancho: anchoPagIn, alto: altoPagIn } = PDF_FORMATOS[formato];
 
   let htmlFinal = html;
   try {
-    htmlFinal = paginarItemsParaPdf(html, geometria);
+    htmlFinal = paginarItemsParaPdf(html, {
+      contentWidthIn: anchoPagIn - 2 * margenIn,
+      contentHeightIn: altoPagIn - 2 * margenIn,
+    });
   } catch (e) {
-    console.error('No se pudo paginar la tabla de items; se descarga sin paginar:', e);
+    console.error('No se pudo paginar la tabla de items; se genera sin paginar:', e);
   }
 
-  const opt = {
-    margin: [MARGEN_IN, MARGEN_IN, MARGEN_IN, MARGEN_IN] as [number, number, number, number],
-    filename: filename,
-    image: { type: 'jpeg' as const, quality: 0.98 },
-    html2canvas: { 
-      scale: 2, 
-      useCORS: true,
-      logging: false,
-      allowTaint: true
-    },
-    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' as const },
-    pagebreak: { mode: ['css', 'legacy'] }
-  };
-
   const element = document.createElement('div');
-  element.style.position = 'fixed';
+  element.style.position = 'absolute';
   element.style.left = '-9999px';
   element.style.top = '0';
-  element.style.width = '800px';
+  element.style.width = `${opciones.anchoRenderPx ?? 800}px`;
   element.style.backgroundColor = '#ffffff';
-  element.style.zIndex = '-9999';
   element.innerHTML = htmlFinal;
   document.body.appendChild(element);
 
   try {
     await convertAllImagesToBase64(element);
-
-    const html2pdfModule = (await import('html2pdf.js')).default;
-    const worker = html2pdfModule().from(element).set(opt);
-
-    let downloaded = false;
-    try {
-      const blobPromise = worker.output('blob') as Promise<Blob>;
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('PDF Blob generation timeout')), 4000)
-      );
-
-      const blob = await Promise.race([blobPromise, timeoutPromise]);
-      if (blob && blob.size > 0) {
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-        downloaded = true;
-      }
-    } catch (blobErr) {
-      console.warn('Fallback a worker.save() directo:', blobErr);
-    }
-
-    if (!downloaded) {
-      await worker.save();
-    }
-  } catch (err) {
-    console.error('Error al generar o descargar PDF, ejecutando vista de respaldo:', err);
-    await printHtml(html);
+    return await pdfBlobDesdeElemento(element, opciones);
   } finally {
     if (document.body.contains(element)) {
       document.body.removeChild(element);
     }
+  }
+}
+
+/** Dispara la descarga de un Blob con el nombre indicado. */
+export function descargarBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+export async function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
+  try {
+    const blob = await generarPdfBlob(html);
+    if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
+    descargarBlob(blob, filename);
+  } catch (err) {
+    console.error('Error al generar o descargar PDF, se abre la vista de impresion:', err);
+    await printHtml(html);
   }
 }
