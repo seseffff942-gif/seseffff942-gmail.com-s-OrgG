@@ -199,19 +199,12 @@ export const ReciboCajaComponent: React.FC<ReciboCajaProps> = ({
               </button>
             )}
             <button
-              onClick={handleImprimir}
-              className="px-4 py-2 text-xs font-semibold bg-[#0c1b47] text-white hover:bg-[#162a66] rounded-lg flex items-center gap-2 shadow-sm transition"
-            >
-              <Printer className="w-4 h-4" />
-              Imprimir (80mm)
-            </button>
-            <button
               onClick={handleDescargarPDF}
               disabled={descargando}
-              className="px-4 py-2 text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+              className="px-4 py-2 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl flex items-center gap-2 shadow-sm transition disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
-              {descargando ? 'Generando...' : 'Descargar PDF'}
+              {descargando ? 'Generando PDF...' : 'Descargar PDF'}
             </button>
             {onClose && (
               <button 

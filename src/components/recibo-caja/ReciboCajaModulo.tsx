@@ -1223,20 +1223,12 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleImprimirSeguro}
-                  disabled={isPrinting}
-                  className="px-3 py-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition disabled:opacity-50"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  {isPrinting ? 'Imprimiendo...' : 'Imprimir Ticket'}
-                </button>
-                <button
                   onClick={handleDescargarPDF}
                   disabled={descargandoPDF}
-                  className="px-3 py-1.5 bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition disabled:opacity-50"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  {descargandoPDF ? 'PDF...' : 'PDF'}
+                  <Download className="w-4 h-4" />
+                  {descargandoPDF ? 'Generando PDF...' : 'Descargar PDF'}
                 </button>
                 <button
                   onClick={() => setSelectedReciboForPrint(null)}
