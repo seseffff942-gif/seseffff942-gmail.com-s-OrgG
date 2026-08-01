@@ -1107,7 +1107,7 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
       logging: false,
       allowTaint: true
     },
-    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' as const },
     pagebreak: { mode: ['css', 'legacy'] }
   };
 
