@@ -7,7 +7,7 @@ import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, 
 import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
-import { ReciboCajaComponent } from '../components/recibo-caja';
+
 
 interface SalesPageProps {
   user: User;
@@ -48,7 +48,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
   const [consultandoNit, setConsultandoNit] = useState(false);
   const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [showReciboModal, setShowReciboModal] = useState(false);
+
 
   const consultarNitCliente = async () => {
     const n = newClientNit.trim();
@@ -1118,17 +1118,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   Selecciona insumos veterianarios y agrícolas para procesar la venta
                 </p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setShowReciboModal(true)}
-                className="px-3.5 py-2 bg-[#0c1b47] hover:bg-[#162a66] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer shrink-0 border border-[#0c1b47]/20 active:scale-95"
-                title="Ver e Imprimir Recibo de Caja Térmico (80mm)"
-              >
-                <Receipt size={16} className="text-emerald-400" />
-                <span className="hidden sm:inline">Ver / Imprimir Recibo</span>
-                <span className="sm:hidden">Recibo</span>
-              </button>
             </div>
             
             <div className="relative w-full sm:max-w-md">
@@ -3000,17 +2989,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           onClose={() => setShowSignaturePad(false)}
           title="Firma del Vendedor"
         />
-      )}
-
-      {/* MODAL DE RECIBO DE CAJA AGRICOBET (80mm / 72mm) */}
-      {showReciboModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[94vh] overflow-y-auto p-2 sm:p-4 relative animate-in zoom-in-95 border border-slate-100">
-            <ReciboCajaComponent 
-              onClose={() => setShowReciboModal(false)}
-            />
-          </div>
-        </div>
       )}
     </div>
   );

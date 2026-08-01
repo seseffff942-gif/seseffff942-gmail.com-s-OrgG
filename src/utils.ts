@@ -1092,8 +1092,6 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
   try {
     htmlFinal = paginarItemsParaPdf(html, geometria);
   } catch (e) {
-    // Si la medicion/paginado falla, se descarga sin paginar (comportamiento
-    // anterior): mejor un PDF sin encabezado repetido que ningun PDF.
     console.error('No se pudo paginar la tabla de items; se descarga sin paginar:', e);
   }
 
@@ -1112,28 +1110,50 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
   };
 
   const element = document.createElement('div');
-  element.style.position = 'absolute';
+  element.style.position = 'fixed';
   element.style.left = '-9999px';
   element.style.top = '0';
   element.style.width = '800px';
   element.style.backgroundColor = '#ffffff';
+  element.style.zIndex = '-9999';
   element.innerHTML = htmlFinal;
   document.body.appendChild(element);
 
   try {
-    // Convert images to base64 before passing to html2pdf
     await convertAllImagesToBase64(element);
 
-    // @ts-ignore
-    if (typeof html2pdf !== 'undefined') {
-      // @ts-ignore
-      await html2pdf().from(element).set(opt).save();
-    } else {
-      const html2pdfModule = (await import('html2pdf.js')).default;
-      await html2pdfModule().from(element).set(opt).save();
+    const html2pdfModule = (await import('html2pdf.js')).default;
+    const worker = html2pdfModule().from(element).set(opt);
+
+    let downloaded = false;
+    try {
+      const blobPromise = worker.output('blob') as Promise<Blob>;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('PDF Blob generation timeout')), 4000)
+      );
+
+      const blob = await Promise.race([blobPromise, timeoutPromise]);
+      if (blob && blob.size > 0) {
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        downloaded = true;
+      }
+    } catch (blobErr) {
+      console.warn('Fallback a worker.save() directo:', blobErr);
+    }
+
+    if (!downloaded) {
+      await worker.save();
     }
   } catch (err) {
-    console.error('Error al generar o descargar PDF:', err);
+    console.error('Error al generar o descargar PDF, ejecutando vista de respaldo:', err);
+    await printHtml(html);
   } finally {
     if (document.body.contains(element)) {
       document.body.removeChild(element);
