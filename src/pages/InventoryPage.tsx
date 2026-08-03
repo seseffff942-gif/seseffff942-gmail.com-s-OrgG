@@ -1126,7 +1126,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       className={cn(
                       "text-[10px] sm:text-xs font-bold px-3 py-1 rounded-lg",
                       user.role === 'admin' ? "cursor-pointer hover:border-emerald-200 border border-transparent transition-all" : "",
-                      doesNotNeedStock(selectedProduct) || selectedProduct.is_external || (isAdmin && excludedCriticalIds.includes(selectedProduct.id)) ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
+                      doesNotNeedStock(selectedProduct) || selectedProduct.is_external ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
                     )}>
                       {selectedProduct.is_external ? "Bajo Pedido (Externo) - Clic para cambiar" : (doesNotNeedStock(selectedProduct) ? `Exento de Stock (${selectedProduct.stock} en físico)` : `${selectedProduct.stock} unidades en stock`)}
                     </p>
@@ -1288,7 +1288,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         ) : inventoryViewMode === 'grid' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {filteredProducts.map((product) => {
-              const isExempt = doesNotNeedStock(product) || (isAdmin && excludedCriticalIds.includes(product.id));
+              const isExempt = doesNotNeedStock(product);
               let gridDisplayStock = product.stock;
               if (product.variants && product.variants.length > 0) {
                  gridDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
@@ -1521,7 +1521,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredProducts.map((product) => {
-                    const isExempt = doesNotNeedStock(product) || (isAdmin && excludedCriticalIds.includes(product.id));
+                    const isExempt = doesNotNeedStock(product);
                     let listDisplayStock = product.stock;
                     if (product.variants && product.variants.length > 0) {
                       listDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
