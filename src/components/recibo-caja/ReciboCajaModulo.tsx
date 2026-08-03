@@ -100,6 +100,32 @@ export function numeroALetrasGuatemala(monto: number): string {
   return letras.charAt(0).toUpperCase() + letras.slice(1) + ' quetzales' + strCentavos;
 }
 
+// Helper para formatear cualquier fecha (ISO, string, date) a YYYY-MM-DD para <input type="date">
+export function formatDateForInput(dateInput?: any): string {
+  if (!dateInput) return new Date().toISOString().split('T')[0];
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    if (trimmed.includes('T')) return trimmed.split('T')[0];
+    if (trimmed.includes('/')) {
+      const parts = trimmed.split('/');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        }
+        if (parts[2].length === 4) {
+          return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+    }
+  }
+  const d = new Date(dateInput);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
 export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobile }) => {
   const [recibos, setRecibos] = useState<ReciboCajaDB[]>([]);
   const [dbClients, setDbClients] = useState<Client[]>([]);
@@ -149,7 +175,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   const [formClienteCodigo, setFormClienteCodigo] = useState<string>('');
   const [formCantidadLetras, setFormCantidadLetras] = useState<string>('');
   const [formFacturas, setFormFacturas] = useState<FacturaDetalle[]>([
-    { no_factura: 'F-001', fecha_factura: new Date().toLocaleDateString('es-GT'), valor: 0 }
+    { no_factura: 'F-001', fecha_factura: new Date().toISOString().split('T')[0], valor: 0 }
   ]);
   const [formCheques, setFormCheques] = useState<ChequeDetalle[]>([]);
   const [formEfectivoTotal, setFormEfectivoTotal] = useState<number>(0);
@@ -281,12 +307,36 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
   const handleAddFactura = () => {
     setFormFacturas(prev => [
       ...prev,
-      { no_factura: `F-00${prev.length + 1}`, fecha_factura: new Date().toLocaleDateString('es-GT'), valor: 0 }
+      { no_factura: `F-00${prev.length + 1}`, fecha_factura: new Date().toISOString().split('T')[0], valor: 0 }
     ]);
   };
 
   const handleUpdateFactura = (index: number, field: keyof FacturaDetalle, val: any) => {
-    setFormFacturas(prev => prev.map((item, i) => i === index ? { ...item, [field]: val } : item));
+    setFormFacturas(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const updated = { ...item, [field]: val };
+
+      // Si el usuario cambia el no_factura/folio, buscar automáticamente la fecha y saldo del folio
+      if (field === 'no_factura' && typeof val === 'string' && val.trim().length > 0) {
+        const cleanDigits = val.replace(/\D/g, '');
+        if (cleanDigits) {
+          const match = allInvoices.find(inv => 
+            String(inv.folio) === cleanDigits || 
+            String(inv.id) === val.trim() ||
+            String(inv.id).slice(0, 8) === cleanDigits
+          );
+          if (match) {
+            const rawDate = match.date || match.fecha || match.created_at || match.createdAt;
+            updated.fecha_factura = formatDateForInput(rawDate);
+            const saldo = (match.totalAmount || 0) - (match.paidAmount || 0);
+            if (!updated.valor || updated.valor === 0) {
+              updated.valor = saldo > 0 ? saldo : (match.totalAmount || 0);
+            }
+          }
+        }
+      }
+      return updated;
+    }));
   };
 
   const handleRemoveFactura = (index: number) => {
@@ -689,13 +739,33 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                         Q{(Number(recibo.monto_total) || 0).toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedReciboForPrint(recibo); }}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 mx-auto border border-slate-200 transition"
-                        >
-                          <Printer className="w-3.5 h-3.5 text-slate-600" />
-                          <span>Ver / Imprimir</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedReciboForPrint(recibo); }}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-[11px] flex items-center gap-1.5 border border-slate-200 transition"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Ver</span>
+                          </button>
+                          {user?.role === 'admin' && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!confirm(`¿Eliminar recibo ${recibo.folio} de ${recibo.cliente_nombre}?\n\nEsta acción NO se puede deshacer.`)) return;
+                                try {
+                                  await api.deleteReciboCaja(recibo.id!);
+                                  cargarDatos();
+                                } catch (err: any) {
+                                  alert(`Error al eliminar: ${err.message || 'Intente de nuevo'}`);
+                                }
+                              }}
+                              className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-bold text-[11px] flex items-center gap-1 border border-red-200 transition"
+                              title="Eliminar recibo (Solo Admin)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -870,6 +940,8 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       {clientPendingInvoices.map((inv: any) => {
                         const folioDisplay = `Folio #${inv.folio || inv.id?.slice(0, 8)}`;
                         const saldo = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+                        const rawInvoiceDate = inv.date || inv.fecha || inv.created_at || inv.createdAt;
+                        const formattedInvoiceDate = formatDateForInput(rawInvoiceDate);
                         return (
                           <div 
                             key={inv.id}
@@ -878,14 +950,14 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                             <div>
                               <span className="text-xs font-black text-slate-800 block">{folioDisplay}</span>
                               <span className="text-[10px] text-slate-500 font-medium">
-                                {inv.date || 'Sin fecha'} • Deuda: Q{inv.totalAmount?.toFixed(2)}
+                                {rawInvoiceDate || 'Sin fecha'} • Deuda: Q{inv.totalAmount?.toFixed(2)}
                               </span>
                             </div>
                             <button
                               type="button"
                               onClick={() => {
                                 setFormFacturas([
-                                  { no_factura: folioDisplay, fecha_factura: inv.date || new Date().toISOString().split('T')[0], valor: saldo }
+                                  { no_factura: folioDisplay, fecha_factura: formattedInvoiceDate, valor: saldo }
                                 ]);
                               }}
                               className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition shrink-0"

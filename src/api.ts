@@ -1172,4 +1172,13 @@ export const api = {
     return data;
   },
 
+  deleteReciboCaja: async (id: string) => {
+    const res = await fetchWithAuth(`/api/recibos-caja/${id}`, {
+      method: 'DELETE',
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar el recibo de caja');
+    return data;
+  },
+
 };
