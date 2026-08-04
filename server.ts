@@ -392,9 +392,11 @@ if (!process.env.VERCEL) {
     delete memoryCache[key];
   };
 
-  async function getFolioMap() {
-    const cached = getCachedData("folio_map");
-    if (cached) return cached;
+  async function getFolioMap(forceRefresh: boolean = false) {
+    if (!forceRefresh) {
+      const cached = getCachedData("folio_map");
+      if (cached) return cached;
+    }
 
     let startFrom = 1;
     let resetDate = null;
@@ -2872,12 +2874,25 @@ if (!process.env.VERCEL) {
 
     const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     
-    // Compute next folio and lock it in notes so backdating never shifts folios
-    const currentFolioMap = await getFolioMap();
+    // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
+    invalidateCache("folio_map");
+    const currentFolioMap = await getFolioMap(true);
     const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
     const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
-    let assignedFolio = maxFolio > 0 ? maxFolio + 1 : 1;
-    if (assignedFolio === 812) assignedFolio = 813;
+
+    let startFromConfig = 1;
+    try {
+      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+        const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+        startFromConfig = cfg.startFrom || 1;
+      }
+    } catch (e) {}
+
+    let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
+    while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
+      assignedFolio++;
+    }
     let folioFlag = `|||FOLIO:${assignedFolio}`;
 
     let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
@@ -2893,6 +2908,16 @@ if (!process.env.VERCEL) {
       authFlag += "|||DEBT:true";
     }
     
+    // Regla estricta de negocio:
+    // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
+    // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
+    const isUserAdmin = req.user && req.user.role === 'admin';
+    const saleExactTimestamp = (isUserAdmin && customDate)
+      ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
+          ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+          : new Date(customDate).toISOString())
+      : new Date().toISOString();
+
     // Try to insert with updated schema mapping
     const invoiceDataRaw: any = {
       id,
@@ -2902,16 +2927,7 @@ if (!process.env.VERCEL) {
       totalAmount: total,
       paidAmount: isOwed ? 0 : total,
       status: isOwed ? 'pending' : 'paid',
-      // OJO ZONA HORARIA: si customDate viene como "YYYY-MM-DD" (dia elegido en
-      // Guatemala), NO usar new Date("YYYY-MM-DD") -> eso lo interpreta como
-      // medianoche UTC, que en Guatemala (UTC-6) cae el dia ANTERIOR y la
-      // factura salia con la fecha corrida un dia. Se ancla al mediodia de
-      // Guatemala para que el dia calendario quede firme.
-      date: customDate
-        ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
-            ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
-            : new Date(customDate).toISOString())
-        : new Date().toISOString()
+      date: saleExactTimestamp
     };
     invoiceDataRaw['clientName'] = client;
     invoiceDataRaw['customerPhone'] = phone || "";
@@ -3209,7 +3225,8 @@ if (!process.env.VERCEL) {
         newNotes += "|||AUTH:authorized"; // Mark authorized if no issue
     }
 
-    const targetDate = customDate || date;
+    const isUserAdmin = req.user && req.user.role === 'admin';
+    const targetDate = isUserAdmin ? (customDate || date) : null;
     const updatedDataRaw: any = {
         notes: newNotes,
         items: formattedItems,

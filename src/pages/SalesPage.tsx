@@ -764,7 +764,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             isOwed,
             notes,
             sellerId: sellerIdToUse,
-            customDate: customDate || undefined
+            customDate: user?.role === 'admin' ? (customDate || undefined) : undefined
          });
          setEditingInvoiceId(null);
          setEditInvoiceSellerId(null);
@@ -781,7 +781,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           invoiceType: invoiceType as 'agricola' | 'veterinaria',
           creditDays: invoiceType === 'agricola' ? 60 : 30,
           debtAlert: debtType !== 'none',
-          customDate: customDate || undefined,
+          customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
           transportMethod: transportMethod || undefined,
           sellerSignature: finalSignature || undefined
         };
@@ -1478,20 +1478,33 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
             {/* Shipment details */}
             <div className="border-t border-slate-200/60 pt-3 space-y-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Fecha de la Venta</label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={customDate}
-                    onChange={(e) => setCustomDate(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-[#0b4d2c] outline-none font-bold text-slate-800 transition-all text-xs cursor-pointer"
-                  />
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                    <Clock size={14} />
+              {user?.role === 'admin' ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Fecha de la Venta (Modo Admin)</label>
+                    <span className="text-[9px] font-extrabold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">Personalizado</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={customDate}
+                      onChange={(e) => setCustomDate(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-[#0b4d2c] outline-none font-bold text-slate-800 transition-all text-xs cursor-pointer"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                      <Clock size={14} />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Fecha y Hora de la Venta</label>
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-xs font-bold text-[#0c5c35]">
+                    <Clock size={15} className="text-[#0c5c35] shrink-0" />
+                    <span>Se registrará con la fecha y hora exacta real en tiempo real</span>
+                  </div>
+                </div>
+              )}
 
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Transporte de Envío</label>
               <div className="grid grid-cols-3 gap-2">
