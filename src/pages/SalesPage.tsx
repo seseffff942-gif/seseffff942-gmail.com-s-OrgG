@@ -90,14 +90,21 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [offlineQueue, setOfflineQueue] = useState<any[]>([]);
 
   useEffect(() => {
-    const queue = JSON.parse(localStorage.getItem('offline_invoices') || '[]');
-    setOfflineQueue(queue);
-
-    const handleOnline = () => {
-      syncOfflineInvoices();
+    const checkAndSync = () => {
+      const currentQueue = JSON.parse(localStorage.getItem('offline_invoices') || '[]');
+      setOfflineQueue(currentQueue);
+      if (currentQueue.length > 0 && navigator.onLine) {
+        syncOfflineInvoices();
+      }
     };
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+
+    checkAndSync();
+    window.addEventListener('online', checkAndSync);
+    const syncInterval = setInterval(checkAndSync, 5000);
+    return () => {
+      window.removeEventListener('online', checkAndSync);
+      clearInterval(syncInterval);
+    };
   }, []);
 
   const syncOfflineInvoices = async () => {
@@ -1037,14 +1044,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               <p className="text-white font-semibold mt-0.5">{offlineQueue.length} {offlineQueue.length === 1 ? 'venta guardada' : 'ventas guardadas'} sin conexión.</p>
             </div>
           </div>
-          <button 
-             onClick={syncOfflineInvoices}
-             disabled={isSubmitting}
-             className="px-3.5 py-2 bg-white text-amber-900 text-[10px] font-black rounded-xl hover:bg-amber-50 transition-all flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 cursor-pointer"
-          >
-             <RefreshCw size={12} className={cn(isSubmitting && "animate-spin")} />
-             Sincronizar
-          </button>
+          <div className="px-3 py-1.5 bg-white/15 backdrop-blur-md text-amber-100 text-[10px] font-extrabold uppercase tracking-wider rounded-xl flex items-center gap-2 border border-white/10 shrink-0">
+             <RefreshCw size={12} className="animate-spin text-amber-200" />
+             <span>Sincronizando Solo...</span>
+          </div>
         </div>
       )}
 

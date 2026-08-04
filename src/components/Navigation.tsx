@@ -1690,22 +1690,17 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
             </div>
 
             {/* Rigid footer action bar, always visible */}
-            <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-150 flex gap-3 shrink-0">
+            <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-150 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-[#00696a] bg-teal-50 px-3.5 py-2 rounded-xl border border-teal-200/80">
+                <RefreshCw size={13} className="animate-spin text-[#00696a]" />
+                <span>Sincronización Automática Activa</span>
+              </div>
               <button
                 id="close-sync-modal-footer-btn"
                 onClick={handleCloseSyncModal}
-                className="flex-1 py-2.5 rounded-xl text-center text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="px-5 py-2.5 rounded-xl text-center text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Entendido
-              </button>
-              <button
-                id="manual-sync-action-btn"
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                className="flex-1 py-2.5 rounded-xl text-center text-xs font-black uppercase tracking-wider text-white bg-[#00696a] hover:bg-[#004f50] disabled:opacity-50 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer shadow-md"
-              >
-                <RefreshCw size={13} className={cn(isSyncing && "animate-spin")} />
-                {isSyncing ? "Sincronizando..." : "Sincronizar"}
               </button>
             </div>
           </div>
