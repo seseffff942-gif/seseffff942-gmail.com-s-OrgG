@@ -420,6 +420,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   }, [cart]);
 
   const addToCart = (product: Product, quantityToAdd?: number, priceOverride?: number, customOffer?: { buyQty: number, freeQty: number }, variant?: { id: string; color: string; size: string }) => {
+    if (product.hiddenFromSales && user.role !== 'admin') {
+      setErrorMsg(`El producto "${product.name}" está oculto en la pantalla de ventas y sólo los Administradores pueden venderlo.`);
+      setTimeout(() => setErrorMsg(''), 5000);
+      return;
+    }
     let baseQty = quantityToAdd !== undefined ? quantityToAdd : 1;
     const existingInCart = cart.find(i => 
         i.product.id === product.id && 
@@ -726,6 +731,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
+    const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin');
+    if (hiddenItemsForNonAdmin.length > 0) {
+      setErrorMsg(`No se puede procesar la venta porque incluye productos ocultos (${hiddenItemsForNonAdmin.map(i => i.product.name).join(', ')}). Únicamente Administradores pueden venderlos.`);
+      setIsSubmitting(false);
+      return;
+    }
+
     const isSpecialUser = user?.email === 'seseffff942@gmail.com';
     if (!isSpecialUser && !signature && !sellerSignature && !editingInvoiceId) {
       setPendingCheckout({ isOwed, sellerId: sellerIdToUse });
@@ -1024,7 +1036,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const filteredProducts = products.filter(p => {
-    if (p.hiddenFromSales) return false;
+    if (p.hiddenFromSales && user.role !== 'admin') return false;
     const matchSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchSearch && matchCategory;
@@ -1202,7 +1214,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   >
                     
                     {/* Badge Pill status */}
-                    <div className="absolute top-3 left-3 z-10">
+                    <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-1.5 max-w-[85%]">
                       <span className={cn(
                         "text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider border shadow-sm",
                         product.is_external 
@@ -1227,6 +1239,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                       ? <span>Disponibles: {displayStock}</span> 
                                       : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO'))))}
                       </span>
+
+                      {product.hiddenFromSales && user.role === 'admin' && (
+                        <span className="text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider bg-purple-700 text-white border border-purple-600 shadow-sm">
+                          Oculto en Ventas
+                        </span>
+                      )}
                     </div>
 
                     {/* Image space */}

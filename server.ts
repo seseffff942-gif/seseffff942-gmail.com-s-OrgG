@@ -1912,9 +1912,12 @@ if (!process.env.VERCEL) {
       product.specifications = specifications;
     }
 
-    // Campos exclusivos del dueño: precio de compra y visibilidad en ventas
+    // Campos exclusivos del dueño y admin: visibilidad en ventas para admins, costo para el dueño
+    const isAdmin = req.user && (req.user.role === 'admin' || isOwner);
     if (isOwner) {
       if (costPrice !== undefined) product.cost_price = costPrice;
+    }
+    if (isAdmin) {
       if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
     }
 
@@ -1949,7 +1952,8 @@ if (!process.env.VERCEL) {
     invalidateCache("products");
     const { id } = req.params;
     const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
-    const isAdmin = req.user.role === 'admin';
+    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+    const isAdmin = req.user.role === 'admin' || isOwner;
     
     // Si no es admin, solo permitimos actualizar la descripción si estaba vacía
     if (!isAdmin) {
@@ -1975,9 +1979,10 @@ if (!process.env.VERCEL) {
     if (specifications !== undefined) updates.specifications = specifications;
     if (is_external !== undefined) updates.is_external = is_external;
     
-    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
     if (isOwner) {
       if (costPrice !== undefined) updates.cost_price = costPrice;
+    }
+    if (isAdmin) {
       if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
     }
     
