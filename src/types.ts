@@ -54,6 +54,8 @@ export interface Product {
   variants?: ProductVariant[];
   specifications?: { key: string; value: string }[];
   is_external?: boolean;
+  costPrice?: number;
+  hiddenFromSales?: boolean;
 }
 
 export interface InvoiceItem {

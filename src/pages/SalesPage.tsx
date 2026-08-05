@@ -1024,6 +1024,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const filteredProducts = products.filter(p => {
+    if (p.hiddenFromSales) return false;
     const matchSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchSearch && matchCategory;

@@ -1838,32 +1838,65 @@ if (!process.env.VERCEL) {
 
   // INVENTORY
   app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+
     const cached = getCachedData("products");
     if (cached) {
+      // Strip costPrice for non-owners even from cache
+      if (!isOwner) {
+        return res.json(cached.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+      }
       return res.json(cached);
     }
 
     // Select explicitly to be more resilient to schema out-of-sync issues
-    const { data: products, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external");
+    const { data: products, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
     
     if (error) {
+       // If new columns don't exist yet, fallback gracefully
+       if (error.message.includes("cost_price") || error.message.includes("hidden_from_sales")) {
+          const { data: fallback2, error: err3 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external");
+          if (err3) {
+            // Even deeper fallback without specifications/is_external
+            const { data: fallback3, error: err4 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
+            if (err4) throw new Error(err4.message);
+            const fb = (fallback3 || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
+            setCachedData("products", fb);
+            return res.json(isOwner ? fb : fb.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+          }
+          const fb2 = (fallback2 || []).map((p: any) => ({ ...p, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
+          setCachedData("products", fb2);
+          return res.json(isOwner ? fb2 : fb2.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+       }
        // If specifications or is_external fails, retry with fewer columns as a fallback
        if (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
           const { data: fallback, error: err2 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
           if (err2) throw new Error(err2.message);
-          const fallbackData = (fallback || []).map((p: any) => ({ ...p, specifications: null, is_external: false }));
+          const fallbackData = (fallback || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
           setCachedData("products", fallbackData);
-          return res.json(fallbackData);
+          return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
        }
        throw new Error(error.message);
     }
-    setCachedData("products", products);
-    res.json(products);
+
+    // Normalize: map DB snake_case to camelCase aliases for frontend
+    const normalized = (products || []).map((p: any) => ({
+      ...p,
+      costPrice: p.cost_price || 0,
+      hiddenFromSales: p.hidden_from_sales || false
+    }));
+    setCachedData("products", normalized);
+
+    if (!isOwner) {
+      return res.json(normalized.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+    }
+    res.json(normalized);
   }));
 
   app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
-    const { name, category, price, stock, image, description, variants, specifications, is_external } = req.body;
+    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
+    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
     const id = `p${Date.now()}`;
     const product: any = { 
       id, name, category, price, 
@@ -1879,23 +1912,33 @@ if (!process.env.VERCEL) {
       product.specifications = specifications;
     }
 
+    // Campos exclusivos del dueño: precio de compra y visibilidad en ventas
+    if (isOwner) {
+      if (costPrice !== undefined) product.cost_price = costPrice;
+      if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
+    }
+
     const { error } = await supabase.from("products").insert([product]);
     if (error) {
-       // Fallback: if specifications, variants, or is_external columns caused error, retry without them
+       // Fallback: if specifications, variants, is_external, or new columns caused error, retry without them
        const isColumnError = error.message.includes("specifications") || 
                              error.message.includes("variants") || 
                              error.message.includes("is_external") || 
-                             error.message.includes("isExternalInventory");
+                             error.message.includes("isExternalInventory") ||
+                             error.message.includes("cost_price") ||
+                             error.message.includes("hidden_from_sales");
        if (isColumnError) {
          const retryProduct = { ...product };
          delete retryProduct.variants;
          delete retryProduct.specifications;
          delete retryProduct.is_external;
+         delete retryProduct.cost_price;
+         delete retryProduct.hidden_from_sales;
          delete (retryProduct as any).isExternalInventory;
 
          const { error: err2 } = await supabase.from("products").insert([retryProduct]);
          if (err2) throw new Error(err2.message);
-         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false });
+         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
        }
        throw new Error(error.message);
     }
@@ -1905,7 +1948,7 @@ if (!process.env.VERCEL) {
   app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
     const { id } = req.params;
-    const { stock, price, name, image, description, category, variants, specifications, is_external } = req.body;
+    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
     const isAdmin = req.user.role === 'admin';
     
     // Si no es admin, solo permitimos actualizar la descripción si estaba vacía
@@ -1932,6 +1975,12 @@ if (!process.env.VERCEL) {
     if (specifications !== undefined) updates.specifications = specifications;
     if (is_external !== undefined) updates.is_external = is_external;
     
+    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+    if (isOwner) {
+      if (costPrice !== undefined) updates.cost_price = costPrice;
+      if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
+    }
+    
     const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
     const originalProduct = results?.[0];
     
@@ -1946,7 +1995,7 @@ if (!process.env.VERCEL) {
 
     let { data, error } = await supabase.from("products").update(updates).eq('id', id).select();
     
-    if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory"))) {
+    if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales"))) {
       console.warn("Update failed, retrying granular fallback:", error.message);
       
       const retryUpdates = { ...updates };
@@ -1957,27 +2006,17 @@ if (!process.env.VERCEL) {
       if (error.message.includes("specifications")) {
         delete retryUpdates.specifications;
       }
+      if (error.message.includes("cost_price")) {
+        delete retryUpdates.cost_price;
+      }
+      if (error.message.includes("hidden_from_sales")) {
+        delete retryUpdates.hidden_from_sales;
+      }
 
-      // If we still have updates after removing failed columns, or if we have at least one column that MIGHT work
       if (Object.keys(retryUpdates).length > 0) {
         const { data: retryData, error: retryError } = await supabase.from("products").update(retryUpdates).eq('id', id).select();
-        
-        // If it fails again, try the extreme fallback (remove both)
-        if (retryError && (retryError.message.includes("specifications") || retryError.message.includes("is_external") || retryError.message.includes("isExternalInventory"))) {
-          delete retryUpdates.specifications;
-          delete retryUpdates.is_external;
-          delete retryUpdates.isExternalInventory;
-          if (Object.keys(retryUpdates).length > 0) {
-            const { data: finalData, error: finalError } = await supabase.from("products").update(retryUpdates).eq('id', id).select();
-            data = finalData;
-            error = finalError;
-          } else {
-            return res.json(originalProduct);
-          }
-        } else {
-          data = retryData;
-          error = retryError;
-        }
+        data = retryData;
+        error = retryError;
       } else {
         return res.json(originalProduct);
       }

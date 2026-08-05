@@ -55,7 +55,45 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     localStorage.setItem('inventoryViewMode', inventoryViewMode);
   }, [inventoryViewMode]);
 
+  const [newProductCostPrice, setNewProductCostPrice] = useState('');
+  const [newProductHiddenFromSales, setNewProductHiddenFromSales] = useState(false);
+
   const isAdmin = user.role === 'admin' || user.email === 'seseffff942@gmail.com';
+  const isOwner = user.email === 'seseffff942@gmail.com';
+
+  const handleToggleHiddenFromSales = async (product: Product) => {
+    if (!isOwner) return;
+    const newState = !product.hiddenFromSales;
+    try {
+      await api.updateProduct(product.id, { hiddenFromSales: newState });
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, hiddenFromSales: newState } : p));
+      if (selectedProduct && selectedProduct.id === product.id) {
+        setSelectedProduct(prev => prev ? { ...prev, hiddenFromSales: newState } : null);
+      }
+    } catch (err: any) {
+      alert(`Error actualizando visibilidad: ${err.message || 'Error desconocido'}`);
+    }
+  };
+
+  const handleEditCostPrice = async (product: Product) => {
+    if (!isOwner) return;
+    const input = window.prompt(`Ingrese el precio de compra / costo (Q) para "${product.name}":`, String(product.costPrice || 0));
+    if (input === null) return;
+    const newCost = parseFloat(input);
+    if (isNaN(newCost) || newCost < 0) {
+      alert("Por favor ingrese un número válido mayor o igual a 0.");
+      return;
+    }
+    try {
+      await api.updateProduct(product.id, { costPrice: newCost });
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, costPrice: newCost } : p));
+      if (selectedProduct && selectedProduct.id === product.id) {
+        setSelectedProduct(prev => prev ? { ...prev, costPrice: newCost } : null);
+      }
+    } catch (err: any) {
+      alert(`Error actualizando precio de costo: ${err.message || 'Error desconocido'}`);
+    }
+  };
 
   // Custom dialog state to replace native prompt
   const [showEditFieldModal, setShowEditFieldModal] = useState(false);
@@ -515,6 +553,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         price: parseFloat(newProductPrice),
         stock: parseInt(newProductStock, 10),
         is_external: newProductIsExternal,
+        costPrice: isOwner && newProductCostPrice ? parseFloat(newProductCostPrice) : undefined,
+        hiddenFromSales: isOwner ? newProductHiddenFromSales : undefined,
         variants: newProductVariants.length > 0 ? newProductVariants : undefined,
         specifications: newProductSpecs.length > 0 ? newProductSpecs : undefined
       });
@@ -528,6 +568,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       setNewProductCategory('Agroquímicos');
       setNewProductPrice('');
       setNewProductStock('');
+      setNewProductCostPrice('');
+      setNewProductHiddenFromSales(false);
       setNewProductImage(null);
       setNewProductVariants([]);
       setNewProductSpecs([]);
@@ -938,7 +980,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Precio Unitario (Q)</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Precio Venta (Q)</label>
                       <input required type="number" step="0.01" min="0" value={newProductPrice} onChange={e => setNewProductPrice(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 bg-slate-50/50 shadow-sm outline-none transition-all font-medium text-slate-800" placeholder="0.00" />
                     </div>
                     <div>
@@ -946,6 +988,43 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <input required type="number" min="0" value={newProductStock} onChange={e => setNewProductStock(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 bg-slate-50/50 shadow-sm outline-none transition-all font-medium text-slate-800" placeholder="0" />
                     </div>
                   </div>
+
+                  {isOwner && (
+                    <div className="p-3.5 bg-purple-50/60 border border-purple-200/80 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 flex items-center gap-1.5">
+                          <Shield size={12} className="text-purple-700" />
+                          <span>Control Privado del Dueño</span>
+                        </span>
+                        <span className="text-[9px] font-black bg-purple-200/60 text-purple-800 px-2 py-0.5 rounded-md">Exclusivo</span>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-purple-950 mb-1 ml-0.5">Precio de Compra / Costo (Q)</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          min="0" 
+                          value={newProductCostPrice} 
+                          onChange={e => setNewProductCostPrice(e.target.value)} 
+                          className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-xs font-extrabold text-purple-950" 
+                          placeholder="Costo al que lo compraste (Q0.00)" 
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                        <input 
+                          type="checkbox" 
+                          checked={newProductHiddenFromSales} 
+                          onChange={e => setNewProductHiddenFromSales(e.target.checked)} 
+                          className="w-4 h-4 rounded text-purple-700 focus:ring-purple-500 cursor-pointer" 
+                        />
+                        <span className="text-xs font-extrabold text-purple-950">
+                          Ocultar de la pantalla de ventas (Solo Inventario)
+                        </span>
+                      </label>
+                    </div>
+                  )}
                   
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Variantes (Variante/Talla)</label>
@@ -1116,20 +1195,62 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     <h2 className="text-2xl sm:text-3xl font-black text-slate-900 leading-tight notranslate" translate="no">{selectedProduct.name}</h2>
                     <p className="text-xs sm:text-sm text-slate-500 font-mono mt-1">SKU: {selectedProduct.id}</p>
                   </div>
-                  <div className="flex flex-col items-start sm:items-end gap-1">
-                    <p className="text-sm sm:text-base font-black text-[#116858] bg-teal-50 px-4 py-1.5 rounded-xl border border-teal-100">
-                      Q{selectedProduct.price.toFixed(2)}
-                    </p>
-                    <p 
-                      onClick={() => user.role === 'admin' ? handleToggleExternal(selectedProduct) : undefined}
-                      title={user.role === 'admin' ? "Clic para cambiar estado Físico / Externo" : undefined}
-                      className={cn(
-                      "text-[10px] sm:text-xs font-bold px-3 py-1 rounded-lg",
-                      user.role === 'admin' ? "cursor-pointer hover:border-emerald-200 border border-transparent transition-all" : "",
-                      doesNotNeedStock(selectedProduct) || selectedProduct.is_external ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
-                    )}>
-                      {selectedProduct.is_external ? "Bajo Pedido (Externo) - Clic para cambiar" : (doesNotNeedStock(selectedProduct) ? `Exento de Stock (${selectedProduct.stock} en físico)` : `${selectedProduct.stock} unidades en stock`)}
-                    </p>
+                  <div className="flex flex-col items-start sm:items-end gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm sm:text-base font-black text-[#116858] bg-teal-50 px-4 py-1.5 rounded-xl border border-teal-100" title="Precio de Venta al Público">
+                        Q{selectedProduct.price.toFixed(2)} <span className="text-[9px] font-normal text-slate-400">venta</span>
+                      </p>
+                      {isOwner && (
+                        <p 
+                          onClick={() => handleEditCostPrice(selectedProduct)}
+                          className="text-xs font-black text-purple-900 bg-purple-50 hover:bg-purple-100 px-3.5 py-1.5 rounded-xl border border-purple-200 cursor-pointer transition-all flex items-center gap-1"
+                          title="Haga clic para editar el Precio de Compra / Costo"
+                        >
+                          <Shield size={12} className="text-purple-700" />
+                          <span>Costo: Q{(selectedProduct.costPrice || 0).toFixed(2)}</span>
+                          <Edit2 size={10} className="text-purple-600 ml-0.5" />
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <p 
+                        onClick={() => user.role === 'admin' ? handleToggleExternal(selectedProduct) : undefined}
+                        title={user.role === 'admin' ? "Clic para cambiar estado Físico / Externo" : undefined}
+                        className={cn(
+                        "text-[10px] sm:text-xs font-bold px-3 py-1 rounded-lg",
+                        user.role === 'admin' ? "cursor-pointer hover:border-emerald-200 border border-transparent transition-all" : "",
+                        doesNotNeedStock(selectedProduct) || selectedProduct.is_external ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
+                      )}>
+                        {selectedProduct.is_external ? "Bajo Pedido (Externo) - Clic para cambiar" : (doesNotNeedStock(selectedProduct) ? `Exento de Stock (${selectedProduct.stock} en físico)` : `${selectedProduct.stock} unidades en stock`)}
+                      </p>
+
+                      {isOwner && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleHiddenFromSales(selectedProduct)}
+                          className={cn(
+                            "text-[10px] font-black px-3 py-1 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer",
+                            selectedProduct.hiddenFromSales 
+                              ? "bg-purple-700 text-white border-purple-800 hover:bg-purple-800" 
+                              : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                          )}
+                          title="Cambiar visibilidad en pantalla de ventas"
+                        >
+                          {selectedProduct.hiddenFromSales ? (
+                            <>
+                              <EyeOff size={12} />
+                              <span>Solo Inventario</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye size={12} />
+                              <span>Visible en Ventas</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1328,12 +1449,29 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       {product.category}
                     </div>
 
-                    {/* Right overlay badge for external */}
-                    {product.is_external && (
+                    {/* Right overlay badge for external or hidden from sales */}
+                    {product.hiddenFromSales ? (
+                      <div 
+                        onClick={(e) => {
+                          if (isOwner) {
+                            e.stopPropagation();
+                            handleToggleHiddenFromSales(product);
+                          }
+                        }}
+                        className={cn(
+                          "absolute top-4 right-4 bg-purple-700 text-white border border-purple-500 px-2.5 py-1 rounded-full text-[9px] font-black tracking-wider uppercase flex items-center gap-1 shadow-md z-10",
+                          isOwner ? "cursor-pointer hover:scale-105" : ""
+                        )}
+                        title={isOwner ? "Clic para cambiar visibilidad en ventas" : "Producto de solo inventario"}
+                      >
+                        <EyeOff size={10} />
+                        <span>Solo Inventario</span>
+                      </div>
+                    ) : product.is_external ? (
                       <div className="absolute top-4 right-4 bg-amber-500 text-white border border-amber-400 px-2.5 py-1 rounded-full text-[9px] font-black tracking-wider uppercase">
                         SOBRE PEDIDO
                       </div>
-                    )}
+                    ) : null}
 
                     {/* Upload Overlay (Hover on Desktop, Touch-Friendly on Mobile) */}
                     {user.role === 'admin' && uploadingImageProductId !== product.id && (
@@ -1551,6 +1689,25 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                 <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-tighter bg-slate-100 px-1 rounded">
                                   #{product.id.split('-')[0]}
                                 </span>
+
+                                {product.hiddenFromSales && (
+                                  <span 
+                                    onClick={(e) => {
+                                      if (isOwner) {
+                                        e.stopPropagation();
+                                        handleToggleHiddenFromSales(product);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 bg-purple-100 text-purple-900 border border-purple-200",
+                                      isOwner ? "cursor-pointer hover:bg-purple-200" : ""
+                                    )}
+                                    title="Producto de solo inventario (oculto en ventas)"
+                                  >
+                                    <EyeOff size={10} />
+                                    <span>Solo Inv</span>
+                                  </span>
+                                )}
                                 
                                 <span className={cn(
                                   "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1",
@@ -1622,10 +1779,12 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           {(() => {
             let totalStock = 0;
             let totalValuation = 0;
+            let totalCostValuation = 0;
             products.forEach(p => {
               if (p.is_external) return;
               const category = p.category || '';
               const isIncubadora = category.toUpperCase() === 'INCUBADORAS';
+              const pCost = p.costPrice || 0;
               
               if (p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
@@ -1634,6 +1793,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   totalStock += vStock;
                   if (!isIncubadora && vStock > 0) {
                     totalValuation += vStock * Number(vPrice);
+                    totalCostValuation += vStock * Number(pCost);
                   }
                 });
               } else {
@@ -1642,12 +1802,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 totalStock += pStock;
                 if (!isIncubadora && pStock > 0) {
                   totalValuation += pStock * Number(pPrice);
+                  totalCostValuation += pStock * Number(pCost);
                 }
               }
             });
 
             return (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className={cn("grid grid-cols-1 gap-4", isOwner ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
                 <div className="bg-[#0b4d2c]/5 p-5 rounded-2xl border border-emerald-950/5 flex flex-col justify-between">
                   <span className="text-[10px] text-[#0b4d2c] font-extrabold uppercase tracking-wider block mb-1">Insumos Filtrados</span>
                   <p className="text-xl sm:text-2xl font-black text-slate-800 leading-none">
@@ -1663,11 +1824,23 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 </div>
 
                 <div className="bg-emerald-500/10 p-5 rounded-2xl border border-emerald-500/15 flex flex-col justify-[#0b4d2c]">
-                  <span className="text-[10px] text-emerald-900 font-extrabold uppercase tracking-wider block mb-1">Financiamiento Almacén</span>
+                  <span className="text-[10px] text-emerald-900 font-extrabold uppercase tracking-wider block mb-1">Valor Total en Ventas</span>
                   <p className="text-xl sm:text-2xl font-black text-[#0b4d2c] leading-none font-mono">
                     Q{totalValuation.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
+
+                {isOwner && (
+                  <div className="bg-purple-50 p-5 rounded-2xl border border-purple-200 flex flex-col justify-between shadow-xs">
+                    <span className="text-[10px] text-purple-900 font-extrabold uppercase tracking-wider block mb-1 flex items-center gap-1">
+                      <Shield size={12} className="text-purple-700" />
+                      <span>Inversión Real (Costo Total)</span>
+                    </span>
+                    <p className="text-xl sm:text-2xl font-black text-purple-950 leading-none font-mono">
+                      Q{totalCostValuation.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1682,25 +1855,32 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <th className="p-4">Producto comercializado</th>
                       <th className="p-4 w-36 text-center">Categoría</th>
                       <th className="p-4 w-32 text-right">Existencia</th>
-                      <th className="p-4 w-44 text-right">Precio de Catálogo c/u</th>
-                      <th className="p-4 w-44 text-right pr-6">Total Financiado (Stock x Precio)</th>
+                      {isOwner && <th className="p-4 w-36 text-right text-purple-800">Precio Compra c/u</th>}
+                      <th className="p-4 w-44 text-right">Precio Venta c/u</th>
+                      {isOwner && <th className="p-4 w-44 text-right text-purple-900">Inversión (Costo)</th>}
+                      <th className="p-4 w-44 text-right pr-6">Total Venta (Stock x Precio)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-705">
                     {filteredProducts.map((p) => {
                       const isExempt = doesNotNeedStock(p);
                       let individualTotal = 0;
+                      let individualCostTotal = 0;
                       let individualStock = 0;
+                      const costPriceVal = p.costPrice || 0;
+
                       if (!p.is_external) {
                         if (p.variants && p.variants.length > 0) {
                           p.variants.forEach(v => {
                             const vStock = v.stock !== undefined ? v.stock : p.stock;
                             individualStock += vStock;
                             individualTotal += vStock * v.price;
+                            individualCostTotal += vStock * costPriceVal;
                           });
                         } else {
                           individualStock = p.stock;
                           individualTotal = p.stock * p.price;
+                          individualCostTotal = p.stock * costPriceVal;
                         }
                       }
                       
@@ -1720,9 +1900,16 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                 alt={p.name}
                                 className="w-8 h-8 object-contain bg-slate-50 rounded-lg p-0.5 border border-slate-100 shrink-0"
                               />
-                              <span className="font-extrabold text-slate-800 group-hover:text-[#0b4d2c] transition-colors line-clamp-1 notranslate" translate="no">
-                                {p.name}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-slate-800 group-hover:text-[#0b4d2c] transition-colors line-clamp-1 notranslate" translate="no">
+                                  {p.name}
+                                </span>
+                                {p.hiddenFromSales && (
+                                  <span className="text-[9px] font-black bg-purple-100 text-purple-900 px-1.5 py-0.5 rounded border border-purple-200 whitespace-nowrap">
+                                    Solo Inv
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td className="p-4 text-center">
@@ -1741,9 +1928,19 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                               </span>
                             )}
                           </td>
+                          {isOwner && (
+                            <td className="p-4 text-right font-mono font-bold text-purple-900">
+                              Q{costPriceVal.toFixed(2)}
+                            </td>
+                          )}
                           <td className="p-4 text-right font-mono font-bold text-slate-500">
                             Q{p.price.toFixed(2)}
                           </td>
+                          {isOwner && (
+                            <td className="p-4 text-right font-mono font-black text-purple-950">
+                              {p.is_external ? "Q0.00" : `Q${individualCostTotal.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            </td>
+                          )}
                           <td className="p-4 text-right pr-6 font-mono font-black text-slate-800">
                             {p.is_external ? "Q0.00" : `Q${individualTotal.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </td>
