@@ -217,17 +217,54 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   return response;
 };
 
+// In-memory cache for ultra-fast tab switching and navigation
+const apiMemoryCache: Record<string, { timestamp: number; data: any }> = {};
+const CLIENT_CACHE_TTL_MS = 30000; // 30 seconds TTL
+
+const getCachedApi = (key: string): any | null => {
+  const item = apiMemoryCache[key];
+  if (item && (Date.now() - item.timestamp) < CLIENT_CACHE_TTL_MS) {
+    return item.data;
+  }
+  return null;
+};
+
+const setCachedApi = (key: string, data: any): void => {
+  apiMemoryCache[key] = { timestamp: Date.now(), data };
+};
+
+export const clearApiCache = (keyPrefix?: string): void => {
+  if (!keyPrefix) {
+    Object.keys(apiMemoryCache).forEach(k => delete apiMemoryCache[k]);
+  } else {
+    Object.keys(apiMemoryCache).forEach(k => {
+      if (k.startsWith(keyPrefix)) delete apiMemoryCache[k];
+    });
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('agricovet-mutate', () => clearApiCache());
+}
+
 export const api = {
-  getClients: async (): Promise<Client[]> => {
+  getClients: async (force: boolean = false): Promise<Client[]> => {
+    if (!force) {
+      const cached = getCachedApi('clients');
+      if (cached) return cached;
+    }
     const res = await fetchWithAuth('/api/clients');
     if (!res.ok) {
       const err = await safeJson(res);
       throw new Error(err.error || 'Failed to fetch clients');
     }
-    return safeJson(res);
+    const data = await safeJson(res);
+    setCachedApi('clients', data);
+    return data;
   },
 
   addClient: async (clientData: any): Promise<Client> => {
+    clearApiCache('clients');
     const res = await fetchWithAuth('/api/clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -318,6 +355,7 @@ export const api = {
   },
 
   createProduct: async (product: Omit<Product, 'id' | 'image'>): Promise<Product> => {
+    clearApiCache('products');
     const res = await fetchWithAuth('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -330,7 +368,11 @@ export const api = {
     return resData;
   },
 
-  getProducts: async (): Promise<Product[]> => {
+  getProducts: async (force: boolean = false): Promise<Product[]> => {
+    if (!force) {
+      const cachedMem = getCachedApi('products');
+      if (cachedMem) return cachedMem;
+    }
     try {
       const res = await fetchWithAuth('/api/products');
       if (!res.ok) {
@@ -338,6 +380,7 @@ export const api = {
         throw new Error(err.error || 'Failed to fetch products');
       }
       const data = await safeJson(res);
+      setCachedApi('products', data);
       localStorage.setItem('cached_products', JSON.stringify(data));
       return data;
     } catch (err) {

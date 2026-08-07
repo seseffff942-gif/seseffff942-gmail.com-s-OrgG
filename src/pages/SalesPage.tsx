@@ -92,15 +92,19 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   useEffect(() => {
     const checkAndSync = () => {
       const currentQueue = JSON.parse(localStorage.getItem('offline_invoices') || '[]');
-      setOfflineQueue(currentQueue);
-      if (currentQueue.length > 0 && navigator.onLine) {
-        syncOfflineInvoices();
+      if (currentQueue.length > 0) {
+        setOfflineQueue(currentQueue);
+        if (navigator.onLine) {
+          syncOfflineInvoices();
+        }
+      } else {
+        setOfflineQueue(prev => prev.length > 0 ? [] : prev);
       }
     };
 
     checkAndSync();
     window.addEventListener('online', checkAndSync);
-    const syncInterval = setInterval(checkAndSync, 5000);
+    const syncInterval = setInterval(checkAndSync, 20000);
     return () => {
       window.removeEventListener('online', checkAndSync);
       clearInterval(syncInterval);

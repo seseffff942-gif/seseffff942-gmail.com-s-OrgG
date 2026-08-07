@@ -1,6 +1,7 @@
 // AI Studio Deployment Heartbeat: 2026-06-18 V2
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
@@ -268,6 +269,7 @@ const upload = multer({ storage, fileFilter: imageFilter, limits: { fileSize: 20
 
 export const app = express();
 app.set("trust proxy", 1);
+app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -368,22 +370,24 @@ if (!process.env.VERCEL) {
   // ======== SYSTEM PERFORMANCES CACHE ========
   interface CacheEntry {
     timestamp: number;
+    ttl: number;
     data: any;
   }
   const memoryCache: Record<string, CacheEntry> = {};
-  const CACHE_TTL_MS = 5000; // 5 seconds of TTL for fantastic response speeds and near real-time synchronization
+  const DEFAULT_CACHE_TTL_MS = 60000; // 60 seconds default TTL for cached reads
 
   const getCachedData = (key: string): any | null => {
     const entry = memoryCache[key];
-    if (entry && (Date.now() - entry.timestamp) < CACHE_TTL_MS) {
+    if (entry && (Date.now() - entry.timestamp) < entry.ttl) {
       return entry.data;
     }
     return null;
   };
 
-  const setCachedData = (key: string, data: any): void => {
+  const setCachedData = (key: string, data: any, ttlMs: number = DEFAULT_CACHE_TTL_MS): void => {
     memoryCache[key] = {
       timestamp: Date.now(),
+      ttl: ttlMs,
       data
     };
   };
@@ -475,7 +479,7 @@ if (!process.env.VERCEL) {
       console.log("No invoices found for folio map generation.");
     }
 
-    setCachedData("folio_map", map);
+    setCachedData("folio_map", map, 10 * 60 * 1000); // 10 minutes TTL, invalidated automatically on invoice mutations
     return map;
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
@@ -286,48 +286,53 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   };
 
-  const filteredInvoices = invoices.filter(i => {
-    // Hide cancelled and rejected invoices if the option is false
-    if (!showCancelledAndRejected && (i.status === 'cancelled' || i.status === 'rejected')) {
-      return false;
-    }
-
-    const matchSearch = (i.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (i.sellerId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (getSellerName(i.sellerId || '') || '').toLowerCase().includes(searchTerm.toLowerCase());
-    
-    let matchDate = true;
-    if (dateViewMode === 'day') {
-      if (!i.date) return false;
-      // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
-      matchDate = diaGuatemala(i.date) === filterDate;
-    } else {
-      const invDate = new Date(i.date);
-      const now = new Date();
-      if (dateFilter === 'today') {
-        matchDate = diaGuatemala(invDate) === diaGuatemala(now);
-      } else if (dateFilter === 'week') {
-        const startOfWeek = getStartOfCurrentWeek();
-        matchDate = invDate >= startOfWeek;
-      } else if (dateFilter === 'month') {
-        const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-        matchDate = invDate >= oneMonthAgo;
+  const filteredInvoices = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    return invoices.filter(i => {
+      // Hide cancelled and rejected invoices if the option is false
+      if (!showCancelledAndRejected && (i.status === 'cancelled' || i.status === 'rejected')) {
+        return false;
       }
-    }
 
-    let matchSeller = true;
-    if (sellerFilter !== 'all') {
-      matchSeller = i.sellerId === sellerFilter;
-    }
+      const matchSearch = !term || (i.client || '').toLowerCase().includes(term) || 
+        (i.id || '').toLowerCase().includes(term) ||
+        (i.sellerId || '').toLowerCase().includes(term) ||
+        (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term);
+      
+      let matchDate = true;
+      if (dateViewMode === 'day') {
+        if (!i.date) return false;
+        // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
+        matchDate = diaGuatemala(i.date) === filterDate;
+      } else {
+        const invDate = new Date(i.date);
+        const now = new Date();
+        if (dateFilter === 'today') {
+          matchDate = diaGuatemala(invDate) === diaGuatemala(now);
+        } else if (dateFilter === 'week') {
+          const startOfWeek = getStartOfCurrentWeek();
+          matchDate = invDate >= startOfWeek;
+        } else if (dateFilter === 'month') {
+          const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+          matchDate = invDate >= oneMonthAgo;
+        }
+      }
 
-    return matchSearch && matchDate && matchSeller;
-  });
+      let matchSeller = true;
+      if (sellerFilter !== 'all') {
+        matchSeller = i.sellerId === sellerFilter;
+      }
 
-  const totalPending = filteredInvoices.reduce((acc, inv) => {
-     if (inv.status === 'cancelled' || inv.status === 'rejected') return acc;
-     return acc + (inv.totalAmount - (inv.paidAmount || 0));
-  }, 0);
+      return matchSearch && matchDate && matchSeller;
+    });
+  }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, users]);
+
+  const totalPending = useMemo(() => {
+    return filteredInvoices.reduce((acc, inv) => {
+       if (inv.status === 'cancelled' || inv.status === 'rejected') return acc;
+       return acc + (inv.totalAmount - (inv.paidAmount || 0));
+    }, 0);
+  }, [filteredInvoices]);
 
     function getSellerName(email: string) {
     if (!email) return 'Sin Vendedor';
