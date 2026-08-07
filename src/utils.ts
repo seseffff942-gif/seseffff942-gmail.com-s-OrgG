@@ -1131,6 +1131,7 @@ export async function pdfBlobDesdeElemento(
     logging: false,
     allowTaint: true,
     backgroundColor: '#ffffff',
+    imageTimeout: 2000,
   });
 
   const topElemento = element.getBoundingClientRect().top;
@@ -1141,6 +1142,10 @@ export async function pdfBlobDesdeElemento(
     .sort((a, b) => a - b);
 
   const pxPorPagina = Math.floor((altoUtilIn / anchoUtilIn) * canvas.width);
+  if (!pxPorPagina || pxPorPagina <= 0) {
+    throw new Error('Dimensiones de canvas inválidas para generar el PDF');
+  }
+
   const limites = [0, ...cortes, canvas.height];
 
   const pdf = new jsPDF({ unit: 'in', format: formato, orientation: 'portrait' });
@@ -1195,10 +1200,13 @@ export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): 
   }
 
   const element = document.createElement('div');
-  element.style.position = 'absolute';
-  element.style.left = '-9999px';
+  element.style.position = 'fixed';
   element.style.top = '0';
+  element.style.left = '0';
   element.style.width = `${opciones.anchoRenderPx ?? 800}px`;
+  element.style.zIndex = '-99999';
+  element.style.opacity = '0.01';
+  element.style.pointerEvents = 'none';
   element.style.backgroundColor = '#ffffff';
   element.innerHTML = htmlFinal;
   document.body.appendChild(element);
@@ -1246,11 +1254,15 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
     // Yield to main UI thread so browser repaints immediately on click
     await new Promise((resolve) => setTimeout(resolve, 30));
 
-    const blob = await generarPdfBlob(html);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('PDF generation timeout')), 3500)
+    );
+
+    const blob = await Promise.race([generarPdfBlob(html), timeoutPromise]);
     if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
     descargarBlob(blob, filename);
   } catch (err) {
-    console.error('Error al generar o descargar PDF, se abre la vista de impresion:', err);
+    console.error('Error o timeout al generar PDF, usando vista de impresión rápida:', err);
     await printHtml(html);
   } finally {
     setTimeout(() => {
