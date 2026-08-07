@@ -1225,13 +1225,36 @@ export function descargarBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+const activePdfDownloads = new Set<string>();
+
+// Pre-warm PDF rendering modules in background for faster first click
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    Promise.all([import('html2canvas'), import('jspdf')]).catch(() => {});
+  }, 2000);
+}
+
 export async function downloadHtmlAsPdf(html: string, filename: string = 'factura.pdf') {
+  const lockKey = filename || 'pdf-export';
+  if (activePdfDownloads.has(lockKey)) {
+    console.warn(`[PDF Lock] Descarga en progreso para "${lockKey}". Clics adicionales ignorados.`);
+    return;
+  }
+
+  activePdfDownloads.add(lockKey);
   try {
+    // Yield to main UI thread so browser repaints immediately on click
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
     const blob = await generarPdfBlob(html);
     if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
     descargarBlob(blob, filename);
   } catch (err) {
     console.error('Error al generar o descargar PDF, se abre la vista de impresion:', err);
     await printHtml(html);
+  } finally {
+    setTimeout(() => {
+      activePdfDownloads.delete(lockKey);
+    }, 1200);
   }
 }
