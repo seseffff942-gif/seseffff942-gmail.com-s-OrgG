@@ -37,13 +37,13 @@ export function is100gProduct(product: { name?: string; category?: string } | nu
   const nameL = (product.name || '').toLowerCase();
   const catL = (product.category || '').toLowerCase();
   const combined = `${nameL} ${catL}`;
-  return /100\s*(g|gr|gram|gramos)\b/i.test(combined) || 
-         combined.includes('100g') || 
-         combined.includes('100 g') || 
-         combined.includes('100gr') || 
-         combined.includes('100 gr') || 
-         combined.includes('100gramos') || 
-         combined.includes('100 gramos');
+  return /100\s*(g|gr|gram|gramos)\b/i.test(combined) ||
+    combined.includes('100g') ||
+    combined.includes('100 g') ||
+    combined.includes('100gr') ||
+    combined.includes('100 gr') ||
+    combined.includes('100gramos') ||
+    combined.includes('100 gramos');
 }
 
 export function getCriticalStockThreshold(product: { name?: string; category?: string } | null | undefined): number {
@@ -69,19 +69,19 @@ export function getCriticalStockThreshold(product: { name?: string; category?: s
 export function isCriticalStock(product: { name?: string; category?: string; stock?: number }): boolean {
   if (!product) return false;
   if (isTecunProduct(product)) return false;
-  
+
   const stock = product.stock || 0;
-  
+
   const nameL = (product.name || '').toLowerCase();
   const catL = (product.category || '').toLowerCase();
-  
+
   // EXENTO DE STOCK: Incubadoras
   if (nameL.includes('incubadora') || catL.includes('incubadora') || catL === 'incubadoras') {
     return false;
   }
 
   const threshold = getCriticalStockThreshold(product);
-  
+
   return stock <= threshold;
 }
 
@@ -89,12 +89,12 @@ export function doesNotNeedStock(product: { name?: string; category?: string } |
   if (!product) return false;
   const nameLower = (product.name || '').toLowerCase();
   const categoryLower = (product.category || '').toLowerCase();
-  
+
   // Explicitly exclude INCUBADORAS
   if (categoryLower.includes('incubadora') || nameLower.includes('incubadora') || categoryLower === 'incubadoras') {
     return true;
   }
-  
+
   const keywords = ['bebedero', 'comedero', 'puya', 'arete', 'aretes'];
   return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
 }
@@ -519,7 +519,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     const addressVal = invoice.address || 'Ciudad';
 
     // Búsqueda exhaustiva del nombre del vendedor (incluye invoice.name) para evitar que aparezca como "desconocido"
-    const effectiveSellerName = 
+    const effectiveSellerName =
       (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
       invoice.sellerName ||
       invoice.seller ||
@@ -546,7 +546,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         '<td class="col-cant">' + formatGT(item.quantity || 0) + '</td>' +
         '<td class="col-precio">' + formatGT(item.price || 0) + '</td>' +
         '<td class="col-subtotal">' + formatGT(item.total || 0) + '</td>' +
-      '</tr>';
+        '</tr>';
     }).join('');
 
     let t = templateText || DEFAULT_PRINT_TEMPLATE;
@@ -555,8 +555,8 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     // traen las cuentas de deposito: se inyectan al final. La plantilla por
     // defecto ya las incluye via <table class="banks">, de ahi el guard.
     if (!t.includes('Cuenta BANCO INDUSTRIAL') && !t.includes('Depositar a: BANCO INDUSTRIAL')
-        && !t.includes('class="banks"') && !t.includes('biSealUrl')) {
-        const sealsHtml = `
+      && !t.includes('class="banks"') && !t.includes('biSealUrl')) {
+      const sealsHtml = `
     <table style="width: 100%; margin-top: 25px; border-collapse: collapse; page-break-inside: avoid;">
         <tr>
             <td style="width: 48%; text-align: center; vertical-align: middle; padding: 5px;">
@@ -577,7 +577,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         </tr>
     </table>
 `;
-        t = t.replace('</body>', sealsHtml + '</body>');
+      t = t.replace('</body>', sealsHtml + '</body>');
     }
 
     // ---- Inyeccion FEL distribuida (antes de sustituir variables, porque
@@ -626,13 +626,13 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       const felComplemento = complementoCambiariaHtml(felDoc, invoice);
 
       t = t.replace(/\{\{FEL_EMISOR\}\}/g, felEmisor)
-           .replace(/\{\{FEL_CONT\}\}/g, felCont)
-           .replace(/\{\{FEL_DOCTYPE\}\}/g, felDoctype)
-           .replace(/\{\{FEL_SERIE_NUM\}\}/g, felSerieNum)
-           .replace(/\{\{FEL_DOC_DETAILS\}\}/g, felDocDetails)
-           .replace(/\{\{FEL_IVA_ROWS\}\}/g, felIvaRows)
-           .replace(/\{\{FEL_COMPLEMENTO\}\}/g, felComplemento)
-           .replace(/\{\{FEL_LEYENDA\}\}/g, felLeyenda);
+        .replace(/\{\{FEL_CONT\}\}/g, felCont)
+        .replace(/\{\{FEL_DOCTYPE\}\}/g, felDoctype)
+        .replace(/\{\{FEL_SERIE_NUM\}\}/g, felSerieNum)
+        .replace(/\{\{FEL_DOC_DETAILS\}\}/g, felDocDetails)
+        .replace(/\{\{FEL_IVA_ROWS\}\}/g, felIvaRows)
+        .replace(/\{\{FEL_COMPLEMENTO\}\}/g, felComplemento)
+        .replace(/\{\{FEL_LEYENDA\}\}/g, felLeyenda);
     } else {
       // ---- Plantilla antigua: inyeccion por anclas (compatibilidad) ----
       const frag = construirFragmentosFel(fel);
@@ -699,7 +699,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(loopRegex, (_, loopBody) => {
       return (invoice.items || []).map((item: any) => {
         let row = loopBody;
-        
+
         const getVariantInfo = (item: any) => {
           let c = item.color || item.variant?.color;
           let s = item.size || item.variant?.size;
@@ -713,21 +713,21 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 
         let finalProductName = String(item.productName || '');
         if (variantInfo && !loopBody.includes('variantInfo')) {
-            finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
+          finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
         }
 
         row = row.replace(/\{\{this\.productName\}\}/g, '<span class="notranslate" translate="no">' + finalProductName + '</span>');
         row = row.replace(/\{\{productName\}\}/g, '<span class="notranslate" translate="no">' + finalProductName + '</span>');
-        
+
         row = row.replace(/\{\{this\.quantity\}\}/g, formatGT(item.quantity || 0));
         row = row.replace(/\{\{quantity\}\}/g, formatGT(item.quantity || 0));
-        
+
         row = row.replace(/\{\{this\.price\}\}/g, formatGT(item.price || 0));
         row = row.replace(/\{\{price\}\}/g, formatGT(item.price || 0));
-        
+
         row = row.replace(/\{\{this\.subtotal\}\}/g, formatGT(item.total || 0));
         row = row.replace(/\{\{subtotal\}\}/g, formatGT(item.total || 0));
-        
+
         return row;
       }).join('\n');
     });
@@ -763,42 +763,42 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{totalAmount\}\}/g, formatGT(invoice.totalAmount || 0));
     t = t.replace(/\{\{paidAmount\}\}/g, formatGT(invoice.paidAmount || 0));
     t = t.replace(/\{\{dueAmount\}\}/g, formatGT((invoice.totalAmount || 0) - (invoice.paidAmount || 0)));
-    
+
     // Signatures and Seals
     t = t.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature || '');
     t = t.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature || '');
     t = t.replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '');
-    
+
     const origin = window.location.origin;
     const storedLogo = localStorage.getItem('app_logo_url');
     let finalLogoUrl = storedLogo || `${origin}/agricovet.png`;
-    
+
     if (finalLogoUrl && !finalLogoUrl.startsWith('http') && !finalLogoUrl.startsWith('data:')) {
       const cleanPath = finalLogoUrl.startsWith('/') ? finalLogoUrl : `/${finalLogoUrl}`;
       finalLogoUrl = `${origin}${cleanPath}`;
     }
-    
+
     // Replace all logo placeholders
     if (finalLogoUrl === `${origin}/agricovet.png` || finalLogoUrl === '/agricovet.png') {
-        t = t.replace(/\{\{logoUrl\}\}/g, defaultLogoBase64);
-        t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, defaultLogoBase64);
+      t = t.replace(/\{\{logoUrl\}\}/g, defaultLogoBase64);
+      t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, defaultLogoBase64);
     } else {
-        t = t.replace(/\{\{logoUrl\}\}/g, finalLogoUrl);
-        t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, finalLogoUrl);
+      t = t.replace(/\{\{logoUrl\}\}/g, finalLogoUrl);
+      t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, finalLogoUrl);
     }
-    
+
     // Signatures
     t = t.replace(/\{\{#if sellerSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
-        return invoice.sellerSignature ? inner.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature) : '';
+      return invoice.sellerSignature ? inner.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature) : '';
     });
     t = t.replace(/\{\{#if adminSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
-        return invoice.adminSignature ? inner.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature).replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '') : '';
+      return invoice.adminSignature ? inner.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature).replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '') : '';
     });
-    
+
     // Use absolute URLs for seals
     t = t.replace(/\{\{biSealUrl\}\}/g, biSealBase64);
     t = t.replace(/\{\{banruralSealUrl\}\}/g, banruralSealBase64);
-    
+
     // Finally replace origin for any other relative links
     t = t.replace(/\{\{origin\}\}/g, origin);
 
@@ -817,8 +817,8 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): string {
   const dateStr = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const logoUrl = localStorage.getItem('app_logo_url') || `${window.location.origin}/agricovet.png`;
-  
-  const effectiveSellerName = 
+
+  const effectiveSellerName =
     (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
     invoice.sellerName ||
     invoice.seller ||
@@ -836,7 +836,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
         <div>
           <img src="${logoUrl}" alt="Agricovet Logo" style="max-width: 150px; max-height: 80px; object-fit: contain;" />
           <h1 style="color: #0b4d2c; margin: 10px 0 5px 0; font-size: 24px;">Carta de Entrega de Mercadería</h1>
-          <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || invoice.id.substring(0,8)}</p>
+          <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || invoice.id.substring(0, 8)}</p>
         </div>
         <div style="text-align: right; font-size: 14px;">
           <p style="margin: 0;">Fecha de Emisión: ${dateStr}</p>
@@ -877,15 +877,15 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
           </thead>
           <tbody>
             ${(invoice.items || []).map((item: any) => {
-              const c = item.color || item.variant?.color;
-              const s = item.size || item.variant?.size;
-              let varStr = '';
-              if (c || s) {
-                if (s === 'Única' || !s) varStr = `<br/><small style="color: #666;">🎨 ${c || ''}</small>`;
-                else if (!c) varStr = `<br/><small style="color: #666;">🎨 ${s}</small>`;
-                else varStr = `<br/><small style="color: #666;">🎨 ${c} - ${s}</small>`;
-              }
-              return `
+    const c = item.color || item.variant?.color;
+    const s = item.size || item.variant?.size;
+    let varStr = '';
+    if (c || s) {
+      if (s === 'Única' || !s) varStr = `<br/><small style="color: #666;">🎨 ${c || ''}</small>`;
+      else if (!c) varStr = `<br/><small style="color: #666;">🎨 ${s}</small>`;
+      else varStr = `<br/><small style="color: #666;">🎨 ${c} - ${s}</small>`;
+    }
+    return `
               <tr>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity}</td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
@@ -947,14 +947,12 @@ export async function printHtml(html: string) {
   await convertAllImagesToBase64(doc.body);
 
   // Trigger print directly on iframe window
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch (err) {
-      console.error('Error al lanzar impresión en iframe:', err);
-    }
-  }, 250);
+  try {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+  } catch (err) {
+    console.error('Error al lanzar impresión en iframe:', err);
+  }
 
   // Cleanup after print
   const cleanup = () => {
@@ -1083,8 +1081,8 @@ function paginarItemsParaPdf(
   }
 }
 
-const PDF_ESCALA = 2;           // 2x para que el texto no salga pixelado
-const PDF_CALIDAD_JPEG = 0.95;
+const PDF_ESCALA = 1.5;           // 1.5x para mantener nitidez rapida sin sobrecargar memoria/CPU
+const PDF_CALIDAD_JPEG = 0.88;
 
 /** Medidas de pagina en pulgadas, que es la unidad en la que trabaja el armado. */
 const PDF_FORMATOS = {
@@ -1116,6 +1114,9 @@ export async function pdfBlobDesdeElemento(
     import('html2canvas'),
     import('jspdf'),
   ]);
+
+  // Pausa ligera para permitir al navegador pintar estado de cargando
+  await new Promise((resolve) => setTimeout(resolve, 20));
 
   const canvas = await html2canvas(element, {
     scale: PDF_ESCALA,
@@ -1149,6 +1150,9 @@ export async function pdfBlobDesdeElemento(
     while (desde < hasta) {
       const alto = Math.min(pxPorPagina, hasta - desde);
       if (alto < 1) break;
+
+      // Yield al hilo principal entre paginas para evitar congelar el navegador
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const trozo = document.createElement('canvas');
       trozo.width = canvas.width;
@@ -1239,7 +1243,7 @@ const activePdfDownloads = new Set<string>();
 // Pre-warm PDF rendering modules in background for faster first click
 if (typeof window !== 'undefined') {
   setTimeout(() => {
-    Promise.all([import('html2canvas'), import('jspdf')]).catch(() => {});
+    Promise.all([import('html2canvas'), import('jspdf')]).catch(() => { });
   }, 2000);
 }
 
@@ -1256,15 +1260,14 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('PDF generation timeout')), 3500)
+      setTimeout(() => reject(new Error('PDF generation timeout')), 15000)
     );
 
     const blob = await Promise.race([generarPdfBlob(html), timeoutPromise]);
     if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
     descargarBlob(blob, filename);
   } catch (err) {
-    console.error('Error o timeout al generar PDF, usando vista de impresión rápida:', err);
-    await printHtml(html);
+    console.error('Error o timeout al generar PDF:', err);
   } finally {
     setTimeout(() => {
       activePdfDownloads.delete(lockKey);
