@@ -59,8 +59,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [newProductHiddenFromSales, setNewProductHiddenFromSales] = useState(false);
   const [valuationFilterMode, setValuationFilterMode] = useState<'all' | 'investment' | 'sales' | 'stock'>('all');
 
-  const isAdmin = user.role === 'admin' || user.email === 'seseffff942@gmail.com';
-  const isOwner = user.email === 'seseffff942@gmail.com';
+  const isAdmin = user.role === 'admin' || user.email === 'seseffff942@gmail.com' || user.email === 'limalopez22@gmail.com';
+  const isOwner = user.email === 'seseffff942@gmail.com' || user.email === 'limalopez22@gmail.com' || user.role === 'admin';
 
   const handleToggleHiddenFromSales = async (product: Product) => {
     if (!isAdmin) return;

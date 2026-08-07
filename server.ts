@@ -1842,7 +1842,7 @@ if (!process.env.VERCEL) {
 
   // INVENTORY
   app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
 
     const cached = getCachedData("products");
     if (cached) {
@@ -1900,7 +1900,7 @@ if (!process.env.VERCEL) {
   app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
     const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
-    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
     const id = `p${Date.now()}`;
     const product: any = { 
       id, name, category, price, 
@@ -1956,7 +1956,7 @@ if (!process.env.VERCEL) {
     invalidateCache("products");
     const { id } = req.params;
     const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
-    const isOwner = req.user && req.user.email === 'seseffff942@gmail.com';
+    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
     const isAdmin = req.user.role === 'admin' || isOwner;
     
     // Si no es admin, solo permitimos actualizar la descripción si estaba vacía

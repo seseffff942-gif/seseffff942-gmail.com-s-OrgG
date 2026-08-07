@@ -424,7 +424,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   }, [cart]);
 
   const addToCart = (product: Product, quantityToAdd?: number, priceOverride?: number, customOffer?: { buyQty: number, freeQty: number }, variant?: { id: string; color: string; size: string }) => {
-    if (product.hiddenFromSales && user.role !== 'admin') {
+    if (product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com') {
       setErrorMsg(`El producto "${product.name}" está oculto en la pantalla de ventas y sólo los Administradores pueden venderlo.`);
       setTimeout(() => setErrorMsg(''), 5000);
       return;
@@ -735,7 +735,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
-    const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin');
+    const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com');
     if (hiddenItemsForNonAdmin.length > 0) {
       setErrorMsg(`No se puede procesar la venta porque incluye productos ocultos (${hiddenItemsForNonAdmin.map(i => i.product.name).join(', ')}). Únicamente Administradores pueden venderlos.`);
       setIsSubmitting(false);
@@ -1040,7 +1040,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const filteredProducts = products.filter(p => {
-    if (p.hiddenFromSales && user.role !== 'admin') return false;
+    if (p.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com') return false;
     const matchSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchSearch && matchCategory;
@@ -1244,7 +1244,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                       : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO'))))}
                       </span>
 
-                      {product.hiddenFromSales && user.role === 'admin' && (
+                      {product.hiddenFromSales && (user.role === 'admin' || user.email === 'limalopez22@gmail.com') && (
                         <span className="text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider bg-purple-700 text-white border border-purple-600 shadow-sm">
                           Oculto en Ventas
                         </span>

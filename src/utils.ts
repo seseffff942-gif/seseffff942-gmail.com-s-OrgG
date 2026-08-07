@@ -947,12 +947,14 @@ export async function printHtml(html: string) {
   await convertAllImagesToBase64(doc.body);
 
   // Trigger print directly on iframe window
-  try {
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-  } catch (err) {
-    console.error('Error al lanzar impresión en iframe:', err);
-  }
+  setTimeout(() => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (err) {
+      console.error('Error al lanzar impresión en iframe:', err);
+    }
+  }, 250);
 
   // Cleanup after print
   const cleanup = () => {
@@ -1081,8 +1083,8 @@ function paginarItemsParaPdf(
   }
 }
 
-const PDF_ESCALA = 1.5;           // 1.5x para mantener nitidez rapida sin sobrecargar memoria/CPU
-const PDF_CALIDAD_JPEG = 0.88;
+const PDF_ESCALA = 2;           // 2x para que el texto no salga pixelado
+const PDF_CALIDAD_JPEG = 0.95;
 
 /** Medidas de pagina en pulgadas, que es la unidad en la que trabaja el armado. */
 const PDF_FORMATOS = {
@@ -1114,9 +1116,6 @@ export async function pdfBlobDesdeElemento(
     import('html2canvas'),
     import('jspdf'),
   ]);
-
-  // Pausa ligera para permitir al navegador pintar estado de cargando
-  await new Promise((resolve) => setTimeout(resolve, 20));
 
   const canvas = await html2canvas(element, {
     scale: PDF_ESCALA,
@@ -1150,9 +1149,6 @@ export async function pdfBlobDesdeElemento(
     while (desde < hasta) {
       const alto = Math.min(pxPorPagina, hasta - desde);
       if (alto < 1) break;
-
-      // Yield al hilo principal entre paginas para evitar congelar el navegador
-      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const trozo = document.createElement('canvas');
       trozo.width = canvas.width;
@@ -1260,14 +1256,15 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('PDF generation timeout')), 15000)
+      setTimeout(() => reject(new Error('PDF generation timeout')), 3500)
     );
 
     const blob = await Promise.race([generarPdfBlob(html), timeoutPromise]);
     if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
     descargarBlob(blob, filename);
   } catch (err) {
-    console.error('Error o timeout al generar PDF:', err);
+    console.error('Error o timeout al generar PDF, usando vista de impresión rápida:', err);
+    await printHtml(html);
   } finally {
     setTimeout(() => {
       activePdfDownloads.delete(lockKey);
