@@ -915,56 +915,58 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
 }
 
 export async function printHtml(html: string) {
-  // 1. Create or retrieve the print container directly under body
-  let printSec = document.getElementById('print-receipt-section');
-  if (!printSec) {
-    printSec = document.createElement('div');
-    printSec.id = 'print-receipt-section';
-    document.body.appendChild(printSec);
+  // Remove any existing print iframe
+  const oldIframe = document.getElementById('print-receipt-iframe');
+  if (oldIframe && document.body.contains(oldIframe)) {
+    document.body.removeChild(oldIframe);
   }
 
-  // 2. Set content and convert images to Base64
-  printSec.innerHTML = html;
-  await convertAllImagesToBase64(printSec);
+  // Create isolated iframe for clean printing
+  const iframe = document.createElement('iframe');
+  iframe.id = 'print-receipt-iframe';
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.visibility = 'hidden';
+  document.body.appendChild(iframe);
 
-  // 3. Inject global print stylesheet
-  let printStyle = document.getElementById('print-receipt-style');
-  if (!printStyle) {
-    printStyle = document.createElement('style');
-    printStyle.id = 'print-receipt-style';
-    document.head.appendChild(printStyle);
+  const doc = iframe.contentWindow?.document;
+  if (!doc) {
+    console.error('No se pudo acceder al documento del iframe de impresión');
+    return;
   }
-  printStyle.innerHTML = `
-    @media print {
-      body > *:not(#print-receipt-section) { display: none !important; }
-      #print-receipt-section { 
-        display: block !important;
-        position: absolute !important; 
-        left: 0 !important; 
-        top: 0 !important; 
-        width: 100% !important; 
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-      @page { size: auto; margin: 0; }
-    }
-    #print-receipt-section { display: none; }
-  `;
 
-  // 4. Trigger print cleanly and fast
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  // Convert images inside iframe body to Base64
+  await convertAllImagesToBase64(doc.body);
+
+  // Trigger print directly on iframe window
   setTimeout(() => {
-    window.print();
-  }, 100);
-
-  // 5. Cleanup after print
-  const restoreApp = () => {
-    if (printSec) {
-      printSec.innerHTML = '';
-      printSec.style.display = 'none';
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (err) {
+      console.error('Error al lanzar impresión en iframe:', err);
     }
+  }, 250);
+
+  // Cleanup after print
+  const cleanup = () => {
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe);
+      }
+    }, 1000);
   };
-  window.addEventListener('afterprint', restoreApp, { once: true });
-  setTimeout(restoreApp, 5000);
+
+  iframe.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
+  setTimeout(cleanup, 10000);
 }
 
 /**
@@ -1099,16 +1101,6 @@ export interface OpcionesPdf {
 
 /**
  * Arma un PDF a partir de un elemento YA montado en el DOM y lo devuelve como Blob.
- *
- * NO usa html2pdf.js. Esa libreria devuelve un documento vacio (~3 KB, sin la
- * imagen embebida) aunque html2canvas capture el contenido correctamente; se
- * verificaron sus cuatro formas de salida —output, outputPdf, toPdf().output y
- * toPdf().outputPdf— y las cuatro dan el mismo PDF en blanco.
- *
- * Aca se hace a mano lo que html2pdf hacia por dentro: capturar con html2canvas
- * y armar el documento con jsPDF. El corte de paginas respeta los marcadores
- * .html2pdf__page-break (los deja paginarItemsParaPdf) para no partir una fila
- * de producto por la mitad; si un tramo aun asi no cabe, se subdivide por altura.
  */
 export async function pdfBlobDesdeElemento(
   element: HTMLElement,
@@ -1199,24 +1191,33 @@ export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): 
     console.error('No se pudo paginar la tabla de items; se genera sin paginar:', e);
   }
 
-  const element = document.createElement('div');
-  element.style.position = 'fixed';
-  element.style.top = '0';
-  element.style.left = '0';
-  element.style.width = `${opciones.anchoRenderPx ?? 800}px`;
-  element.style.zIndex = '-99999';
-  element.style.opacity = '0.01';
-  element.style.pointerEvents = 'none';
-  element.style.backgroundColor = '#ffffff';
-  element.innerHTML = htmlFinal;
-  document.body.appendChild(element);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.top = '0';
+  iframe.style.left = '0';
+  iframe.style.width = `${opciones.anchoRenderPx ?? 800}px`;
+  iframe.style.height = '1000px';
+  iframe.style.zIndex = '-99999';
+  iframe.style.opacity = '0.01';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.border = 'none';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) throw new Error('No se pudo crear iframe de renderizado');
+
+  doc.open();
+  doc.write(htmlFinal);
+  doc.close();
 
   try {
-    await convertAllImagesToBase64(element);
-    return await pdfBlobDesdeElemento(element, opciones);
+    await convertAllImagesToBase64(doc.body);
+    const scrollHeight = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+    iframe.style.height = `${scrollHeight}px`;
+    return await pdfBlobDesdeElemento(doc.body, opciones);
   } finally {
-    if (document.body.contains(element)) {
-      document.body.removeChild(element);
+    if (document.body.contains(iframe)) {
+      document.body.removeChild(iframe);
     }
   }
 }
