@@ -219,7 +219,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
 
 // In-memory cache for ultra-fast tab switching and navigation
 const apiMemoryCache: Record<string, { timestamp: number; data: any }> = {};
-const CLIENT_CACHE_TTL_MS = 30000; // 30 seconds TTL
+const CLIENT_CACHE_TTL_MS = 2000; // 2 seconds TTL for real-time responsiveness
 
 const getCachedApi = (key: string): any | null => {
   const item = apiMemoryCache[key];

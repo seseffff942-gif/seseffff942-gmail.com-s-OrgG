@@ -1185,18 +1185,7 @@ if (!process.env.VERCEL) {
       });
     };
 
-    // 1. Load local clients first (local edits take precedence)
-    localClients.forEach(c => {
-      if (!c || !c.name) return;
-      const idx = findExistingIndex(c);
-      if (idx === -1) {
-        mergedList.push({ ...c });
-      } else {
-        mergedList[idx] = { ...mergedList[idx], ...c };
-      }
-    });
-
-    // 2. Overwrite/supplement with Supabase if missing or merge fields
+    // 1. First add all Supabase DB clients (DB is primary source of truth)
     dbClients.forEach(c => {
       if (!c || !c.name) return;
       const name = c.name;
@@ -1221,20 +1210,31 @@ if (!process.env.VERCEL) {
       if (idx === -1) {
         mergedList.push(dbFormatted);
       } else {
-        // Merge: Local modifications override DB fields
-        const localObj = mergedList[idx];
+        mergedList[idx] = { ...mergedList[idx], ...dbFormatted };
+      }
+    });
+
+    // 2. Supplement with localClients (only add offline-created clients or non-empty local fallbacks)
+    localClients.forEach(c => {
+      if (!c || !c.name) return;
+      const idx = findExistingIndex(c);
+      if (idx === -1) {
+        mergedList.push({ ...c });
+      } else {
+        // DB data in mergedList[idx] takes precedence over stale local JSON data!
+        const dbObj = mergedList[idx];
         mergedList[idx] = {
-          ...dbFormatted,
-          ...localObj,
-          id: localObj.id || dbFormatted.id,
-          name: localObj.name || dbFormatted.name,
-          companyName: localObj.companyName !== undefined && localObj.companyName !== '' ? localObj.companyName : dbFormatted.companyName,
-          phone: localObj.phone || dbFormatted.phone,
-          address: localObj.address || dbFormatted.address,
-          nit: localObj.nit || dbFormatted.nit,
-          sellerId: localObj.sellerId || dbFormatted.sellerId,
-          clientCode: localObj.clientCode || dbFormatted.clientCode,
-          isBlocked: localObj.isBlocked !== undefined ? localObj.isBlocked : dbFormatted.isBlocked
+          ...c,
+          ...dbObj,
+          id: dbObj.id || c.id,
+          name: dbObj.name || c.name,
+          companyName: dbObj.companyName !== undefined && dbObj.companyName !== '' ? dbObj.companyName : c.companyName,
+          phone: dbObj.phone || c.phone,
+          address: dbObj.address || c.address,
+          nit: dbObj.nit || c.nit,
+          sellerId: dbObj.sellerId || c.sellerId,
+          clientCode: dbObj.clientCode || c.clientCode,
+          isBlocked: dbObj.isBlocked !== undefined ? dbObj.isBlocked : c.isBlocked
         };
       }
     });
