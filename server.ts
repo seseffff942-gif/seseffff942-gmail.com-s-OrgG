@@ -821,9 +821,10 @@ if (!process.env.VERCEL) {
     let updated = false;
     const newClients = clients.map(c => {
       if (!c) return c;
-      const idMatch = c.id && c.id === id;
+      const idMatch = c.id && String(c.id).trim() === String(id).trim();
       const nameMatch = updates.name && c.name && c.name.trim().toLowerCase() === updates.name.trim().toLowerCase();
-      if (idMatch || nameMatch) {
+      const codeMatch = updates.clientCode && c.clientCode && String(c.clientCode).trim() === String(updates.clientCode).trim();
+      if (idMatch || nameMatch || codeMatch) {
         updated = true;
         return { ...c, ...updates };
       }
@@ -1156,67 +1157,85 @@ if (!process.env.VERCEL) {
     }
 
     const localClients = readLocalClients();
-    const mergedMap = new Map<string, any>();
+    const mergedList: any[] = [];
 
-    // Helper to get primary key: prefer ID, fallback to normalized name
-    const getPrimaryKey = (c: any) => {
-      if (!c) return null;
-      if (c.id && String(c.id).trim() !== '') return String(c.id).trim();
-      let n = (c.name || '').toLowerCase().trim();
-      if (n.includes(' - ')) {
-        const parts = n.split(' - ');
-        n = parts[0].trim();
+    const findExistingIndex = (c: any) => {
+      if (!c) return -1;
+      const cId = c.id ? String(c.id).trim() : '';
+      let cName = (c.name || '').toLowerCase().trim();
+      if (cName.includes(' - ')) {
+        cName = cName.split(' - ')[0].trim();
       }
-      return n ? `name:${n}` : null;
+      const cCode = (c.clientCode || c.client_code || c.clientcode) ? String(c.clientCode || c.client_code || c.clientcode).trim() : '';
+
+      return mergedList.findIndex(existing => {
+        if (!existing) return false;
+        const eId = existing.id ? String(existing.id).trim() : '';
+        let eName = (existing.name || '').toLowerCase().trim();
+        if (eName.includes(' - ')) {
+          eName = eName.split(' - ')[0].trim();
+        }
+        const eCode = existing.clientCode ? String(existing.clientCode).trim() : '';
+
+        if (cId && eId && cId === eId) return true;
+        if (cCode && eCode && cCode === eCode) return true;
+        if (cName && eName && cName === eName) return true;
+
+        return false;
+      });
     };
 
-    // Load local first (local edits take precedence when client is updated)
+    // 1. Load local clients first (local edits take precedence)
     localClients.forEach(c => {
-      if (!c) return;
-      const key = getPrimaryKey(c);
-      if (key) {
-        mergedMap.set(key, c);
+      if (!c || !c.name) return;
+      const idx = findExistingIndex(c);
+      if (idx === -1) {
+        mergedList.push({ ...c });
+      } else {
+        mergedList[idx] = { ...mergedList[idx], ...c };
       }
     });
 
-    // Overwrite/supplement with Supabase if missing or update empty fields
+    // 2. Overwrite/supplement with Supabase if missing or merge fields
     dbClients.forEach(c => {
       if (!c || !c.name) return;
       const name = c.name;
       const company = c.companyName || c.company_name || c.companyname || '';
-      const key = getPrimaryKey(c) || getPrimaryKey({ name, companyName: company });
-      if (!key) return;
+      const code = c.clientCode || c.client_code || c.clientcode || '';
+      const id = c.id;
 
-      const existing = mergedMap.get(key);
       const dbFormatted = {
-        id: c.id || (existing ? existing.id : `CLI-${Date.now()}`),
-        sellerId: c.sellerId || c.seller_id || c.sellerid || (existing ? existing.sellerId : ''),
+        id: id,
+        sellerId: c.sellerId || c.seller_id || c.sellerid || '',
         name: name,
         companyName: company,
-        nit: c.nit || (existing ? existing.nit : ''),
-        phone: c.phone || (existing ? existing.phone : ''),
-        address: c.address || (existing ? existing.address : ''),
-        clientCode: c.clientCode || c.client_code || c.clientcode || (existing ? existing.clientCode : ''),
-        isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : (existing ? existing.isBlocked : false)),
-        createdAt: c.createdAt || c.created_at || c.createdat || (existing ? existing.createdAt : new Date().toISOString())
+        nit: c.nit || '',
+        phone: c.phone || '',
+        address: c.address || '',
+        clientCode: code,
+        isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
+        createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
       };
 
-      if (existing) {
-        // Merge: Local modifications override DB fields
-        mergedMap.set(key, {
-          ...dbFormatted,
-          ...existing,
-          name: existing.name || dbFormatted.name,
-          companyName: existing.companyName !== undefined && existing.companyName !== '' ? existing.companyName : dbFormatted.companyName,
-          phone: existing.phone || dbFormatted.phone,
-          address: existing.address || dbFormatted.address,
-          nit: existing.nit || dbFormatted.nit,
-          sellerId: existing.sellerId || dbFormatted.sellerId,
-          clientCode: existing.clientCode || dbFormatted.clientCode,
-          isBlocked: existing.isBlocked !== undefined ? existing.isBlocked : dbFormatted.isBlocked
-        });
+      const idx = findExistingIndex(dbFormatted);
+      if (idx === -1) {
+        mergedList.push(dbFormatted);
       } else {
-        mergedMap.set(key, dbFormatted);
+        // Merge: Local modifications override DB fields
+        const localObj = mergedList[idx];
+        mergedList[idx] = {
+          ...dbFormatted,
+          ...localObj,
+          id: localObj.id || dbFormatted.id,
+          name: localObj.name || dbFormatted.name,
+          companyName: localObj.companyName !== undefined && localObj.companyName !== '' ? localObj.companyName : dbFormatted.companyName,
+          phone: localObj.phone || dbFormatted.phone,
+          address: localObj.address || dbFormatted.address,
+          nit: localObj.nit || dbFormatted.nit,
+          sellerId: localObj.sellerId || dbFormatted.sellerId,
+          clientCode: localObj.clientCode || dbFormatted.clientCode,
+          isBlocked: localObj.isBlocked !== undefined ? localObj.isBlocked : dbFormatted.isBlocked
+        };
       }
     });
 
@@ -1234,11 +1253,10 @@ if (!process.env.VERCEL) {
       }
     });
 
-    // Sync 2: Supabase missing clients -> Local
-    let localUpdatedList = Array.from(mergedMap.values());
-    saveLocalClients(localUpdatedList);
+    // Sync 2: Save cleaned merged list locally
+    saveLocalClients(mergedList);
 
-    const finalClients = localUpdatedList;
+    const finalClients = mergedList;
     setCachedData("clients", finalClients);
     res.json(finalClients);
   }));
@@ -1378,29 +1396,48 @@ if (!process.env.VERCEL) {
     
     // Update Supabase
     try {
-      // Standard camelCase update
-      const { data, error } = await supabase.from("clients").update(updates).eq("id", id).select("*");
-      
-      if (error || !data || data.length === 0) {
-         console.warn("Client update standard failed or 0 rows matched, trying snake_case & fallback:", error?.message);
-         // Fallback for snake_case columns without invalid camelCase keys
-         const snakeUpdates: any = {};
-         if (updates.name !== undefined) snakeUpdates.name = updates.name;
-         if (updates.companyName !== undefined) snakeUpdates.company_name = updates.companyName;
-         if (updates.nit !== undefined) snakeUpdates.nit = updates.nit;
-         if (updates.phone !== undefined) snakeUpdates.phone = updates.phone;
-         if (updates.address !== undefined) snakeUpdates.address = updates.address;
-         if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
-         if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
-         if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
-         
-         const { error: error2 } = await supabase.from("clients").update(snakeUpdates).eq("id", id);
-         if (error2 && updates.name) {
-           const { error: error3 } = await supabase.from("clients").update(snakeUpdates).eq("name", updates.name);
-           if (error3) console.error("Client update fallback by name failed too:", error3.message);
-         }
+      const snakeUpdates: any = {};
+      if (updates.name !== undefined) snakeUpdates.name = updates.name;
+      if (updates.companyName !== undefined) snakeUpdates.company_name = updates.companyName;
+      if (updates.nit !== undefined) snakeUpdates.nit = updates.nit;
+      if (updates.phone !== undefined) snakeUpdates.phone = updates.phone;
+      if (updates.address !== undefined) snakeUpdates.address = updates.address;
+      if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
+      if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
+      if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
+
+      let updatedInDb = false;
+
+      // 1. Try standard camelCase by id
+      try {
+        const res1 = await supabase.from("clients").update(updates).eq("id", id).select("*");
+        if (!res1.error && res1.data && res1.data.length > 0) updatedInDb = true;
+      } catch (e) {}
+
+      // 2. Try snake_case by id
+      if (!updatedInDb) {
+        try {
+          const res2 = await supabase.from("clients").update(snakeUpdates).eq("id", id).select("*");
+          if (!res2.error && res2.data && res2.data.length > 0) updatedInDb = true;
+        } catch (e) {}
       }
-      
+
+      // 3. Try snake_case by name
+      if (!updatedInDb && updates.name) {
+        try {
+          const res3 = await supabase.from("clients").update(snakeUpdates).eq("name", updates.name).select("*");
+          if (!res3.error && res3.data && res3.data.length > 0) updatedInDb = true;
+        } catch (e) {}
+      }
+
+      // 4. Try snake_case by client_code / clientCode
+      if (!updatedInDb && updates.clientCode) {
+        try {
+          const res4 = await supabase.from("clients").update(snakeUpdates).eq("client_code", updates.clientCode).select("*");
+          if (!res4.error && res4.data && res4.data.length > 0) updatedInDb = true;
+        } catch (e) {}
+      }
+
       invalidateCache("clients");
       res.json({ success: true, client: { id, ...updates } });
     } catch (e) {

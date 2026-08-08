@@ -80,15 +80,21 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
         api.getInvoices(user.role === 'admin' ? undefined : user.email).catch(() => []),
         api.getUsers()
       ]);
-      // Deduplicate by ID first, or by name if ID is missing
+      // Deduplicate by ID, clientCode, or name
       const uniqueClients = fetchedClients.reduce((acc: Client[], client: Client) => {
-        const alreadyExists = acc.find(c => 
+        const existingIdx = acc.findIndex(c => 
           (c.id && client.id && c.id === client.id) ||
-          (c.name.trim().toLowerCase() === client.name.trim().toLowerCase() && 
-           (c.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase())
+          (c.clientCode && client.clientCode && c.clientCode === client.clientCode) ||
+          (c.name.trim().toLowerCase() === client.name.trim().toLowerCase())
         );
-        if (!alreadyExists) {
+        if (existingIdx === -1) {
           acc.push(client);
+        } else {
+          acc[existingIdx] = {
+            ...acc[existingIdx],
+            ...client,
+            companyName: client.companyName || acc[existingIdx].companyName,
+          };
         }
         return acc;
       }, []);
