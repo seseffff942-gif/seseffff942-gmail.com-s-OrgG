@@ -818,11 +818,23 @@ if (!process.env.VERCEL) {
 
   function updateLocalClient(id: string, updates: any) {
     const clients = readLocalClients();
-    const idx = clients.findIndex(c => c.id === id);
-    if (idx !== -1) {
-      clients[idx] = { ...clients[idx], ...updates };
-      saveLocalClients(clients);
+    let updated = false;
+    const newClients = clients.map(c => {
+      if (!c) return c;
+      const idMatch = c.id && c.id === id;
+      const nameMatch = updates.name && c.name && c.name.trim().toLowerCase() === updates.name.trim().toLowerCase();
+      if (idMatch || nameMatch) {
+        updated = true;
+        return { ...c, ...updates };
+      }
+      return c;
+    });
+
+    if (!updated) {
+      newClients.push({ id, ...updates });
     }
+
+    saveLocalClients(newClients);
     invalidateCache("clients");
   }
 
@@ -1146,57 +1158,77 @@ if (!process.env.VERCEL) {
     const localClients = readLocalClients();
     const mergedMap = new Map<string, any>();
 
-    // Helper to normalize client keys and detect "Name - Company" pollution
-    const getClientKey = (name: string, company?: string) => {
-      let n = (name || '').toLowerCase().trim();
-      let c = (company || '').toLowerCase().trim();
-      
-      // If name contains the common pattern "Name - Company", try to extract them if company is empty
-      if (n.includes(' - ') && !c) {
+    // Helper to get primary key: prefer ID, fallback to normalized name
+    const getPrimaryKey = (c: any) => {
+      if (!c) return null;
+      if (c.id && String(c.id).trim() !== '') return String(c.id).trim();
+      let n = (c.name || '').toLowerCase().trim();
+      if (n.includes(' - ')) {
         const parts = n.split(' - ');
         n = parts[0].trim();
-        c = parts[1].trim();
       }
-      return `${n}|${c}`;
+      return n ? `name:${n}` : null;
     };
 
-    // Load local first
+    // Load local first (local edits take precedence when client is updated)
     localClients.forEach(c => {
-      if (c && c.name) {
-        const key = getClientKey(c.name, c.companyName);
+      if (!c) return;
+      const key = getPrimaryKey(c);
+      if (key) {
         mergedMap.set(key, c);
       }
     });
 
-    // Overwrite/supplement with Supabase if it worked
+    // Overwrite/supplement with Supabase if missing or update empty fields
     dbClients.forEach(c => {
-      if (c && c.name) {
-        const name = c.name;
-        const company = c.companyName || c.company_name || c.companyname || '';
-        const key = getClientKey(name, company);
-        
+      if (!c || !c.name) return;
+      const name = c.name;
+      const company = c.companyName || c.company_name || c.companyname || '';
+      const key = getPrimaryKey(c) || getPrimaryKey({ name, companyName: company });
+      if (!key) return;
+
+      const existing = mergedMap.get(key);
+      const dbFormatted = {
+        id: c.id || (existing ? existing.id : `CLI-${Date.now()}`),
+        sellerId: c.sellerId || c.seller_id || c.sellerid || (existing ? existing.sellerId : ''),
+        name: name,
+        companyName: company,
+        nit: c.nit || (existing ? existing.nit : ''),
+        phone: c.phone || (existing ? existing.phone : ''),
+        address: c.address || (existing ? existing.address : ''),
+        clientCode: c.clientCode || c.client_code || c.clientcode || (existing ? existing.clientCode : ''),
+        isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : (existing ? existing.isBlocked : false)),
+        createdAt: c.createdAt || c.created_at || c.createdat || (existing ? existing.createdAt : new Date().toISOString())
+      };
+
+      if (existing) {
+        // Merge: Local modifications override DB fields
         mergedMap.set(key, {
-          id: c.id,
-          sellerId: c.sellerId || c.seller_id || c.sellerid || '',
-          name: name,
-          companyName: company,
-          nit: c.nit || '',
-          phone: c.phone || '',
-          address: c.address || '',
-          clientCode: c.clientCode || c.client_code || c.clientcode || '',
-          isBlocked: c.isBlocked || c.is_blocked || false,
-          createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
+          ...dbFormatted,
+          ...existing,
+          name: existing.name || dbFormatted.name,
+          companyName: existing.companyName !== undefined && existing.companyName !== '' ? existing.companyName : dbFormatted.companyName,
+          phone: existing.phone || dbFormatted.phone,
+          address: existing.address || dbFormatted.address,
+          nit: existing.nit || dbFormatted.nit,
+          sellerId: existing.sellerId || dbFormatted.sellerId,
+          clientCode: existing.clientCode || dbFormatted.clientCode,
+          isBlocked: existing.isBlocked !== undefined ? existing.isBlocked : dbFormatted.isBlocked
         });
+      } else {
+        mergedMap.set(key, dbFormatted);
       }
     });
 
     // Sync 1: Local missing clients -> Supabase
-    const dbClientKeys = new Set(dbClients.map(c => getClientKey(c.name, c.companyName || c.company_name || c.companyname)).filter(k => k !== '|'));
-    
+    const dbClientIds = new Set(dbClients.map(c => c.id).filter(Boolean));
+    const dbClientNames = new Set(dbClients.map(c => (c.name || '').toLowerCase().trim()).filter(Boolean));
+
     localClients.forEach(async (c) => {
       if (c && c.name) {
-        const key = getClientKey(c.name, c.companyName);
-        if (!dbClientKeys.has(key)) {
+        const hasId = c.id && dbClientIds.has(c.id);
+        const hasName = dbClientNames.has(c.name.toLowerCase().trim());
+        if (!hasId && !hasName) {
            await safeInsertClient(c);
         }
       }
@@ -1341,7 +1373,7 @@ if (!process.env.VERCEL) {
     if (clientCode !== undefined) updates.clientCode = clientCode;
     if (isBlocked !== undefined) updates.isBlocked = isBlocked;
     
-    // Update local
+    // Update local file first
     updateLocalClient(id, updates);
     
     // Update Supabase
@@ -1349,20 +1381,31 @@ if (!process.env.VERCEL) {
       // Standard camelCase update
       const { data, error } = await supabase.from("clients").update(updates).eq("id", id).select("*");
       
-      if (error) {
-         console.warn("Client update standard failed, trying fallback columns:", error.message);
-         // Fallback for snake_case columns
-         const fallbackUpdates: any = { ...updates };
-         if (updates.companyName) fallbackUpdates.company_name = updates.companyName;
-         if (updates.sellerId) fallbackUpdates.seller_id = updates.sellerId;
+      if (error || !data || data.length === 0) {
+         console.warn("Client update standard failed or 0 rows matched, trying snake_case & fallback:", error?.message);
+         // Fallback for snake_case columns without invalid camelCase keys
+         const snakeUpdates: any = {};
+         if (updates.name !== undefined) snakeUpdates.name = updates.name;
+         if (updates.companyName !== undefined) snakeUpdates.company_name = updates.companyName;
+         if (updates.nit !== undefined) snakeUpdates.nit = updates.nit;
+         if (updates.phone !== undefined) snakeUpdates.phone = updates.phone;
+         if (updates.address !== undefined) snakeUpdates.address = updates.address;
+         if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
+         if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
+         if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
          
-         const { error: error2 } = await supabase.from("clients").update(fallbackUpdates).eq("id", id);
-         if (error2) console.error("Client update fallback failed too:", error2.message);
+         const { error: error2 } = await supabase.from("clients").update(snakeUpdates).eq("id", id);
+         if (error2 && updates.name) {
+           const { error: error3 } = await supabase.from("clients").update(snakeUpdates).eq("name", updates.name);
+           if (error3) console.error("Client update fallback by name failed too:", error3.message);
+         }
       }
       
+      invalidateCache("clients");
       res.json({ success: true, client: { id, ...updates } });
     } catch (e) {
       console.error("Exception updating client in supabase:", e);
+      invalidateCache("clients");
       res.json({ success: true, client: { id, ...updates } }); // Still success locally
     }
   }));

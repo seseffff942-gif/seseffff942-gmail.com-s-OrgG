@@ -270,8 +270,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         setProducts(mappedProducts);
         const uniqueClients = (Array.isArray(c) ? c : []).reduce((acc: any[], client: any) => {
           const alreadyExists = acc.find(curr => 
-            (curr.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase() && 
-            (curr.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase()
+            (curr.id && client.id && curr.id === client.id) ||
+            ((curr.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase() && 
+             (curr.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase())
           );
           if (!alreadyExists) {
             acc.push(client);

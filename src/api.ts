@@ -265,6 +265,9 @@ export const api = {
 
   addClient: async (clientData: any): Promise<Client> => {
     clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     const res = await fetchWithAuth('/api/clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -272,10 +275,18 @@ export const api = {
     });
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data.error || 'Failed to add client');
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     return data.client;
   },
 
   updateClient: async (id: string, clientData: any): Promise<Client> => {
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     const res = await fetchWithAuth(`/api/clients/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -285,16 +296,28 @@ export const api = {
     if (!res.ok) {
       throw new Error(data.error || 'Failed to update client');
     }
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     return data.client;
   },
 
   generateClientCodes: async (): Promise<{ success: boolean; updatedCount: number }> => {
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     const res = await fetchWithAuth('/api/clients/generate-codes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data.error || 'Error al generar códigos');
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
     return data;
   },
 

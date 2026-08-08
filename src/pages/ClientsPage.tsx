@@ -76,15 +76,16 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
   const loadData = async () => {
     try {
       const [fetchedClients, fetchedInvoices, fetchedUsers] = await Promise.all([
-        api.getClients(),
+        api.getClients(true),
         api.getInvoices(user.role === 'admin' ? undefined : user.email).catch(() => []),
         api.getUsers()
       ]);
-      // Deduplicate by name and company just in case
+      // Deduplicate by ID first, or by name if ID is missing
       const uniqueClients = fetchedClients.reduce((acc: Client[], client: Client) => {
         const alreadyExists = acc.find(c => 
-          c.name.trim().toLowerCase() === client.name.trim().toLowerCase() && 
-          (c.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase()
+          (c.id && client.id && c.id === client.id) ||
+          (c.name.trim().toLowerCase() === client.name.trim().toLowerCase() && 
+           (c.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase())
         );
         if (!alreadyExists) {
           acc.push(client);
@@ -193,9 +194,13 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     setAdding(true);
     try {
       const updated = await api.updateClient(editingClient.id, editingClient);
-      setClients(clients.map(c => c.id === updated.id ? updated : c));
-      setSelectedClient(updated);
+      const merged = { ...editingClient, ...updated };
+      setClients(prev => prev.map(c => c.id === merged.id ? merged : c));
+      if (selectedClient && selectedClient.id === merged.id) {
+        setSelectedClient(merged);
+      }
       setEditingClient(null);
+      await loadData();
     } catch (err: any) {
       alert(`Error al actualizar cliente: ${err.message}`);
     } finally {
