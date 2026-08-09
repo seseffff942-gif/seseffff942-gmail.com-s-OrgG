@@ -1,0 +1,631 @@
+# Registro de cambios
+
+Todo lo que se modificó respecto al sistema original, con su motivo.
+El commit `d7d1e3e` es el **estado original intacto**; se puede volver a él en
+cualquier momento con `git checkout d7d1e3e`.
+
+Para desplegar estos cambios a producción, sigue [DESPLIEGUE.md](DESPLIEGUE.md).
+
+---
+
+## Seguridad
+
+### `dotenv` nunca se cargaba — *(riesgo crítico)*
+
+`server.ts` leía `process.env.SUPABASE_URL` pero **nunca importaba `dotenv`**.
+Las variables del archivo `.env` jamás llegaban al servidor, así que la
+aplicación siempre terminaba usando las credenciales escritas en el código.
+
+En la práctica esto significaba que **trabajar en local golpeaba la base de datos
+de producción**, sin ningún aviso. Y como al arrancar se ejecuta `seedDatabase()`,
+que hace `DELETE` de productos, arrancar el proyecto en local podía **borrar
+datos reales**.
+
+**Cambio:** se agregó `import "dotenv/config"` como primera importación.
+
+### Credenciales de producción eliminadas del código
+
+La URL y la llave de Supabase de producción estaban escritas como valor de
+respaldo en `server.ts`, y también en `.env.example` (que sí se versiona).
+
+**Cambio:** se eliminaron. Ahora las credenciales solo vienen de variables de
+entorno.
+
+> ⚠️ **Pendiente:** esa llave debe considerarse comprometida y **rotarse en
+> Supabase**.
+
+### El servidor ahora falla al arrancar si faltan variables
+
+Antes, si faltaba una variable, el sistema seguía funcionando con los valores de
+respaldo — conectándose a producción en silencio. El `JWT_SECRET` tenía además un
+valor por defecto público (`"default_stable_secret_for_agricovet_dev"`), con el
+que cualquiera podía firmar tokens y hacerse pasar por administrador.
+
+**Cambio:** se agregó `requireEnv()`. Si falta `JWT_SECRET`, `SUPABASE_URL` o
+`SUPABASE_ANON_KEY`, el proceso termina con un mensaje claro.
+
+*Es preferible que truene ruidosamente a que escriba en la base equivocada.*
+
+**Impacto en el despliegue:** hay que configurar esas variables en Vercel
+**antes** de subir el código. Ver [DESPLIEGUE.md](DESPLIEGUE.md).
+
+### 13 scripts con credenciales de producción, archivados
+
+En la raíz del proyecto había scripts sueltos (`test3.js`, `check_db.js`,
+`delete-offers.js`, `neg_stock.js`, …) con la URL y la llave de producción
+escritas dentro. Varios son **destructivos**: ejecutar `delete-offers.js` por
+accidente borraba datos reales.
+
+**Cambio:** se movieron a `scripts-archivo/` y se les quitaron las credenciales.
+
+---
+
+## Correcciones
+
+### El catálogo de productos no se cargaba — *(bug)*
+
+El producto **"foranex 25.7"** usaba el mismo `id` (`p136`) que **"Incubadora Pro
+50 Huevos"**. Como los productos se insertan en un solo lote, PostgreSQL
+rechazaba **el bloque completo**: la tabla quedaba con **0 de 136 productos**.
+
+**Cambio:** "foranex 25.7" se reasignó a `p139`. Verificado: cargan los 136.
+
+> 🔎 **Revisar en producción:** es posible que "foranex 25.7" nunca se haya
+> cargado en la base real. Conviene confirmarlo.
+
+### Bucle infinito de peticiones de imágenes — *(bug crítico, también en producción)*
+
+En **Ventas** e **Inventario**, los productos sin imagen provocaban una descarga
+infinita: se midieron **1,738 peticiones y 1,008 MB transferidos** en una sola
+sesión.
+
+**Causa raíz — dos fallas combinadas:**
+
+1. **Los archivos de respaldo estaban corruptos.** `public/box.png` y
+   `public/bottle.png` no eran PNG sino JPEG, y estaban dañados: contenían
+   ~200,000 bytes `EF BF BD` (el carácter Unicode de reemplazo `�`), la firma
+   inconfundible de un **binario copiado como texto UTF-8**. Eso destruyó la
+   imagen e infló su peso a 816 KB y 868 KB. El navegador no podía decodificarlas,
+   así que **el propio respaldo disparaba `onError`**.
+
+2. **El `onError` peleaba contra React.** El código hacía
+   `e.currentTarget.src = respaldo`, una mutación directa del DOM. Pero `src`
+   era una prop controlada. Como Ventas refresca cada 10 s e Inventario cada
+   15 s, **cada re-render devolvía `src` a la URL rota**, reiniciando el ciclo.
+   El `onerror = null` no ayudaba: React reinstala el handler en cada render.
+
+Resultado: ~136 productos x ~850 KB por cada ciclo de refresco.
+
+**Solución:** nuevo componente `src/components/ProductImage.tsx`.
+
+- El fallo se guarda en **estado de React**, no mutando el DOM.
+- Las URLs que fallaron se recuerdan **a nivel de módulo**, así ni los
+  re-renders ni los remontajes vuelven a pedirlas.
+- Los marcadores de "sin imagen" son ahora **SVG embebidos (data URI)**: no
+  hacen petición de red, **no pueden dar 404 y por tanto no pueden entrar en
+  bucle**. Pesan ~600 bytes en lugar de 850 KB.
+
+**Otros archivos corruptos encontrados y corregidos:**
+
+| Archivo | Problema | Acción |
+|---|---|---|
+| `public/agricovet.png` | Corrupto (77 bytes). **Ícono de la PWA y de las notificaciones push** — estaban rotos. | Regenerado, PNG válido 512x512 |
+| `public/logo.png.png` | Corrupto | Regenerado, PNG válido 512x512 |
+| `public/box.png`, `public/bottle.png` | Corruptos, 1.68 MB | Eliminados (ya no se usan) |
+| `dummy.jpg` | Vacío, sin referencias | Eliminado |
+| `vite.config.ts` | Precacheaba archivos ya inexistentes (podía romper el service worker) | Corregido |
+
+**Respaldos externos eliminados:** 5 usos de `via.placeholder.com` (en Login,
+Navigation y HomePage) se sustituyeron por un logo SVG local. Eran una
+dependencia de terceros y podían provocar el mismo bucle si el servicio no
+respondía.
+
+> 💡 **Efecto en costos:** este bug era un generador silencioso de gasto en
+> Vercel y Supabase. Eliminarlo reduce el ancho de banda de forma sustancial,
+> además de acelerar la aplicación.
+
+
+### La firma digital fallaba al guardar — *(bug)*
+
+Al pulsar guardar en el pad de firma, la consola lanzaba
+`(0, import_trim_canvas.default) is not a function` y la firma se perdía.
+
+**Causa:** `react-signature-canvas` usa internamente el paquete `trim-canvas`,
+que **solo se publica en formato CommonJS** (no trae build para módulos ES).
+Vite no puede resolver su export por defecto, así que `getTrimmedCanvas()`
+revienta en tiempo de ejecución.
+
+**Solución:** se dejó de usar `getTrimmedCanvas()`. Ahora el recorte se hace
+con una función propia de ~25 líneas en `SignaturePad.tsx`, que localiza el
+área realmente dibujada por el canal alfa y recorta con un pequeño margen. Si
+el recorte fallara por cualquier motivo, se guarda la firma completa: es
+preferible a perder lo que el usuario acaba de trazar.
+
+Verificado en el navegador: recorta al área correcta (400x200 → 110x80 para un
+trazo conocido), un lienzo vacío devuelve el original sin romper, un trazo
+pegado al borde no produce dimensiones negativas, y el PNG resultante es válido.
+
+### Los clientes no se guardaban — *(bug)*
+
+Al crear un cliente aparecía una cascada de errores en el servidor:
+
+```
+Primary Supabase client insert failed: no existe la columna 'sellerId'
+Casing fallback failed: no existe la columna 'company_name'
+Client pruned insert failed: no existe la columna 'created_at'
+Bare client backup insert failed: clave duplicada
+```
+
+**Causa:** la tabla `clients` no tenía la columna `sellerId` que el servidor
+intenta escribir. El código tiene una cascada defensiva de reintentos
+(`safeInsertClient`) que va podando columnas, así que el fallo terminaba en un
+guardado incompleto — **y consumía hasta 4 viajes a la base por cada cliente.**
+
+**Solución:** migración `003_clients_columnas.sql`, que agrega `sellerId`,
+`companyName` y `createdAt` si faltan. Con eso el primer insert funciona y los
+reintentos dejan de ejecutarse.
+
+> 🔎 **Revisar en producción:** si la base real también carece de esas columnas,
+> está pagando esos 3 viajes extra en cada alta de cliente y probablemente
+> guardando clientes sin vendedor asignado. La migración es aditiva y segura.
+
+
+### El NIT no aparecía en el panel FEL — *(bug)*
+
+El panel avisaba "La factura no tiene NIT del receptor" incluso en facturas
+creadas con NIT.
+
+**Causa:** el sistema **no guarda el NIT en la columna `nit`** de la tabla
+`invoices`. Al crear la factura, `server.ts` lo escribe al inicio del campo
+`notes`, antes de las etiquetas `|||`:
+
+```
+"1234567-8|||OBS:entregar manana|||TYPE:veterinaria|||CREDIT:30"
+```
+
+Al leer facturas por la API, `server.ts` lo extrae de ahí con unas heurísticas
+(descarta el texto si mide más de 25 caracteres o parece una nota de entrega).
+Pero el servicio FEL lee la fila **cruda** de la base, sin pasar por ese mapeo,
+así que veía la columna `nit` vacía.
+
+**Solución:** `extraerNit()` en `fel/servicio.ts` replica esas mismas reglas.
+El panel ahora muestra el NIT del receptor, y solo advierte cuando realmente
+no hay ninguno. "CF" (consumidor final) se reconoce como valor válido y no
+genera advertencia.
+
+Probado: NIT con y sin guion, CF explícito, factura sin NIT, observación larga
+mal ubicada (no debe confundirse con un NIT) y prioridad de la columna `nit`
+cuando sí trae valor.
+
+> ⚠️ **Deuda técnica anotada:** esta lógica de parseo queda duplicada entre
+> `server.ts` y `fel/servicio.ts`. Conviene unificarla al modularizar el
+> servidor; mientras tanto, cualquier cambio en el formato de `notes` hay que
+> aplicarlo en ambos lugares.
+>
+> De fondo, guardar datos estructurados (NIT, tipo, días de crédito, firma)
+> concatenados dentro de un campo de texto es frágil: si un cliente escribe
+> `|||` en una observación, rompe el parseo. Convendría migrarlos a columnas
+> propias más adelante.
+
+
+### El NIT nunca se guardaba en su columna — *(bug)*
+
+La tabla `invoices` **sí tiene** la columna `nit`, pero ninguna de las tres
+rutas de inserción la incluía:
+
+| Intento | Columnas que enviaba | ¿`nit`? |
+|---|---|---|
+| Primario | `clientName`, `customerPhone`, `deliveryAddress`… | No |
+| Respaldo 1 | cambia a `client`, `phone`, `address` | No |
+| Respaldo 2 | mínimo | No |
+
+Por eso `phone` y `address` sí se guardaban y el NIT no: no era un problema de
+esquema, era una omisión. El NIT solo sobrevivía incrustado dentro de `notes`.
+
+**Solución:** se agregó `nit` al objeto que se inserta. Se mantiene además el
+prefijo dentro de `notes` por compatibilidad con las facturas históricas y con
+las plantillas de impresión que lo leen de ahí. El respaldo mínimo descarta la
+columna igual que las demás, por si alguna base no la tuviera.
+
+Verificado creando una venta por el endpoint real: el NIT queda en su columna,
+la lectura por la API lo devuelve correctamente y las observaciones no se
+pierden.
+
+
+### Optimización de polling — palanca #1 de costos aplicada
+
+Las pantallas dejaban de consumir servidor solo cuando se cerraban; ahora se
+pausan cuando **nadie está mirando** y se refrescan al instante al volver:
+
+| Pantalla | Antes | Ahora |
+|---|---|---|
+| Ventas | cada 10 s, siempre | cada 30 s, solo pestaña visible + refresco al volver |
+| Inventario | cada 15 s, siempre | cada 30 s, solo pestaña visible + refresco al volver |
+| Notificaciones | cada 45 s, siempre | cada 45 s, solo pestaña visible + refresco al volver |
+| Ventas diarias | cada 120 s, siempre | cada 120 s, solo pestaña visible |
+
+**Efecto:** una pestaña abierta en Ventas pasaba de ~360 peticiones/hora a ~120
+cuando está visible y **0 cuando está en segundo plano**. La experiencia no
+cambia: al volver a la pestaña los datos se actualizan de inmediato.
+
+### La anulación FEL no anulaba la factura — *(inconsistencia)*
+
+Al anular un DTE ante SAT, la factura del sistema seguía como
+pendiente/pagada, con su stock descontado y ofreciendo volver a anularla.
+
+**Solución:** cuando SAT acepta la anulación, la factura pasa a `cancelled`
+**reutilizando la misma lógica de anulación normal** — incluida la
+restauración de stock (se extrajo a `restaurarStockDeFactura()` para no
+duplicarla). Facturación se refresca al cerrar el panel FEL.
+
+Verificado de punta a punta: venta de 4 unidades (stock 95→91) → certificada →
+anulada ante SAT → factura `cancelled` y stock de vuelta en 95.
+
+### La anulación fallaba con FEL-GUI-56 — *(bug)*
+
+SAT rechazaba la anulación: «La fecha de emisión del documento a anular
+[21/07/2026] no coincide con la registrada en el sistema».
+
+**Causa:** el XML de anulación usaba la **fecha de la factura del sistema**,
+que la UI guarda a medianoche UTC. Al convertirla a hora de Guatemala (−6 h)
+caía en el día anterior. Pero SAT registra como fecha de emisión **el momento
+de la certificación** (la devuelve INFILE y se guarda en
+`fecha_certificacion`).
+
+**Solución:** la anulación ahora envía `fecha_certificacion`. Verificado
+reintentando la misma anulación que había fallado: aceptada, documento
+anulado y factura cancelada.
+
+### Respaldos JSON desactivados (venían del sistema original)
+
+`invoices_permanent_backup.json` y `payments_permanent_backup.json` se
+reescribían **completos en cada venta y cada abono**. Tres problemas:
+
+1. En Vercel el sistema de archivos es efímero: **nunca persistieron nada**
+   en producción.
+2. Crecen sin límite (incluyen firmas en base64) y la reescritura completa se
+   vuelve más lenta con cada factura.
+3. **Nada del sistema los lee.** La base de datos es la fuente de verdad, y
+   los XML de FEL ya se guardan en `fel_documentos`.
+
+**Cambio:** desactivados por defecto; `ENABLE_JSON_BACKUP=true` los reactiva
+en desarrollo si se quisieran. Los archivos de datos de runtime salieron del
+control de versiones (contenían NIT, nombres y teléfonos reales).
+
+> 📌 **Pendiente mayor anotado:** migrar a Supabase los almacenes que aún
+> viven en archivos JSON (deudas del negocio, proveedores, clientes locales,
+> configuración de folios/bodega). En Vercel esos datos NO persisten entre
+> despliegues — es el hallazgo de la auditoría aún abierto.
+
+### El botón "Anular Factura" no anulaba el DTE ante SAT — *(inconsistencia fiscal)*
+
+Había dos formas de anular una factura:
+
+- **"Anular documento ante SAT"** (panel FEL): anula el DTE ante SAT + cancela
+  la factura + restaura stock. Correcto.
+- **"Anular Factura"** (detalle de la factura): solo marcaba la factura como
+  `cancelled` y restauraba stock — **sin tocar el DTE**. Resultado: la venta
+  quedaba anulada en el sistema pero **el documento seguía CERTIFICADO y válido
+  ante SAT**. Un problema fiscal real.
+
+**Solución (protección en el servidor, capa autoritativa):** al intentar
+anular/rechazar por la vía normal una factura que tiene un DTE certificado, el
+servidor responde **409** con un mensaje claro que indica usar "Anular
+documento ante SAT". La factura NO se toca hasta que se haga la anulación
+fiscal correcta. El frontend ahora muestra ese mensaje real (antes tapaba todos
+los errores con un genérico "Error al actualizar estado").
+
+Verificado: (1) anular por la vía normal una factura certificada → bloqueado,
+factura intacta; (2) la anulación FEL correcta sí funciona; (3) una factura sin
+DTE certificado se sigue anulando normal, sin cambios.
+
+---
+
+## Factura Electrónica (FEL)
+
+### Regla de IVA confirmada con el cliente
+
+**Los precios del sistema ya incluyen el 12% de IVA.** Un producto de Q50.00 se
+le sigue cobrando al cliente en Q50.00; FEL solo exige declararlo descompuesto:
+
+| Concepto | Monto |
+|---|---|
+| Gran total (lo que paga el cliente) | Q50.000000 |
+| Monto gravable (base sin IVA) | Q44.642857 |
+| Monto del IVA | Q 5.357143 |
+
+**Consecuencia:** ningún precio cambia. La facturación actual y la facturación
+FEL producen el mismo total. Esto elimina el mayor riesgo comercial del proyecto.
+
+
+### Integración real con INFILE implementada
+
+Con base en la implementación de referencia del cliente (sistema NestJS ya en
+producción con INFILE), se completó la integración:
+
+- **`fel/xml.ts`** — genera el `GTDocumento` completo. Mejoras sobre la
+  referencia: **todos los valores se escapan** (un cliente llamado "Agro & Vet"
+  rompía el XML de la referencia) y los montos salen de `fel/calculos.ts`
+  (cuadre garantizado). La fecha de emisión se calcula explícitamente en hora
+  de Guatemala (UTC-6): el servidor corre en UTC y usar su hora local emitiría
+  documentos 6 horas en el futuro.
+- **Factura cambiaria (FCAM) con complemento de abonos** — es el tipo por
+  defecto (confirmado con el cliente). Un abono por el total, con vencimiento
+  = fecha de la factura + días de crédito (etiqueta `|||CREDIT:` de `notes`).
+- **`fel/infile.ts`** — llamada real al certificador: cabeceras `UsuarioFirma`,
+  `LlaveFirma`, `UsuarioApi`, `LlaveApi`, `identificador`; respuesta JSON con
+  `resultado`, `uuid`, `serie`, `numero`, `descripcion_errores`. Timeout de 30 s.
+- **Todo lo enviado y todo lo respondido queda guardado** (pedido explícito):
+  `xml_enviado` (incluso si la certificación queda pendiente), `xml_certificado`,
+  `respuesta_certificador` (JSON crudo) en `fel_documentos`, y la respuesta de
+  cada intento en `fel_bitacora`.
+- La URL del certificador y las credenciales viven en `fel_config`
+  (migración `004_fel_infile.sql`) — nunca en el código.
+
+Verificado: XML bien formado (xmllint), escape correcto, complemento FCAM con
+vencimiento a +60 días, y persistencia del XML aun sin credenciales.
+
+
+### ✅ Primera certificación real exitosa (ambiente de pruebas, 22/07/2026)
+
+Con las credenciales de pruebas de INFILE cargadas en `fel_config`, se
+certificaron dos documentos reales contra el certificador:
+
+| Prueba | Resultado |
+|---|---|
+| FCAM contado, receptor CF (Q100) | UUID `B0E4DD7C-…`, serie `**PRUEBAS**` |
+| FCAM a crédito 30 días (Q1,100) | UUID `E5C976F7-…`, vencimiento del abono correcto |
+| Reintento sobre factura certificada | Bloqueado: «ya estaba certificada» |
+| Persistencia | `xml_enviado`, `xml_certificado` (XML firmado, ~19 KB), respuesta JSON completa y bitácora con duración |
+
+Datos operativos confirmados por la ficha de INFILE: establecimiento de
+Agricovet = **2**, frases Tipo 1 / Escenario 1, usuario API = usuario firma.
+
+
+### Ciclo fiscal completo: anulación, consulta de NIT y pantalla de configuración
+
+- **Anulación de DTE** (`anularFactura` + `POST /api/invoices/:id/fel/anular`):
+  exige motivo, solo administradores y solo documentos certificados. Si el
+  certificador rechaza la anulación, el documento **sigue certificado** (falla
+  el trámite, no el documento). Probada en vivo en el sandbox: DTE
+  `B0E4DD7C-…` anulado, y el reintento devuelve «ya estaba anulado».
+- **Consulta de NIT** (`GET /api/fel/consulta-nit/:nit`): usa el servicio de
+  consulta de receptores de INFILE para validar el NIT y obtener el nombre
+  registrado en SAT antes de facturar. Probada en vivo (resuelve nombres
+  reales; los NIT inexistentes devuelven «NIT no válido»). Disponible desde el
+  panel FEL con el botón «Verificar en SAT».
+- **Pantalla de Configuración FEL** (`FelConfigModal`, botón en Facturación,
+  solo admins): datos fiscales del emisor, tipo de documento por defecto,
+  ambiente (con advertencia fuerte al elegir producción) y credenciales de
+  INFILE. Las llaves son de solo escritura: nunca se vuelven a mostrar, y
+  dejar el campo vacío conserva la actual.
+- **Lote de certificación variado en el sandbox — 6/6 exitosas:** centavos
+  difíciles (Q99.99), monto mínimo (Q1.05), 10 líneas (Q680.87), crédito a 60
+  días con NIT real (Q2,400), 48 unidades (Q372.96) y mixta a crédito
+  (Q127.75). Ningún descuadre de redondeo.
+
+
+### Descarga de XML desde el panel FEL
+
+Cuando el certificador pide «mándame el XML para revisar qué pasó», ahora se
+descarga desde la propia factura: botones **XML enviado** y **XML certificado**
+en el panel FEL. El certificado (que INFILE devuelve en base64) se decodifica
+automáticamente y baja como `.xml` listo para adjuntar, nombrado con el UUID.
+Verificado: ambos XML descargan válidos y el certificado incluye la firma
+digital de INFILE.
+
+
+### Representación gráfica FEL en la factura impresa *(requisito de SAT)*
+
+La factura impresa/PDF decía «Comprobante de Venta» y no mostraba ningún dato
+fiscal — **SAT no la aceptaría** como representación gráfica de un DTE. Ahora,
+cuando la factura está certificada, el PDF incluye:
+
+- **Número de Autorización (UUID)**, serie, número, fecha de certificación
+- **NIT del emisor** y certificador (INFILE, S.A.)
+- **Desglose de IVA** (monto gravable, IVA 12%, gran total)
+- La **frase** obligatoria (Tipo 1, Escenario 1: «Sujeto a pagos trimestrales ISR»)
+- El encabezado cambia de «Comprobante de Venta» a «Factura Electrónica (FEL)»
+- Banner **«DOCUMENTO DE PRUEBA · SIN VALIDEZ FISCAL»** cuando la serie es de sandbox
+
+Si la factura NO está certificada, el PDF sale como antes (comprobante normal).
+
+**Detalle clave descubierto al verificar:** la plantilla que el cliente tiene
+guardada en producción **difiere** de la plantilla por defecto del código (no
+tiene el emoji del tagline ni la leyenda de fútbol). Los reemplazos se hicieron
+robustos para cubrir ambas, y el bloque fiscal se **inyecta antes de `</body>`**
+sin depender de ningún marcador en la plantilla — así funciona con cualquier
+plantilla que el admin haya personalizado.
+
+Verificado en el navegador contra la plantilla real y datos reales de una
+factura certificada (UUID, serie PRUEBAS, IVA Q167.36 sobre Q1,562).
+
+
+### Mejoras a la representación gráfica FEL (formato factura cambiaria)
+
+Ajustes al bloque fiscal de la factura impresa, a pedido del cliente y siguiendo
+el formato estándar de factura cambiaria en Guatemala:
+
+- **Tipo de documento en recuadro destacado:** «FACTURA CAMBIARIA ELECTRÓNICA ·
+  LIBRE DE PROTESTO» (para FCAM) o «FACTURA ELECTRÓNICA» (para FACT), con SERIE
+  y NÚMERO resaltados.
+- **Leyenda de pago obligatoria** de la factura cambiaria: compromiso de pago a
+  la orden del emisor, conformidad de recepción de la mercadería y cláusula
+  «libre de protesto». **Sin la cláusula de intereses por mora** (el cliente
+  indicó que por ahora no aplican intereses).
+- **Fechas en formato dd/mm/yyyy** en todo el documento (antes la fecha general
+  salía como yyyy-mm-dd).
+- **Razón social y nombre comercial correctos:** el bloque fiscal ahora toma
+  ambos de `fel_config` (razón social = `nombre_emisor`, nombre comercial =
+  `nombre_comercial`), en vez de un texto fijo. Se muestran por separado.
+
+Verificado en el navegador con una FCAM certificada: recuadro del tipo de
+documento, leyenda cambiaria con los días de crédito, fecha 23/07/2026 y la
+distinción razón social / nombre comercial.
+
+> 📌 El encabezado superior del PDF (el logo y el nombre grande «AGRICOVET»)
+> sigue viniendo de la plantilla editable; el cliente puede ajustarlo desde el
+> editor de plantilla. El bloque fiscal —lo que SAT exige— ya usa los datos
+> correctos de la configuración.
+
+
+### Representación gráfica FEL: formato unificado en una sola página
+
+El bloque fiscal se agregaba como un recuadro grande al final, lo que empujaba
+la factura a una **segunda página**. Se rediseñó para **repartir los datos
+fiscales en las secciones que ya existen**, manteniendo el documento en una
+página:
+
+- **Encabezado:** razón social, nombre comercial y NIT del emisor (tomados de
+  la configuración FEL) — Razón social = `BOREAL SOLUTIONS, SOCIEDAD ANÓNIMA`,
+  nombre comercial = `AGRICOVET DE GUATEMALA`.
+- **Detalles del Documento:** tipo de documento, serie, número (resaltado),
+  número de autorización y fecha de certificación, junto al Folio y la Fecha.
+- **Totales:** monto gravable e IVA (12%) integrados con el Total.
+- **Franja compacta al final:** solo la leyenda cambiaria + la frase.
+- **Modo compacto:** cuando la factura está certificada se inyecta un `<style>`
+  que ajusta los márgenes de las secciones, recuperando el espacio que agrega
+  el contenido fiscal. Medido: de 1203px (2 páginas) a 976px (1 página, con
+  ~33px de margen) para una factura de 4 líneas. Ajuste posterior: logo más
+  pequeño (95px) y encabezado/tablas más compactos → una factura de **6
+  líneas mide 849px (160px de margen)**, con lo que caben ~11 líneas por página.
+
+La inyección usa anclas estables de la plantilla; si una plantilla
+personalizada no las tuviera, hay un **bloque de respaldo** que agrega todo
+junto al final (nunca se pierde la información fiscal).
+
+
+### Rediseño profesional de la factura impresa + fix de guardado de plantillas
+
+A pedido del cliente, se rediseñó la representación gráfica para que sea más
+limpia, ligera y aproveche mejor el espacio:
+
+- **Nueva plantilla profesional** (`fel/plantilla_profesional.html`, también en
+  `DEFAULT_PRINT_TEMPLATE`): encabezado compacto (logo pequeño + emisor a la
+  izquierda, recuadro del tipo de documento a la derecha), tabla de ítems
+  ligera (sin bloques verdes pesados), totales alineados y bloque legal FEL al
+  pie. Una factura de 6 líneas mide ~794px (cabe holgada en una página).
+- **Datos FEL por marcadores** (`{{FEL_EMISOR}}`, `{{FEL_DOCTYPE}}`,
+  `{{FEL_SERIE_NUM}}`, `{{FEL_DOC_DETAILS}}`, `{{FEL_IVA_ROWS}}`,
+  `{{FEL_LEYENDA}}`): la nueva plantilla los coloca donde corresponde; se
+  mantiene la inyección por anclas como respaldo para plantillas antiguas.
+- El emisor (razón social, nombre comercial, NIT) se muestra siempre, tomado de
+  la configuración FEL.
+
+**Bug encontrado y corregido — el guardado de plantillas escapaba el HTML:**
+el middleware `sanitizeInput` (global) convertía `<` `>` `"` en entidades
+(`&lt;`…) en TODO cuerpo de petición. Al guardar una plantilla de impresión por
+API, la corrompía (se veía el HTML como texto). **Afectaba también al editor de
+plantillas del admin.** Se excluyó la ruta `/api/invoices/print-template` de la
+sanitización (es HTML legítimo); el resto del sistema sigue sanitizado.
+
+> 📌 **Para producción:** con el fix desplegado, la plantilla profesional se
+> aplica guardándola desde el editor de plantillas, o borrando la fila
+> `sys-print-template` para que use la nueva por defecto.
+
+
+
+### Evitar clientes duplicados por NIT
+
+Al crear un cliente ahora se valida que no exista otro con el mismo NIT:
+
+- **En el servidor (autoritativo):** `POST /api/clients` rechaza con **409** y un
+  mensaje claro («Ya existe un cliente registrado con el NIT X: "Nombre"…») si
+  el NIT ya está registrado. La comparación **normaliza** el NIT (ignora
+  guiones, espacios y puntos), así que `555001-2` y `5550012` se detectan como
+  el mismo.
+- **En el frontend (Clientes y Ventas):** validación instantánea contra la lista
+  ya cargada, antes de enviar, con el mismo mensaje.
+- **Consumidor final exento:** `CF` / `C/F` (o NIT vacío) es genérico y **sí**
+  puede repetirse en varios clientes.
+
+Verificado: se bloquea el NIT duplicado (con distinto formato de guiones) y se
+permiten varios `CF`.
+
+### Consulta de NIT al crear un cliente
+
+En el formulario de nuevo cliente (Clientes → Nuevo Cliente), junto al campo
+NIT hay un botón **"Consultar SAT"**: al ingresar el NIT y consultar, se trae
+el nombre registrado en SAT (vía el servicio de receptores de INFILE) y se
+**autocompleta el nombre del cliente**. El usuario puede editar el valor
+después — es solo un punto de partida.
+
+- Con NIT válido: rellena el nombre y muestra «✓ Encontrado en SAT: …».
+- Con NIT inválido: muestra «⚠ NIT no válido» y **no pisa** lo ya escrito.
+- Enter en el campo NIT también dispara la consulta.
+
+Reutiliza el endpoint `GET /api/fel/consulta-nit/:nit` (mismo que el panel FEL).
+Disponible en **dos lugares**: el formulario de Clientes y el de registro rápido
+de cliente dentro de **Ventas**. El botón «Consultar SAT» va dentro del campo
+NIT (no se corta en el modal). Verificado en el navegador en ambas pantallas
+con NIT real e inválido.
+
+### Tablas FEL (`migrations/002_fel.sql`)
+
+Tres tablas nuevas, **sin tocar ninguna existente**:
+
+- **`fel_config`** — datos fiscales del emisor y credenciales de INFILE.
+  Reemplaza el patrón de guardar configuración en archivos JSON, que en Vercel
+  no persiste.
+- **`fel_documentos`** — un registro por DTE: estado, número de autorización
+  (UUID), serie, montos y los XML enviado y certificado (obligatorios para
+  auditorías de SAT).
+- **`fel_bitacora`** — registro de cada llamada a INFILE, para diagnosticar
+  rechazos sin reproducir el problema.
+
+Incluye un índice único que **impide certificar dos veces la misma factura**
+(protege contra dobles clics y reintentos).
+
+### Cálculos fiscales (`fel/calculos.ts`)
+
+Implementa el desglose del IVA respetando esta invariante:
+
+```
+montoGravable + montoIva === granTotal    (exacto, sin centavos perdidos)
+```
+
+Se logra calculando la base y derivando el IVA **por resta**, nunca por separado
+—ese error produce descuadres de un centavo que SAT rechaza.
+
+Probado con `npm run test:fel`: montos con centavos (Q0.01, Q33.33, Q99.99),
+facturas de 50 líneas y descuentos. Todas las pruebas pasan.
+
+---
+
+## Infraestructura
+
+- **Control de versiones:** el proyecto no tenía Git. Se inicializó **solo en
+  local, sin repositorio remoto** — nada se despliega hasta que se conecte
+  explícitamente.
+- **Ambiente de desarrollo aislado:** base de datos Supabase separada
+  (`vkrpvvqvtyyqqstyuchc`), con las 8 tablas, índices y bucket de imágenes.
+- **`setup_dev_db.sql`:** script para recrear la base de desarrollo desde cero.
+  *No debe ejecutarse en producción.*
+
+---
+
+## Pendientes
+
+| Tarea | Estado / Prioridad |
+|---|---|
+| Desplegar a producción (seguridad + FEL) | **Siguiente paso** — seguir DESPLIEGUE.md |
+| Rotar la llave de Supabase comprometida | Alta — hacerla en el mismo despliegue |
+| Políticas RLS en producción | Alta — antes o durante el despliegue |
+| Comparar con el XML puro de INFILE | Cuando INFILE lo envíe |
+| Credenciales de producción de INFILE | Cuando el cliente autorice salir de pruebas |
+| Migrar blobs `sys-*` a tablas reales | **Baja — pospuesta.** Verificado en producción (22/07/2026): las deudas pesan 2.3 KB y proveedores 2.4 KB. Con ese volumen no se justifica; retomar si el módulo crece (50+ registros o necesidad de reportes). |
+
+---
+
+## Notas operativas para quien mantenga esto
+
+- **NUNCA borrar los usuarios con `role = 'system'`** (`sys-debts-store`,
+  `sys-suppliers-store`, `sys-print-template`, `sys-logo-config`,
+  `sys-signature-config`, `sys-whatsapp-config`). No son usuarios: son el
+  almacén real de deudas, proveedores y configuración, guardado como JSON en
+  la columna `photo`. Borrarlos destruye esos datos. La pantalla de Equipo los
+  oculta a propósito.
+- **Folios en producción:** no existe fila `sys-folio-config` en la base de
+  producción; la numeración sale del archivo `folio_config.json` desplegado.
+  El código lee el archivo ANTES que la base — si algún día un "reset de
+  folio" en producción no surte efecto, esta es la causa.

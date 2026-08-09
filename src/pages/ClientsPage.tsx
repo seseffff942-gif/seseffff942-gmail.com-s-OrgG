@@ -1,0 +1,1400 @@
+import React, { useState, useEffect } from 'react';
+import { User, Client, Invoice } from '../types';
+import { api } from '../api';
+import { 
+  Search, Plus, User as UserIcon, FileText, ChevronRight, 
+  CornerDownRight, Users, Edit2, X, Building2, Phone, 
+  MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
+  Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../utils';
+
+interface ClientsPageProps {
+  user: User;
+  isMobile?: boolean;
+}
+
+export function ClientsPage({ user, isMobile }: ClientsPageProps) {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'sales' | 'invoices'>('name');
+  
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newClient, setNewClient] = useState({ 
+    name: '', 
+    companyName: '', 
+    nit: '', 
+    phone: '', 
+    address: '', 
+    sellerId: user.role === 'admin' ? '' : (user.email || ''),
+    clientCode: '',
+    isBlocked: false
+  });
+  const [adding, setAdding] = useState(false);
+  const [generatingCodes, setGeneratingCodes] = useState(false);
+  // Consulta de NIT contra SAT (vía INFILE) para autocompletar el nombre
+  const [consultandoNit, setConsultandoNit] = useState(false);
+  const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+
+  const handleGenerateAllCodes = async () => {
+    if (!confirm('¿Deseas asignar automáticamente un código de 4 dígitos a todos los clientes que no tengan uno?')) return;
+    setGeneratingCodes(true);
+    try {
+      const result = await api.generateClientCodes();
+      alert(`¡Listo! Se asignaron códigos a ${result.updatedCount || 0} clientes.`);
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al generar códigos: ${err.message || 'Intente de nuevo'}`);
+    } finally {
+      setGeneratingCodes(false);
+    }
+  };
+
+  const generateRandomCode = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  useEffect(() => {
+    if (showAddForm && !newClient.clientCode) {
+      setNewClient(prev => ({ ...prev, clientCode: generateRandomCode() }));
+    }
+  }, [showAddForm]);
+  const [suggestEditClient, setSuggestEditClient] = useState<Client | null>(null);
+  const [suggestEditText, setSuggestEditText] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [fetchedClients, fetchedInvoices, fetchedUsers] = await Promise.all([
+        api.getClients(true),
+        api.getInvoices(user.role === 'admin' ? undefined : user.email).catch(() => []),
+        api.getUsers()
+      ]);
+      // Robust unified deduplication matching backend logic
+      const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+      const uniqueClients = fetchedClients.reduce((acc: Client[], client: Client) => {
+        if (!client || !client.name) return acc;
+        let clientName = client.name.trim().toLowerCase();
+        if (clientName.includes(' - ')) clientName = clientName.split(' - ')[0].trim();
+        const clientNit = normNit(client.nit);
+        const clientCode = (client.clientCode || '').trim();
+
+        const existingIdx = acc.findIndex(c => {
+          if (!c || !c.name) return false;
+          let cName = c.name.trim().toLowerCase();
+          if (cName.includes(' - ')) cName = cName.split(' - ')[0].trim();
+          const cNit = normNit(c.nit);
+          const cCode = (c.clientCode || '').trim();
+
+          if (c.id && client.id && c.id === client.id) return true;
+          if (cCode && clientCode && cCode === clientCode) return true;
+          if (cNit && clientNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === clientNit) return true;
+          if (cName && clientName && cName === clientName) return true;
+
+          return false;
+        });
+
+        if (existingIdx === -1) {
+          acc.push(client);
+        } else {
+          acc[existingIdx] = {
+            ...acc[existingIdx],
+            ...client,
+            companyName: client.companyName || acc[existingIdx].companyName,
+          };
+        }
+        return acc;
+      }, []);
+
+      setClients(uniqueClients);
+      setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
+      setUsers(fetchedUsers.filter(u => u.role === 'admin' || u.role === 'seller'));
+    } catch (error) {
+      console.error('Error loading clients data', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkClientCoincidences = (name: string, companyName: string, phone: string) => {
+    const blockedClients = clients.filter(c => c.isBlocked);
+    const coincidences = blockedClients.filter(c => {
+      let matches = 0;
+      if (name && c.name && name.toLowerCase().trim() === c.name.toLowerCase().trim()) matches++;
+      if (companyName && c.companyName && companyName.toLowerCase().trim() === c.companyName.toLowerCase().trim()) matches++;
+      if (phone && c.phone && phone.replace(/\D/g, '') === c.phone.replace(/\D/g, '')) matches++;
+      return matches >= 2;
+    });
+    return coincidences;
+  };
+
+  // Consulta el NIT en SAT (vía INFILE) y autocompleta el nombre del cliente.
+  // El usuario puede editar el valor después: solo es un punto de partida.
+  const consultarNit = async () => {
+    const nit = newClient.nit.trim();
+    if (!nit) { setNitResultado({ ok: false, texto: 'Ingresa un NIT primero.' }); return; }
+    setConsultandoNit(true);
+    setNitResultado(null);
+    try {
+      const r = await api.consultarNitFel(nit);
+      if (r.valido && r.nombre) {
+        // Se rellena el nombre solo si está vacío o si el usuario lo confirma,
+        // para no pisar algo que ya escribió.
+        setNewClient(prev => ({
+          ...prev,
+          name: (!prev.name.trim() || prev.name === r.nombre) ? (r.nombre || prev.name) : prev.name,
+          nit: r.nit || prev.nit,
+        }));
+        setNitResultado({ ok: true, texto: `Encontrado en SAT: ${r.nombre}` });
+      } else {
+        setNitResultado({ ok: false, texto: r.mensaje || 'NIT no encontrado en SAT.' });
+      }
+    } catch (err: any) {
+      setNitResultado({ ok: false, texto: err?.message || 'No se pudo consultar el NIT.' });
+    } finally {
+      setConsultandoNit(false);
+    }
+  };
+
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClient.name || !newClient.sellerId) {
+      alert('Por favor, ingresa el nombre y selecciona un vendedor asignado.');
+      return;
+    }
+
+    const blockedMatches = checkClientCoincidences(newClient.name, newClient.companyName, newClient.phone);
+    if (blockedMatches.length > 0) {
+      const confirmBlocked = confirm(`¡ALERTA DE SEGURIDAD!\n\nSe han encontrado coincidencias con un cliente BLOQUEADO:\n- ${blockedMatches[0].name}${blockedMatches[0].companyName ? ` (${blockedMatches[0].companyName})` : ''}\n\n¿Estás seguro de que deseas registrar este cliente de todos modos?`);
+      if (!confirmBlocked) return;
+    }
+
+    // Validacion instantanea: no duplicar por NIT (CF puede repetirse).
+    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitN = normNit(newClient.nit);
+    if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
+      const dup = clients.find(c => normNit(c.nit) === nitN);
+      if (dup) {
+        alert(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}". No se puede duplicar.`);
+        return;
+      }
+    }
+    setAdding(true);
+    try {
+      const added = await api.addClient(newClient);
+      setClients(prev => prev.some(c => c.id === added.id) ? prev : [added, ...prev]);
+      setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '', clientCode: '', isBlocked: false });
+      setNitResultado(null);
+      setShowAddForm(false);
+    } catch (err: any) {
+      // Muestra el mensaje real del servidor (p. ej. NIT duplicado).
+      alert(err?.message || "Error al agregar cliente");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleUpdateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClient || !editingClient.name || !editingClient.sellerId) {
+      alert('Por favor, ingresa el nombre y selecciona un vendedor.');
+      return;
+    }
+    setAdding(true);
+    try {
+      const originalClient = clients.find(c => c.id === editingClient.id);
+      const updated = await api.updateClient(editingClient.id, editingClient, originalClient);
+      const merged = { ...editingClient, ...updated };
+      setClients(prev => prev.map(c => c.id === merged.id ? merged : c));
+      if (selectedClient && selectedClient.id === merged.id) {
+        setSelectedClient(merged);
+      }
+      setEditingClient(null);
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al actualizar cliente: ${err.message}`);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDeleteClient = async (clientToDelete: Client) => {
+    if (!clientToDelete) return;
+    const confirmDelete = confirm(
+      `¿Deseas borrar al cliente "${clientToDelete.name}"?`
+    );
+    if (!confirmDelete) return;
+
+    setAdding(true);
+    try {
+      await api.deleteClient(clientToDelete.id, clientToDelete.name, clientToDelete.clientCode, clientToDelete.companyName, clientToDelete.nit);
+      setClients(prev => prev.filter(c => c.id !== clientToDelete.id));
+      if (selectedClient && selectedClient.id === clientToDelete.id) {
+        setSelectedClient(null);
+      }
+      if (editingClient && editingClient.id === clientToDelete.id) {
+        setEditingClient(null);
+      }
+      await loadData();
+      alert('Cliente eliminado correctamente.');
+    } catch (err: any) {
+      alert(`Error al eliminar cliente: ${err.message || 'Intente de nuevo'}`);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const getClientInvoices = (clientName: string) => {
+    if (!clientName) return [];
+    const clientObj = clients.find(c => c.name.toLowerCase() === clientName.toLowerCase());
+    const company = clientObj ? (clientObj.companyName || '').trim().toLowerCase() : '';
+    const normName = clientName.trim().toLowerCase();
+
+    return invoices.filter(inv => {
+      if (!inv.client) return false;
+      const invClient = inv.client.trim().toLowerCase();
+      
+      // 1. Exact name match
+      if (invClient === normName) return true;
+      
+      // 2. Exact match with: "Name - Company"
+      if (company && invClient === `${normName} - ${company}`) return true;
+
+      // 3. Split parts match (e.g. "Name - Suffix")
+      if (invClient.includes(" - ")) {
+        const parts = invClient.split(" - ");
+        const partName = parts[0].trim();
+        const partCompany = parts[1] ? parts[1].trim() : '';
+
+        if (partName === normName) {
+          if (!company || partCompany === company) {
+            return true;
+          }
+        }
+      }
+
+      // 4. Starts with check
+      if (invClient.startsWith(normName)) {
+        if (!company) {
+          const suffix = invClient.slice(normName.length).trim();
+          if (!suffix || suffix.startsWith("-")) {
+            return true;
+          }
+        } else if (invClient.includes(company)) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+  };
+
+  const getClientStats = (clientName: string) => {
+    const clientInvs = getClientInvoices(clientName);
+    const validInvs = clientInvs.filter(i => i.status !== 'cancelled' && i.status !== 'rejected');
+    const totalSales = validInvs.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+    const pendingAmount = validInvs.filter(i => i.status === 'pending' || i.status === 'sent').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+    const paidAmount = validInvs.filter(i => i.status === 'paid').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+    return {
+      totalSales,
+      pendingAmount,
+      paidAmount,
+      invoiceCount: validInvs.length,
+      avgTicket: validInvs.length > 0 ? totalSales / validInvs.length : 0
+    };
+  };
+
+  // Grouped stats for entire portfolio (of processed / filtered data)
+  const totalPortfolioClients = clients.length;
+  const totalRevenueAll = invoices.filter(i => i.status !== 'cancelled' && i.status !== 'rejected').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+  const totalReceivablesAll = invoices.filter(i => i.status === 'pending' || i.status === 'sent').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+  const totalPaidAll = invoices.filter(i => i.status === 'paid').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+
+  const getClientSellerName = (sellerId?: string) => {
+    if (!sellerId) return 'No asignado';
+    const sLower = sellerId.toLowerCase();
+    if (sLower.includes('jerickottoniel')) return 'Erick Juárez';
+    const s = users.find(u => 
+      (u.email && u.email.toLowerCase() === sLower) || 
+      u.id === sellerId || 
+      (u.sellerCode && u.sellerCode.toLowerCase() === sLower)
+    );
+    if (s && s.name) return s.name;
+    return sellerId.includes('@') ? sellerId.split('@')[0] : sellerId;
+  };
+
+  const getClientInitials = (name: string) => {
+    if (!name) return 'CL';
+    const split = name.split(' ');
+    if (split.length >= 2) return (split[0][0] + split[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  // Sort and filter clients
+  const searchedClients = clients.filter(c => 
+    (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (c.companyName && c.companyName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (c.nit && c.nit.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const sortedClients = [...searchedClients].sort((a, b) => {
+    if (sortBy === 'name') {
+      return a.name.localeCompare(b.name);
+    }
+    if (sortBy === 'sales') {
+      const salesA = getClientStats(a.name).totalSales;
+      const salesB = getClientStats(b.name).totalSales;
+      return salesB - salesA;
+    }
+    if (sortBy === 'invoices') {
+      const invsA = getClientStats(a.name).invoiceCount;
+      const invsB = getClientStats(b.name).invoiceCount;
+      return invsB - invsA;
+    }
+    return 0;
+  });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 min-h-[400px] bg-slate-50">
+        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-semibold text-slate-500">Cargando directorio de clientes...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col h-full bg-slate-50/70 min-h-screen">
+      
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-teal-100 text-teal-800 text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+              Módulo de Cartera
+            </span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Directorio Premium de Clientes</h1>
+          <p className="text-sm text-slate-500 font-medium">Información comercial, asignación de asesores y gestión de facturación en tiempo real.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleGenerateAllCodes}
+            disabled={generatingCodes}
+            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-md text-xs disabled:opacity-50 cursor-pointer"
+            title="Asignar código de 4 dígitos a todos los clientes sin código"
+          >
+            <Hash size={16} />
+            <span>{generatingCodes ? 'Generando...' : 'Generar Códigos a Todos'}</span>
+          </button>
+
+          <button 
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-md shadow-teal-600/10 text-xs cursor-pointer"
+          >
+            <Plus size={18} />
+            <span>Nuevo Cliente</span>
+          </button>
+        </div>
+      </div>
+
+      {/* PORTFOLIO ACCUMULATED METRICS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Total Clientes</span>
+            <div className="p-2 bg-slate-50 text-slate-500 rounded-xl">
+              <Users size={16} />
+            </div>
+          </div>
+          <h4 className="text-2xl font-black text-slate-950">{totalPortfolioClients}</h4>
+          <p className="text-xs text-slate-400 mt-1 font-medium">Asociados activos</p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.05 }}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Ventas Facturadas</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <TrendingUp size={16} />
+            </div>
+          </div>
+          <h4 className="text-2xl font-black text-emerald-700">Q{totalRevenueAll.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+          <p className="text-xs text-emerald-600/80 mt-1 font-semibold flex items-center gap-1">
+            <span>Remuneración total</span>
+          </p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Cartera Pendiente</span>
+            <div className="p-2 bg-orange-50 text-orange-600 rounded-xl">
+              <DollarSign size={16} />
+            </div>
+          </div>
+          <h4 className="text-2xl font-black text-orange-700">Q{totalReceivablesAll.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+          <p className="text-xs text-orange-600 font-semibold mt-1">Cuentas por cobrar</p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.15 }}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Recaudado</span>
+            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
+              <CheckCircle size={16} />
+            </div>
+          </div>
+          <h4 className="text-2xl font-black text-teal-700">Q{totalPaidAll.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+          <p className="text-xs text-teal-600 mt-1 font-semibold">Liquidaciones exitosas</p>
+        </motion.div>
+      </div>
+
+      {/* FILTER & OPTION CONTROLS */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+        
+        {/* Search Input */}
+        <div className="relative w-full md:max-w-md">
+          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+            <Search size={16} />
+          </span>
+          <input
+            type="text"
+            className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 text-sm rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 block pl-10 pr-4 py-2.5 outline-none font-medium transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar por cliente, agro-veterinaria o NIT..."
+          />
+          {searchTerm && (
+            <button 
+              onClick={() => setSearchTerm('')} 
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Sort Controls */}
+        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+          <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-1">
+            <ArrowUpDown size={14} />
+            Ordenar por:
+          </span>
+          <div className="flex rounded-xl bg-slate-50 p-1 border border-slate-200">
+            <button
+              onClick={() => setSortBy('name')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'name' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+              Nombre
+            </button>
+            <button
+              onClick={() => setSortBy('sales')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+              Ventas Totales
+            </button>
+            <button
+              onClick={() => setSortBy('invoices')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'invoices' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+              Facturas
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+        
+        {/* LEFT COMPONENT: DIRECTORY GRID OF PREMIUM PROFILE CARDS */}
+        <div className={`flex flex-col gap-4 ${selectedClient && isMobile ? 'hidden' : 'w-full lg:w-7/12 xl:w-8/12'} overflow-y-auto`}>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">
+            Clientes Encontrados ({sortedClients.length})
+          </div>
+          
+          <AnimatePresence mode="popLayout">
+            {sortedClients.map((client, idx) => {
+              const stats = getClientStats(client.name);
+              const paidPct = stats.totalSales > 0 ? (stats.paidAmount / stats.totalSales) * 100 : 0;
+              const isSelected = selectedClient?.id === client.id;
+
+              return (
+                <motion.div
+                  key={client.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.3, delay: Math.min(idx * 0.04, 0.4) }}
+                  onClick={() => setSelectedClient(client)}
+                  className={`cursor-pointer rounded-2xl bg-white border transition-all p-5 shadow-sm hover:shadow-md hover:border-slate-300 w-full flex flex-col justify-between ${
+                    isSelected ? 'ring-2 ring-teal-500/20 border-teal-500 bg-teal-50/10' : 'border-slate-100'
+                  }`}
+                >
+                  {/* Top Row: Name and Quick Controls */}
+                  <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
+                        {getClientInitials(client.name)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                            {client.name}
+                          </h3>
+                          {client.isBlocked && (
+                            <span className="bg-red-100 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Bloqueado</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-slate-400 font-semibold flex items-center gap-1">
+                            <Building2 size={12} className="text-slate-400" />
+                            {client.companyName || 'Sin Registrar Negocio'}
+                          </p>
+                          {client.clientCode && (
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                              #{client.clientCode}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (user.role === 'admin') {
+                            setEditingClient(client);
+                          } else {
+                            setSuggestEditClient(client);
+                          }
+                        }}
+                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-teal-600 transition-colors cursor-pointer"
+                        title="Editar información"
+                      >
+                        <Edit2 size={15} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClient(client);
+                        }}
+                        className="p-1.5 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Borrar cliente"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                      <ChevronRight size={18} className={`text-slate-300 transition-transform ${isSelected ? 'translate-x-1.5 text-teal-500' : ''}`} />
+                    </div>
+                  </div>
+
+                  {/* Body Content Segmented: Veterinary, Assigned Seller, and Resumen */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 text-sm">
+                    
+                    {/* Column 1: Agroveterinaria Details & Location */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Datos del Establecimiento</h4>
+                      <div className="space-y-1.5 text-xs text-slate-600 font-semibold">
+                        <div className="flex items-start gap-1.5">
+                          <MapPin size={13} className="text-slate-400 shrink-0 mt-0.5" />
+                          <span>{client.address || 'Sin dirección registrada'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Phone size={13} className="text-slate-400 shrink-0" />
+                          <span>{client.phone || 'Sin teléfono'}</span>
+                        </div>
+                        <div className="pt-0.5 text-[11px] text-slate-500">
+                          <span className="font-bold text-slate-400 uppercase mr-1">NIT/ID:</span> 
+                          {client.nit || 'C/F'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Column 2: Assigned Seller */}
+                    <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-100/80">
+                      <h4 className="text-[10px] uppercase tracking-widest text-slate-400 font-bold flex items-center gap-1">
+                        <Briefcase size={11} className="text-slate-400" />
+                        Asesor Comercial Asignado
+                      </h4>
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-slate-800">
+                          {getClientSellerName(client.sellerId)}
+                        </p>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-400 truncate">
+                          <Mail size={11} className="shrink-0" />
+                          <span className="truncate">{client.sellerId || 'Sin registrar vendedor'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Summary Footer: Pulcro visual grid with cumulative metrics */}
+                  <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-100/50 mt-4">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="text-left">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Total Facturas</p>
+                        <p className="text-xs font-black text-slate-700 flex items-center gap-1 mt-0.5">
+                          <ShoppingBag size={12} className="text-slate-400" />
+                          {stats.invoiceCount}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Deuda Pendiente</p>
+                        <p className="text-xs font-black text-orange-600 mt-0.5">
+                          Q{stats.pendingAmount.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Total Ventas</p>
+                        <p className="text-sm font-black text-emerald-700 mt-0.5">
+                          Q{stats.totalSales.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar for Paid Invoices */}
+                    {stats.totalSales > 0 && (
+                      <div className="mt-3.5">
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 font-semibold mb-1">
+                          <span>Progreso de Cobros Liquidados</span>
+                          <span className="text-emerald-600 font-bold">{paidPct.toFixed(0)}% pagado</span>
+                        </div>
+                        <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300" 
+                            style={{ width: `${paidPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                </motion.div>
+              );
+            })}
+
+            {sortedClients.length === 0 && (
+              <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center text-slate-400 shadow-sm">
+                <Users size={40} className="mx-auto mb-3 text-slate-300" />
+                <p className="font-bold text-sm text-slate-600">No se encontraron clientes</p>
+                <p className="text-xs text-slate-400 mt-1">Prueba refinando la búsqueda o registra un nuevo cliente.</p>
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* RIGHT COMPONENT: IMMERSIVE DETAILED LEDGER PANEL */}
+        <div className={`flex flex-col flex-1 bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden min-h-[500px] ${
+          !selectedClient && isMobile ? 'hidden' : 'flex'
+        }`}>
+          {selectedClient ? (
+            <div className="flex flex-col h-full">
+              
+              {/* Header profile of selected */}
+              <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                {isMobile && (
+                  <button 
+                    onClick={() => setSelectedClient(null)} 
+                    className="mb-4 text-teal-600 font-bold text-xs flex items-center gap-1 uppercase tracking-wider bg-white px-3 py-1.5 rounded-xl border border-slate-200"
+                  >
+                    <ChevronRight size={14} className="rotate-180" />
+                    Volver a la lista
+                  </button>
+                )}
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl text-white flex items-center justify-center font-bold text-base",
+                      selectedClient.isBlocked ? "bg-red-600" : "bg-slate-900"
+                    )}>
+                      {getClientInitials(selectedClient.name)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight">{selectedClient.name}</h2>
+                        {selectedClient.isBlocked && (
+                          <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Bloqueado</span>
+                        )}
+                      </div>
+                      <p className="text-xs font-semibold text-teal-600">
+                        {selectedClient.companyName || 'Establecimiento sin nombre comercial'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        if (user.role === 'admin') {
+                          setEditingClient(selectedClient);
+                        } else {
+                          setSuggestEditClient(selectedClient);
+                        }
+                      }}
+                      className="p-2 hover:bg-slate-100 text-slate-600 hover:text-teal-600 rounded-xl transition-all border border-slate-200 bg-white flex items-center gap-1 text-xs font-bold cursor-pointer"
+                    >
+                      <Edit2 size={13} />
+                      <span>{user.role === 'admin' ? "Editar" : "Sugerir Edición"}</span>
+                    </button>
+                    {user.role === 'admin' && (
+                      <button 
+                        onClick={() => handleDeleteClient(selectedClient)}
+                        className="p-2 hover:bg-red-50 text-red-600 hover:text-red-700 rounded-xl transition-all border border-red-200 bg-white flex items-center gap-1 text-xs font-bold cursor-pointer"
+                        title="Eliminar cliente"
+                      >
+                        <Trash2 size={13} />
+                        <span>Eliminar</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5 pt-4 border-t border-slate-100 text-xs font-medium text-slate-600">
+                  <div>
+                    <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">NIT / ID</span>
+                    <span className="bg-white px-2.5 py-1 rounded-lg border border-slate-100 font-mono text-slate-800">
+                      {selectedClient.nit || 'No registrado'}
+                    </span>
+                  </div>
+                  {selectedClient.clientCode && (
+                    <div>
+                      <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cód. Cliente</span>
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 font-bold">
+                        {selectedClient.clientCode}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Teléfono comercial</span>
+                    <span className="text-slate-800">{selectedClient.phone || 'No registrado'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Vendedor Asignado</span>
+                    <span className="text-slate-800">{getClientSellerName(selectedClient.sellerId)}</span>
+                  </div>
+                  <div className="col-span-2 lg:col-span-1">
+                    <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Dirección de Entrega</span>
+                    <span className="text-slate-800 line-clamp-1" title={selectedClient.address}>
+                      {selectedClient.address || 'No registrado'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Title Section */}
+              <div className="px-6 py-4 border-b border-slate-100 bg-white flex justify-between items-center shrink-0">
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <FileText size={16} className="text-teal-500" />
+                  Historial de Facturación ({getClientInvoices(selectedClient.name).length})
+                </h3>
+                <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-lg">
+                  Límites de crédito activo
+                </span>
+              </div>
+
+              {/* Invoices List scrollable */}
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 space-y-4">
+                {getClientInvoices(selectedClient.name).length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <FileText size={24} className="text-slate-300" />
+                    </div>
+                    <p className="font-bold text-slate-500 text-sm">Sin Facturas Registradas</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                      Las ventas que se emitan a nombre de este cliente aparecerán automáticamente en esta lista de control.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {getClientInvoices(selectedClient.name).map(inv => {
+                      const isActivePending = inv.status === 'pending' && inv.date;
+                      const activeDays = isActivePending 
+                        ? Math.floor((Date.now() - new Date(inv.date).getTime()) / (1000 * 60 * 60 * 24))
+                        : 0;
+
+                      return (
+                        <div 
+                          key={inv.id} 
+                          className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              {inv.invoiceType && (
+                                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                                  inv.invoiceType === 'agricola' 
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                    : 'bg-teal-100 text-teal-800 border border-teal-200'
+                                }`}>
+                                  {inv.invoiceType}
+                                </span>
+                              )}
+                              <span className="font-mono text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                #{inv.id.slice(0, 8)}
+                              </span>
+                              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
+                                <Calendar size={12} />
+                                {new Date(inv.date).toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                            <h5 className="font-bold text-slate-800 text-sm">
+                              {inv.items.length} {inv.items.length === 1 ? 'producto' : 'productos'} en folio
+                            </h5>
+                            <p className="text-base font-black text-slate-900">
+                              Q{inv.totalAmount.toFixed(2)}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1.5 shrink-0 w-full md:w-auto">
+                            {inv.status === 'pending' ? (
+                              <span className="bg-amber-150 text-amber-800 bg-amber-55/20 px-3 py-1 text-[10px] font-extrabold rounded-lg uppercase tracking-wider flex items-center gap-1 border border-amber-200/50">
+                                <Clock size={11} className="text-amber-600" />
+                                Por cobrar
+                              </span>
+                            ) : inv.status === 'paid' ? (
+                              <span className="bg-green-100 text-green-800 px-3 py-1 text-[10px] font-extrabold rounded-lg uppercase tracking-wider flex items-center gap-1 border border-green-200/50">
+                                <CheckCircle size={11} />
+                                Cancelado
+                              </span>
+                            ) : inv.status === 'rejected' ? (
+                              <span className="bg-red-100 text-red-800 px-3 py-1 text-[10px] font-extrabold rounded-lg uppercase tracking-wider flex items-center gap-1 border border-red-200/50">
+                                <AlertTriangle size={11} />
+                                Rechazado
+                              </span>
+                            ) : inv.status === 'cancelled' ? (
+                              <span className="bg-red-50 text-red-600 px-3 py-1 text-[10px] font-extrabold rounded-lg uppercase tracking-wider flex items-center gap-1 border border-red-200">
+                                <AlertTriangle size={11} />
+                                Anulada
+                              </span>
+                            ) : (
+                              <span className="bg-slate-100 text-slate-700 px-3 py-1 text-[10px] font-extrabold rounded-lg uppercase tracking-wider">
+                                {inv.status}
+                              </span>
+                            )}
+                            
+                            {isActivePending && (
+                              <span className={`text-[11px] font-bold flex items-center gap-1 mt-0.5 ${
+                                activeDays > 30 ? 'text-red-600' : 'text-slate-500'
+                              }`}>
+                                <CornerDownRight size={12}/>
+                                {activeDays} {activeDays === 1 ? 'día' : 'días'} activo
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center bg-slate-50/50">
+              <div className="w-16 h-16 bg-white border border-slate-100 rounded-3xl flex items-center justify-center mb-4 shadow-sm">
+                <Users size={28} className="text-slate-300" />
+              </div>
+              <h4 className="font-bold text-slate-700 text-sm">Ningún Cliente Seleccionado</h4>
+              <p className="text-xs text-slate-400 max-w-xs mt-1.5 leading-relaxed">
+                Elige un perfil para consultar el desglose exacto de sus facturas vigentes, antigüedad de saldos y detalles de contacto.
+              </p>
+            </div>
+          )}
+        </div>
+
+      </div>
+
+      {/* MODAL / SLIDE-IN DIALOG: NUEVO CLIENTE */}
+      <AnimatePresence>
+        {showAddForm && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddForm(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            
+            {/* Modal Body */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white rounded-3xl w-full max-w-xl shadow-2xl relative z-10 border border-slate-100 overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-teal-600">Formulario Comercial</span>
+                  <h3 className="text-lg font-black text-slate-900 mt-0.5">Registrar Nuevo Cliente</h3>
+                </div>
+                <button 
+                  onClick={() => setShowAddForm(false)} 
+                  className="p-2 hover:bg-slate-200/60 rounded-full text-slate-400 hover:text-slate-700 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddClient} className="p-6 space-y-4">
+                
+                {/* Vendedor Asignado */}
+                {user.role === 'admin' ? (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Vendedor Asignado *
+                    </label>
+                    <select 
+                      required
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-bold text-slate-800"
+                      value={newClient.sellerId} 
+                      onChange={e => setNewClient({...newClient, sellerId: e.target.value})}
+                    >
+                      <option value="" disabled>Seleccionar Vendedor Asignado *</option>
+                      {users.map(u => (
+                        <option key={u.id} value={u.email}>{u.name} ({u.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {/* Nombre de Cliente */}
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                    Nombre del Cliente *
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej. Roberto Gómez Cabrera" 
+                    required
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                    value={newClient.name} 
+                    onChange={e => setNewClient({...newClient, name: e.target.value})}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Nombre de Negocio */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Nombre del Negocio (Agroveterinaria)
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. Comercial El Roble"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={newClient.companyName} 
+                      onChange={e => setNewClient({...newClient, companyName: e.target.value})}
+                    />
+                  </div>
+
+                  {/* NIT/ID con consulta a SAT */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      NIT / Identificación
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Ej. 1029384-5"
+                        className="w-full pl-4 pr-28 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={newClient.nit}
+                        onChange={e => { setNewClient({...newClient, nit: e.target.value}); setNitResultado(null); }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); consultarNit(); } }}
+                      />
+                      <button
+                        type="button"
+                        onClick={consultarNit}
+                        disabled={consultandoNit || !newClient.nit.trim()}
+                        title="Buscar el nombre en SAT por el NIT"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-bold text-[11px] bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {consultandoNit ? 'Buscando…' : 'Consultar SAT'}
+                      </button>
+                    </div>
+                    {nitResultado && (
+                      <p className={`text-[11px] mt-1.5 ml-1 leading-snug ${nitResultado.ok ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {nitResultado.ok ? '✓ ' : '⚠ '}{nitResultado.texto}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Código de Cliente */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Código de Cliente
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Ej. 1234"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={newClient.clientCode} 
+                        onChange={e => setNewClient({...newClient, clientCode: e.target.value})}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewClient({...newClient, clientCode: generateRandomCode()})}
+                        className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors"
+                      >
+                        Generar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bloqueo */}
+                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex-1">
+                      ¿Bloquear Cliente?
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setNewClient({...newClient, isBlocked: !newClient.isBlocked})}
+                      className={cn(
+                        "w-11 h-6 rounded-full transition-all relative flex items-center cursor-pointer shadow-inner",
+                        newClient.isBlocked ? "bg-red-600" : "bg-slate-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full bg-white shadow-md transition-all absolute",
+                        newClient.isBlocked ? "left-6" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  {/* Telefono */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Teléfono Móvil
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. +502 5543-2211"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={newClient.phone} 
+                      onChange={e => setNewClient({...newClient, phone: e.target.value})}
+                    />
+                  </div>
+
+                  {/* Dirección */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Dirección de Entrega
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. Barrio El Mirador, Jalapa"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={newClient.address} 
+                      onChange={e => setNewClient({...newClient, address: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-4 border-t border-slate-100 mt-6">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowAddForm(false)}
+                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all uppercase tracking-wider"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={adding}
+                    className="flex-1 py-3 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 rounded-xl hover:shadow-lg hover:shadow-teal-600/10 transition-all uppercase tracking-wider"
+                  >
+                    {adding ? "Guardando..." : "Guardar Cliente"}
+                  </button>
+                </div>
+
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL / SLIDE-IN DIALOG: EDITAR CLIENTE */}
+      <AnimatePresence>
+        {editingClient && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingClient(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            
+            {/* Modal Body */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white rounded-3xl w-full max-w-xl shadow-2xl relative z-10 border border-slate-100 overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-teal-600">Actualizar Información</span>
+                  <h3 className="text-lg font-black text-slate-900 mt-0.5">Editar Cliente</h3>
+                </div>
+                <button 
+                  onClick={() => setEditingClient(null)} 
+                  className="p-2 hover:bg-slate-200/60 rounded-full text-slate-400 hover:text-slate-700 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateClient} className="p-6 space-y-4">
+                
+                {/* Vendedor Asignado */}
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                    Vendedor Asignado *
+                  </label>
+                  <select 
+                    required
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-bold text-slate-800"
+                    value={editingClient.sellerId || ''} 
+                    onChange={e => setEditingClient({...editingClient, sellerId: e.target.value})}
+                  >
+                    {users.map(u => (
+                      <option key={u.id} value={u.email}>{u.name} ({u.email})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Nombre de Cliente */}
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                    Nombre del Cliente *
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                    value={editingClient.name} 
+                    onChange={e => setEditingClient({...editingClient, name: e.target.value})}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Nombre de Negocio */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Nombre del Negocio (Agroveterinaria)
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={editingClient.companyName || ''} 
+                      onChange={e => setEditingClient({...editingClient, companyName: e.target.value})}
+                    />
+                  </div>
+
+                  {/* NIT/ID */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      NIT / Identificación
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={editingClient.nit || ''} 
+                      onChange={e => setEditingClient({...editingClient, nit: e.target.value})}
+                    />
+                  </div>
+
+                  {/* Código de Cliente */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Código de Cliente
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Ej. 1234"
+                        className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                        value={editingClient.clientCode || ''} 
+                        onChange={e => setEditingClient({...editingClient, clientCode: e.target.value})}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditingClient({...editingClient, clientCode: generateRandomCode()})}
+                        className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors"
+                      >
+                        Generar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bloqueo */}
+                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex-1">
+                      ¿Bloquear Cliente?
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setEditingClient({...editingClient, isBlocked: !editingClient.isBlocked})}
+                      className={cn(
+                        "w-11 h-6 rounded-full transition-all relative flex items-center cursor-pointer shadow-inner",
+                        editingClient.isBlocked ? "bg-red-600" : "bg-slate-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full bg-white shadow-md transition-all absolute",
+                        editingClient.isBlocked ? "left-6" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  {/* Telefono */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Teléfono Móvil
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={editingClient.phone || ''} 
+                      onChange={e => setEditingClient({...editingClient, phone: e.target.value})}
+                    />
+                  </div>
+
+                  {/* Dirección */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
+                      Dirección de Entrega
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:border-teal-500 outline-none text-sm font-medium text-slate-800"
+                      value={editingClient.address || ''} 
+                      onChange={e => setEditingClient({...editingClient, address: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t border-slate-100 mt-6">
+                  {user.role === 'admin' && (
+                    <button 
+                      type="button" 
+                      onClick={() => handleDeleteClient(editingClient)}
+                      disabled={adding}
+                      className="px-4 py-3 text-sm font-bold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all uppercase tracking-wider flex items-center gap-1.5 border border-red-200 cursor-pointer"
+                      title="Eliminar cliente"
+                    >
+                      <Trash2 size={16} />
+                      <span>Eliminar</span>
+                    </button>
+                  )}
+                  <button 
+                    type="button" 
+                    onClick={() => setEditingClient(null)}
+                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all uppercase tracking-wider cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={adding}
+                    className="flex-1 py-3 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 rounded-xl hover:shadow-lg hover:shadow-teal-600/10 transition-all uppercase tracking-wider cursor-pointer"
+                  >
+                    {adding ? "Guardando..." : "Actualizar Cliente"}
+                  </button>
+                </div>
+
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: SUGERIR EDICIÓN DE CLIENTE */}
+      {suggestEditClient && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="font-black text-slate-800 text-lg">Sugerir Cambios en Cliente</h3>
+                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                  Cliente: {suggestEditClient.name}
+                </p>
+              </div>
+              <button onClick={() => { setSuggestEditClient(null); setSuggestEditText(''); }} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 rounded-xl transition-colors cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-600 uppercase mb-2 block">
+                  Especifica los cambios
+                </label>
+                <textarea
+                  value={suggestEditText}
+                  onChange={(e) => setSuggestEditText(e.target.value)}
+                  className="w-full h-32 p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none resize-none animate-none"
+                  placeholder="Ej: Modificar número de teléfono, cambiar dirección a Calle Principal, corregir NIT..."
+                ></textarea>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                Esto abrirá WhatsApp para que envíes tu solicitud de edición al grupo o a los administradores. Esta acción no modificará los datos del cliente hasta que sea aprobada y realizada por un administrador.
+              </p>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2">
+              <button
+                onClick={() => { setSuggestEditClient(null); setSuggestEditText(''); }}
+                className="flex-1 py-3 text-sm font-bold text-slate-600 hover:bg-slate-200/50 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!suggestEditText.trim()}
+                onClick={() => {
+                  const message = `Hola administradores, quisiera editar este cliente (Nombre: *${suggestEditClient.name}* / NIT: *${suggestEditClient.nit || 'S/N'}*).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+                  setSuggestEditClient(null);
+                  setSuggestEditText('');
+                }}
+                className="flex-1 py-3 text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer"
+              >
+                Enviar Solicitud
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

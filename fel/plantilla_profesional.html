@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <base href="{{origin}}/" />
+  <style>
+    @page { size: A4; margin: 14mm 15mm; }
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; }
+    @media print {
+      body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+    body { margin: 0; color: #1f2937; font-size: 10pt; line-height: 1.45; }
+    .muted { color: #6b7280; }
+    .num { color: #b91c1c; font-weight: 700; }
+
+    /* Encabezado */
+    .doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 12px; border-bottom: 2px solid #1A4D2E; }
+    .brand { display: flex; gap: 12px; align-items: center; }
+    .brand img { width: 62px; height: 62px; object-fit: contain; }
+    .em-name { font-size: 14pt; font-weight: 700; color: #111827; letter-spacing: -0.2px; }
+    .em-meta { font-size: 8.4pt; color: #6b7280; margin-top: 2px; line-height: 1.45; }
+    .doc-box { min-width: 218px; border: 1px solid #1A4D2E; border-radius: 6px; padding: 8px 12px; text-align: center; }
+    .doc-box .t { font-size: 9pt; font-weight: 800; color: #1A4D2E; line-height: 1.25; }
+    .doc-box .r { font-size: 8.6pt; color: #374151; margin-top: 4px; }
+
+    /* Partes */
+    .parties { display: flex; gap: 26px; margin: 14px 0 4px; }
+    .parties .col { flex: 1; }
+    .lbl { font-size: 7.4pt; text-transform: uppercase; letter-spacing: 0.09em; color: #9ca3af; font-weight: 700; margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid #e5e7eb; }
+    .cli-name { font-weight: 700; font-size: 10.5pt; color: #111827; }
+    .kv { font-size: 9pt; margin-top: 2px; }
+    .kv b { color: #374151; }
+
+    /* Tabla de items */
+    table.items { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    /* Al partirse el documento en varias paginas, el encabezado de la tabla se
+       repite arriba de cada pagina: sin esto, la pagina 2 muestra cifras sin
+       saber a que columna corresponden. */
+    table.items thead { display: table-header-group; }
+    table.items tfoot { display: table-footer-group; }
+    table.items thead th { font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; text-align: left; padding: 7px 8px; border-bottom: 1.5px solid #d1d5db; }
+    table.items thead th.r { text-align: right; }
+    /* Identificacion fiscal repetida en cada pagina. Va DENTRO del <thead>:
+       Chrome repite el encabezado de tabla al imprimir, y al ir en el flujo
+       normal no puede montarse sobre la primera fila (un elemento fijo si lo
+       hacia). */
+    table.items thead th.doc-id { font-size: 7pt; text-transform: none; letter-spacing: 0; color: #1A4D2E; font-weight: 700; text-align: left; padding: 0 8px 5px; border-bottom: none; }
+    table.items tbody td { font-size: 9.4pt; padding: 6px 8px; border-bottom: 1px solid #f0f1f2; vertical-align: top; }
+    table.items tbody td.r { text-align: right; }
+    table.items tbody tr:nth-child(even) td { background: #fafafa; }
+    /* Una linea de producto nunca se parte a la mitad entre dos paginas. */
+    table.items tbody tr { page-break-inside: avoid; }
+
+    /* Totales */
+    .totals { width: 46%; margin-left: auto; margin-top: 10px; border-collapse: collapse; page-break-inside: avoid; }
+    .totals td { padding: 4px 6px; font-size: 9.6pt; }
+    .totals td.r { text-align: right; }
+    .totals tr.grand td { border-top: 1.5px solid #1A4D2E; font-weight: 800; font-size: 11.5pt; color: #1A4D2E; padding-top: 8px; }
+
+    /* Bloque legal FEL */
+    .fel-legend { margin-top: 14px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 12px; font-size: 7.5pt; color: #4b5563; text-align: justify; line-height: 1.45; page-break-inside: avoid; }
+    /* padding-top + break-inside:avoid evitan que el corte de pagina (html2pdf
+       rebana la imagen) parta esta linea por la mitad. */
+    .foot-note { margin-top: 8px; padding: 8px 12px; font-size: 8pt; color: #1A4D2E; font-weight: 600; page-break-inside: avoid; break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <div class="doc-head">
+    <div class="brand">
+      <img src="{{logoUrl}}" alt="Logo" />
+      <div>{{FEL_EMISOR}}</div>
+    </div>
+    <div class="doc-box">
+      <div class="t">{{FEL_DOCTYPE}}</div>
+      <div class="r"><b>Folio:</b> #{{folio}}</div>
+      {{FEL_SERIE_NUM}}
+    </div>
+  </div>
+
+  <div class="parties">
+    <div class="col">
+      <div class="lbl">Cliente</div>
+      <div class="cli-name notranslate" translate="no">{{customerName}}</div>
+      <div class="kv"><b>NIT:</b> {{customerNit}}</div>
+      <div class="kv"><b>Dirección:</b> {{customerAddress}}</div>
+      <div class="kv"><b>Teléfono:</b> {{phone}}</div>
+    </div>
+    <div class="col">
+      <div class="lbl">Detalles del Documento</div>
+      <div class="kv"><b>Fecha:</b> {{date}}</div>
+      <div class="kv"><b>Forma de pago:</b> {{paymentForm}}</div>
+      <div class="kv"><b>Estado:</b> {{status}}</div>
+      <div class="kv"><b>Vendedor:</b> {{sellerName}}</div>
+      {{FEL_DOC_DETAILS}}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      {{FEL_CONT}}
+      <tr>
+        <th style="width:52%;">Producto</th>
+        <th class="r" style="width:14%;">Cantidad</th>
+        <th class="r" style="width:16%;">Precio</th>
+        <th class="r" style="width:18%;">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td class="notranslate" translate="no">{{this.productName}}</td>
+        <td class="r">{{this.quantity}}</td>
+        <td class="r">Q {{this.price}}</td>
+        <td class="r">Q {{this.subtotal}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td class="muted">Total Bruto</td><td class="r">Q {{totalAmount}}</td></tr>
+    {{FEL_IVA_ROWS}}
+    <tr><td class="muted">Pagos Recibidos</td><td class="r">Q {{paidAmount}}</td></tr>
+    <tr class="grand"><td>Total a Pagar</td><td class="r">Q {{dueAmount}}</td></tr>
+  </table>
+
+  {{FEL_COMPLEMENTO}}
+  {{FEL_LEYENDA}}
+  <div class="foot-note">Cambio o devoluciones tienen vigencia de 8 días.</div>
+</body>
+</html>
