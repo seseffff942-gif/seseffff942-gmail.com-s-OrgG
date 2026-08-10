@@ -28,7 +28,7 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 const N8N_WEBHOOK_URL =
   process.env.N8N_WEBHOOK_URL ||
-  'http://localhost:5678/webhook/2560f4ff-c9c0-4671-9a69-634bf074720a';
+  'http://localhost:5678/webhook-test/ventas-mediodia';
 
 const SALES_THRESHOLD = Number(process.env.SALES_THRESHOLD) || 8750;
 
