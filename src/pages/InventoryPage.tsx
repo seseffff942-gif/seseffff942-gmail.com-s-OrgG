@@ -1964,7 +1964,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs text-slate-705">
                         {displayProducts.map((p) => {
-                          const isExempt = doesNotNeedStock(p);
+                          const isExempt = doesNotNeedStock(p) || isTecunProduct(p);
                           let individualTotal = 0;
                           let individualCostTotal = 0;
                           let individualStock = 0;
@@ -1975,13 +1975,15 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                               p.variants.forEach(v => {
                                 const vStock = v.stock !== undefined ? v.stock : p.stock;
                                 individualStock += vStock;
-                                individualTotal += vStock * v.price;
-                                individualCostTotal += vStock * costPriceVal;
+                                const valStock = Math.max(0, vStock);
+                                individualTotal += valStock * (v.price || p.price || 0);
+                                individualCostTotal += valStock * costPriceVal;
                               });
                             } else {
-                              individualStock = p.stock;
-                              individualTotal = p.stock * p.price;
-                              individualCostTotal = p.stock * costPriceVal;
+                              individualStock = p.stock || 0;
+                              const valStock = Math.max(0, individualStock);
+                              individualTotal = valStock * (p.price || 0);
+                              individualCostTotal = valStock * costPriceVal;
                             }
                           }
                           
@@ -2023,9 +2025,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                   <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-black">Externo</span>
                                 ) : (
                                   <span className={cn(
-                                    individualStock === 0 ? "text-red-500 font-black bg-red-50 px-1.5 py-0.5 rounded" : (isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) ? "text-amber-600 font-black bg-amber-50 px-1.5 py-0.5 rounded" : "text-slate-800")
+                                    individualStock < 0 ? "text-indigo-700 font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/80 text-[10px]" :
+                                    individualStock === 0 ? "text-red-500 font-black bg-red-50 px-1.5 py-0.5 rounded" : 
+                                    (isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) ? "text-amber-600 font-black bg-amber-50 px-1.5 py-0.5 rounded" : "text-slate-800")
                                   )}>
-                                    {individualStock}
+                                    {individualStock < 0 ? `${individualStock} (Pedido)` : individualStock}
                                   </span>
                                 )}
                               </td>
