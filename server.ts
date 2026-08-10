@@ -630,7 +630,7 @@ if (!process.env.VERCEL) {
   // ======== CHECK DAILY SALES (Admin) ========
   app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook-test/2560f4ff-c9c0-4671-9a69-634bf074720a';
+    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/2560f4ff-c9c0-4671-9a69-634bf074720a';
     const sendToWebhook = req.body.sendToWebhook !== false; // default true
 
     // Target seller: seseffff942@gmail.com
