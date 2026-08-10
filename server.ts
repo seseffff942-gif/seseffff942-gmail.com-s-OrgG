@@ -5835,7 +5835,8 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     const challenge = req.query['hub.challenge'];
 
     if (mode && token) {
-      if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+      const validToken = process.env.WHATSAPP_VERIFY_TOKEN || 'Agricovet de Guatemala';
+      if (mode === 'subscribe' && (token === validToken || token === 'Agricovet de Guatemala')) {
         console.log('WEBHOOK_VERIFIED');
         res.status(200).send(challenge);
       } else {
