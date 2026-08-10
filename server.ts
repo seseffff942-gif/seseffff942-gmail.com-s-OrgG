@@ -627,6 +627,132 @@ if (!process.env.VERCEL) {
     res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
   }));
 
+  // ======== CHECK DAILY SALES (Admin) ========
+  app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
+    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook-test/2560f4ff-c9c0-4671-9a69-634bf074720a';
+    const sendToWebhook = req.body.sendToWebhook !== false; // default true
+
+    // Target seller: seseffff942@gmail.com
+    const TARGET_SELLER_EMAIL = 'seseffff942@gmail.com';
+
+    // Guatemala is UTC-6 all year (no DST)
+    const now = new Date();
+    const gtOffset = -6 * 60;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const gtNow = new Date(utcMs + gtOffset * 60000);
+    const year = gtNow.getFullYear();
+    const month = String(gtNow.getMonth() + 1).padStart(2, '0');
+    const day = String(gtNow.getDate()).padStart(2, '0');
+    const todayLabel = `${year}-${month}-${day}`;
+    const startOfDay = `${todayLabel}T00:00:00`;
+    const endOfDay = `${todayLabel}T23:59:59`;
+
+    // 1. Query today's invoices
+    const { data: invoicesData, error: invErr } = await supabase
+      .from('invoices')
+      .select('sellerId, totalAmount, date')
+      .gte('date', startOfDay)
+      .lte('date', endOfDay);
+
+    if (invErr) {
+      return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
+    }
+
+    // 2. Get user info for seseffff942@gmail.com
+    const { data: usersData } = await supabase.from('users').select('id, name, email').ilike('email', TARGET_SELLER_EMAIL);
+    const foundUser = usersData && usersData.length > 0 ? usersData[0] : null;
+    const sellerIdKeys = [
+      TARGET_SELLER_EMAIL.toLowerCase(),
+      foundUser?.id ? foundUser.id.toLowerCase() : null,
+    ].filter(Boolean);
+
+    const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split('@')[0];
+
+    // 3. Accumulate invoice totals for seseffff942@gmail.com
+    let cantidadVendida = 0;
+    let cantidadFacturas = 0;
+
+    for (const inv of (invoicesData || [])) {
+      const sId = (inv.sellerId || '').toLowerCase();
+      if (sellerIdKeys.includes(sId) || sId === TARGET_SELLER_EMAIL.toLowerCase()) {
+        const amount = Number(inv.totalAmount) || 0;
+        cantidadVendida += amount;
+        cantidadFacturas += 1;
+      }
+    }
+
+    // 4. Calculate dynamic variables
+    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+    const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
+    const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
+
+    const vendedoresBajoUmbral = !alcanzoMeta ? [{
+      sellerId: TARGET_SELLER_EMAIL,
+      sellerName: sellerDisplayName,
+      totalVentas: cantidadVendida,
+      cantidadFacturas,
+      diferencia: cantidadFaltante,
+    }] : [];
+
+    const vendedoresSobreUmbral = alcanzoMeta ? [{
+      sellerId: TARGET_SELLER_EMAIL,
+      sellerName: sellerDisplayName,
+      totalVentas: cantidadVendida,
+      cantidadFacturas,
+    }] : [];
+
+    // 5. Send webhook ALWAYS if sendToWebhook is true
+    let webhookResult: any = null;
+    if (sendToWebhook) {
+      const payload = {
+        fecha: todayLabel,
+        vendedor: sellerDisplayName,
+        email: TARGET_SELLER_EMAIL,
+        cantidadVendida,
+        cantidadFaltante,
+        alcanzoMeta,
+        umbral: SALES_THRESHOLD,
+        cantidadFacturas,
+        mensaje: alcanzoMeta
+          ? `${sellerDisplayName} ha alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
+          : `${sellerDisplayName} ha vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`,
+        vendedoresBajoUmbral,
+        vendedoresSobreUmbral,
+      };
+
+      console.log(`[CHECK-SALES] Enviando POST a n8n para ${sellerDisplayName}: ${N8N_WEBHOOK_URL}`);
+      try {
+        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const resText = await webhookRes.text().catch(() => '');
+        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+        console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
+      } catch (err: any) {
+        webhookResult = { error: err.message, ok: false };
+        console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
+      }
+    }
+
+    res.json({
+      fecha: todayLabel,
+      vendedor: sellerDisplayName,
+      email: TARGET_SELLER_EMAIL,
+      cantidadVendida,
+      cantidadFaltante,
+      alcanzoMeta,
+      umbral: SALES_THRESHOLD,
+      cantidadFacturas,
+      vendedoresBajoUmbral,
+      vendedoresSobreUmbral,
+      webhookEnviado: sendToWebhook,
+      webhookResult,
+    });
+  }));
+
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { invoiceId, items, client, sellerId } = req.body;
     const dispatchId = `DISP-${Date.now()}`;

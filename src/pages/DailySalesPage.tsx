@@ -29,7 +29,9 @@ import {
   RefreshCw,
   Printer,
   ScanLine,
-  Download
+  Download,
+  Bell,
+  Send
 } from 'lucide-react';
 import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -79,6 +81,13 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [manualFolio, setManualFolio] = useState<string>('');
   const [users, setUsers] = useState<User[]>([]);
   const [printTemplate, setPrintTemplate] = useState<string>(DEFAULT_PRINT_TEMPLATE);
+
+  // Check daily sales state
+  const [isCheckingSales, setIsCheckingSales] = useState(false);
+  const [salesCheckResult, setSalesCheckResult] = useState<any>(null);
+  const [showSalesCheckModal, setShowSalesCheckModal] = useState(false);
+  const [salesCheckSendWebhook, setSalesCheckSendWebhook] = useState(true);
+
 
   useEffect(() => {
     if (selectedViewInvoice) {
@@ -789,6 +798,21 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     );
   }
 
+  const handleCheckDailySales = async () => {
+    setIsCheckingSales(true);
+    setSalesCheckResult(null);
+    try {
+      const result = await api.checkDailySales({ sendToWebhook: salesCheckSendWebhook });
+      setSalesCheckResult(result);
+      setShowSalesCheckModal(true);
+    } catch (err: any) {
+      setSalesCheckResult({ error: err.message });
+      setShowSalesCheckModal(true);
+    } finally {
+      setIsCheckingSales(false);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/70 relative pb-[120px] md:pb-8 min-h-screen font-manrope">
       
@@ -918,6 +942,202 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             </button>
           </motion.div>
         )}
+
+        {/* Check Daily Sales Button (Admin-Only) */}
+        {user.role === 'admin' && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="bg-gradient-to-r from-indigo-50/70 to-violet-50/40 backdrop-blur-md border border-indigo-200/80 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-indigo-100 text-indigo-800 rounded-2xl flex-shrink-0 border border-indigo-200">
+                <Bell size={20} className={isCheckingSales ? "animate-bounce" : ""} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-indigo-900 text-xs uppercase tracking-wide">Verificar Ventas por Vendedor</h3>
+                <p className="text-indigo-700 text-[11px] mt-0.5 leading-relaxed font-semibold">
+                  Revise qué vendedores están por debajo de Q8,750 en ventas hoy.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={salesCheckSendWebhook}
+                  onChange={(e) => setSalesCheckSendWebhook(e.target.checked)}
+                  className="accent-indigo-600 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span className="text-[9px] font-bold text-indigo-700 uppercase tracking-wider">Enviar a n8n</span>
+              </label>
+              <button
+                onClick={handleCheckDailySales}
+                disabled={isCheckingSales}
+                className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+              >
+                {isCheckingSales ? (
+                  <><RefreshCw size={12} className="animate-spin" /> Verificando...</>
+                ) : (
+                  <><Bell size={12} /> Verificar Ventas</>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Sales Check Results Modal */}
+        <AnimatePresence>
+          {showSalesCheckModal && salesCheckResult && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4"
+              onClick={() => setShowSalesCheckModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden border border-slate-200"
+              >
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-5 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-white font-black text-sm uppercase tracking-wider flex items-center gap-2">
+                      <Bell size={16} /> Resultado de Verificación
+                    </h2>
+                    <p className="text-indigo-200 text-[10px] font-semibold mt-1">
+                      {salesCheckResult.fecha} • Umbral: Q{salesCheckResult.umbral?.toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowSalesCheckModal(false)}
+                    className="text-white/80 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-xl cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="overflow-y-auto max-h-[calc(85vh-120px)] p-5 space-y-4">
+                  {salesCheckResult.error ? (
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-xs font-bold">
+                      ❌ {salesCheckResult.error}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-slate-50 rounded-2xl p-3 text-center border border-slate-200">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Facturas</p>
+                          <p className="text-xl font-black text-slate-800 font-mono">{salesCheckResult.totalFacturasHoy || 0}</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-2xl p-3 text-center border border-emerald-200">
+                          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">OK</p>
+                          <p className="text-xl font-black text-emerald-700 font-mono">{salesCheckResult.vendedoresSobreUmbral?.length || 0}</p>
+                        </div>
+                        <div className="bg-red-50 rounded-2xl p-3 text-center border border-red-200">
+                          <p className="text-[9px] font-black text-red-500 uppercase tracking-widest">Bajo Meta</p>
+                          <p className="text-xl font-black text-red-600 font-mono">{salesCheckResult.vendedoresBajoUmbral?.length || 0}</p>
+                        </div>
+                      </div>
+
+                      {/* Sellers Below Threshold */}
+                      {salesCheckResult.vendedoresBajoUmbral?.length > 0 && (
+                        <div className="space-y-2">
+                          <h3 className="text-[10px] font-black text-red-600 uppercase tracking-widest flex items-center gap-1.5">
+                            <TrendingDown size={12} /> Por debajo de la meta
+                          </h3>
+                          {salesCheckResult.vendedoresBajoUmbral.map((v: any, i: number) => (
+                            <div key={i} className="bg-red-50/60 border border-red-200/70 rounded-2xl p-3.5 flex justify-between items-center">
+                              <div>
+                                <p className="font-bold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
+                                <p className="text-[10px] text-slate-500 font-mono mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-black text-red-600 text-sm font-mono">Q{v.totalVentas.toLocaleString()}</p>
+                                <p className="text-[9px] text-red-400 font-bold">faltan Q{v.diferencia.toLocaleString()}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Sellers Above Threshold */}
+                      {salesCheckResult.vendedoresSobreUmbral?.length > 0 && (
+                        <div className="space-y-2">
+                          <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
+                            <TrendingUp size={12} /> Alcanzaron la meta
+                          </h3>
+                          {salesCheckResult.vendedoresSobreUmbral.map((v: any, i: number) => (
+                            <div key={i} className="bg-emerald-50/60 border border-emerald-200/70 rounded-2xl p-3.5 flex justify-between items-center">
+                              <div>
+                                <p className="font-bold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
+                                <p className="text-[10px] text-slate-500 font-mono mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-black text-emerald-600 text-sm font-mono">Q{v.totalVentas.toLocaleString()}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {salesCheckResult.totalFacturasHoy === 0 && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
+                          <p className="text-amber-700 text-xs font-bold">⚠️ No se encontraron facturas para hoy.</p>
+                        </div>
+                      )}
+
+                      {/* Webhook Status */}
+                      {salesCheckResult.webhookEnviado && salesCheckResult.webhookResult && (
+                        <div className={cn(
+                          "rounded-2xl p-3.5 border text-[10px] font-bold flex items-center gap-2",
+                          salesCheckResult.webhookResult.ok
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                            : "bg-red-50 border-red-200 text-red-700"
+                        )}>
+                          <Send size={12} />
+                          {salesCheckResult.webhookResult.ok
+                            ? `✅ Webhook enviado exitosamente (HTTP ${salesCheckResult.webhookResult.status})`
+                            : `❌ Error al enviar webhook: ${salesCheckResult.webhookResult.error || `HTTP ${salesCheckResult.webhookResult.status}`}`
+                          }
+                        </div>
+                      )}
+
+                      {/* Resend to webhook button */}
+                      {salesCheckResult.vendedoresBajoUmbral?.length > 0 && !salesCheckResult.webhookEnviado && (
+                        <button
+                          onClick={async () => {
+                            setIsCheckingSales(true);
+                            try {
+                              const result = await api.checkDailySales({ sendToWebhook: true });
+                              setSalesCheckResult(result);
+                            } catch (err: any) {
+                              setSalesCheckResult({ ...salesCheckResult, webhookResult: { error: err.message, ok: false } });
+                            } finally {
+                              setIsCheckingSales(false);
+                            }
+                          }}
+                          disabled={isCheckingSales}
+                          className="w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        >
+                          <Send size={12} />
+                          Enviar alerta a n8n ahora
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* 3-Column Bento-Grid Metrics Section - Magnificent Glass Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">

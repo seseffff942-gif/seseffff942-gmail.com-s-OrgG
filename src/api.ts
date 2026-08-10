@@ -1277,4 +1277,18 @@ export const api = {
     return data;
   },
 
+  checkDailySales: async (options?: { sendToWebhook?: boolean; threshold?: number }) => {
+    const res = await fetchWithAuth('/api/admin/check-daily-sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sendToWebhook: options?.sendToWebhook ?? false,
+        threshold: options?.threshold ?? 8750,
+      }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
+    return data;
+  },
+
 };
