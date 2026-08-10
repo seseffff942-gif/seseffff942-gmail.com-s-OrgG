@@ -31,7 +31,9 @@ import {
   ScanLine,
   Download,
   Bell,
-  Send
+  Send,
+  Target,
+  AlertTriangle
 } from 'lucide-react';
 import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -994,94 +996,125 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4"
+              className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[999] flex items-center justify-center p-4"
               onClick={() => setShowSalesCheckModal(false)}
             >
               <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                initial={{ scale: 0.92, opacity: 0, y: 15 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                exit={{ scale: 0.92, opacity: 0, y: 15 }}
+                transition={{ type: "spring", stiffness: 350, damping: 28 }}
                 onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden border border-slate-200"
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col"
               >
                 {/* Modal Header */}
-                <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-5 flex justify-between items-center">
-                  <div>
-                    <h2 className="text-white font-black text-sm uppercase tracking-wider flex items-center gap-2">
-                      <Bell size={16} /> Resultado de Verificación
-                    </h2>
-                    <p className="text-indigo-200 text-[10px] font-semibold mt-1">
-                      {salesCheckResult.fecha} • Umbral: Q{salesCheckResult.umbral?.toLocaleString()}
-                    </p>
+                <div className="bg-gradient-to-r from-[#0c5c35] via-[#14532d] to-[#042f2e] px-6 py-5 flex justify-between items-center relative overflow-hidden shrink-0">
+                  <div className="absolute -right-8 -top-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1.5 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-400/20">
+                        <Target size={16} />
+                      </span>
+                      <h2 className="text-white font-extrabold text-sm uppercase tracking-wider">
+                        Revisión de Metas Diarias
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="px-2.5 py-0.5 bg-white/10 backdrop-blur-sm text-emerald-100 text-[10px] font-semibold rounded-full border border-white/10">
+                        📅 {salesCheckResult.fecha}
+                      </span>
+                      <span className="px-2.5 py-0.5 bg-emerald-400/20 text-emerald-200 text-[10px] font-bold rounded-full border border-emerald-400/30">
+                        Meta: Q{(salesCheckResult.umbral || 8750).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                   <button
                     onClick={() => setShowSalesCheckModal(false)}
-                    className="text-white/80 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-xl cursor-pointer"
+                    className="relative z-10 text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-2xl cursor-pointer"
                   >
                     <X size={18} />
                   </button>
                 </div>
 
                 {/* Modal Body */}
-                <div className="overflow-y-auto max-h-[calc(85vh-120px)] p-5 space-y-4">
+                <div className="overflow-y-auto p-5 space-y-4 flex-1">
                   {salesCheckResult.error ? (
-                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-xs font-bold">
-                      ❌ {salesCheckResult.error}
+                    <div className="bg-rose-50 border border-rose-200/80 rounded-2xl p-4 text-rose-700 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle size={16} className="shrink-0" />
+                      <span>{salesCheckResult.error}</span>
                     </div>
                   ) : (
                     <>
                       {/* Summary Stats */}
                       <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-slate-50 rounded-2xl p-3 text-center border border-slate-200">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Facturas</p>
-                          <p className="text-xl font-black text-slate-800 font-mono">{salesCheckResult.totalFacturasHoy || 0}</p>
+                        <div className="bg-slate-50/80 rounded-2xl p-3 text-center border border-slate-200/60 shadow-xs">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Facturas</p>
+                          <p className="text-2xl font-black text-slate-800 tracking-tight">{salesCheckResult.totalFacturasHoy || 0}</p>
                         </div>
-                        <div className="bg-emerald-50 rounded-2xl p-3 text-center border border-emerald-200">
-                          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">OK</p>
-                          <p className="text-xl font-black text-emerald-700 font-mono">{salesCheckResult.vendedoresSobreUmbral?.length || 0}</p>
+                        <div className="bg-emerald-50/70 rounded-2xl p-3 text-center border border-emerald-200/60 shadow-xs">
+                          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">En Meta</p>
+                          <p className="text-2xl font-black text-emerald-700 tracking-tight">{salesCheckResult.vendedoresSobreUmbral?.length || 0}</p>
                         </div>
-                        <div className="bg-red-50 rounded-2xl p-3 text-center border border-red-200">
-                          <p className="text-[9px] font-black text-red-500 uppercase tracking-widest">Bajo Meta</p>
-                          <p className="text-xl font-black text-red-600 font-mono">{salesCheckResult.vendedoresBajoUmbral?.length || 0}</p>
+                        <div className="bg-rose-50/70 rounded-2xl p-3 text-center border border-rose-200/60 shadow-xs">
+                          <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">Bajo Meta</p>
+                          <p className="text-2xl font-black text-rose-600 tracking-tight">{salesCheckResult.vendedoresBajoUmbral?.length || 0}</p>
                         </div>
                       </div>
 
                       {/* Sellers Below Threshold */}
                       {salesCheckResult.vendedoresBajoUmbral?.length > 0 && (
-                        <div className="space-y-2">
-                          <h3 className="text-[10px] font-black text-red-600 uppercase tracking-widest flex items-center gap-1.5">
-                            <TrendingDown size={12} /> Por debajo de la meta
+                        <div className="space-y-2.5">
+                          <h3 className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5 pt-1">
+                            <TrendingDown size={14} /> Por debajo de la meta (Q{(salesCheckResult.umbral || 8750).toLocaleString()})
                           </h3>
-                          {salesCheckResult.vendedoresBajoUmbral.map((v: any, i: number) => (
-                            <div key={i} className="bg-red-50/60 border border-red-200/70 rounded-2xl p-3.5 flex justify-between items-center">
-                              <div>
-                                <p className="font-bold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
-                                <p className="text-[10px] text-slate-500 font-mono mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''}</p>
+                          {salesCheckResult.vendedoresBajoUmbral.map((v: any, i: number) => {
+                            const pct = Math.min(100, Math.max(0, Math.round((v.totalVentas / (salesCheckResult.umbral || 8750)) * 100)));
+                            return (
+                              <div key={i} className="bg-gradient-to-r from-rose-50/80 to-orange-50/40 border border-rose-200/80 rounded-2xl p-4 space-y-2 shadow-xs">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-extrabold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
+                                    <p className="text-[10px] font-medium text-slate-500 mt-0.5">
+                                      {v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''} emitidas hoy
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="font-extrabold text-rose-700 text-sm tracking-tight">Q{Number(v.totalVentas || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 font-extrabold text-[9.5px] rounded-full mt-0.5">
+                                      Faltan Q{Number(v.diferencia || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* Progress Bar */}
+                                <div className="w-full bg-rose-200/60 h-2 rounded-full overflow-hidden">
+                                  <div 
+                                    className="bg-gradient-to-r from-rose-500 to-amber-500 h-full rounded-full transition-all duration-500"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
                               </div>
-                              <div className="text-right">
-                                <p className="font-black text-red-600 text-sm font-mono">Q{v.totalVentas.toLocaleString()}</p>
-                                <p className="text-[9px] text-red-400 font-bold">faltan Q{v.diferencia.toLocaleString()}</p>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
 
                       {/* Sellers Above Threshold */}
                       {salesCheckResult.vendedoresSobreUmbral?.length > 0 && (
-                        <div className="space-y-2">
-                          <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
-                            <TrendingUp size={12} /> Alcanzaron la meta
+                        <div className="space-y-2.5">
+                          <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5 pt-1">
+                            <TrendingUp size={14} /> Alcanzaron la meta
                           </h3>
                           {salesCheckResult.vendedoresSobreUmbral.map((v: any, i: number) => (
-                            <div key={i} className="bg-emerald-50/60 border border-emerald-200/70 rounded-2xl p-3.5 flex justify-between items-center">
+                            <div key={i} className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 flex justify-between items-center shadow-xs">
                               <div>
-                                <p className="font-bold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
-                                <p className="text-[10px] text-slate-500 font-mono mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''}</p>
+                                <p className="font-extrabold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
+                                <p className="text-[10px] font-medium text-slate-500 mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''} emitidas hoy</p>
                               </div>
                               <div className="text-right">
-                                <p className="font-black text-emerald-600 text-sm font-mono">Q{v.totalVentas.toLocaleString()}</p>
+                                <p className="font-extrabold text-emerald-700 text-sm tracking-tight">Q{Number(v.totalVentas || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold text-[9.5px] rounded-full mt-0.5">
+                                  ✓ Meta alcanzada
+                                </span>
                               </div>
                             </div>
                           ))}
@@ -1089,24 +1122,33 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                       )}
 
                       {salesCheckResult.totalFacturasHoy === 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
-                          <p className="text-amber-700 text-xs font-bold">⚠️ No se encontraron facturas para hoy.</p>
+                        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 text-center">
+                          <p className="text-amber-800 text-xs font-bold flex items-center justify-center gap-1.5">
+                            <AlertTriangle size={14} className="text-amber-600" /> No se encontraron facturas registradas hoy.
+                          </p>
                         </div>
                       )}
 
-                      {/* Webhook Status */}
+                      {/* Webhook Status Banner */}
                       {salesCheckResult.webhookEnviado && salesCheckResult.webhookResult && (
                         <div className={cn(
-                          "rounded-2xl p-3.5 border text-[10px] font-bold flex items-center gap-2",
+                          "rounded-2xl p-3.5 border text-[11px] font-semibold flex items-center gap-2.5 shadow-xs",
                           salesCheckResult.webhookResult.ok
-                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                            : "bg-red-50 border-red-200 text-red-700"
+                            ? "bg-emerald-50 border-emerald-200/80 text-emerald-800"
+                            : "bg-rose-50 border-rose-200/80 text-rose-800"
                         )}>
-                          <Send size={12} />
-                          {salesCheckResult.webhookResult.ok
-                            ? `✅ Webhook enviado exitosamente (HTTP ${salesCheckResult.webhookResult.status})`
-                            : `❌ Error al enviar webhook: ${salesCheckResult.webhookResult.error || `HTTP ${salesCheckResult.webhookResult.status}`}`
-                          }
+                          <span className={cn(
+                            "p-1 rounded-lg shrink-0",
+                            salesCheckResult.webhookResult.ok ? "bg-emerald-200/60 text-emerald-800" : "bg-rose-200/60 text-rose-800"
+                          )}>
+                            <Send size={14} />
+                          </span>
+                          <span className="font-medium">
+                            {salesCheckResult.webhookResult.ok
+                              ? `Webhook enviado exitosamente a n8n (HTTP ${salesCheckResult.webhookResult.status})`
+                              : `Error al enviar webhook: ${salesCheckResult.webhookResult.error || `HTTP ${salesCheckResult.webhookResult.status}`}`
+                            }
+                          </span>
                         </div>
                       )}
 
@@ -1125,10 +1167,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             }
                           }}
                           disabled={isCheckingSales}
-                          className="w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                          className="w-full px-5 py-3.5 bg-gradient-to-r from-[#0c5c35] to-emerald-600 hover:from-[#094829] hover:to-emerald-700 text-white text-[11px] font-extrabold uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
                         >
-                          <Send size={12} />
-                          Enviar alerta a n8n ahora
+                          <Send size={14} />
+                          Enviar Alerta de Ventas a n8n
                         </button>
                       )}
                     </>
