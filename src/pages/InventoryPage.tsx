@@ -1225,7 +1225,15 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         user.role === 'admin' ? "cursor-pointer hover:border-emerald-200 border border-transparent transition-all" : "",
                         doesNotNeedStock(selectedProduct) || selectedProduct.is_external ? "text-emerald-600 bg-emerald-50" : (!isCriticalStock(selectedProduct) ? "text-emerald-600 bg-emerald-50" : (selectedProduct.stock > 0 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50"))
                       )}>
-                        {selectedProduct.is_external ? "Bajo Pedido (Externo) - Clic para cambiar" : (doesNotNeedStock(selectedProduct) ? `Exento de Stock (${selectedProduct.stock} en físico)` : `${selectedProduct.stock} unidades en stock`)}
+                        {selectedProduct.is_external 
+                          ? "Bajo Pedido (Externo) - Clic para cambiar" 
+                          : (doesNotNeedStock(selectedProduct) 
+                              ? `Exento de Stock (${selectedProduct.stock || 0} en físico)` 
+                              : (isTecunProduct(selectedProduct) && (selectedProduct.stock || 0) <= 0) 
+                                ? "0 unidades en stock (Autorización TECUN)" 
+                                : ((selectedProduct.stock || 0) < 0 
+                                    ? "0 unidades en stock (En pedido)" 
+                                    : `${selectedProduct.stock} unidades en stock`))}
                       </p>
 
                       {isAdmin && (
@@ -1413,16 +1421,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {filteredProducts.map((product) => {
               const isExempt = doesNotNeedStock(product);
+              const isTecun = isTecunProduct(product);
               let gridDisplayStock = product.stock;
               if (product.variants && product.variants.length > 0) {
                  gridDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
               }
-              const isOutOfStock = gridDisplayStock === 0 && !product.is_external && !isExempt;
-              const isCriticalStockVal = gridDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: gridDisplayStock }) && !product.is_external && !isExempt;
+              const isOutOfStock = gridDisplayStock === 0 && !product.is_external && !isExempt && !isTecun;
+              const isCriticalStockVal = gridDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: gridDisplayStock }) && !product.is_external && !isExempt && !isTecun;
               
               return (
                 <div
-                  key={product.id}
+                  key={product.id || Math.random()}
                   onClick={() => handleViewDetails(product)}
                   className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md hover:border-[#0b4d2c]/30 transition-all duration-300 flex flex-col group cursor-pointer relative"
                 >
@@ -1512,13 +1521,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         </h4>
                         <div className="text-right shrink-0">
                           <span className="text-sm font-black text-[#0b4d2c] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150 block">
-                            <span className="notranslate" translate="no">Q{product.price.toFixed(2)}</span>
+                            <span className="notranslate" translate="no">Q{(Number(product.price) || 0).toFixed(2)}</span>
                           </span>
                         </div>
                       </div>
                       
                       <div className="flex items-center gap-2 pt-1 font-mono text-[10px] text-slate-400 font-bold">
-                        <span>SKU: {product.id.split('-')[0]}</span>
+                        <span>SKU: {product.id ? String(product.id).split('-')[0] : ''}</span>
                         {product.specifications && product.specifications.length > 0 && (
                           <>
                             <span>•</span>
@@ -1533,9 +1542,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex items-center justify-between text-[11px] font-bold">
                         <span className="text-slate-400 uppercase tracking-wider">Disponibilidad</span>
                         <span className={cn(
-                          product.is_external || isExempt ? "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold" : (gridDisplayStock > 10 ? "text-emerald-600" : (gridDisplayStock > 0 ? "text-amber-600" : "text-red-600"))
+                          product.is_external || isExempt ? "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold" : (isTecun && gridDisplayStock <= 0) ? "text-purple-700 font-extrabold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60" : (gridDisplayStock > 10 ? "text-emerald-600" : (gridDisplayStock > 0 ? "text-amber-600" : "text-red-600"))
                         )}>
-                          {product.is_external ? 'Ilimitado (Externo)' : (isExempt ? 'Exento de Stock' : <span className="notranslate" translate="no">{gridDisplayStock} unidades</span>)}
+                          {product.is_external ? 'Ilimitado (Externo)' : (isExempt ? 'Exento de Stock' : (isTecun && gridDisplayStock <= 0) ? '0 unidades (Tecún)' : (gridDisplayStock < 0 ? '0 unidades (En pedido)' : <span className="notranslate" translate="no">{gridDisplayStock} unidades</span>))}
                         </span>
                       </div>
                       
@@ -1545,9 +1554,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           <div 
                             className={cn(
                               "h-full rounded-full transition-all duration-500",
-                              isExempt || gridDisplayStock > 10 ? "bg-emerald-500" : (gridDisplayStock > 0 ? "bg-amber-400 animate-pulse" : "bg-red-500")
+                              isExempt || gridDisplayStock > 10 ? "bg-emerald-500" : (isTecun && gridDisplayStock <= 0) ? "bg-purple-500" : (gridDisplayStock > 0 ? "bg-amber-400 animate-pulse" : "bg-red-500")
                             )}
-                            style={{ width: `${isExempt ? 100 : Math.min((gridDisplayStock / 30) * 100, 100)}%` }}
+                            style={{ width: `${isExempt ? 100 : Math.max(0, Math.min((gridDisplayStock / 30) * 100, 100))}%` }}
                           />
                         </div>
                       )}
