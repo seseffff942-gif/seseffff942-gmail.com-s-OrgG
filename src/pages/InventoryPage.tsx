@@ -1717,7 +1717,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                   "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1",
                                   product.is_external || isExempt 
                                     ? "text-emerald-700 bg-emerald-50" 
-                                    : isTecun
+                                    : (isTecun && listDisplayStock <= 0)
                                       ? "text-purple-700 bg-purple-50 border border-purple-200/60"
                                       : isOutOfStock 
                                         ? "text-red-700 bg-red-50" 
@@ -1735,10 +1735,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                       <CheckCircle size={10} />
                                       <span>EXEN</span>
                                     </>
-                                  ) : isTecun ? (
+                                  ) : (isTecun && listDisplayStock <= 0) ? (
                                     <>
                                       <Shield size={10} />
-                                      <span>{listDisplayStock <= 0 ? '0 (TECUN)' : `${listDisplayStock} UDS`}</span>
+                                      <span>0 (TECUN)</span>
                                     </>
                                   ) : (
                                     <>
@@ -2035,9 +2035,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                               <td className={cn("p-4 text-right font-bold text-slate-900 transition-colors", valuationFilterMode === 'stock' && "bg-blue-50/60 font-black text-blue-950")}>
                                 {p.is_external ? (
                                   <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-black">Externo</span>
-                                ) : isTecunProduct(p) ? (
+                                ) : (isTecunProduct(p) && individualStock <= 0) ? (
                                   <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/80 font-black">
-                                    {individualStock <= 0 ? '0 (Tecún)' : `${individualStock} uds`}
+                                    0 (Tecún)
                                   </span>
                                 ) : (
                                   <span className={cn(
@@ -2122,10 +2122,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex flex-col gap-0.5">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Existencia</span>
                         <span className={cn(
-                          p.is_external ? "text-emerald-600" : isTecunProduct(p) ? "text-purple-700 font-black" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
+                          p.is_external ? "text-emerald-600" : (isTecunProduct(p) && individualStock <= 0) ? "text-purple-700 font-black" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
                           "text-xs font-black"
                         )}>
-                          {p.is_external ? 'Lote Externo' : isTecunProduct(p) ? (individualStock <= 0 ? '0 (Tecún)' : `${individualStock} uds`) : `${individualStock} uds`}
+                          {p.is_external ? 'Lote Externo' : (isTecunProduct(p) && individualStock <= 0) ? '0 (Tecún)' : `${individualStock} uds`}
                         </span>
                       </div>
                       <div className="flex flex-col gap-0.5 text-right">
