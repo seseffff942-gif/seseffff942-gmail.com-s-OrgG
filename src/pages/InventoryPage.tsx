@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
 import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert } from 'lucide-react';
-import { cn, doesNotNeedStock, isCriticalStock } from '../utils';
+import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -1663,12 +1663,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 <tbody className="divide-y divide-slate-100">
                   {filteredProducts.map((product) => {
                     const isExempt = doesNotNeedStock(product);
+                    const isTecun = isTecunProduct(product);
                     let listDisplayStock = product.stock;
                     if (product.variants && product.variants.length > 0) {
                       listDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
                     }
-                    const isOutOfStock = listDisplayStock === 0 && !product.is_external && !isExempt;
-                    const isCriticalStockVal = listDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: listDisplayStock }) && !product.is_external && !isExempt;
+                    const isOutOfStock = listDisplayStock === 0 && !product.is_external && !isExempt && !isTecun;
+                    const isCriticalStockVal = listDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: listDisplayStock }) && !product.is_external && !isExempt && !isTecun;
 
                     return (
                       <tr 
@@ -1716,11 +1717,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                   "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1",
                                   product.is_external || isExempt 
                                     ? "text-emerald-700 bg-emerald-50" 
-                                    : isOutOfStock 
-                                      ? "text-red-700 bg-red-50" 
-                                      : isCriticalStockVal 
-                                        ? "text-amber-700 bg-amber-50" 
-                                        : "text-slate-500 bg-slate-100"
+                                    : isTecun
+                                      ? "text-purple-700 bg-purple-50 border border-purple-200/60"
+                                      : isOutOfStock 
+                                        ? "text-red-700 bg-red-50" 
+                                        : isCriticalStockVal 
+                                          ? "text-amber-700 bg-amber-50" 
+                                          : "text-slate-500 bg-slate-100"
                                 )}>
                                   {product.is_external ? (
                                     <>
@@ -1731,6 +1734,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                     <>
                                       <CheckCircle size={10} />
                                       <span>EXEN</span>
+                                    </>
+                                  ) : isTecun ? (
+                                    <>
+                                      <Shield size={10} />
+                                      <span>{listDisplayStock <= 0 ? '0 (TECUN)' : `${listDisplayStock} UDS`}</span>
                                     </>
                                   ) : (
                                     <>
@@ -1968,33 +1976,37 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           let individualTotal = 0;
                           let individualCostTotal = 0;
                           let individualStock = 0;
-                          const costPriceVal = p.costPrice || 0;
+                          const costPriceVal = Number(p.costPrice) || 0;
+                          const priceVal = Number(p.price) || 0;
 
                           if (!p.is_external) {
                             if (p.variants && p.variants.length > 0) {
                               p.variants.forEach(v => {
-                                const vStock = v.stock !== undefined ? v.stock : p.stock;
+                                const vStock = v.stock !== undefined ? (Number(v.stock) || 0) : (Number(p.stock) || 0);
                                 individualStock += vStock;
                                 const valStock = Math.max(0, vStock);
-                                individualTotal += valStock * (v.price || p.price || 0);
+                                const vPrice = Number(v.price || p.price || 0);
+                                individualTotal += valStock * vPrice;
                                 individualCostTotal += valStock * costPriceVal;
                               });
                             } else {
-                              individualStock = p.stock || 0;
+                              individualStock = Number(p.stock) || 0;
                               const valStock = Math.max(0, individualStock);
-                              individualTotal = valStock * (p.price || 0);
+                              individualTotal = valStock * priceVal;
                               individualCostTotal = valStock * costPriceVal;
                             }
                           }
                           
+                          const pIdShort = p.id ? String(p.id).split('-')[0].toUpperCase() : '';
+
                           return (
                             <tr 
-                              key={p.id}
+                              key={p.id || Math.random()}
                               onClick={() => handleViewDetails(p)}
                               className="hover:bg-slate-50/50 transition-colors cursor-pointer group"
                             >
                               <td className="p-4 pl-6 font-mono text-[10px] text-slate-400 font-bold whitespace-nowrap">
-                                {p.id.split('-')[0].toUpperCase()}
+                                {pIdShort}
                               </td>
                               <td className="p-4">
                                 <div className="flex items-center gap-3">
@@ -2023,6 +2035,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                               <td className={cn("p-4 text-right font-bold text-slate-900 transition-colors", valuationFilterMode === 'stock' && "bg-blue-50/60 font-black text-blue-950")}>
                                 {p.is_external ? (
                                   <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-black">Externo</span>
+                                ) : isTecunProduct(p) ? (
+                                  <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/80 font-black">
+                                    {individualStock <= 0 ? '0 (Tecún)' : `${individualStock} uds`}
+                                  </span>
                                 ) : (
                                   <span className={cn(
                                     individualStock < 0 ? "text-indigo-700 font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/80 text-[10px]" :
@@ -2039,7 +2055,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                                 </td>
                               )}
                               <td className={cn("p-4 text-right font-mono font-bold text-slate-500 transition-colors", valuationFilterMode === 'sales' && "bg-emerald-50/60 font-black text-emerald-950")}>
-                                Q{p.price.toFixed(2)}
+                                Q{priceVal.toFixed(2)}
                               </td>
                               {isOwner && (
                                 <td className={cn("p-4 text-right font-mono font-black text-purple-950 transition-colors", valuationFilterMode === 'investment' && "bg-purple-100/70 text-purple-950 text-sm font-extrabold")}>
@@ -2064,24 +2080,27 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               {filteredProducts.map((p) => {
                 let individualTotal = 0;
                 let individualStock = 0;
+                const priceVal = Number(p.price) || 0;
+
                 if (!p.is_external) {
                   if (p.variants && p.variants.length > 0) {
                     p.variants.forEach(v => {
-                      const vStock = v.stock !== undefined ? v.stock : p.stock;
+                      const vStock = v.stock !== undefined ? (Number(v.stock) || 0) : (Number(p.stock) || 0);
+                      const vPrice = Number(v.price || p.price || 0);
                       individualStock += vStock;
-                      individualTotal += vStock * v.price;
+                      individualTotal += vStock * vPrice;
                     });
                   } else {
-                    individualStock = p.stock;
-                    individualTotal = p.stock * p.price;
+                    individualStock = Number(p.stock) || 0;
+                    individualTotal = individualStock * priceVal;
                   }
                 }
-                const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p);
-                const isCriticalStockVal = individualStock > 0 && isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) && !p.is_external && !doesNotNeedStock(p);
+                const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p);
+                const isCriticalStockVal = individualStock > 0 && isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p);
                 
                 return (
                   <div 
-                    key={p.id}
+                    key={p.id || Math.random()}
                     onClick={() => handleViewDetails(p)}
                     className="p-4.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col gap-3.5 hover:border-[#0b4d2c]/30 active:scale-[0.98] transition-all"
                   >
@@ -2103,15 +2122,15 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex flex-col gap-0.5">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Existencia</span>
                         <span className={cn(
-                          p.is_external ? "text-emerald-600" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
+                          p.is_external ? "text-emerald-600" : isTecunProduct(p) ? "text-purple-700 font-black" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
                           "text-xs font-black"
                         )}>
-                          {p.is_external ? 'Lote Externo' : `${individualStock} uds`}
+                          {p.is_external ? 'Lote Externo' : isTecunProduct(p) ? (individualStock <= 0 ? '0 (Tecún)' : `${individualStock} uds`) : `${individualStock} uds`}
                         </span>
                       </div>
                       <div className="flex flex-col gap-0.5 text-right">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Precio Un.</span>
-                        <span className="text-slate-600 text-xs font-black font-mono font-medium">Q{p.price.toFixed(2)}</span>
+                        <span className="text-slate-600 text-xs font-black font-mono font-medium">Q{priceVal.toFixed(2)}</span>
                       </div>
                       <div className="flex flex-col gap-0.5 text-right bg-emerald-50/50 p-2 rounded-xl border border-emerald-100">
                         <span className="text-[#0b4d2c] uppercase text-[7.5px] tracking-widest font-extrabold">Suma Total</span>
