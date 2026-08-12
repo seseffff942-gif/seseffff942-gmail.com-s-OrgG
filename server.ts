@@ -6403,7 +6403,15 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   // ======== VITE MIDDLEWARE / SPA ========
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (process.env.NODE_ENV === "production" || process.env.SERVE_DIST === "true" || (hasDist && process.env.DEV_VITE !== "true")) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
     try {
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
@@ -6413,18 +6421,11 @@ async function startServer() {
       app.use(vite.middlewares);
     } catch (viteErr) {
       console.warn("Vite middleware init fallback to dist:", viteErr);
-      const distPath = path.join(process.cwd(), 'dist');
       app.use(express.static(distPath));
       app.get('*', (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   if (!process.env.VERCEL) {

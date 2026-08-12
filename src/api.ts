@@ -189,13 +189,27 @@ const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 
 };
 
 // Simple api wrapper
-const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1): Promise<Response> => {
   const token = localStorage.getItem('app_token');
   const headers: any = { ...options.headers };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, { ...options, headers });
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (err: any) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      return fetchWithAuth(url, options, retries - 1);
+    }
+    const errText = String(err?.message || err || '');
+    if (errText.includes('Failed to fetch') || err?.name === 'TypeError') {
+      throw new Error('Sin conexión con el servidor (www.agricovet.lat). Revisa tu conexión a internet o intenta de nuevo.');
+    }
+    throw err;
+  }
   
   // If mutating and successful, notify standard notification listener to poll
   const isMutating = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method || '');
@@ -265,21 +279,47 @@ export const api = {
 
   addClient: async (clientData: any): Promise<Client> => {
     clearApiCache('clients');
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('offline_clients');
+    try {
+      const res = await fetchWithAuth('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clientData)
+      });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data.error || 'Failed to add client');
+      clearApiCache('clients');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('offline_clients');
+      }
+      return data.client;
+    } catch (err: any) {
+      const isConnError = err.message?.includes('Sin conexión') || err.message?.includes('Failed to fetch') || err.name === 'TypeError';
+      if (isConnError && typeof localStorage !== 'undefined') {
+        const localClient: Client = {
+          id: `local-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: clientData.name || '',
+          companyName: clientData.companyName || '',
+          nit: clientData.nit || 'C/F',
+          phone: clientData.phone || '',
+          address: clientData.address || '',
+          sellerId: clientData.sellerId || '',
+          createdAt: new Date().toISOString(),
+          isPendingSync: true
+        };
+        const rawCached = localStorage.getItem('offline_clients');
+        const cachedClients: Client[] = rawCached ? JSON.parse(rawCached) : [];
+        cachedClients.unshift(localClient);
+        localStorage.setItem('offline_clients', JSON.stringify(cachedClients));
+
+        const rawQueue = localStorage.getItem('offline_clients_queue');
+        const queue: any[] = rawQueue ? JSON.parse(rawQueue) : [];
+        queue.push(clientData);
+        localStorage.setItem('offline_clients_queue', JSON.stringify(queue));
+
+        return localClient;
+      }
+      throw err;
     }
-    const res = await fetchWithAuth('/api/clients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(clientData)
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || 'Failed to add client');
-    clearApiCache('clients');
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('offline_clients');
-    }
-    return data.client;
   },
 
   updateClient: async (id: string, clientData: any, oldData?: any): Promise<Client> => {

@@ -2736,6 +2736,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                         // Close Modal
                         setShowSearchClientModal(false);
+
+                        if (savedCli.isPendingSync) {
+                          alert("📌 Cliente guardado localmente (modo sin conexión). Puedes continuar con la venta normalmente; el cliente se sincronizará automáticamente cuando haya red.");
+                        }
                       } catch (err: any) {
                         alert(`Error registrando cliente: ${err.message}`);
                       } finally {

@@ -11,6 +11,7 @@ export interface Client {
   createdAt?: string;
   clientCode?: string;
   isBlocked?: boolean;
+  isPendingSync?: boolean;
 }
 
 export interface User {
