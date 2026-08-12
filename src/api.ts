@@ -1,4 +1,18 @@
+import { Capacitor } from '@capacitor/core';
 import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL } from './types';
+
+const getApiUrl = (endpoint: string): string => {
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+  if (isNative) {
+    const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.agricovet.lat').replace(/\/$/, '');
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${baseUrl}${cleanEndpoint}`;
+  }
+  return endpoint;
+};
 
 // Safe JSON parser to handle non-JSON responses from proxy or rate limters
 const safeJson = async (res: Response) => {

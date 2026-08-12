@@ -9,9 +9,13 @@
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit",
     "test:fel": "tsx fel/calculos.test.ts",
-    "check-sales": "node scripts/check-daily-sales.js"
+    "check-sales": "node scripts/check-daily-sales.js",
+    "cap:sync": "cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "@google/genai": "^2.4.0",
     "@sentry/react": "^10.59.0",
     "@supabase/supabase-js": "^2.107.0",
