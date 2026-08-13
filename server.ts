@@ -649,10 +649,7 @@ if (!process.env.VERCEL) {
 
     // ─── Vendedores objetivo ───────────────────────────────────────────────
     const TARGET_SELLERS = [
-      { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
-      { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
-      { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
-      { email: 'limalopez22@gmail.com',          name: 'Sergio Lima López',         phone: '50250007840' },
+      { email: 'seseffff942@gmail.com', name: 'Emanuel Lima', phone: '50248234048' },
     ];
 
     // ─── Fecha Guatemala (UTC-6 sin DST) ──────────────────────────────────
@@ -825,7 +822,138 @@ if (!process.env.VERCEL) {
     });
   }));
 
+  // ======== CHECK DAILY SALES - CIERRE 5 PM (Admin) ========
+  app.post("/api/admin/check-daily-sales-cierre", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
+    const N8N_WEBHOOK_URL = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/ventas-mediodia');
+    const sendToWebhook = req.body.sendToWebhook !== false;
 
+    // Guatemala UTC-6
+    const now = new Date();
+    const gtOffset = -6 * 60;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const gtNow = new Date(utcMs + gtOffset * 60000);
+    const year = gtNow.getFullYear();
+    const month = String(gtNow.getMonth() + 1).padStart(2, '0');
+    const day = String(gtNow.getDate()).padStart(2, '0');
+    const todayLabel = `${year}-${month}-${day}`;
+    const startOfDay = `${todayLabel}T00:00:00`;
+    const endOfDay   = `${todayLabel}T23:59:59`;
+
+    const { data: usersData } = await supabase.from('users').select('id, name, email, photo').neq('role', 'admin');
+    const { data: invoicesData, error: invErr } = await supabase
+      .from('invoices')
+      .select('sellerId, totalAmount, date, status')
+      .gte('date', startOfDay)
+      .lte('date', endOfDay)
+      .not('status', 'in', '("cancelled","rejected")');
+
+    if (invErr) return res.status(500).json({ error: `Error consultando facturas: ${invErr.message}` });
+
+    const sellerMap: Record<string, { name: string; email: string; phone: string; vendido: number; facturas: number }> = {};
+
+    for (const user of (usersData || [])) {
+      const phone = (() => { try { const p = JSON.parse(user.photo || '{}'); return p.phone || p.telefono || '50248234048'; } catch { return '50248234048'; } })();
+      sellerMap[user.id] = { name: user.name || user.email, email: user.email, phone, vendido: 0, facturas: 0 };
+    }
+
+    for (const inv of (invoicesData || [])) {
+      const sId = inv.sellerId || '';
+      if (sellerMap[sId]) {
+        sellerMap[sId].vendido += Number(inv.totalAmount) || 0;
+        sellerMap[sId].facturas += 1;
+      }
+    }
+
+    let webhookResult: any = null;
+    for (const [id, seller] of Object.entries(sellerMap)) {
+      const vendido    = Math.round(seller.vendido * 100) / 100;
+      const faltante   = Math.max(0, Math.round((SALES_THRESHOLD - vendido) * 100) / 100);
+      const extra      = Math.max(0, Math.round((vendido - SALES_THRESHOLD) * 100) / 100);
+      const alcanzoMeta = vendido >= SALES_THRESHOLD;
+
+      const cierrePayload = {
+        tipo:             'cierre',
+        fecha:            todayLabel,
+        vendedor:         seller.name,
+        email:            seller.email,
+        phone:            seller.phone,
+        cantidadVendida:  vendido,
+        cantidadFaltante: faltante,
+        excedente:        extra,
+        alcanzoMeta,
+        umbral:           SALES_THRESHOLD,
+        cantidadFacturas: seller.facturas,
+        vendedoresBajoUmbral:  !alcanzoMeta ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido, diferencia: faltante }] : [],
+        vendedoresSobreUmbral: alcanzoMeta  ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido }]                     : [],
+      };
+
+      if (sendToWebhook) {
+        try {
+          const r = await fetch(N8N_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cierrePayload),
+          });
+          const txt = await r.text().catch(() => '');
+          webhookResult = { status: r.status, ok: r.ok, body: txt };
+          console.log(`[CIERRE-SALES] ${seller.name}: HTTP ${r.status} - ${txt}`);
+        } catch (err: any) {
+          console.error(`[CIERRE-SALES] Error: ${err.message}`);
+        }
+        // Espera 500ms entre mensajes para no saturar la API de Meta
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    res.json({ success: true, fecha: todayLabel, vendedores: Object.keys(sellerMap).length, webhookResult });
+  }));
+
+  // ======== SCHEDULER AUTOMÁTICO - 12 PM y 5 PM GUATEMALA ========
+  // Se ejecuta solo en entornos no-Vercel (local / VPS)
+  if (!process.env.VERCEL) {
+    let lastNoonFired   = '';
+    let lastCierreFired = '';
+
+    setInterval(async () => {
+      const now = new Date();
+      const gtOffset = -6 * 60;
+      const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+      const gtNow = new Date(utcMs + gtOffset * 60000);
+      const hh = gtNow.getHours();
+      const mm = gtNow.getMinutes();
+      const yy = gtNow.getFullYear();
+      const mo = String(gtNow.getMonth() + 1).padStart(2, '0');
+      const dd = String(gtNow.getDate()).padStart(2, '0');
+      const todayKey = `${yy}-${mo}-${dd}`;
+
+      // 12:00 PM Guatemala → dispara reporte mediodía
+      if (hh === 12 && mm === 0 && lastNoonFired !== todayKey) {
+        lastNoonFired = todayKey;
+        console.log(`[SCHEDULER] Disparando reporte mediodía (12:00 PM GT) ${todayKey}`);
+        try {
+          await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.SCHEDULER_TOKEN || ''}` },
+            body: JSON.stringify({ sendToWebhook: true }),
+          });
+        } catch (e: any) { console.error('[SCHEDULER] Error mediodía:', e.message); }
+      }
+
+      // 17:00 (5 PM) Guatemala → dispara reporte cierre
+      if (hh === 17 && mm === 0 && lastCierreFired !== todayKey) {
+        lastCierreFired = todayKey;
+        console.log(`[SCHEDULER] Disparando reporte cierre (5:00 PM GT) ${todayKey}`);
+        try {
+          await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales-cierre`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.SCHEDULER_TOKEN || ''}` },
+            body: JSON.stringify({ sendToWebhook: true }),
+          });
+        } catch (e: any) { console.error('[SCHEDULER] Error cierre:', e.message); }
+      }
+    }, 30000); // revisa cada 30 segundos
+  }
 
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { invoiceId, items, client, sellerId } = req.body;
@@ -6509,10 +6637,7 @@ async function startServer() {
       // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
       const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
       const NOON_SELLERS = [
-        { email: 'seseffff942@gmail.com',           name: 'Emanuel Lima',     phone: '50248234048' },
-        { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',     phone: '50254743595' },
-        { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',  phone: '50241323037' },
-        { email: 'limalopez22@gmail.com',           name: 'Sergio Lima López', phone: '50250007840' },
+        { email: 'seseffff942@gmail.com', name: 'Emanuel Lima', phone: '50248234048' },
       ];
 
       async function dispararWebhookVentasMediodia() {
