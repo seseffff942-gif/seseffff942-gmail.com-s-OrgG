@@ -1071,10 +1071,10 @@ if (!process.env.VERCEL) {
       const dd = String(gtNow.getDate()).padStart(2, '0');
       const todayKey = `${yy}-${mo}-${dd}`;
 
-      // 1. Mediodía: 12:00 PM Guatemala
-      if (hh === 12 && mm === 0 && lastNoonFired !== todayKey) {
+      // 1. Mediodía: 12:30 PM Guatemala
+      if (hh === 12 && mm === 30 && lastNoonFired !== todayKey) {
         lastNoonFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte mediodía (12:00 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte mediodía (12:30 PM GT) ${todayKey}`);
         try {
           await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales`, {
             method: 'POST',
@@ -1084,10 +1084,10 @@ if (!process.env.VERCEL) {
         } catch (e: any) { console.error('[SCHEDULER] Error mediodía:', e.message); }
       }
 
-      // 2. Cierre de Jornada: 17:00 (5:00 PM) Guatemala
-      if (hh === 17 && mm === 0 && lastCierreFired !== todayKey) {
+      // 2. Cierre de Jornada: 17:30 (5:30 PM) Guatemala
+      if (hh === 17 && mm === 30 && lastCierreFired !== todayKey) {
         lastCierreFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte cierre del día (5:00 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte cierre del día (5:30 PM GT) ${todayKey}`);
         try {
           await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales-cierre`, {
             method: 'POST',
@@ -1097,10 +1097,10 @@ if (!process.env.VERCEL) {
         } catch (e: any) { console.error('[SCHEDULER] Error cierre:', e.message); }
       }
 
-      // 3. Cierre Semanal de Cobros: Sábados a las 13:00 (1:00 PM) Guatemala
-      if (dayOfWeek === 6 && hh === 13 && mm === 0 && lastWeeklyFired !== todayKey) {
+      // 3. Cierre Semanal de Cobros: Sábados a las 17:30 (5:30 PM) Guatemala
+      if (dayOfWeek === 6 && hh === 17 && mm === 30 && lastWeeklyFired !== todayKey) {
         lastWeeklyFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte semanal de cobros (Sábado 1:00 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte semanal de cobros (Sábado 5:30 PM GT) ${todayKey}`);
         try {
           await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-weekly-collections`, {
             method: 'POST',
@@ -6888,15 +6888,15 @@ async function startServer() {
         }
       }
 
-      // Calcular milisegundos hasta el próximo mediodía Guatemala (12:00:00)
+      // Calcular milisegundos hasta las 12:30 PM Guatemala
       function msHastaMedianocheMediodia(): number {
         const now = new Date();
         const gtOffset = -6 * 60;
         const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
         const gtNow = new Date(utcMs + gtOffset * 60000);
         const noon = new Date(gtNow);
-        noon.setHours(12, 0, 0, 0);
-        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó el mediodía hoy → mañana
+        noon.setHours(12, 30, 0, 0);
+        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó las 12:30 hoy → mañana
         return noon.getTime() - gtNow.getTime();
       }
 
