@@ -644,7 +644,7 @@ if (!process.env.VERCEL) {
     const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
     const N8N_WEBHOOK_URL = req.body.webhookUrl
       || process.env.N8N_WEBHOOK_URL
-      || 'http://localhost:5678/webhook/ventas-mediodia';
+      || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
     const sendToWebhook = req.body.sendToWebhook !== false; // default true
 
     // ─── Vendedores objetivo ───────────────────────────────────────────────
@@ -6451,7 +6451,7 @@ async function startServer() {
       console.log(`Server running on http://localhost:${PORT}`);
 
       // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
-      const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/ventas-mediodia';
+      const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
       const NOON_SELLERS = [
         { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',     phone: '50254743595' },
         { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',  phone: '50241323037' },
