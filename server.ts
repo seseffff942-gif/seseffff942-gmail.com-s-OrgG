@@ -642,25 +642,31 @@ if (!process.env.VERCEL) {
   // ======== CHECK DAILY SALES (Admin) ========
   app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook-test/ventas-mediodia';
+    const N8N_WEBHOOK_URL = req.body.webhookUrl
+      || process.env.N8N_WEBHOOK_URL
+      || 'http://localhost:5678/webhook/ventas-mediodia';
     const sendToWebhook = req.body.sendToWebhook !== false; // default true
 
-    // Target seller: seseffff942@gmail.com
-    const TARGET_SELLER_EMAIL = 'seseffff942@gmail.com';
+    // ─── Vendedores objetivo ───────────────────────────────────────────────
+    const TARGET_SELLERS = [
+      { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
+      { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
+      { email: 'limalopez22@gmail.com',          name: 'Sergio Lima López',         phone: '50250007840' },
+    ];
 
-    // Guatemala is UTC-6 all year (no DST)
+    // ─── Fecha Guatemala (UTC-6 sin DST) ──────────────────────────────────
     const now = new Date();
     const gtOffset = -6 * 60;
     const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
     const gtNow = new Date(utcMs + gtOffset * 60000);
-    const year = gtNow.getFullYear();
+    const year  = gtNow.getFullYear();
     const month = String(gtNow.getMonth() + 1).padStart(2, '0');
-    const day = String(gtNow.getDate()).padStart(2, '0');
+    const day   = String(gtNow.getDate()).padStart(2, '0');
     const todayLabel = `${year}-${month}-${day}`;
     const startOfDay = `${todayLabel}T00:00:00`;
-    const endOfDay = `${todayLabel}T23:59:59`;
+    const endOfDay   = `${todayLabel}T23:59:59`;
 
-    // 1. Query today's invoices
+    // ─── Consultar facturas del día ────────────────────────────────────────
     const { data: invoicesData, error: invErr } = await supabase
       .from('invoices')
       .select('sellerId, totalAmount, date')
@@ -671,77 +677,81 @@ if (!process.env.VERCEL) {
       return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
     }
 
-    // 2. Get user info for seseffff942@gmail.com
-    const { data: usersData } = await supabase.from('users').select('id, name, email').ilike('email', TARGET_SELLER_EMAIL);
-    const foundUser = usersData && usersData.length > 0 ? usersData[0] : null;
-    const sellerIdKeys = [
-      TARGET_SELLER_EMAIL.toLowerCase(),
-      foundUser?.id ? foundUser.id.toLowerCase() : null,
-    ].filter(Boolean);
+    // ─── Obtener IDs reales de BD para cada vendedor ───────────────────────
+    const emails = TARGET_SELLERS.map(s => s.email);
+    const { data: usersData } = await supabase
+      .from('users')
+      .select('id, name, email, phone')
+      .in('email', emails);
 
-    const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split('@')[0];
+    // ─── Calcular ventas por vendedor ──────────────────────────────────────
+    const sellerResults = TARGET_SELLERS.map(seller => {
+      const dbUser = (usersData || []).find(u => u.email?.toLowerCase() === seller.email.toLowerCase());
+      const dbId   = dbUser?.id?.toLowerCase() || '';
+      const dbName = dbUser?.name || seller.name;
+      const dbPhone = dbUser?.phone || seller.phone || '';
 
-    // 3. Accumulate invoice totals for seseffff942@gmail.com
-    let cantidadVendida = 0;
-    let cantidadFacturas = 0;
+      let cantidadVendida  = 0;
+      let cantidadFacturas = 0;
 
-    for (const inv of (invoicesData || [])) {
-      const sId = (inv.sellerId || '').toLowerCase();
-      if (sellerIdKeys.includes(sId) || sId === TARGET_SELLER_EMAIL.toLowerCase()) {
-        const amount = Number(inv.totalAmount) || 0;
-        cantidadVendida += amount;
-        cantidadFacturas += 1;
+      for (const inv of (invoicesData || [])) {
+        const sId = (inv.sellerId || '').toLowerCase();
+        if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
+          cantidadVendida  += Number(inv.totalAmount) || 0;
+          cantidadFacturas += 1;
+        }
       }
-    }
 
-    // 4. Calculate dynamic variables
-    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-    const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
-    const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
+      cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+      const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
+      const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
 
-    const vendedoresBajoUmbral = !alcanzoMeta ? [{
-      sellerId: TARGET_SELLER_EMAIL,
-      sellerName: sellerDisplayName,
-      totalVentas: cantidadVendida,
-      cantidadFacturas,
-      diferencia: cantidadFaltante,
-    }] : [];
+      const mensaje = alcanzoMeta
+        ? `✅ ${dbName} alcanzó la meta de ventas con Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
+        : `⚠️ ${dbName} ha vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`;
 
-    const vendedoresSobreUmbral = alcanzoMeta ? [{
-      sellerId: TARGET_SELLER_EMAIL,
-      sellerName: sellerDisplayName,
-      totalVentas: cantidadVendida,
-      cantidadFacturas,
-    }] : [];
+      return {
+        email:            seller.email,
+        sellerName:       dbName,
+        phone:            dbPhone,
+        cantidadVendida,
+        cantidadFacturas,
+        cantidadFaltante,
+        alcanzoMeta,
+        umbral:           SALES_THRESHOLD,
+        mensaje,
+      };
+    });
 
-    // 5. Send webhook ALWAYS if sendToWebhook is true
+    const vendedoresBajoUmbral  = sellerResults.filter(s => !s.alcanzoMeta);
+    const vendedoresSobreUmbral = sellerResults.filter(s => s.alcanzoMeta);
+
+    // ─── Enviar webhook ────────────────────────────────────────────────────
     let webhookResult: any = null;
     if (sendToWebhook) {
       const payload = {
-        fecha: todayLabel,
-        vendedor: sellerDisplayName,
-        email: TARGET_SELLER_EMAIL,
-        cantidadVendida,
-        cantidadFaltante,
-        alcanzoMeta,
-        umbral: SALES_THRESHOLD,
-        cantidadFacturas,
-        mensaje: alcanzoMeta
-          ? `${sellerDisplayName} ha alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
-          : `${sellerDisplayName} ha vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`,
+        fecha:                todayLabel,
+        umbral:               SALES_THRESHOLD,
+        vendedores:           sellerResults,
         vendedoresBajoUmbral,
         vendedoresSobreUmbral,
+        resumenTotal: {
+          totalVentas:     sellerResults.reduce((acc, s) => acc + s.cantidadVendida, 0),
+          totalFacturas:   sellerResults.reduce((acc, s) => acc + s.cantidadFacturas, 0),
+          metasAlcanzadas: vendedoresSobreUmbral.length,
+          metasPendientes: vendedoresBajoUmbral.length,
+        },
       };
 
-      console.log(`[CHECK-SALES] Enviando POST a n8n para ${sellerDisplayName}: ${N8N_WEBHOOK_URL}`);
+      console.log(`[CHECK-SALES] Enviando POST a n8n: ${N8N_WEBHOOK_URL}`);
       try {
         const webhookRes = await fetch(N8N_WEBHOOK_URL, {
-          method: 'POST',
+          method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body:    JSON.stringify(payload),
         });
-        const resText = await webhookRes.text().catch(() => '');
-        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+        const resText  = await webhookRes.text().catch(() => '');
+        webhookResult  = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
         console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
       } catch (err: any) {
         webhookResult = { error: err.message, ok: false };
@@ -750,20 +760,16 @@ if (!process.env.VERCEL) {
     }
 
     res.json({
-      fecha: todayLabel,
-      vendedor: sellerDisplayName,
-      email: TARGET_SELLER_EMAIL,
-      cantidadVendida,
-      cantidadFaltante,
-      alcanzoMeta,
-      umbral: SALES_THRESHOLD,
-      cantidadFacturas,
+      fecha:                todayLabel,
+      vendedores:           sellerResults,
       vendedoresBajoUmbral,
       vendedoresSobreUmbral,
-      webhookEnviado: sendToWebhook,
+      webhookEnviado:       sendToWebhook,
       webhookResult,
     });
   }));
+
+
 
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { invoiceId, items, client, sellerId } = req.body;
@@ -6443,6 +6449,101 @@ async function startServer() {
   if (!process.env.VERCEL) {
     app.listen(PORT as number, "0.0.0.0", async () => {
       console.log(`Server running on http://localhost:${PORT}`);
+
+      // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
+      const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/ventas-mediodia';
+      const NOON_SELLERS = [
+        { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',     phone: '50254743595' },
+        { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',  phone: '50241323037' },
+        { email: 'limalopez22@gmail.com',           name: 'Sergio Lima López', phone: '50250007840' },
+      ];
+
+      async function dispararWebhookVentasMediodia() {
+        try {
+          console.log('[CRON-NOON] Ejecutando reporte de ventas del mediodía...');
+          const now = new Date();
+          const gtOffset = -6 * 60;
+          const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+          const gtNow = new Date(utcMs + gtOffset * 60000);
+          const todayLabel = `${gtNow.getFullYear()}-${String(gtNow.getMonth()+1).padStart(2,'0')}-${String(gtNow.getDate()).padStart(2,'0')}`;
+          const startOfDay = `${todayLabel}T00:00:00`;
+          const endOfDay   = `${todayLabel}T23:59:59`;
+
+          const { data: invoicesData } = await supabase.from('invoices').select('sellerId, totalAmount, date').gte('date', startOfDay).lte('date', endOfDay);
+          const emails = NOON_SELLERS.map(s => s.email);
+          const { data: usersData } = await supabase.from('users').select('id, name, email, phone').in('email', emails);
+
+          const THRESHOLD = 8750;
+          const sellerResults = NOON_SELLERS.map(seller => {
+            const dbUser  = (usersData || []).find((u:any) => u.email?.toLowerCase() === seller.email.toLowerCase());
+            const dbId    = dbUser?.id?.toLowerCase() || '';
+            const dbName  = dbUser?.name  || seller.name;
+            const dbPhone = dbUser?.phone || seller.phone || '';
+            let cantidadVendida = 0, cantidadFacturas = 0;
+            for (const inv of (invoicesData || [])) {
+              const sId = (inv.sellerId || '').toLowerCase();
+              if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
+                cantidadVendida  += Number(inv.totalAmount) || 0;
+                cantidadFacturas += 1;
+              }
+            }
+            cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+            const cantidadFaltante = Math.max(0, Math.round((THRESHOLD - cantidadVendida) * 100) / 100);
+            const alcanzoMeta = cantidadVendida >= THRESHOLD;
+            return { email: seller.email, sellerName: dbName, phone: dbPhone, cantidadVendida, cantidadFacturas, cantidadFaltante, alcanzoMeta, umbral: THRESHOLD,
+              mensaje: alcanzoMeta
+                ? `✅ ${dbName} alcanzó la meta con Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
+                : `⚠️ ${dbName} lleva Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
+            };
+          });
+
+          const payload = {
+            fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
+            vendedores: sellerResults,
+            vendedoresBajoUmbral:  sellerResults.filter(s => !s.alcanzoMeta),
+            vendedoresSobreUmbral: sellerResults.filter(s => s.alcanzoMeta),
+            resumenTotal: {
+              totalVentas:     sellerResults.reduce((a,s) => a + s.cantidadVendida, 0),
+              totalFacturas:   sellerResults.reduce((a,s) => a + s.cantidadFacturas, 0),
+              metasAlcanzadas: sellerResults.filter(s => s.alcanzoMeta).length,
+              metasPendientes: sellerResults.filter(s => !s.alcanzoMeta).length,
+            },
+          };
+
+          const r = await fetch(NOON_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          console.log(`[CRON-NOON] Webhook enviado → HTTP ${r.status}`);
+        } catch (err: any) {
+          console.error('[CRON-NOON] Error:', err.message);
+        }
+      }
+
+      // Calcular milisegundos hasta el próximo mediodía Guatemala (12:00:00)
+      function msHastaMedianocheMediodia(): number {
+        const now = new Date();
+        const gtOffset = -6 * 60;
+        const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+        const gtNow = new Date(utcMs + gtOffset * 60000);
+        const noon = new Date(gtNow);
+        noon.setHours(12, 0, 0, 0);
+        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó el mediodía hoy → mañana
+        return noon.getTime() - gtNow.getTime();
+      }
+
+      function programarCronMediodia() {
+        const ms = msHastaMedianocheMediodia();
+        const h = Math.floor(ms / 3600000);
+        const m = Math.floor((ms % 3600000) / 60000);
+        console.log(`[CRON-NOON] Próximo disparo en ${h}h ${m}min`);
+        setTimeout(async () => {
+          await dispararWebhookVentasMediodia();
+          setInterval(dispararWebhookVentasMediodia, 24 * 60 * 60 * 1000); // cada 24h a partir de ahí
+        }, ms);
+      }
+
+      programarCronMediodia();
+      // ──────────────────────────────────────────────────────────────────────
+
+
       
       // One-time migration to ensure all clients have a code
       try {
