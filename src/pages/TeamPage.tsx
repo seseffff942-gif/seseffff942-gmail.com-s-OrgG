@@ -32,6 +32,9 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
     setLoading(true);
     api.getUsers().then(u => {
       setUsers(u);
+    }).catch(err => {
+      console.error(err);
+    }).finally(() => {
       setLoading(false);
     });
   };

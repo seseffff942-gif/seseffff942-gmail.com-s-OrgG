@@ -10,6 +10,10 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co'),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno')
+    },
     plugins: [
       react(), 
       tailwindcss(),
@@ -19,7 +23,7 @@ export default defineConfig(() => {
         filename: 'sw.ts',
         registerType: 'autoUpdate',
         injectManifest: {
-          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
+          maximumFileSizeToCacheInBytes: 15 * 1024 * 1024
         },
         // bottle.png y box.png se eliminaron: estaban corruptos y ahora los
         // marcadores de "sin imagen" son SVG embebidos (no requieren red).

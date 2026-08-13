@@ -1,0 +1,14 @@
+{
+	"appId": "com.agricovet.app",
+	"appName": "Agricovet App",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true,
+		"allowNavigation": [
+			"agricovet.lat",
+			"*.agricovet.lat",
+			"vedgedsbuajueynnyvpn.supabase.co"
+		]
+	}
+}

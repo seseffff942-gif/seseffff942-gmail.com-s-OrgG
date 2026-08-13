@@ -89,7 +89,13 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
         sellerId = undefined;
       }
       const data = await api.getInvoices(sellerId);
-      setInvoices(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setInvoices(list);
+      const todayStr = getLocalDateStr();
+      const hasTodayInvoices = list.some(i => (i.date || '').startsWith(todayStr));
+      if (!hasTodayInvoices && list.length > 0) {
+        setIsHistoryMode(true);
+      }
     } catch (err) {
       console.error(err);
     } finally {

@@ -271,6 +271,18 @@ const upload = multer({ storage, fileFilter: imageFilter, limits: { fileSize: 20
 
 export const app = express();
 app.set("trust proxy", 1);
+
+// Enable CORS for mobile apps, Capacitor WebView, and web clients
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));

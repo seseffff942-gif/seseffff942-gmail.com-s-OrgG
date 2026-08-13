@@ -1,9 +1,86 @@
 import { Capacitor } from '@capacitor/core';
+import { createClient } from '@supabase/supabase-js';
 import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL } from './types';
+import preloadedData from './data/preloadedData.json';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+export const SUPABASE_REST_BASE = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1`;
+
+export const fetchSupabaseRest = async (table: string, queryParams: string = 'select=*') => {
+  const cleanParams = queryParams.startsWith('?') ? queryParams.substring(1) : queryParams;
+  const url = `${SUPABASE_REST_BASE}/${table}?${cleanParams}`;
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  if (!res.ok) throw new Error(`Supabase REST fetch error (${res.status}): ${res.statusText}`);
+  return res.json();
+};
+
+export const parseInvoiceFlags = (inv: any): Invoice => {
+  const mappedInv = { ...inv };
+  const rawNotes = mappedInv.notes || "";
+  if (rawNotes.includes("|||")) {
+    const flags = rawNotes.split("|||");
+    let potentialNit = flags[0].trim();
+    if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
+      mappedInv.notes = potentialNit;
+      mappedInv.nit = "";
+    } else {
+      mappedInv.nit = mappedInv.nit || potentialNit;
+      mappedInv.notes = "";
+    }
+    flags.slice(1).forEach((flag: string) => {
+      const idx = flag.indexOf(':');
+      if (idx !== -1) {
+        const key = flag.substring(0, idx);
+        const value = flag.substring(idx + 1);
+        if (key === "AUTH") {
+          mappedInv.authStatus = value;
+        } else if (key === "DEBT") {
+          mappedInv.hasDebtAlert = value === "true";
+        } else if (key === "CREDIT") {
+          const val = parseInt(value, 10);
+          if (!isNaN(val)) mappedInv.creditDays = val;
+        } else if (key === "TYPE") {
+          mappedInv.invoiceType = value;
+        } else if (key === "TRACKING") {
+          mappedInv.trackingNumber = value;
+        } else if (key === "DELIVERY_LETTER") {
+          mappedInv.deliveryLetterUrl = value;
+        } else if (key === "SHIPPING_GUIDE") {
+          mappedInv.shippingGuideUrl = value;
+        } else if (key === "SCAN_CLIENT") {
+          mappedInv.scanClient = value;
+        } else if (key === "SCAN_DATE") {
+          mappedInv.scanDate = value;
+        } else if (key === "OBS") {
+          mappedInv.notes = value;
+        } else if (key === "EDITED") {
+          mappedInv.isEdited = value === "true";
+        }
+      }
+    });
+  }
+  return mappedInv as Invoice;
+};
 
 const getApiUrl = (endpoint: string): string => {
   if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
     return endpoint;
+  }
+  const customUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('app_custom_api_url') : null;
+  if (customUrl && customUrl.trim() !== '') {
+    const baseUrl = customUrl.trim().replace(/\/$/, '');
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${baseUrl}${cleanEndpoint}`;
   }
   const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform();
   if (isNative) {
@@ -281,14 +358,39 @@ export const api = {
       const cached = getCachedApi('clients');
       if (cached) return cached;
     }
-    const res = await fetchWithAuth('/api/clients');
-    if (!res.ok) {
-      const err = await safeJson(res);
-      throw new Error(err.error || 'Failed to fetch clients');
+    try {
+      const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        setCachedApi('clients', data);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('offline_clients', JSON.stringify(data));
+        }
+        return data as Client[];
+      }
+    } catch (e) {
+      console.warn('Direct Supabase clients fetch fallback:', e);
     }
-    const data = await safeJson(res);
-    setCachedApi('clients', data);
-    return data;
+    try {
+      const res = await fetchWithAuth('/api/clients');
+      if (!res.ok) throw new Error('Failed to fetch clients');
+      const data = await safeJson(res);
+      setCachedApi('clients', data);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('offline_clients', JSON.stringify(data));
+      }
+      return data;
+    } catch (err) {
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('offline_clients');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          } catch (e) {}
+        }
+      }
+      return (preloadedData.clients || []) as any[];
+    }
   },
 
   addClient: async (clientData: any): Promise<Client> => {
@@ -481,6 +583,18 @@ export const api = {
       if (cachedMem) return cachedMem;
     }
     try {
+      const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        setCachedApi('products', data);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_products', JSON.stringify(data));
+        }
+        return data as Product[];
+      }
+    } catch (e) {
+      console.warn('Direct Supabase products fetch fallback:', e);
+    }
+    try {
       const res = await fetchWithAuth('/api/products');
       if (!res.ok) {
         const err = await safeJson(res);
@@ -491,13 +605,14 @@ export const api = {
       localStorage.setItem('cached_products', JSON.stringify(data));
       return data;
     } catch (err) {
-      const cached = localStorage.getItem('cached_products');
+      const cached = localStorage.getItem('cached_products') || localStorage.getItem('offline_products');
       if (cached) {
         try {
-          return JSON.parse(cached);
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch (e) {}
       }
-      throw err;
+      return (preloadedData.products || []) as any[];
     }
   },
 
@@ -674,11 +789,44 @@ export const api = {
   },
 
   getInvoices: async (sellerId?: string): Promise<Invoice[]> => {
-    const url = sellerId ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
-    const res = await fetchWithAuth(url);
-    if (!res.ok) throw new Error('Failed to fetch invoices');
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    try {
+      let query = supabase.from('invoices').select('*').order('date', { ascending: false });
+      if (sellerId && sellerId !== 'global' && sellerId !== 'all') {
+        query = query.eq('sellerId', sellerId);
+      }
+      const { data, error } = await query;
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        const parsedList = data.map(inv => parseInvoiceFlags(inv));
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_invoices', JSON.stringify(parsedList));
+        }
+        return parsedList;
+      }
+    } catch (e) {
+      console.warn('Direct Supabase invoices fetch fallback:', e);
+    }
+    try {
+      const url = sellerId ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
+      const res = await fetchWithAuth(url);
+      if (!res.ok) throw new Error('Failed to fetch invoices');
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('cached_invoices', JSON.stringify(list));
+      }
+      return list;
+    } catch (err) {
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          } catch (e) {}
+        }
+      }
+      return (preloadedData.invoices || []).map(inv => parseInvoiceFlags(inv)) as any[];
+    }
   },
 
   getClientInvoices: async (clientName: string): Promise<Invoice[]> => {
@@ -758,6 +906,17 @@ export const api = {
   },
 
   getUsers: async (): Promise<User[]> => {
+    try {
+      const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_users', JSON.stringify(data));
+        }
+        return data as User[];
+      }
+    } catch (e) {
+      console.warn('Direct Supabase users fetch fallback:', e);
+    }
     try {
       const res = await fetchWithAuth('/api/users');
       if (!res.ok) throw new Error('Failed to fetch users');
@@ -1343,6 +1502,23 @@ export const api = {
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
     return data;
+  },
+
+  getCustomServerUrl: (): string => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('app_custom_api_url') || '';
+    }
+    return '';
+  },
+
+  setCustomServerUrl: (url: string): void => {
+    if (typeof localStorage !== 'undefined') {
+      if (!url || url.trim() === '') {
+        localStorage.removeItem('app_custom_api_url');
+      } else {
+        localStorage.setItem('app_custom_api_url', url.trim());
+      }
+    }
   },
 
 };

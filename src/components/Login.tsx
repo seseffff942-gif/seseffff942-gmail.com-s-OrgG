@@ -349,8 +349,12 @@ export function Login({ onLogin }: LoginProps) {
           </motion.div>
 
           {/* Subtitle footer elements below the main crystal card on mobile */}
-          <div className="text-center mt-6 space-y-1 text-slate-500 text-xs select-none pointer-events-none">
-            <p>Agricovet Cloud Security System</p>
+          <div className="text-center mt-6 space-y-1.5 text-slate-500 text-xs select-none">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-[11px] font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Base de Datos Conectada: Supabase Cloud</span>
+            </div>
+            <p className="text-slate-400">Agricovet Cloud Security System</p>
             <p className="opacity-60 text-[10px]">Protegido con encriptación SSL de 256 bits</p>
           </div>
 
