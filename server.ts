@@ -647,11 +647,12 @@ if (!process.env.VERCEL) {
       || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
     const sendToWebhook = req.body.sendToWebhook !== false; // default true
 
-    // ─── Vendedores objetivo (Emanuel, Erick y Herbert) ───────────────────
+    // ─── Vendedores objetivo ─────────────────────────────────────────────
     const TARGET_SELLERS = [
       { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
       { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
       { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
+      { email: 'limalopez22@gmail.com',          name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
     ];
 
     // ─── Fecha Guatemala (UTC-6 sin DST) ──────────────────────────────────
@@ -6631,9 +6632,10 @@ async function startServer() {
       // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
       const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
       const NOON_SELLERS = [
-        { email: 'seseffff942@gmail.com',           name: 'Emanuel Lima',     phone: '50248234048' },
-        { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',     phone: '50254743595' },
-        { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',  phone: '50241323037' },
+        { email: 'seseffff942@gmail.com',           name: 'Emanuel Lima',             phone: '50248234048' },
+        { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',             phone: '50254743595' },
+        { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',          phone: '50241323037' },
+        { email: 'limalopez22@gmail.com',           name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
       ];
 
       async function dispararWebhookVentasMediodia() {
