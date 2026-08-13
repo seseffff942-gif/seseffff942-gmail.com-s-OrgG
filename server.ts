@@ -49,24 +49,6 @@ function diaGuatemala(d: Date | string = new Date()): string {
   const day = String(gt.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-
-function getStartOfWeekGuatemala(d: Date | string = new Date()): string {
-  const dt = typeof d === 'string' ? new Date(d) : d;
-  const gtOffset = -6 * 60;
-  const utcMs = dt.getTime() + dt.getTimezoneOffset() * 60000;
-  const gtNow = new Date(utcMs + gtOffset * 60000);
-  const day = gtNow.getDay(); // 0 Sun, 1 Mon ...
-  const diff = gtNow.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(gtNow.setDate(diff));
-  return diaGuatemala(monday);
-}
-
-const GLOBAL_TARGET_SELLERS = [
-  { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
-  { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
-  { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
-  { email: 'limalopez22@gmail.com',          name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
-];
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
@@ -846,217 +828,98 @@ if (!process.env.VERCEL) {
     });
   }));
 
-  // ======== CHECK DAILY SALES - CIERRE DÍA (Admin) ========
-  // Calcula ventas de hoy y determina el objetivo para el siguiente día:
-  // Si no alcanzó la meta de hoy: Objetivo Mañana = Meta Base (Q8,750) + Déficit de Hoy.
-  // Si alcanzó la meta de hoy: Objetivo Mañana = Meta Base (Q8,750).
+  // ======== CHECK DAILY SALES - CIERRE 5 PM (Admin) ========
   app.post("/api/admin/check-daily-sales-cierre", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia');
+    const N8N_WEBHOOK_URL = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/ventas-mediodia');
     const sendToWebhook = req.body.sendToWebhook !== false;
 
-    const todayLabel = diaGuatemala(new Date());
+    // Guatemala UTC-6
+    const now = new Date();
+    const gtOffset = -6 * 60;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const gtNow = new Date(utcMs + gtOffset * 60000);
+    const year = gtNow.getFullYear();
+    const month = String(gtNow.getMonth() + 1).padStart(2, '0');
+    const day = String(gtNow.getDate()).padStart(2, '0');
+    const todayLabel = `${year}-${month}-${day}`;
+    const startOfDay = `${todayLabel}T00:00:00`;
+    const endOfDay   = `${todayLabel}T23:59:59`;
 
+    const { data: usersData } = await supabase.from('users').select('id, name, email, photo').neq('role', 'admin');
     const { data: invoicesData, error: invErr } = await supabase
       .from('invoices')
       .select('sellerId, totalAmount, date, status')
-      .order('date', { ascending: false })
-      .limit(300);
+      .gte('date', startOfDay)
+      .lte('date', endOfDay)
+      .not('status', 'in', '("cancelled","rejected")');
 
     if (invErr) return res.status(500).json({ error: `Error consultando facturas: ${invErr.message}` });
 
-    const emails = GLOBAL_TARGET_SELLERS.map(s => s.email);
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, name, email, phone')
-      .in('email', emails);
+    const sellerMap: Record<string, { name: string; email: string; phone: string; vendido: number; facturas: number }> = {};
 
-    const sellerResults = GLOBAL_TARGET_SELLERS.map(seller => {
-      const dbUser = (usersData || []).find(u => u.email?.toLowerCase() === seller.email.toLowerCase());
-      const dbId   = dbUser?.id?.toLowerCase() || '';
-      const dbName = dbUser?.name || seller.name;
-      const dbPhone = dbUser?.phone || seller.phone || '50248234048';
-
-      let vendido = 0;
-      let facturas = 0;
-
-      for (const inv of (invoicesData || [])) {
-        if (diaGuatemala(new Date(inv.date)) !== todayLabel) continue;
-        if (inv.status === 'cancelled' || inv.status === 'rejected') continue;
-        const sId = (inv.sellerId || '').toLowerCase();
-        if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
-          vendido  += Number(inv.totalAmount) || 0;
-          facturas += 1;
-        }
-      }
-
-      vendido = Math.round(vendido * 100) / 100;
-      const alcanzoMeta = vendido >= SALES_THRESHOLD;
-      const faltante = !alcanzoMeta ? Math.max(0, Math.round((SALES_THRESHOLD - vendido) * 100) / 100) : 0;
-      const excedente = alcanzoMeta ? Math.max(0, Math.round((vendido - SALES_THRESHOLD) * 100) / 100) : 0;
-      
-      // Lógica de objetivo para el día siguiente:
-      // Si no cumplió: Meta Base + Déficit
-      // Si cumplió: Meta Base
-      const objetivoSiguienteDia = !alcanzoMeta
-        ? Math.round((SALES_THRESHOLD + faltante) * 100) / 100
-        : SALES_THRESHOLD;
-
-      const fmtVendido = `${vendido.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtMeta = `${SALES_THRESHOLD.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtFaltante = `${faltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtExtra = `${excedente.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtObjetivoSiguienteDia = `${objetivoSiguienteDia.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-
-      const mensaje = alcanzoMeta
-        ? `🏆 ¡Meta del Día Cumplida! Felicidades ${dbName}, has alcanzado un total de ${fmtVendido} en ventas hoy (Excedente: ${fmtExtra}). Tu objetivo para mañana es ${fmtObjetivoSiguienteDia} (Meta base). ¡Gran trabajo!`
-        : `📋 Cierre de Jornada: Hola ${dbName}, has vendido ${fmtVendido} hoy (Déficit de hoy: ${fmtFaltante}). Tu objetivo de ventas para mañana es de ${fmtObjetivoSiguienteDia} (Meta base ${fmtMeta} + Déficit acumulado ${fmtFaltante}). ¡Mañana con todo!`;
-
-      return {
-        tipo: 'cierre-dia',
-        vendedor: dbName,
-        email: seller.email,
-        phone: dbPhone,
-        cantidadVendida: vendido,
-        cantidadFaltante: faltante,
-        excedente,
-        alcanzoMeta,
-        umbral: SALES_THRESHOLD,
-        metaBase: SALES_THRESHOLD,
-        objetivoSiguienteDia,
-        cantidadFacturas: facturas,
-        fmtVendido,
-        fmtMeta,
-        fmtFaltante,
-        fmtExtra,
-        fmtObjetivoSiguienteDia,
-        mensaje
-      };
-    });
-
-    if (sendToWebhook) {
-      for (const s of sellerResults) {
-        fetch(N8N_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fecha: todayLabel, ...s, vendedores: sellerResults }),
-        }).catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
+    for (const user of (usersData || [])) {
+      const phone = (() => { try { const p = JSON.parse(user.photo || '{}'); return p.phone || p.telefono || '50248234048'; } catch { return '50248234048'; } })();
+      sellerMap[user.id] = { name: user.name || user.email, email: user.email, phone, vendido: 0, facturas: 0 };
     }
 
-    res.json({
-      success: true,
-      tipo: 'cierre-dia',
-      fecha: todayLabel,
-      umbral: SALES_THRESHOLD,
-      vendedores: sellerResults
-    });
-  }));
-
-  // ======== CHECK WEEKLY COLLECTIONS - CIERRE SEMANAL (Admin) ========
-  // Calcula cuánto cobró cada vendedor durante la semana en curso (Lunes a hoy)
-  app.post("/api/admin/check-weekly-collections", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const WEEKLY_GOAL = Number(req.body.weeklyGoal) || 50000;
-    const N8N_WEBHOOK_URL = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia');
-    const sendToWebhook = req.body.sendToWebhook !== false;
-
-    const todayLabel = diaGuatemala(new Date());
-    const startOfWeek = getStartOfWeekGuatemala(new Date());
-
-    const [{ data: paymentsData }, { data: invoicesData }, { data: usersData }] = await Promise.all([
-      supabase.from('payments').select('id, invoiceId, amount, date').order('date', { ascending: false }).limit(400),
-      supabase.from('invoices').select('id, sellerId, clientName, totalAmount, paidAmount').order('date', { ascending: false }).limit(400),
-      supabase.from('users').select('id, name, email, phone').in('email', GLOBAL_TARGET_SELLERS.map(s => s.email))
-    ]);
-
-    const invoiceMap: Record<string, any> = {};
     for (const inv of (invoicesData || [])) {
-      invoiceMap[inv.id] = inv;
+      const sId = inv.sellerId || '';
+      if (sellerMap[sId]) {
+        sellerMap[sId].vendido += Number(inv.totalAmount) || 0;
+        sellerMap[sId].facturas += 1;
+      }
     }
 
-    const weekPayments = (paymentsData || []).filter((p: any) => {
-      const pDate = diaGuatemala(new Date(p.date));
-      return pDate >= startOfWeek && pDate <= todayLabel;
-    });
+    let webhookResult: any = null;
+    for (const [id, seller] of Object.entries(sellerMap)) {
+      const vendido    = Math.round(seller.vendido * 100) / 100;
+      const faltante   = Math.max(0, Math.round((SALES_THRESHOLD - vendido) * 100) / 100);
+      const extra      = Math.max(0, Math.round((vendido - SALES_THRESHOLD) * 100) / 100);
+      const alcanzoMeta = vendido >= SALES_THRESHOLD;
 
-    const weeklyResults = GLOBAL_TARGET_SELLERS.map(seller => {
-      const dbUser = (usersData || []).find((u: any) => u.email?.toLowerCase() === seller.email.toLowerCase());
-      const dbId   = dbUser?.id?.toLowerCase() || '';
-      const dbName = dbUser?.name || seller.name;
-      const dbPhone = dbUser?.phone || seller.phone || '50248234048';
-
-      let totalCobrado = 0;
-      let abonosCount = 0;
-
-      for (const p of weekPayments) {
-        const inv = invoiceMap[p.invoiceId];
-        if (inv) {
-          const sId = (inv.sellerId || '').toLowerCase();
-          if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
-            totalCobrado += Number(p.amount) || 0;
-            abonosCount  += 1;
-          }
-        }
-      }
-
-      totalCobrado = Math.round(totalCobrado * 100) / 100;
-      const alcanzoMetaCobro = totalCobrado >= WEEKLY_GOAL;
-      const faltanteCobro = !alcanzoMetaCobro ? Math.max(0, Math.round((WEEKLY_GOAL - totalCobrado) * 100) / 100) : 0;
-      const excedenteCobro = alcanzoMetaCobro ? Math.max(0, Math.round((totalCobrado - WEEKLY_GOAL) * 100) / 100) : 0;
-
-      const fmtCobradoSemana = `${totalCobrado.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtMetaCobroSemanal = `${WEEKLY_GOAL.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-      const fmtFaltanteCobro = `${faltanteCobro.toLocaleString('es-GT', { minimumFractionDigits: 2 })} Q`;
-
-      const mensaje = alcanzoMetaCobro
-        ? `💵 ¡Excelente Cierre Semanal de Cobros! ${dbName}, has recaudado un total de ${fmtCobradoSemana} esta semana con ${abonosCount} abonos gestionados (Meta: ${fmtMetaCobroSemanal}). ¡Felicidades por mantener la cartera sana!`
-        : `📊 Resumen Semanal de Cobranza: Hola ${dbName}, tu recaudación de esta semana es de ${fmtCobradoSemana} (${abonosCount} abonos gestionados). Pendiente para la meta: ${fmtFaltanteCobro}. ¡Buen fin de semana!`;
-
-      return {
-        tipo: 'cierre-semana-cobros',
-        vendedor: dbName,
-        email: seller.email,
-        phone: dbPhone,
-        totalCobradoSemana: totalCobrado,
-        cantidadAbonos: abonosCount,
-        metaCobroSemanal: WEEKLY_GOAL,
-        faltanteCobro,
-        excedenteCobro,
-        alcanzoMetaCobro,
-        fmtCobradoSemana,
-        fmtMetaCobroSemanal,
-        fmtFaltanteCobro,
-        rangoSemana: `${startOfWeek} al ${todayLabel}`,
-        mensaje
+      const cierrePayload = {
+        tipo:             'cierre',
+        fecha:            todayLabel,
+        vendedor:         seller.name,
+        email:            seller.email,
+        phone:            seller.phone,
+        cantidadVendida:  vendido,
+        cantidadFaltante: faltante,
+        excedente:        extra,
+        alcanzoMeta,
+        umbral:           SALES_THRESHOLD,
+        cantidadFacturas: seller.facturas,
+        vendedoresBajoUmbral:  !alcanzoMeta ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido, diferencia: faltante }] : [],
+        vendedoresSobreUmbral: alcanzoMeta  ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido }]                     : [],
       };
-    });
 
-    if (sendToWebhook) {
-      for (const s of weeklyResults) {
-        fetch(N8N_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fecha: todayLabel, rangoSemana: `${startOfWeek} al ${todayLabel}`, ...s, vendedores: weeklyResults }),
-        }).catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 300));
+      if (sendToWebhook) {
+        try {
+          const r = await fetch(N8N_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cierrePayload),
+          });
+          const txt = await r.text().catch(() => '');
+          webhookResult = { status: r.status, ok: r.ok, body: txt };
+          console.log(`[CIERRE-SALES] ${seller.name}: HTTP ${r.status} - ${txt}`);
+        } catch (err: any) {
+          console.error(`[CIERRE-SALES] Error: ${err.message}`);
+        }
+        // Espera 500ms entre mensajes para no saturar la API de Meta
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
-    res.json({
-      success: true,
-      tipo: 'cierre-semana-cobros',
-      rangoSemana: `${startOfWeek} al ${todayLabel}`,
-      metaSemanal: WEEKLY_GOAL,
-      vendedores: weeklyResults
-    });
+    res.json({ success: true, fecha: todayLabel, vendedores: Object.keys(sellerMap).length, webhookResult });
   }));
 
-  // ======== SCHEDULER AUTOMÁTICO - MEDIODÍA (12 PM), CIERRE (5 PM), SEMANAL (SÁB 1 PM) ========
+  // ======== SCHEDULER AUTOMÁTICO - 12 PM y 5 PM GUATEMALA ========
+  // Se ejecuta solo en entornos no-Vercel (local / VPS)
   if (!process.env.VERCEL) {
     let lastNoonFired   = '';
     let lastCierreFired = '';
-    let lastWeeklyFired = '';
 
     setInterval(async () => {
       const now = new Date();
@@ -1065,16 +928,15 @@ if (!process.env.VERCEL) {
       const gtNow = new Date(utcMs + gtOffset * 60000);
       const hh = gtNow.getHours();
       const mm = gtNow.getMinutes();
-      const dayOfWeek = gtNow.getDay(); // 0 Sun, 6 Sat
       const yy = gtNow.getFullYear();
       const mo = String(gtNow.getMonth() + 1).padStart(2, '0');
       const dd = String(gtNow.getDate()).padStart(2, '0');
       const todayKey = `${yy}-${mo}-${dd}`;
 
-      // 1. Mediodía: 12:30 PM Guatemala
-      if (hh === 12 && mm === 30 && lastNoonFired !== todayKey) {
+      // 12:00 PM Guatemala → dispara reporte mediodía
+      if (hh === 12 && mm === 0 && lastNoonFired !== todayKey) {
         lastNoonFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte mediodía (12:30 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte mediodía (12:00 PM GT) ${todayKey}`);
         try {
           await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales`, {
             method: 'POST',
@@ -1084,10 +946,10 @@ if (!process.env.VERCEL) {
         } catch (e: any) { console.error('[SCHEDULER] Error mediodía:', e.message); }
       }
 
-      // 2. Cierre de Jornada: 17:30 (5:30 PM) Guatemala
-      if (hh === 17 && mm === 30 && lastCierreFired !== todayKey) {
+      // 17:00 (5 PM) Guatemala → dispara reporte cierre
+      if (hh === 17 && mm === 0 && lastCierreFired !== todayKey) {
         lastCierreFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte cierre del día (5:30 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte cierre (5:00 PM GT) ${todayKey}`);
         try {
           await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales-cierre`, {
             method: 'POST',
@@ -1096,20 +958,7 @@ if (!process.env.VERCEL) {
           });
         } catch (e: any) { console.error('[SCHEDULER] Error cierre:', e.message); }
       }
-
-      // 3. Cierre Semanal de Cobros: Sábados a las 17:30 (5:30 PM) Guatemala
-      if (dayOfWeek === 6 && hh === 17 && mm === 30 && lastWeeklyFired !== todayKey) {
-        lastWeeklyFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte semanal de cobros (Sábado 5:30 PM GT) ${todayKey}`);
-        try {
-          await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-weekly-collections`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.SCHEDULER_TOKEN || ''}` },
-            body: JSON.stringify({ sendToWebhook: true }),
-          });
-        } catch (e: any) { console.error('[SCHEDULER] Error semanal:', e.message); }
-      }
-    }, 30000);
+    }, 30000); // revisa cada 30 segundos
   }
 
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -6888,15 +6737,15 @@ async function startServer() {
         }
       }
 
-      // Calcular milisegundos hasta las 12:30 PM Guatemala
+      // Calcular milisegundos hasta el próximo mediodía Guatemala (12:00:00)
       function msHastaMedianocheMediodia(): number {
         const now = new Date();
         const gtOffset = -6 * 60;
         const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
         const gtNow = new Date(utcMs + gtOffset * 60000);
         const noon = new Date(gtNow);
-        noon.setHours(12, 30, 0, 0);
-        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó las 12:30 hoy → mañana
+        noon.setHours(12, 0, 0, 0);
+        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó el mediodía hoy → mañana
         return noon.getTime() - gtNow.getTime();
       }
 

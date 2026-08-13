@@ -1198,7 +1198,12 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura (Mis Ventas)</span>
-                  <h3 className="text-xl font-black text-slate-800 leading-none mt-0.5">{selectedInvoiceForModal.client}</h3>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <h3 className="text-xl font-black text-slate-800 leading-none">{selectedInvoiceForModal.client}</h3>
+                    <span className="text-xs font-black font-mono bg-emerald-50 text-[#0b4d2c] border border-emerald-200 px-2 py-0.5 rounded-lg">
+                      FOLIO #{selectedInvoiceForModal.folio || (selectedInvoiceForModal.id ? selectedInvoiceForModal.id.slice(-4) : '1')}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
                 </div>
               </div>

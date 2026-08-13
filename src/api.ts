@@ -31,6 +31,20 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
   mappedInv.phone = inv.phone || inv.customerPhone || '';
   mappedInv.address = inv.address || inv.deliveryAddress || '';
   const rawNotes = mappedInv.notes || "";
+
+  // Extract folio from notes, inv.folio or ID fallback
+  const folioMatch = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
+  if (folioMatch) {
+    mappedInv.folio = parseInt(folioMatch[1], 10);
+  } else if (inv.folio !== undefined && inv.folio !== null && !isNaN(parseInt(inv.folio))) {
+    mappedInv.folio = parseInt(inv.folio, 10);
+  } else if (inv.id && typeof inv.id === 'string') {
+    const idNumMatch = inv.id.match(/-(\d+)$/);
+    if (idNumMatch) {
+      mappedInv.folio = parseInt(idNumMatch[1], 10);
+    }
+  }
+
   if (rawNotes.includes("|||")) {
     const flags = rawNotes.split("|||");
     let potentialNit = flags[0].trim();
@@ -69,6 +83,9 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
           mappedInv.notes = value;
         } else if (key === "EDITED") {
           mappedInv.isEdited = value === "true";
+        } else if (key === "FOLIO") {
+          const f = parseInt(value, 10);
+          if (!isNaN(f)) mappedInv.folio = f;
         }
       }
     });
