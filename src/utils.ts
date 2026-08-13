@@ -711,7 +711,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         row = row.replace(/\{\{this\.variantInfo\}\}/g, variantInfo);
         row = row.replace(/\{\{variantInfo\}\}/g, variantInfo);
 
-        let finalProductName = String(item.productName || '');
+        let finalProductName = String(item.productName || '').replace(/\*/g, '');
         if (variantInfo && !loopBody.includes('variantInfo')) {
           finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
         }
@@ -734,18 +734,19 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 
     // Nombre del cliente con fallbacks: invoice.client, customerName o name.
     // Sin esto la factura impresa salia con el cliente vacio segun el origen.
-    const clientName = String(invoice.client || invoice.customerName || invoice.name || '');
+    const clientName = String(invoice.client || invoice.customerName || invoice.name || '').replace(/\*/g, '');
 
     // Receptor: si el DTE se certifico con datos ajustados (nombre/NIT distintos
     // a los de la venta), la representacion grafica debe mostrar EXACTAMENTE lo
     // certificado ante SAT, no el cliente original de la factura.
     const felDocRec: any = fel?.documento;
     const felCertRec = !!(felDocRec && felDocRec.estado === 'certificado');
-    const custName = (felCertRec && felDocRec.receptor_nombre) ? felDocRec.receptor_nombre : clientName;
+    const custName = (felCertRec && felDocRec.receptor_nombre) ? String(felDocRec.receptor_nombre).replace(/\*/g, '') : clientName;
     const custNit = (felCertRec && felDocRec.receptor_nit) ? felDocRec.receptor_nit : (invoice.nit || 'CF');
 
     // Base substitutions
-    t = t.replace(/\{\{id\}\}/g, String(invoice.id || ''));
+    t = t.replace(/\{\{id\}\}/g, String(invoice.id || '').replace(/\*/g, ''));
+    t = t.replace(/\{\{folio\}\}/g, String(invoice.folio || '').replace(/\*/g, ''));
     t = t.replace(/\{\{client\}\}/g, String(custName));
     t = t.replace(/\{\{customerName\}\}/g, String(custName));
     t = t.replace(/\{\{customerNit\}\}/g, String(custNit));

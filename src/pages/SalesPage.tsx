@@ -664,16 +664,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const getWhatsAppTextReceipt = (invoice: any) => {
     const dateStr = invoice.date ? new Date(invoice.date).toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
     const sellerName = getSellerDisplayName(invoice);
-    let msg = `*📋 COMPROBANTE DE COMPRA - Agricovet*\n`;
+    let msg = `📋 COMPROBANTE DE COMPRA - Agricovet\n`;
     msg += `---------------------------------------\n`;
-    msg += `*Cliente:* ${invoice.client || 'C/F'}\n`;
-    if (invoice.nit) msg += `*NIT:* ${invoice.nit}\n`;
-    if (invoice.folio || invoice.id) msg += `*Folio:* #${invoice.folio || invoice.id}\n`;
-    msg += `*Vendedor:* ${sellerName}\n`;
-    if (dateStr) msg += `*Fecha:* ${dateStr}\n`;
-    msg += `*Tipo de venta:* CRÉDITO\n`;
+    msg += `Cliente: ${invoice.client || 'C/F'}\n`;
+    if (invoice.nit) msg += `NIT: ${invoice.nit}\n`;
+    if (invoice.folio || invoice.id) msg += `Folio: #${invoice.folio || invoice.id}\n`;
+    msg += `Vendedor: ${sellerName}\n`;
+    if (dateStr) msg += `Fecha: ${dateStr}\n`;
+    msg += `Tipo de venta: CRÉDITO\n`;
     msg += `---------------------------------------\n`;
-    msg += `*DETALLE DE PRODUCTOS:*\n`;
+    msg += `DETALLE DE PRODUCTOS:\n`;
     
     const items = invoice.items || [];
     items.forEach((item: any) => {
@@ -681,16 +681,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       const quantity = item.quantity || 0;
       const price = item.price || 0;
       const itemTotal = quantity * price;
-      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = *${formatMoney(itemTotal)}*\n`;
+      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = ${formatMoney(itemTotal)}\n`;
     });
     
     msg += `---------------------------------------\n`;
     const total = invoice.totalAmount ?? invoice.total ?? 0;
-    msg += `*TOTAL COMPRA:* *${formatMoney(total)}*\n`;
+    msg += `TOTAL COMPRA: ${formatMoney(total)}\n`;
     if (invoice.isOwed !== false) {
       const paid = invoice.paidAmount || 0;
-      msg += `*Monto Pagado:* ${formatMoney(paid)}\n`;
-      msg += `*Saldo Pendiente:* *${formatMoney(total - paid)}*\n`;
+      msg += `Monto Pagado: ${formatMoney(paid)}\n`;
+      msg += `Saldo Pendiente: ${formatMoney(total - paid)}\n`;
     }
     msg += `---------------------------------------\n`;
     msg += `¡Muchas gracias por su preferencia! 🐾🌾\n`;

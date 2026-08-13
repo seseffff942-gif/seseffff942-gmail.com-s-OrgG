@@ -432,7 +432,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
 
   const handleShareWhatsApp = async () => {
     const loc = warehouseLocation || "Ubicación no establecida.";
-    const text = `📦 *AGRICCOVET - Ubicación de Bodega*\n\nNuestra bodega se encuentra en:\n_${loc}_\n\nPuedes verla en Google Maps aquí:\nhttps://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`;
+    const text = `📦 AGRICCOVET - Ubicación de Bodega\n\nNuestra bodega se encuentra en:\n${loc}\n\nPuedes verla en Google Maps aquí:\nhttps://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`;
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
     
     // Open WhatsApp

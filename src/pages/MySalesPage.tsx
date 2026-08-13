@@ -179,7 +179,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   let cleanPhone = String(seller.phone).replace(/\D/g, "");
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
-                      const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
+                      const message = `Hola ${seller.name}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido anulada o RECHAZADA. Por favor revisa el sistema.`;
                       fetch('/api/whatsapp/send', {
                           method: 'POST',
                           headers: { 
@@ -698,7 +698,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   <p className="text-sm text-red-800 font-medium mb-4">La factura fue rechazada por inventario insuficiente o precio de venta no autorizado.</p>
                   <div className="flex flex-col w-full gap-2">
                     {(() => {
-                        const message = `Hola *${invoice.client}*, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
+                        const message = `Hola ${invoice.client}, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
                         const targetPhone = invoice.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -749,7 +749,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                     {(() => {
                         const seller = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
                         const sellerName = seller ? seller.name : 'Vendedor';
-                        const message = `Hola *${sellerName}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido *RECHAZADA* porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
+                        const message = `Hola ${sellerName}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido RECHAZADA porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
                         const targetPhone = seller?.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -1604,7 +1604,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {
-                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: Q${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}.`;
+                      const message = `Hola ${selectedInvoiceForModal.client}, tu factura ${selectedInvoiceForModal.id} está en estado ${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}. Saldo pendiente: Q${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}.`;
                       const targetPhone = selectedInvoiceForModal.phone;
                       let cleanPhone = String(targetPhone).replace(/\D/g, "");
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
@@ -1835,7 +1835,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
               <button
                 disabled={!suggestEditText.trim()}
                 onClick={() => {
-                  const message = `Hola administradores, quisiera editar esta venta (Factura: *${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)}* / Cliente: *${suggestEditInvoice.client}*).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
+                  const message = `Hola administradores, quisiera editar esta venta (Factura: ${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)} / Cliente: ${suggestEditInvoice.client}).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                   setSuggestEditInvoice(null);
                   setSuggestEditText('');

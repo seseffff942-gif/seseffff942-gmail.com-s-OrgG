@@ -1381,7 +1381,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
               <button
                 disabled={!suggestEditText.trim()}
                 onClick={() => {
-                  const message = `Hola administradores, quisiera editar este cliente (Nombre: *${suggestEditClient.name}* / NIT: *${suggestEditClient.nit || 'S/N'}*).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
+                  const message = `Hola administradores, quisiera editar este cliente (Nombre: ${suggestEditClient.name} / NIT: ${suggestEditClient.nit || 'S/N'}).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                   setSuggestEditClient(null);
                   setSuggestEditText('');

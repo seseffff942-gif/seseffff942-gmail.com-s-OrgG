@@ -26,6 +26,10 @@ export const fetchSupabaseRest = async (table: string, queryParams: string = 'se
 
 export const parseInvoiceFlags = (inv: any): Invoice => {
   const mappedInv = { ...inv };
+  mappedInv.client = inv.client || inv.clientName || inv.customerName || inv.name || 'Cliente sin nombre';
+  mappedInv.clientName = mappedInv.client;
+  mappedInv.phone = inv.phone || inv.customerPhone || '';
+  mappedInv.address = inv.address || inv.deliveryAddress || '';
   const rawNotes = mappedInv.notes || "";
   if (rawNotes.includes("|||")) {
     const flags = rawNotes.split("|||");

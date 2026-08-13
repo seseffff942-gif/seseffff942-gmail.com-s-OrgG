@@ -359,7 +359,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-extrabold text-slate-400 font-mono tracking-wider bg-slate-100/80 px-2 py-0.5 rounded-lg border border-slate-200/50 uppercase group-hover/card:bg-emerald-50 group-hover/card:text-emerald-800 transition-colors">
-                #{invoice.folio}
+                #{invoice.folio || (invoice.id ? invoice.id.slice(-4) : '1')}
               </span>
               { user.role === 'admin' && invoice.status !== 'sent' && (
                  <button 
@@ -375,7 +375,9 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                  </button>
               )}
             </div>
-            <h3 className="font-hanken font-extrabold text-slate-800 line-clamp-1 text-[16px] notranslate group-hover/card:text-[#0b4d2c] transition-colors" translate="no">{invoice.client}</h3>
+            <h3 className="font-hanken font-extrabold text-slate-800 line-clamp-1 text-[16px] notranslate group-hover/card:text-[#0b4d2c] transition-colors" translate="no">
+              {invoice.client || invoice.clientName || (invoice as any).customerName || 'Cliente sin nombre'}
+            </h3>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
               <span>Vendedor:</span>
               <span className="text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">{getSellerName(invoice.sellerId || '')}</span>
@@ -605,7 +607,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-mono font-black text-slate-400">{hourStr}</span>
                               <span className={`text-xs font-semibold ${isCancelled ? 'text-red-700 font-bold bg-red-50' : 'text-slate-800'} truncate block max-w-[145px] notranslate`} translate="no">
-                                {inv.client}
+                                {inv.client || inv.clientName || (inv as any).customerName || 'Cliente sin nombre'}
                               </span>
                             </div>
                             <span className="text-[10px] font-mono text-slate-400 block truncate">#{inv.folio || inv.id.slice(0,8)}</span>
@@ -643,7 +645,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     } else if (groupBy === 'client') {
       const grouped: Record<string, Invoice[]> = {};
       sortedInvoices.forEach(inv => {
-        const clientKey = inv.client || 'Desconocido';
+        const clientKey = inv.client || inv.clientName || (inv as any).customerName || 'Desconocido';
         if (!grouped[clientKey]) grouped[clientKey] = [];
         grouped[clientKey].push(inv);
       });
@@ -1885,7 +1887,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <div className="p-6 overflow-y-auto space-y-6">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Cliente</p>
-                <p className="font-bold text-slate-700">{selectedViewInvoice.client}</p>
+                <p className="font-bold text-slate-700">{selectedViewInvoice.client || selectedViewInvoice.clientName || (selectedViewInvoice as any).customerName || 'Cliente sin nombre'}</p>
                 <p className="text-xs text-slate-500">NIT o C/F: {selectedViewInvoice.nit || 'C/F'}</p>
               </div>
 

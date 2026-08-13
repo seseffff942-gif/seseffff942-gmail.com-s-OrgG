@@ -401,7 +401,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
               <button
                 disabled={!suggestEditText.trim()}
                 onClick={() => {
-                  const message = `Hola administradores, quisiera registrar un abono o editar esta venta (Factura: *${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)}* / Cliente: *${suggestEditInvoice.client}*).\nPor favor, confirmar si es posible. Aquí están los detalles:\n\n${suggestEditText}`;
+                  const message = `Hola administradores, quisiera registrar un abono o editar esta venta (Factura: ${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)} / Cliente: ${suggestEditInvoice.client}).\nPor favor, confirmar si es posible. Aquí están los detalles:\n\n${suggestEditText}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                   setSuggestEditInvoice(null);
                   setSuggestEditText('');

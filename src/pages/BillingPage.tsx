@@ -239,7 +239,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   let cleanPhone = String(seller.phone).replace(/\D/g, "");
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
-                      const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
+                      const message = `Hola ${seller.name}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido anulada o RECHAZADA. Por favor revisa el sistema.`;
                       fetch('/api/whatsapp/send', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
@@ -607,7 +607,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           "font-extrabold text-slate-800 text-sm sm:text-base truncate tracking-tight",
                           isCancelled && "text-red-800 line-through"
                         )}>
-                          {inv.client}
+                          {inv.client || inv.clientName || (inv as any).customerName || 'Cliente sin nombre'}
                         </h3>
                         {inv.folio && (
                           <span className="text-[10px] font-mono font-black bg-emerald-50/50 text-[#0b4d2c] border border-emerald-100/50 px-1.5 py-0.5 rounded-md">
@@ -1046,7 +1046,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                        </button>
                     )}
                     {(() => {
-                        const message = `Hola *${invoice.client}*, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
+                        const message = `Hola ${invoice.client}, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
                         const targetPhone = invoice.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -1097,7 +1097,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     {(() => {
                         const seller = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
                         const sellerName = seller ? seller.name : 'Vendedor';
-                        const message = `Hola *${sellerName}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido *RECHAZADA* porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
+                        const message = `Hola ${sellerName}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido RECHAZADA porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
                         const targetPhone = seller?.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -2175,7 +2175,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {
-                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: ${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(4)}.`;
+                      const message = `Hola ${selectedInvoiceForModal.client}, tu factura ${selectedInvoiceForModal.id} está en estado ${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}. Saldo pendiente: ${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(4)}.`;
                       const targetPhone = selectedInvoiceForModal.phone;
                       let cleanPhone = String(targetPhone).replace(/\D/g, "");
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
