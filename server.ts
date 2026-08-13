@@ -38,6 +38,17 @@ const JWT_SECRET = requireEnv("JWT_SECRET");
 import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = requireEnv("SUPABASE_URL");
 const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
+
+function diaGuatemala(d: Date | string = new Date()): string {
+  const dt = typeof d === 'string' ? new Date(d) : d;
+  const gtOffset = -6 * 60;
+  const utcMs = dt.getTime() + dt.getTimezoneOffset() * 60000;
+  const gt = new Date(utcMs + gtOffset * 60000);
+  const y = gt.getFullYear();
+  const m = String(gt.getMonth() + 1).padStart(2, '0');
+  const day = String(gt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
