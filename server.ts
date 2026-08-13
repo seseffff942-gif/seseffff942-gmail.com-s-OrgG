@@ -649,6 +649,7 @@ if (!process.env.VERCEL) {
 
     // ─── Vendedores objetivo ───────────────────────────────────────────────
     const TARGET_SELLERS = [
+      { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
       { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
       { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
       { email: 'limalopez22@gmail.com',          name: 'Sergio Lima López',         phone: '50250007840' },
@@ -703,23 +704,29 @@ if (!process.env.VERCEL) {
       }
 
       cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-      const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
       const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
+      const excedente = alcanzoMeta ? Math.round((cantidadVendida - SALES_THRESHOLD) * 100) / 100 : 0;
+      const cantidadFaltante = !alcanzoMeta ? Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100) : 0;
 
       const mensaje = alcanzoMeta
-        ? `✅ ${dbName} alcanzó la meta de ventas con Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
+        ? `🎉 ¡Felicidades! ${dbName} superó la meta de ventas de hoy por Q${excedente.toLocaleString('es-GT', { minimumFractionDigits: 2 })}, alcanzando un total de Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
         : `⚠️ ${dbName} ha vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`;
 
       return {
         email:            seller.email,
         sellerName:       dbName,
         phone:            dbPhone,
-        cantidadVendida,
-        cantidadFacturas,
-        cantidadFaltante,
-        alcanzoMeta,
+        totalVentas:      cantidadVendida,
+        cantidadVendida:  cantidadVendida,
+        diferencia:       cantidadFaltante,
+        cantidadFaltante: cantidadFaltante,
+        excedente:        excedente,
+        sobrante:         excedente,
+        exceso:           excedente,
+        cantidadFacturas: cantidadFacturas,
+        alcanzoMeta:      alcanzoMeta,
         umbral:           SALES_THRESHOLD,
-        mensaje,
+        mensaje:          mensaje,
       };
     });
 
@@ -729,9 +736,20 @@ if (!process.env.VERCEL) {
     // ─── Enviar webhook ────────────────────────────────────────────────────
     let webhookResult: any = null;
     if (sendToWebhook) {
+      const primarySeller = sellerResults[0] || {};
       const payload = {
         fecha:                todayLabel,
         umbral:               SALES_THRESHOLD,
+        // Campos de compatibilidad directa para n8n:
+        vendedor:             primarySeller.sellerName || 'Emanuel Lima',
+        email:                primarySeller.email || 'seseffff942@gmail.com',
+        phone:                primarySeller.phone || '50248234048',
+        cantidadVendida:      primarySeller.cantidadVendida || 0,
+        cantidadFaltante:     primarySeller.cantidadFaltante || 0,
+        alcanzoMeta:          primarySeller.alcanzoMeta || false,
+        cantidadFacturas:     primarySeller.cantidadFacturas || 0,
+        mensaje:              primarySeller.mensaje || '',
+        // Arreglo completo de todos los vendedores:
         vendedores:           sellerResults,
         vendedoresBajoUmbral,
         vendedoresSobreUmbral,
@@ -752,7 +770,43 @@ if (!process.env.VERCEL) {
         });
         const resText  = await webhookRes.text().catch(() => '');
         webhookResult  = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
+        console.log(`[CHECK-SALES] Respuesta n8n produccion: HTTP ${webhookRes.status} - ${resText}`);
+
+        // Enviar también una petición individual por cada vendedor para garantizar que n8n envíe los 4 mensajes por separado:
+        for (const s of sellerResults) {
+          const indPayload = {
+            fecha:                todayLabel,
+            umbral:               SALES_THRESHOLD,
+            vendedor:             s.sellerName,
+            email:                s.email,
+            phone:                s.phone,
+            cantidadVendida:      s.cantidadVendida,
+            cantidadFaltante:     s.cantidadFaltante,
+            excedente:            s.excedente,
+            sobrante:             s.sobrante,
+            exceso:               s.exceso,
+            alcanzoMeta:          s.alcanzoMeta,
+            cantidadFacturas:     s.cantidadFacturas,
+            mensaje:              s.mensaje,
+            vendedores:           sellerResults,
+            vendedoresBajoUmbral,
+            vendedoresSobreUmbral,
+          };
+          fetch(N8N_WEBHOOK_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(indPayload),
+          }).catch(() => {});
+
+          if (N8N_WEBHOOK_URL.includes('/webhook/')) {
+            const testUrl = N8N_WEBHOOK_URL.replace('/webhook/', '/webhook-test/');
+            fetch(testUrl, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify(indPayload),
+            }).catch(() => {});
+          }
+        }
       } catch (err: any) {
         webhookResult = { error: err.message, ok: false };
         console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
@@ -761,6 +815,8 @@ if (!process.env.VERCEL) {
 
     res.json({
       fecha:                todayLabel,
+      umbral:               SALES_THRESHOLD,
+      totalFacturasHoy:     sellerResults.reduce((acc, s) => acc + s.cantidadFacturas, 0),
       vendedores:           sellerResults,
       vendedoresBajoUmbral,
       vendedoresSobreUmbral,
@@ -6453,6 +6509,7 @@ async function startServer() {
       // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
       const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
       const NOON_SELLERS = [
+        { email: 'seseffff942@gmail.com',           name: 'Emanuel Lima',     phone: '50248234048' },
         { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',     phone: '50254743595' },
         { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',  phone: '50241323037' },
         { email: 'limalopez22@gmail.com',           name: 'Sergio Lima López', phone: '50250007840' },
@@ -6488,17 +6545,33 @@ async function startServer() {
               }
             }
             cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-            const cantidadFaltante = Math.max(0, Math.round((THRESHOLD - cantidadVendida) * 100) / 100);
             const alcanzoMeta = cantidadVendida >= THRESHOLD;
-            return { email: seller.email, sellerName: dbName, phone: dbPhone, cantidadVendida, cantidadFacturas, cantidadFaltante, alcanzoMeta, umbral: THRESHOLD,
+            const excedente = alcanzoMeta ? Math.round((cantidadVendida - THRESHOLD) * 100) / 100 : 0;
+            const cantidadFaltante = !alcanzoMeta ? Math.max(0, Math.round((THRESHOLD - cantidadVendida) * 100) / 100) : 0;
+
+            return {
+              email: seller.email, sellerName: dbName, phone: dbPhone,
+              totalVentas: cantidadVendida, cantidadVendida,
+              diferencia: cantidadFaltante, cantidadFaltante,
+              excedente, sobrante: excedente, exceso: excedente,
+              cantidadFacturas, alcanzoMeta, umbral: THRESHOLD,
               mensaje: alcanzoMeta
-                ? `✅ ${dbName} alcanzó la meta con Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
+                ? `🎉 ¡Felicidades! ${dbName} superó la meta de ventas hoy por Q${excedente.toLocaleString('es-GT',{minimumFractionDigits:2})}, alcanzando Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
                 : `⚠️ ${dbName} lleva Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
             };
           });
 
+          const primarySeller = sellerResults[0] || {};
           const payload = {
             fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
+            vendedor: primarySeller.sellerName || 'Emanuel Lima',
+            email: primarySeller.email || 'seseffff942@gmail.com',
+            phone: primarySeller.phone || '50248234048',
+            cantidadVendida: primarySeller.cantidadVendida || 0,
+            cantidadFaltante: primarySeller.cantidadFaltante || 0,
+            alcanzoMeta: primarySeller.alcanzoMeta || false,
+            cantidadFacturas: primarySeller.cantidadFacturas || 0,
+            mensaje: primarySeller.mensaje || '',
             vendedores: sellerResults,
             vendedoresBajoUmbral:  sellerResults.filter(s => !s.alcanzoMeta),
             vendedoresSobreUmbral: sellerResults.filter(s => s.alcanzoMeta),
@@ -6511,7 +6584,26 @@ async function startServer() {
           };
 
           const r = await fetch(NOON_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-          console.log(`[CRON-NOON] Webhook enviado → HTTP ${r.status}`);
+          console.log(`[CRON-NOON] Webhook maestro enviado → HTTP ${r.status}`);
+
+          // Enviar una petición individual por cada vendedor a n8n
+          for (const s of sellerResults) {
+            const indPayload = {
+              fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
+              vendedor: s.sellerName, email: s.email, phone: s.phone,
+              cantidadVendida: s.cantidadVendida, cantidadFaltante: s.cantidadFaltante,
+              excedente: s.excedente, sobrante: s.sobrante, exceso: s.exceso,
+              alcanzoMeta: s.alcanzoMeta, cantidadFacturas: s.cantidadFacturas,
+              mensaje: s.mensaje, vendedores: sellerResults,
+              vendedoresBajoUmbral:  sellerResults.filter(item => !item.alcanzoMeta),
+              vendedoresSobreUmbral: sellerResults.filter(item => item.alcanzoMeta),
+            };
+            fetch(NOON_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(indPayload) }).catch(() => {});
+            if (NOON_WEBHOOK_URL.includes('/webhook/')) {
+              const testUrl = NOON_WEBHOOK_URL.replace('/webhook/', '/webhook-test/');
+              fetch(testUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(indPayload) }).catch(() => {});
+            }
+          }
         } catch (err: any) {
           console.error('[CRON-NOON] Error:', err.message);
         }
