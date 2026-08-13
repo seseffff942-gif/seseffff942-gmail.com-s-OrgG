@@ -647,7 +647,7 @@ if (!process.env.VERCEL) {
       || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
     const sendToWebhook = req.body.sendToWebhook !== false; // default true
 
-    // ─── Vendedores objetivo ───────────────────────────────────────────────
+    // ─── Vendedores objetivo (Solo Emanuel Lima para pruebas) ───────────
     const TARGET_SELLERS = [
       { email: 'seseffff942@gmail.com', name: 'Emanuel Lima', phone: '50248234048' },
     ];
@@ -767,43 +767,7 @@ if (!process.env.VERCEL) {
         });
         const resText  = await webhookRes.text().catch(() => '');
         webhookResult  = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[CHECK-SALES] Respuesta n8n produccion: HTTP ${webhookRes.status} - ${resText}`);
-
-        // Enviar también una petición individual por cada vendedor para garantizar que n8n envíe los 4 mensajes por separado:
-        for (const s of sellerResults) {
-          const indPayload = {
-            fecha:                todayLabel,
-            umbral:               SALES_THRESHOLD,
-            vendedor:             s.sellerName,
-            email:                s.email,
-            phone:                s.phone,
-            cantidadVendida:      s.cantidadVendida,
-            cantidadFaltante:     s.cantidadFaltante,
-            excedente:            s.excedente,
-            sobrante:             s.sobrante,
-            exceso:               s.exceso,
-            alcanzoMeta:          s.alcanzoMeta,
-            cantidadFacturas:     s.cantidadFacturas,
-            mensaje:              s.mensaje,
-            vendedores:           sellerResults,
-            vendedoresBajoUmbral,
-            vendedoresSobreUmbral,
-          };
-          fetch(N8N_WEBHOOK_URL, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(indPayload),
-          }).catch(() => {});
-
-          if (N8N_WEBHOOK_URL.includes('/webhook/')) {
-            const testUrl = N8N_WEBHOOK_URL.replace('/webhook/', '/webhook-test/');
-            fetch(testUrl, {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body:    JSON.stringify(indPayload),
-            }).catch(() => {});
-          }
-        }
+        console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
       } catch (err: any) {
         webhookResult = { error: err.message, ok: false };
         console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
