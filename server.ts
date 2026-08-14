@@ -6980,7 +6980,7 @@ ${productsContext}`;
       folio: folioStr,
       folioNumber: nextSeq,
       sellerId: sellerId || req.user.id,
-      sellerName: req.user.name || 'Vendedor',
+      sellerName: (req.body.sellerName && String(req.body.sellerName).trim()) || req.user.name || 'Vendedor',
       client: client.trim(),
       nit: nit || 'CF',
       phone: phone || '',

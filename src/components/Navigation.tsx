@@ -1218,7 +1218,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         <div className="py-8">
         <div className="px-6 mb-8">
           <h1 translate="no" className="notranslate font-hanken font-bold text-[24px] text-white tracking-tight leading-tight">Agricovet</h1>
-          <p className="text-[12px] text-[#778598] mt-1 uppercase tracking-widest font-hanken font-bold mb-4">Veterinary & AgTech</p>
+          <p className="text-[12px] text-[#778598] mt-1 uppercase tracking-widest font-hanken font-bold mb-4">Agricovet de Guatemala</p>
           <button 
             onClick={handleOpenSyncModal}
             className={cn(
@@ -1463,7 +1463,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                   Soportes & Estado de Datos
                 </h3>
                 <p className="text-[10px] text-slate-400 mt-1 font-bold tracking-wide uppercase">
-                  Agricovet Veterinary & AgTech Engine
+                  Agricovet Engine
                 </p>
               </div>
             </div>

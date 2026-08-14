@@ -612,7 +612,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           {inv.client || inv.clientName || (inv as any).customerName || 'Cliente sin nombre'}
                         </h3>
                         <span className="text-[10px] font-mono font-black bg-emerald-50/50 text-[#0b4d2c] border border-emerald-100/50 px-1.5 py-0.5 rounded-md">
-                          FOLIO #{inv.folio || (inv.id ? inv.id.slice(-4) : '1')}
+                          FOLIO #{inv.folio || 1}
                         </span>
                         {!isCancelled && (
                           <FelBadge
@@ -1722,7 +1722,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     <h3 className="text-xl font-black text-slate-800 leading-none">{selectedInvoiceForModal.client}</h3>
                     <span className="text-xs font-black font-mono bg-emerald-50 text-[#0b4d2c] border border-emerald-200 px-2 py-0.5 rounded-lg">
-                      FOLIO #{selectedInvoiceForModal.folio || (selectedInvoiceForModal.id ? selectedInvoiceForModal.id.slice(-4) : '1')}
+                      FOLIO #{selectedInvoiceForModal.folio || 1}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
@@ -1780,7 +1780,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                                 type="number" 
                                 value={manualFolio}
                                 onChange={(e) => setManualFolio(e.target.value)}
-                                placeholder={selectedInvoiceForModal.folio ? `Folio #${selectedInvoiceForModal.folio}` : (selectedInvoiceForModal.id ? `Folio #${selectedInvoiceForModal.id.slice(-4)}` : "Folio #")}
+                                placeholder={selectedInvoiceForModal.folio ? `Folio #${selectedInvoiceForModal.folio}` : "Folio #"}
                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1 text-xs font-bold focus:ring-1 focus:ring-teal-500 outline-none"
                               />
                               <button 

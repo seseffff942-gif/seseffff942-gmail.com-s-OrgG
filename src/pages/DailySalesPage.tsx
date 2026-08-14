@@ -359,7 +359,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-extrabold text-slate-400 font-mono tracking-wider bg-slate-100/80 px-2 py-0.5 rounded-lg border border-slate-200/50 uppercase group-hover/card:bg-emerald-50 group-hover/card:text-emerald-800 transition-colors">
-                #{invoice.folio || (invoice.id ? invoice.id.slice(-4) : '1')}
+                #{invoice.folio || 1}
               </span>
               { user.role === 'admin' && invoice.status !== 'sent' && (
                  <button 

@@ -50,6 +50,8 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const [cart, setCart] = useState<QuotationItem[]>([]);
   const [validityDays, setValidityDays] = useState<number>(15);
   const [customNotes, setCustomNotes] = useState<string>('');
+  const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>(user?.email || user?.id || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(!isMobile);
 
@@ -87,12 +89,29 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [prods, clis] = await Promise.all([
+      const [prods, clis, usersList] = await Promise.all([
         api.getProducts().catch(() => []),
-        api.getClients().catch(() => [])
+        api.getClients().catch(() => []),
+        api.getUsers().catch(() => [])
       ]);
       setProducts(prods.map((p: any) => ({ ...p, stock: Number(p.stock) || 0, price: Number(p.price) || 0 })));
       setClients(clis);
+
+      const isHuman = (u: any) => {
+        if (!u || !u.name) return false;
+        if (u.role === 'system') return false;
+        const id = String(u.id || '').toLowerCase();
+        const email = String(u.email || '').toLowerCase();
+        const name = String(u.name || '').toLowerCase();
+        if (id.startsWith('sys-') || id.startsWith('system-') || email.startsWith('system-')) return false;
+        if (name.includes('config') || name.includes('store') || name.includes('critical') || name.includes('system') || name.includes('exclusion')) return false;
+        return true;
+      };
+      const filteredTeam = (usersList || []).filter(isHuman);
+      setTeamMembers(filteredTeam);
+      if (!selectedAdvisorId && filteredTeam.length > 0) {
+        setSelectedAdvisorId(user.email || user.id || filteredTeam[0].id);
+      }
     } catch (err) {
       console.error("Error loading products/clients:", err);
     } finally {
@@ -153,6 +172,9 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
     setNit(c.nit || 'CF');
     setPhone(c.phone || '');
     setAddress(c.address || '');
+    if (c.sellerId) {
+      setSelectedAdvisorId(c.sellerId);
+    }
     setShowClientModal(false);
   };
 
@@ -328,6 +350,10 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
 
     setIsSubmitting(true);
     try {
+      const advisor = teamMembers.find(t => t.id === selectedAdvisorId || t.email === selectedAdvisorId || (t.name && selectedAdvisorId.includes(t.name)));
+      const advisorName = advisor ? advisor.name : user.name;
+      const advisorId = selectedAdvisorId || user.email || user.id;
+
       const quotePayload = {
         client: client.trim(),
         nit: nit.trim() || 'CF',
@@ -336,7 +362,8 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
         items: cart,
         notes: customNotes.trim(),
         validityDays: validityDays,
-        sellerId: user.id
+        sellerId: advisorId,
+        sellerName: advisorName
       };
 
       const result = await api.createQuotation(quotePayload);
@@ -785,8 +812,28 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                   </div>
                 )}
 
-                {/* Form Controls: Validity & Notes */}
+                {/* Form Controls: Validity, Advisor & Notes */}
                 <div className="pt-3 border-t border-slate-100 space-y-3 mt-auto">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                      👤 Asesor Comercial / Vendedor
+                    </label>
+                    <select
+                      value={selectedAdvisorId}
+                      onChange={(e) => setSelectedAdvisorId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-[#00696a] bg-white cursor-pointer"
+                    >
+                      {teamMembers.map((tm) => (
+                        <option key={tm.id || tm.email} value={tm.email || tm.id}>
+                          {tm.name} ({tm.role === 'admin' ? 'Administración' : 'Ventas'})
+                        </option>
+                      ))}
+                      {teamMembers.length === 0 && (
+                        <option value={user.email || user.id}>{user.name} (Actual)</option>
+                      )}
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
                       Vigencia de la Cotización

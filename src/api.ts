@@ -32,17 +32,12 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
   mappedInv.address = inv.address || inv.deliveryAddress || '';
   const rawNotes = mappedInv.notes || "";
 
-  // Extract folio from notes, inv.folio or ID fallback
+  // Extract folio from notes or inv.folio
   const folioMatch = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
   if (folioMatch) {
     mappedInv.folio = parseInt(folioMatch[1], 10);
   } else if (inv.folio !== undefined && inv.folio !== null && !isNaN(parseInt(inv.folio))) {
     mappedInv.folio = parseInt(inv.folio, 10);
-  } else if (inv.id && typeof inv.id === 'string') {
-    const idNumMatch = inv.id.match(/-(\d+)$/);
-    if (idNumMatch) {
-      mappedInv.folio = parseInt(idNumMatch[1], 10);
-    }
   }
 
   if (rawNotes.includes("|||")) {
@@ -856,6 +851,20 @@ export const api = {
 
   getInvoices: async (sellerId?: string): Promise<Invoice[]> => {
     try {
+      const url = sellerId && sellerId !== 'global' && sellerId !== 'all' ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
+      const res = await fetchWithAuth(url);
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_invoices', JSON.stringify(list));
+        }
+        return list;
+      }
+    } catch (e) {
+      console.warn('Backend invoices fetch fallback:', e);
+    }
+    try {
       let query = supabase.from('invoices').select('*').order('date', { ascending: false });
       if (sellerId && sellerId !== 'global' && sellerId !== 'all') {
         query = query.eq('sellerId', sellerId);
@@ -871,28 +880,16 @@ export const api = {
     } catch (e) {
       console.warn('Direct Supabase invoices fetch fallback:', e);
     }
-    try {
-      const url = sellerId ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
-      const res = await fetchWithAuth(url);
-      if (!res.ok) throw new Error('Failed to fetch invoices');
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('cached_invoices', JSON.stringify(list));
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
       }
-      return list;
-    } catch (err) {
-      if (typeof localStorage !== 'undefined') {
-        const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          } catch (e) {}
-        }
-      }
-      return (preloadedData.invoices || []).map(inv => parseInvoiceFlags(inv)) as any[];
     }
+    return (preloadedData.invoices || []).map(inv => parseInvoiceFlags(inv)) as any[];
   },
 
   getClientInvoices: async (clientName: string): Promise<Invoice[]> => {

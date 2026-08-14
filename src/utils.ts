@@ -1054,10 +1054,9 @@ export function compileQuotationTemplate(quote: any, sellerName?: string): strin
         <img src="${logoUrl}" alt="Agricovet Logo" class="brand-logo" />
         <div>
           <h1 class="company-title">Agricovet de Guatemala</h1>
-          <div class="company-tagline">Veterinary & AgTech Solutions</div>
           <div class="company-info">
-            PBX: +(502) 2339-4455 &middot; WhatsApp: +(502) 5824-9912<br/>
-            Email: agricovetsa@gmail.com &middot; NIT: 10482914-9<br/>
+            Tel / WhatsApp: +(502) 3645-0241<br/>
+            Email: agricovetsa@gmail.com &middot; NIT: 120894769<br/>
             Guatemala, Centroamérica
           </div>
         </div>
