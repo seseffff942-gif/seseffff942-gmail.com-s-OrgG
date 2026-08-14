@@ -1027,6 +1027,17 @@ export const api = {
     return data.user;
   },
 
+  deleteUser: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    const res = await fetchWithAuth(`/api/users/${userId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al eliminar usuario');
+    }
+    return res.json();
+  },
+
   updateUserPhoto: async (userId: string, file: File): Promise<{ success: boolean; photo: string }> => {
     const compressedFile = await compressImage(file, 400, 400, 0.75);
     const formData = new FormData();

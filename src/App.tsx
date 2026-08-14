@@ -104,6 +104,14 @@ export default function App() {
     if (user?.email === 'limalopez22@gmail.com' && currentTab === 'team') {
       setCurrentTab('home');
     }
+    const isQuoteAdmin = user?.role === 'admin' || 
+      ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(user?.email?.toLowerCase() || '') ||
+      (user?.name || '').toLowerCase().includes('susana') ||
+      (user?.name || '').toLowerCase().includes('sergio') ||
+      (user?.name || '').toLowerCase().includes('emanuel');
+    if (user && !isQuoteAdmin && currentTab === 'quotations') {
+      setCurrentTab('home');
+    }
   }, [user, currentTab]);
 
   const [isIOS, setIsIOS] = useState(false);
@@ -270,7 +278,7 @@ export default function App() {
         {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'quotations' && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'quotations' && (activeUser.role === 'admin' || ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(activeUser?.email?.toLowerCase() || '') || (activeUser?.name || '').toLowerCase().includes('susana') || (activeUser?.name || '').toLowerCase().includes('sergio') || (activeUser?.name || '').toLowerCase().includes('emanuel')) && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}

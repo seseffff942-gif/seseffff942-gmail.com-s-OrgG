@@ -2534,6 +2534,18 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const isSystemUser = (u: any) => {
+      if (!u) return true;
+      if (u.role === 'system') return true;
+      const id = String(u.id || '').toLowerCase();
+      const email = String(u.email || '').toLowerCase();
+      const name = String(u.name || '').toLowerCase();
+      if (id.startsWith('sys-') || id.startsWith('system-')) return true;
+      if (email.startsWith('system-') || email.includes('agricovet.internal')) return true;
+      if (name.includes('critical stock') || name.includes('logo config') || name.includes('whatsapp config') || name.includes('signature config') || name.includes('suppliers store') || name.includes('debts store') || name.includes('system') || name.includes('exclusion')) return true;
+      return false;
+    };
+
     try {
       const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
       if (error) {
@@ -2541,11 +2553,11 @@ if (!process.env.VERCEL) {
         if (error.message.includes('sellerCode')) {
           const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
           if (errFallback) throw new Error(errFallback.message);
-          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
+          return res.json((usersFallback || []).filter((u: any) => !isSystemUser(u)));
         }
         throw new Error(error.message);
       }
-      res.json((users || []).filter((u: any) => u.role !== 'system'));
+      res.json((users || []).filter((u: any) => !isSystemUser(u)));
     } catch (err: any) {
       console.error("Error fetching users:", err);
       res.status(500).json({ error: err.message });
@@ -2630,6 +2642,26 @@ if (!process.env.VERCEL) {
 
     await supabase.from("users").update({ photo: photoUrl }).eq('id', id);
     res.json({ success: true, photo: photoUrl });
+  }));
+
+  app.delete("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    if (req.user.id === id) {
+      return res.status(400).json({ error: "No puedes eliminar tu propio usuario de sesión activa." });
+    }
+
+    const { data: userToDelete } = await supabase.from("users").select("*").eq("id", id).single();
+    if (userToDelete) {
+      const emailLower = (userToDelete.email || '').toLowerCase();
+      if (emailLower === 'seseffff942@gmail.com' || emailLower === 'limalopez22@gmail.com') {
+        return res.status(403).json({ error: "Este usuario principal protegido no puede ser eliminado." });
+      }
+    }
+
+    const { error } = await supabase.from("users").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+
+    res.json({ success: true, message: "Usuario eliminado correctamente" });
   }));
 
   // OFFICE INVENTORY
@@ -6699,8 +6731,21 @@ ${productsContext}`;
     return maxFolio + 1;
   }
 
-  // GET /api/quotations - Listar cotizaciones
+  const isQuotationAdmin = (u: any) => {
+    if (!u) return false;
+    if (u.role === 'admin') return true;
+    const email = (u.email || '').toLowerCase();
+    const name = (u.name || '').toLowerCase();
+    if (['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(email)) return true;
+    if (name.includes('susana') || name.includes('sergio') || name.includes('emanuel')) return true;
+    return false;
+  };
+
+  // GET /api/quotations - Listar cotizaciones (Exclusivo Administradores)
   app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+    if (!isQuotationAdmin(req.user)) {
+      return res.status(403).json({ error: "Acceso exclusivo para administradores autorizados." });
+    }
     const { sellerId } = req.query;
     const user = req.user;
 
@@ -6749,6 +6794,9 @@ ${productsContext}`;
 
   // GET /api/quotations/:id - Obtener detalle
   app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    if (!isQuotationAdmin(req.user)) {
+      return res.status(403).json({ error: "Acceso exclusivo para administradores autorizados." });
+    }
     const { id } = req.params;
     let quote = null;
 
@@ -6895,22 +6943,10 @@ ${productsContext}`;
             availableStock = parseFloat(variantObj.stock || 0);
           }
         }
-
-        // VALIDACIÓN: NO PERMITIR AGREGAR SI NO HAY EXISTENCIAS O SI PIDE MÁS DEL STOCK
-        if (availableStock <= 0) {
-          const varDesc = variantObj ? ` (${variantObj.color} - ${variantObj.size})` : '';
-          return res.status(400).json({
-            error: `No se puede agregar '${product.name}${varDesc}' a la cotización porque se encuentra AGOTADO (Stock: 0).`
-          });
-        }
-
-        if (parseFloat(item.quantity) > availableStock) {
-          const varDesc = variantObj ? ` (${variantObj.color} - ${variantObj.size})` : '';
-          return res.status(400).json({
-            error: `La cantidad solicitada (${item.quantity}) para '${product.name}${varDesc}' supera las existencias disponibles (Stock actual: ${availableStock}).`
-          });
-        }
       }
+
+      // Para cotizaciones se permite incluir productos sin stock (pedidos futuros / por arribar)
+      // sin modificar el stock ni el estado del producto en base de datos.
 
       const itemTotal = parseFloat(item.quantity) * itemPrice;
       total += itemTotal;

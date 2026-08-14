@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { User, Role } from '../types';
-import { Mail, Shield, Plus, Upload, X, Phone, Pencil, Key, Copy, Check, LogOut } from 'lucide-react';
+import { Mail, Shield, Plus, Upload, X, Phone, Pencil, Key, Copy, Check, LogOut, Trash2 } from 'lucide-react';
 import { cn } from '../utils';
 
 interface TeamPageProps {
@@ -117,6 +117,32 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
     }
   };
 
+  const handleDeleteMember = async (targetUser: User) => {
+    if (targetUser.id === user.id) {
+      alert("No puedes eliminar tu propio usuario de sesión activa.");
+      return;
+    }
+    const emailLower = (targetUser.email || '').toLowerCase();
+    if (emailLower === 'seseffff942@gmail.com' || emailLower === 'limalopez22@gmail.com') {
+      alert("Este usuario principal protegido no puede ser eliminado.");
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de que deseas ELIMINAR permanentemente a "${targetUser.name}" del equipo? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      await api.deleteUser(targetUser.id);
+      setUsers(prev => prev.filter(u => u.id !== targetUser.id));
+      if (showEditModal && editMember?.id === targetUser.id) {
+        setShowEditModal(false);
+        setEditMember(null);
+      }
+      alert(`Usuario "${targetUser.name}" eliminado exitosamente.`);
+    } catch (err: any) {
+      alert(err.message || 'Error al eliminar usuario');
+    }
+  };
+
   const openEditModal = (u: User) => {
     setEditMember({ 
       id: u.id, 
@@ -149,6 +175,20 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
     }
   };
 
+  const isHumanTeamMember = (u: User) => {
+    if (!u || !u.name) return false;
+    if ((u.role as string) === 'system') return false;
+    const id = String(u.id || '').toLowerCase();
+    const email = String(u.email || '').toLowerCase();
+    const name = String(u.name || '').toLowerCase();
+    if (id.startsWith('sys-') || id.startsWith('system-')) return false;
+    if (email.startsWith('system-') || email.includes('agricovet.internal')) return false;
+    if (name.includes('critical stock') || name.includes('logo config') || name.includes('whatsapp config') || name.includes('signature config') || name.includes('suppliers store') || name.includes('debts store') || name.includes('system') || name.includes('exclusion')) return false;
+    return true;
+  };
+
+  const activeTeamMembers = users.filter(isHumanTeamMember);
+
   return (
     <div className={`max-w-5xl mx-auto ${isMobile ? 'p-4' : 'p-8'}`}>
       <div className="mb-8 flex flex-wrap gap-4 items-center justify-between">
@@ -169,18 +209,29 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
         <div className="text-center py-20 text-neutral-400">Cargando equipo...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {users.map(u => (
+          {activeTeamMembers.map(u => (
             <div key={u.id} className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col items-center text-center relative overflow-hidden group">
               <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-br from-teal-50 to-emerald-50 border-b border-teal-100/50"></div>
               
               {user.role === 'admin' && (
-                <button 
-                  onClick={() => openEditModal(u)} 
-                  className="absolute top-4 right-4 z-20 bg-white/50 backdrop-blur hover:bg-white text-slate-600 p-2 rounded-full shadow-sm transition-colors"
-                  title="Editar miembro"
-                >
-                  <Pencil size={16} />
-                </button>
+                <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5">
+                  <button 
+                    onClick={() => openEditModal(u)} 
+                    className="bg-white/70 backdrop-blur hover:bg-white text-slate-600 p-2 rounded-full shadow-xs transition-colors cursor-pointer"
+                    title="Editar miembro"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  {u.id !== user.id && u.email !== 'seseffff942@gmail.com' && u.email !== 'limalopez22@gmail.com' && (
+                    <button 
+                      onClick={() => handleDeleteMember(u)} 
+                      className="bg-white/70 backdrop-blur hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-2 rounded-full shadow-xs transition-colors cursor-pointer"
+                      title="Eliminar miembro del equipo"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
               )}
 
               <div className="relative z-10 w-24 h-24 mb-4" onClick={() => handlePhotoClick(u.id)}>
@@ -407,9 +458,23 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                       <option value="admin">Administrador</option>
                     </select>
                   </div>
-                  <button type="submit" disabled={isEditing} className="w-full mt-4 bg-teal-600 hover:bg-teal-700 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors">
+                  <button type="submit" disabled={isEditing} className="w-full mt-4 bg-teal-600 hover:bg-teal-700 text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors cursor-pointer">
                     {isEditing ? 'Guardando...' : 'Guardar Cambios'}
                   </button>
+
+                  {editMember.id !== user.id && editMember.email !== 'seseffff942@gmail.com' && editMember.email !== 'limalopez22@gmail.com' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = users.find(u => u.id === editMember.id);
+                        if (target) handleDeleteMember(target);
+                      }}
+                      className="w-full mt-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
+                    >
+                      <Trash2 size={15} />
+                      Eliminar Usuario del Equipo
+                    </button>
+                  )}
                </form>
             </div>
           </div>

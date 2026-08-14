@@ -909,12 +909,18 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     }
   }, [showNotifications]);
 
+  const isQuotationAdmin = activeUser?.role === 'admin' || 
+    ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(activeUser?.email?.toLowerCase() || '') ||
+    (activeUser?.name || '').toLowerCase().includes('susana') ||
+    (activeUser?.name || '').toLowerCase().includes('sergio') ||
+    (activeUser?.name || '').toLowerCase().includes('emanuel');
+
   const navItems = [
     { id: 'home', label: 'Inicio', icon: Leaf, roles: ['admin', 'seller'] },
     { id: 'dispatch', label: 'Despacho', icon: Box, roles: ['admin'] },
     { id: 'inventory', label: 'Inventario', icon: Package, roles: ['admin', 'seller'] },
     { id: 'sales', label: 'Ventas', icon: ShoppingCart, roles: ['admin', 'seller'] },
-    { id: 'quotations', label: 'Cotizaciones', icon: FileSpreadsheet, roles: ['admin', 'seller'] },
+    { id: 'quotations', label: 'Cotizaciones', icon: FileSpreadsheet, roles: ['admin'] },
     { id: 'my-sales', label: 'Mis Ventas', icon: FileText, roles: ['seller'] },
     { id: 'billing', label: 'Facturación', icon: FileText, roles: ['admin'] },
     { id: 'recibos-caja', label: 'Recibos de Caja', icon: Receipt, roles: ['admin', 'seller'] },
@@ -928,6 +934,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const userNavItems = navItems.filter(item => {
     if (item.id === 'team' && activeUser?.email === 'limalopez22@gmail.com') {
       return false;
+    }
+    if (item.id === 'quotations') {
+      return isQuotationAdmin;
     }
     return item.roles.includes(activeUser.role);
   });

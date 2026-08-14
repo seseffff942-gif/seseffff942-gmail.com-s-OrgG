@@ -66,6 +66,9 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const [createdQuotation, setCreatedQuotation] = useState<Quotation | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
+  // Stock Warning Modal State (for 0 stock items)
+  const [stockWarningModal, setStockWarningModal] = useState<{ show: boolean; productName: string; currentStock: number; requestedQty: number } | null>(null);
+
   // View / Preview Modal State
   const [previewQuotation, setPreviewQuotation] = useState<Quotation | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -182,22 +185,13 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
 
   // Product Selection & Stock Checking
   const handleOpenProductModal = (product: Product) => {
-    const isExempt = doesNotNeedStock(product) || product.is_external;
-    const availableStock = Number(product.stock) || 0;
-
-    // Strict validation: Do not allow if out of stock
-    if (!isExempt && availableStock <= 0) {
-      alert(`⚠️ El producto "${product.name}" está AGOTADO. No se pueden generar cotizaciones de productos sin existencias en bodega.`);
-      return;
-    }
-
     setSelectedProduct(product);
     setModalQuantity('1');
     setModalPrice(String(product.price || ''));
     setModalError('');
 
     if (product.variants && product.variants.length > 0) {
-      const firstAvailable = product.variants.find(v => (v.stock || 0) > 0) || product.variants[0];
+      const firstAvailable = product.variants[0];
       setSelectedVariantId(firstAvailable.id);
       setSelectedColor(firstAvailable.color || '');
       setSelectedSize(firstAvailable.size || '');
@@ -234,16 +228,14 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       }
     }
 
-    // Strict stock check: cannot exceed available stock
-    if (!isExempt) {
-      if (availableStock <= 0) {
-        setModalError(`El producto seleccionado está agotado (Stock: 0)`);
-        return;
-      }
-      if (qty > availableStock) {
-        setModalError(`La cantidad (${qty}) supera el stock disponible (${availableStock})`);
-        return;
-      }
+    // Si el producto no tiene stock suficiente, mostrar modal de aviso pero permitir cotizarlo
+    if (!isExempt && (availableStock <= 0 || qty > availableStock)) {
+      setStockWarningModal({
+        show: true,
+        productName: selectedProduct.name + (variantObj ? ` (${variantObj.color || ''} ${variantObj.size || ''})` : ''),
+        currentStock: availableStock,
+        requestedQty: qty
+      });
     }
 
     const itemTotal = qty * price;
@@ -655,18 +647,17 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5 max-h-[580px] overflow-y-auto pr-1 scrollbar-thin">
                     {filteredProducts.map(prod => {
                       const isExempt = doesNotNeedStock(prod) || prod.is_external;
-                      const hasStock = isExempt || (prod.stock > 0);
                       const isOutOfStock = !isExempt && prod.stock <= 0;
 
                       return (
                         <div
                           key={prod.id}
-                          onClick={() => hasStock && handleOpenProductModal(prod)}
+                          onClick={() => handleOpenProductModal(prod)}
                           className={cn(
-                            "group border rounded-xl p-3 flex flex-col justify-between transition-all select-none relative",
-                            hasStock 
-                              ? "border-slate-200 hover:border-[#00696a] hover:shadow-md bg-white cursor-pointer active:scale-98"
-                              : "border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed"
+                            "group border rounded-xl p-3 flex flex-col justify-between transition-all select-none relative bg-white cursor-pointer active:scale-98",
+                            isOutOfStock 
+                              ? "border-amber-200 hover:border-amber-400 hover:shadow-md" 
+                              : "border-slate-200 hover:border-[#00696a] hover:shadow-md"
                           )}
                         >
                           <div>
@@ -678,9 +669,9 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
                               />
                               {isOutOfStock && (
-                                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px] flex items-center justify-center p-2 text-center">
-                                  <span className="bg-red-600 text-white font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                                    Agotado
+                                <div className="absolute top-2 left-2">
+                                  <span className="bg-amber-600/90 backdrop-blur-xs text-white font-extrabold text-[8.5px] px-1.5 py-0.5 rounded uppercase tracking-wider shadow-xs">
+                                    Por Arribar (0)
                                   </span>
                                 </div>
                               )}
@@ -704,9 +695,9 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                               <span className={cn(
                                 "text-[9px] font-extrabold px-1.5 py-0.5 rounded",
                                 prod.stock > 10 ? "bg-emerald-50 text-emerald-700" :
-                                prod.stock > 0 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"
+                                prod.stock > 0 ? "bg-amber-50 text-amber-700" : "bg-amber-100 text-amber-900 border border-amber-300"
                               )}>
-                                {prod.stock} disp.
+                                {prod.stock > 0 ? `${prod.stock} disp.` : '0 (Por arribar)'}
                               </span>
                             )}
                           </div>
@@ -1506,6 +1497,40 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                   </button>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Stock Warning Modal (Single non-blocking alert modal for 0 stock items) */}
+      <AnimatePresence>
+        {stockWarningModal?.show && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-amber-200 text-center space-y-4"
+            >
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <AlertTriangle size={28} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Producto sin Stock Inmediato</h3>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Has agregado <strong className="text-slate-900">"{stockWarningModal.productName}"</strong> a la cotización con 
+                  <strong className="text-amber-700"> {stockWarningModal.requestedQty} unidad(es)</strong> (Stock en bodega actual: {stockWarningModal.currentStock}).
+                </p>
+                <div className="mt-3 bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-[11px] text-amber-900 font-semibold text-left">
+                  ℹ️ Se incluye en la cotización formal como pedido para próximo ingreso / arribo de mercadería. El inventario actual no se verá afectado.
+                </div>
+              </div>
+              <button
+                onClick={() => setStockWarningModal(null)}
+                className="w-full py-3 bg-[#00696a] hover:bg-[#004f50] text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md active:scale-98"
+              >
+                Entendido, Continuar
+              </button>
             </motion.div>
           </div>
         )}
