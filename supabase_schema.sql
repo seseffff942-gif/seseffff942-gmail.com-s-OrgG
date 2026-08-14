@@ -119,3 +119,28 @@ CREATE TABLE IF NOT EXISTS public.login_tokens (
     "expiresAt" TEXT
 );
 
+-- Tabla para guardar cotizaciones formales (no afecta stock ni folios de venta)
+CREATE TABLE IF NOT EXISTS public.quotations (
+    id TEXT PRIMARY KEY,
+    folio TEXT,
+    "folioNumber" NUMERIC,
+    "sellerId" TEXT,
+    "sellerName" TEXT,
+    client TEXT,
+    nit TEXT,
+    phone TEXT,
+    address TEXT,
+    items JSONB,
+    "totalAmount" NUMERIC,
+    status TEXT DEFAULT 'pendiente',
+    date TEXT,
+    "validityDays" NUMERIC DEFAULT 15,
+    "validUntil" TEXT,
+    notes TEXT,
+    "invoiceId" TEXT,
+    "convertedInvoiceFolio" NUMERIC,
+    "createdAt" TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+

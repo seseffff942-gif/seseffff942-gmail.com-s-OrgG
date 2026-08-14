@@ -56,7 +56,9 @@ export interface Product {
   specifications?: { key: string; value: string }[];
   is_external?: boolean;
   costPrice?: number;
+  cost_price?: number;
   hiddenFromSales?: boolean;
+  hidden_from_sales?: boolean;
 }
 
 export interface InvoiceItem {
@@ -153,3 +155,40 @@ export interface EstadoFacturaFEL {
   desglose: { montoGravable: number; montoIva: number; granTotal: number };
   advertencias: string[];
 }
+
+export interface QuotationItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: number;
+  originalPrice?: number;
+  suggestedPrice?: number;
+  isOfferApplied?: boolean;
+  total: number;
+  variantId?: string;
+  color?: string;
+  size?: string;
+}
+
+export interface Quotation {
+  id: string;
+  folio: string; // ej: "COT-0001"
+  folioNumber: number;
+  sellerId: string;
+  sellerName?: string;
+  client: string;
+  nit?: string;
+  phone?: string;
+  address?: string;
+  items: QuotationItem[];
+  totalAmount: number;
+  status: 'pendiente' | 'aceptada' | 'convertida' | 'rechazada' | 'vencida';
+  date: string;
+  validityDays: number;
+  validUntil: string;
+  notes?: string;
+  invoiceId?: string;
+  convertedInvoiceFolio?: number | string;
+  createdAt: string;
+}
+

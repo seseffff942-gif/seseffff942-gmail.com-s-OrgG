@@ -76,24 +76,19 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     }
   };
 
-  const handleEditCostPrice = async (product: Product) => {
+  const handleUpdateCostPrice = (product: Product) => {
     if (!isOwner) return;
-    const input = window.prompt(`Ingrese el precio de compra / costo (Q) para "${product.name}":`, String(product.costPrice || 0));
-    if (input === null) return;
-    const newCost = parseFloat(input);
-    if (isNaN(newCost) || newCost < 0) {
-      alert("Por favor ingrese un número válido mayor o igual a 0.");
-      return;
-    }
-    try {
-      await api.updateProduct(product.id, { costPrice: newCost });
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, costPrice: newCost } : p));
-      if (selectedProduct && selectedProduct.id === product.id) {
-        setSelectedProduct(prev => prev ? { ...prev, costPrice: newCost } : null);
-      }
-    } catch (err: any) {
-      alert(`Error actualizando precio de costo: ${err.message || 'Error desconocido'}`);
-    }
+    setEditProductField({
+      product,
+      field: 'costPrice',
+      title: 'Actualizar Precio de Compra / Costo',
+      value: ((product.costPrice !== undefined ? product.costPrice : (product as any).cost_price) || 0).toString()
+    });
+    setShowEditFieldModal(true);
+  };
+
+  const handleEditCostPrice = async (product: Product) => {
+    handleUpdateCostPrice(product);
   };
 
   // Custom dialog state to replace native prompt
@@ -165,7 +160,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
 
   const [editProductField, setEditProductField] = useState<{
     product: Product;
-    field: 'name' | 'stock' | 'price' | 'image' | 'category';
+    field: 'name' | 'stock' | 'price' | 'costPrice' | 'image' | 'category';
     title: string;
     value: string;
   } | null>(null);
@@ -192,11 +187,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     setLoading(true);
     try {
       const [data, allUsers, serverExcluded] = await Promise.all([
-        api.getProducts(),
+        api.getProducts(true),
         api.getUsers(),
         api.getExcludedCriticalProducts()
       ]);
-      setProducts(data.map(p => ({ ...p, stock: Number(p.stock) || 0, price: Number(p.price) || 0 })));
+      setProducts(data.map(p => ({ 
+        ...p, 
+        costPrice: Number(p.costPrice ?? (p as any).cost_price) || 0,
+        cost_price: Number(p.cost_price ?? (p as any).costPrice) || 0,
+        stock: Number(p.stock) || 0, 
+        price: Number(p.price) || 0 
+      })));
       setUsers(allUsers);
       if (Array.isArray(serverExcluded)) {
         setExcludedCriticalIds(serverExcluded);
@@ -218,11 +219,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
 
       try {
         const [data, serverExcluded] = await Promise.all([
-          api.getProducts(),
+          api.getProducts(true),
           api.getExcludedCriticalProducts()
         ]);
         const mappedData = data.map(p => ({ 
           ...p, 
+          costPrice: Number(p.costPrice ?? (p as any).cost_price) || 0,
+          cost_price: Number(p.cost_price ?? (p as any).costPrice) || 0,
           stock: Number(p.stock) || 0, 
           price: Number(p.price) || 0 
         }));
@@ -231,7 +234,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
           if (uploadingImageProductId) return prev;
           
           const hasChanged = prev.length !== mappedData.length || 
-                             prev.some((p, i) => p.id !== mappedData[i].id || p.stock !== mappedData[i].stock || p.price !== mappedData[i].price || p.image !== mappedData[i].image);
+                             prev.some((p, i) => p.id !== mappedData[i].id || p.stock !== mappedData[i].stock || p.price !== mappedData[i].price || p.costPrice !== mappedData[i].costPrice || p.image !== mappedData[i].image);
           
           if (hasChanged) {
             return mappedData;
@@ -364,6 +367,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         const priceFloat = parseFloat(value);
         if (isNaN(priceFloat) || priceFloat < 0) return;
         updatePayload.price = priceFloat;
+      } else if (field === 'costPrice') {
+        const costFloat = parseFloat(value);
+        if (isNaN(costFloat) || costFloat < 0) return;
+        updatePayload.costPrice = costFloat;
+        updatePayload.cost_price = costFloat;
       } else if (field === 'image') {
         updatePayload.image = value.trim() || null;
       } else if (field === 'category') {
@@ -374,7 +382,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       const updated = await api.updateProduct(product.id, updatePayload);
       setProducts(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
       if (selectedProduct?.id === product.id) {
-        setSelectedProduct(prev => prev ? { ...prev, ...updatePayload } : null);
+        setSelectedProduct(prev => prev ? { ...prev, ...updatePayload, ...updated } : null);
       }
       setShowEditFieldModal(false);
       setEditProductField(null);
@@ -1206,12 +1214,12 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       {isOwner && (
                         <p 
                           onClick={() => handleEditCostPrice(selectedProduct)}
-                          className="text-xs font-black text-purple-900 bg-purple-50 hover:bg-purple-100 px-3.5 py-1.5 rounded-xl border border-purple-200 cursor-pointer transition-all flex items-center gap-1"
+                          className="text-xs font-black text-purple-900 bg-purple-50 hover:bg-purple-100 px-3.5 py-1.5 rounded-xl border border-purple-200 cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
                           title="Haga clic para editar el Precio de Compra / Costo"
                         >
                           <Shield size={12} className="text-purple-700" />
-                          <span>Costo: Q{(selectedProduct.costPrice || 0).toFixed(2)}</span>
-                          <Edit2 size={10} className="text-purple-600 ml-0.5" />
+                          <span>Costo: Q{(Number(selectedProduct.costPrice ?? (selectedProduct as any).cost_price) || 0).toFixed(2)}</span>
+                          <Edit2 size={10} className="text-purple-600 ml-0.5 opacity-70" />
                         </p>
                       )}
                     </div>
@@ -1519,10 +1527,21 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         <h4 className="text-sm font-black text-slate-800 line-clamp-2 leading-tight notranslate" translate="no">
                           {product.name}
                         </h4>
-                        <div className="text-right shrink-0">
-                          <span className="text-sm font-black text-[#0b4d2c] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150 block">
+                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                          <span className="text-sm font-black text-[#0b4d2c] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150 block" title="Precio de Venta al Público">
                             <span className="notranslate" translate="no">Q{(Number(product.price) || 0).toFixed(2)}</span>
                           </span>
+                          {isOwner && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleEditCostPrice(product); }}
+                              className="inline-flex items-center gap-1 text-[10px] font-black text-purple-900 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded-md border border-purple-200 font-mono transition-all cursor-pointer shadow-2xs"
+                              title="Haga clic para editar Precio de Compra / Costo"
+                            >
+                              <Shield size={10} className="text-purple-700" />
+                              <span>Costo: Q{(Number(product.costPrice ?? (product as any).cost_price) || 0).toFixed(2)}</span>
+                              <Edit2 size={8} className="text-purple-600 ml-0.5 opacity-70" />
+                            </button>
+                          )}
                         </div>
                       </div>
                       
@@ -1585,6 +1604,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                             <span className="text-xs font-black h-3 leading-none flex items-center">Q</span>
                             <span>Precio</span>
                           </button>
+
+                          {isOwner && (
+                            <button
+                              onClick={() => handleEditCostPrice(product)}
+                              className="flex flex-col items-center justify-center p-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 hover:bg-purple-100 hover:border-purple-300 transition-all text-[9px] font-bold gap-1 cursor-pointer"
+                              title="Ajustar Precio de Compra / Costo"
+                            >
+                              <Shield size={12} className="text-purple-700" />
+                              <span>Costo</span>
+                            </button>
+                          )}
 
                           <button
                             onClick={() => handleUpdateName(product)}
@@ -1665,7 +1695,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   <tr className="bg-slate-50/80 text-slate-400 uppercase tracking-widest text-[10px] font-black border-b border-slate-100">
                     <th className="px-6 py-4">Producto</th>
                     <th className="px-4 py-4 text-center">Categoría</th>
-                    <th className="px-4 py-4 text-right">Precio</th>
+                    {isOwner && <th className="px-4 py-4 text-right text-purple-900 font-black">P. Compra (Costo)</th>}
+                    <th className="px-4 py-4 text-right">P. Venta</th>
                     <th className="px-6 py-4 text-right">Acción</th>
                   </tr>
                 </thead>
@@ -1765,6 +1796,19 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                             {product.category}
                           </span>
                         </td>
+                        {isOwner && (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleEditCostPrice(product); }}
+                              className="inline-flex items-center gap-1.5 text-xs font-black text-purple-900 bg-purple-50 hover:bg-purple-100 hover:scale-105 active:scale-95 px-2.5 py-1 rounded-xl border border-purple-200 font-mono transition-all cursor-pointer shadow-xs"
+                              title="Haga clic para editar Precio de Compra / Costo"
+                            >
+                              <Shield size={11} className="text-purple-700" />
+                              <span>Q{(Number(product.costPrice ?? (product as any).cost_price) || 0).toFixed(2)}</span>
+                              <Edit2 size={9} className="text-purple-600 opacity-60" />
+                            </button>
+                          </td>
+                        )}
                         <td className="px-4 py-3 text-right">
                           <span className="text-sm font-black text-[#0b4d2c] font-mono">Q{product.price.toFixed(2)}</span>
                         </td>
@@ -1870,7 +1914,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               if (p.is_external) return;
               const category = p.category || '';
               const isIncubadora = category.toUpperCase() === 'INCUBADORAS';
-              const pCost = p.costPrice || 0;
+              const pCost = Number(p.costPrice ?? (p as any).cost_price) || 0;
               
               if (p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
@@ -1950,8 +1994,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             {(() => {
               const displayProducts = [...filteredProducts].sort((a, b) => {
                 if (valuationFilterMode === 'investment') {
-                  const aVal = (a.stock || 0) * (a.costPrice || 0);
-                  const bVal = (b.stock || 0) * (b.costPrice || 0);
+                  const aCost = Number(a.costPrice ?? (a as any).cost_price) || 0;
+                  const bCost = Number(b.costPrice ?? (b as any).cost_price) || 0;
+const aVal = (a.stock || 0) * aCost;
+                  const bVal = (b.stock || 0) * bCost;
                   return bVal - aVal;
                 } else if (valuationFilterMode === 'sales') {
                   const aVal = (a.stock || 0) * (a.price || 0);
@@ -1973,7 +2019,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           <th className="p-4">Producto comercializado</th>
                           <th className="p-4 w-36 text-center">Categoría</th>
                           <th className={cn("p-4 w-32 text-right transition-colors", valuationFilterMode === 'stock' && "bg-blue-100/60 text-blue-900 font-extrabold")}>Existencia</th>
-                          {isOwner && <th className={cn("p-4 w-36 text-right text-purple-800 transition-colors", valuationFilterMode === 'investment' && "bg-purple-100 text-purple-950 font-black")}>Precio Compra c/u</th>}
+                          {isOwner && <th className={cn("p-4 w-40 text-right text-purple-800 transition-colors", valuationFilterMode === 'investment' && "bg-purple-100 text-purple-950 font-black")}>Precio Compra c/u</th>}
                           <th className={cn("p-4 w-44 text-right transition-colors", valuationFilterMode === 'sales' && "bg-emerald-100/60 text-emerald-900 font-extrabold")}>Precio Venta c/u</th>
                           {isOwner && <th className={cn("p-4 w-44 text-right text-purple-900 transition-colors", valuationFilterMode === 'investment' && "bg-purple-100 text-purple-950 font-black")}>Inversión (Costo)</th>}
                           <th className={cn("p-4 w-44 text-right pr-6 transition-colors", valuationFilterMode === 'sales' && "bg-emerald-100/60 text-emerald-950 font-black")}>Total Venta (Stock x Precio)</th>
@@ -1985,7 +2031,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           let individualTotal = 0;
                           let individualCostTotal = 0;
                           let individualStock = 0;
-                          const costPriceVal = Number(p.costPrice) || 0;
+                          const costPriceVal = Number(p.costPrice ?? (p as any).cost_price) || 0;
                           const priceVal = Number(p.price) || 0;
 
                           if (!p.is_external) {
@@ -2088,20 +2134,25 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             <div className="md:hidden space-y-3">
               {filteredProducts.map((p) => {
                 let individualTotal = 0;
+                let individualCostTotal = 0;
                 let individualStock = 0;
+                const costPriceVal = Number(p.costPrice ?? (p as any).cost_price) || 0;
                 const priceVal = Number(p.price) || 0;
 
                 if (!p.is_external) {
                   if (p.variants && p.variants.length > 0) {
                     p.variants.forEach(v => {
                       const vStock = v.stock !== undefined ? (Number(v.stock) || 0) : (Number(p.stock) || 0);
-                      const vPrice = Number(v.price || p.price || 0);
                       individualStock += vStock;
-                      individualTotal += vStock * vPrice;
+                      const valStock = Math.max(0, vStock);
+                      const vPrice = Number(v.price || p.price || 0);
+                      individualTotal += valStock * vPrice;
+                      individualCostTotal += valStock * costPriceVal;
                     });
                   } else {
                     individualStock = Number(p.stock) || 0;
                     individualTotal = individualStock * priceVal;
+                    individualCostTotal = individualStock * costPriceVal;
                   }
                 }
                 const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p);
@@ -2127,7 +2178,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2.5 pt-3 border-t border-slate-100 text-[10px] font-bold">
+                    <div className={cn("grid gap-2.5 pt-3 border-t border-slate-100 text-[10px] font-bold", isOwner ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3")}>
                       <div className="flex flex-col gap-0.5">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Existencia</span>
                         <span className={cn(
@@ -2137,12 +2188,18 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           {p.is_external ? 'Lote Externo' : (isTecunProduct(p) && individualStock <= 0) ? '0 (Tecún)' : `${individualStock} uds`}
                         </span>
                       </div>
+                      {isOwner && (
+                        <div className="flex flex-col gap-0.5 text-right bg-purple-50/50 p-1.5 rounded-xl border border-purple-100">
+                          <span className="text-purple-900 uppercase text-[7.5px] tracking-widest font-extrabold">Costo Compra</span>
+                          <span className="text-purple-950 text-xs font-black font-mono">Q{costPriceVal.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div className="flex flex-col gap-0.5 text-right">
-                        <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Precio Un.</span>
+                        <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Precio Venta</span>
                         <span className="text-slate-600 text-xs font-black font-mono font-medium">Q{priceVal.toFixed(2)}</span>
                       </div>
-                      <div className="flex flex-col gap-0.5 text-right bg-emerald-50/50 p-2 rounded-xl border border-emerald-100">
-                        <span className="text-[#0b4d2c] uppercase text-[7.5px] tracking-widest font-extrabold">Suma Total</span>
+                      <div className="flex flex-col gap-0.5 text-right bg-emerald-50/50 p-1.5 rounded-xl border border-emerald-100">
+                        <span className="text-[#0b4d2c] uppercase text-[7.5px] tracking-widest font-extrabold">Total Venta</span>
                         <span className="text-[#0b4d2c] text-xs font-black font-mono">
                           Q{individualTotal.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
@@ -2722,19 +2779,21 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <div>
                 <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-0.5">
                   {editProductField.field === 'name' ? 'Nuevo Nombre' : 
-                   editProductField.field === 'stock' ? 'Cantidad de StockFisica' : 
-                   editProductField.field === 'price' ? 'Precio Unitario (Q)' : 
+                   editProductField.field === 'stock' ? 'Cantidad de Stock Física' : 
+                   editProductField.field === 'price' ? 'Precio de Venta (Q)' : 
+                   editProductField.field === 'costPrice' ? 'Precio de Compra / Costo (Q)' :
+                   editProductField.field === 'category' ? 'Categoría' :
                    'URL de la Imagen'}
                 </label>
                 
-                {editProductField.field === 'stock' || editProductField.field === 'price' ? (
+                {editProductField.field === 'stock' || editProductField.field === 'price' || editProductField.field === 'costPrice' ? (
                   <div className="relative">
-                    {editProductField.field === 'price' && (
+                    {(editProductField.field === 'price' || editProductField.field === 'costPrice') && (
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">Q</span>
                     )}
                     <input 
                       type="number"
-                      step={editProductField.field === 'price' ? "0.01" : "1"}
+                      step={editProductField.field === 'stock' ? "1" : "0.01"}
                       min="0"
                       autoFocus
                       required
@@ -2743,7 +2802,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFieldEdit(); }}
                       className={cn(
                         "w-full py-3.5 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#0b4d2c] bg-slate-50 shadow-sm outline-none transition-all font-black text-slate-800 text-lg",
-                        editProductField.field === 'price' ? "pl-10 pr-4" : "px-4"
+                        (editProductField.field === 'price' || editProductField.field === 'costPrice') ? "pl-10 pr-4" : "px-4"
                       )}
                     />
                   </div>

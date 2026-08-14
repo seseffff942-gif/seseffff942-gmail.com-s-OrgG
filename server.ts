@@ -445,22 +445,29 @@ if (!process.env.VERCEL) {
       }
     } catch (e) {}
 
-    let query = supabase
-      .from("invoices")
-      .select("id, date")
-      .eq("is_archived", false);
-    
-    if (resetDate) {
-      query = query.gte("date", resetDate);
-    }
+    let invoices: any[] = [];
+    try {
+      const res = await supabase
+        .from("invoices")
+        .select("id, date, status, notes")
+        .eq("is_archived", false)
+        .order("date", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true });
 
-    const { data: invoices, error } = await query
-      .select("id, date, status, notes")
-      .order("date", { ascending: true, nullsFirst: false })
-      .order("id", { ascending: true });
-
-    if (error) {
-      console.error("Error fetching for folio map:", error.message);
+      if (!res.error && Array.isArray(res.data)) {
+        invoices = res.data;
+      } else {
+        const fallbackRes = await supabase
+          .from("invoices")
+          .select("id, date, status, notes")
+          .order("date", { ascending: true, nullsFirst: false })
+          .order("id", { ascending: true });
+        if (fallbackRes.data && Array.isArray(fallbackRes.data)) {
+          invoices = fallbackRes.data;
+        }
+      }
+    } catch (e: any) {
+      console.error("Error fetching for folio map:", e?.message || e);
     }
 
     const map: Record<string, number> = {};
@@ -484,12 +491,12 @@ if (!process.env.VERCEL) {
         }
       });
 
-      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio
+      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio (ordered chronologically)
       let currentFolio = startFrom;
-      invoices.forEach((inv) => {
-        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
-        if (map[String(inv.id)] !== undefined) return; // already locked
+      const unassigned = invoices.filter(inv => inv.id && inv.status !== 'cancelled' && inv.status !== 'rejected' && map[String(inv.id)] === undefined);
+      unassigned.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
+      unassigned.forEach((inv) => {
         while (usedFolios.has(currentFolio) || currentFolio === 812) {
           currentFolio++;
         }
@@ -739,7 +746,7 @@ if (!process.env.VERCEL) {
     // ─── Enviar webhook ────────────────────────────────────────────────────
     let webhookResult: any = null;
     if (sendToWebhook) {
-      const primarySeller = sellerResults[0] || {};
+      const primarySeller: any = sellerResults[0] || {};
       const payload = {
         fecha:                todayLabel,
         umbral:               SALES_THRESHOLD,
@@ -2754,8 +2761,10 @@ if (!process.env.VERCEL) {
     // Normalize: map DB snake_case to camelCase aliases for frontend
     const normalized = (products || []).map((p: any) => ({
       ...p,
-      costPrice: p.cost_price || 0,
-      hiddenFromSales: p.hidden_from_sales || false
+      costPrice: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
+      cost_price: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
+      hiddenFromSales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false),
+      hidden_from_sales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false)
     }));
     setCachedData("products", normalized);
 
@@ -2767,7 +2776,7 @@ if (!process.env.VERCEL) {
 
   app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
-    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
+    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, cost_price, hiddenFromSales, hidden_from_sales } = req.body;
     
     if (name) {
       const trimmedName = name.trim();
@@ -2795,11 +2804,13 @@ if (!process.env.VERCEL) {
 
     // Campos exclusivos del dueño y admin: visibilidad en ventas para admins, costo para el dueño
     const isAdmin = req.user && (req.user.role === 'admin' || isOwner);
+    const finalCostPrice = costPrice !== undefined ? costPrice : cost_price;
+    const finalHiddenFromSales = hiddenFromSales !== undefined ? hiddenFromSales : hidden_from_sales;
     if (isOwner) {
-      if (costPrice !== undefined) product.cost_price = costPrice;
+      if (finalCostPrice !== undefined) product.cost_price = Number(finalCostPrice);
     }
     if (isAdmin) {
-      if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
+      if (finalHiddenFromSales !== undefined) product.hidden_from_sales = Boolean(finalHiddenFromSales);
     }
 
     const { error } = await supabase.from("products").insert([product]);
@@ -2822,17 +2833,24 @@ if (!process.env.VERCEL) {
 
          const { error: err2 } = await supabase.from("products").insert([retryProduct]);
          if (err2) throw new Error(err2.message);
-         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
+         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, cost_price: 0, hiddenFromSales: false, hidden_from_sales: false });
        }
        throw new Error(error.message);
     }
-    res.json(product);
+    const retProduct = {
+      ...product,
+      costPrice: product.cost_price !== undefined ? Number(product.cost_price) : 0,
+      cost_price: product.cost_price !== undefined ? Number(product.cost_price) : 0,
+      hiddenFromSales: product.hidden_from_sales !== undefined ? Boolean(product.hidden_from_sales) : false,
+      hidden_from_sales: product.hidden_from_sales !== undefined ? Boolean(product.hidden_from_sales) : false,
+    };
+    res.json(retProduct);
   }));
 
   app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
     const { id } = req.params;
-    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
+    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, cost_price, hiddenFromSales, hidden_from_sales } = req.body;
     const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
     const isAdmin = req.user.role === 'admin' || isOwner;
     
@@ -2860,11 +2878,13 @@ if (!process.env.VERCEL) {
     if (specifications !== undefined) updates.specifications = specifications;
     if (is_external !== undefined) updates.is_external = is_external;
     
+    const finalCostPrice = costPrice !== undefined ? costPrice : cost_price;
+    const finalHiddenFromSales = hiddenFromSales !== undefined ? hiddenFromSales : hidden_from_sales;
     if (isOwner) {
-      if (costPrice !== undefined) updates.cost_price = costPrice;
+      if (finalCostPrice !== undefined) updates.cost_price = Number(finalCostPrice);
     }
     if (isAdmin) {
-      if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
+      if (finalHiddenFromSales !== undefined) updates.hidden_from_sales = Boolean(finalHiddenFromSales);
     }
     
     const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
@@ -2933,7 +2953,14 @@ if (!process.env.VERCEL) {
       await createNotification('price_changed', 'Precio Modificado', `El precio de ${originalProduct.name} cambió de Q${originalProduct.price} a Q${price}.`, { productId: id });
     }
 
-    res.json(updatedProduct);
+    const retUpdated = {
+      ...updatedProduct,
+      costPrice: updatedProduct.cost_price !== undefined ? Number(updatedProduct.cost_price) : (updatedProduct.costPrice !== undefined ? Number(updatedProduct.costPrice) : 0),
+      cost_price: updatedProduct.cost_price !== undefined ? Number(updatedProduct.cost_price) : (updatedProduct.costPrice !== undefined ? Number(updatedProduct.costPrice) : 0),
+      hiddenFromSales: updatedProduct.hidden_from_sales !== undefined ? Boolean(updatedProduct.hidden_from_sales) : (updatedProduct.hiddenFromSales !== undefined ? Boolean(updatedProduct.hiddenFromSales) : false),
+      hidden_from_sales: updatedProduct.hidden_from_sales !== undefined ? Boolean(updatedProduct.hidden_from_sales) : (updatedProduct.hiddenFromSales !== undefined ? Boolean(updatedProduct.hiddenFromSales) : false),
+    };
+    res.json(retUpdated);
   }));
 
   // NOTIFICATIONS API
@@ -6587,6 +6614,618 @@ ${productsContext}`;
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
+  // ======== COTIZACIONES (QUOTATIONS) ENDPOINTS ========
+  const QUOTATIONS_FILE = path.join(process.cwd(), 'quotations_local.json');
+
+  function readLocalQuotations(): any[] {
+    try {
+      if (fs.existsSync(QUOTATIONS_FILE)) {
+        const raw = fs.readFileSync(QUOTATIONS_FILE, 'utf-8');
+        return JSON.parse(raw) || [];
+      }
+    } catch (e) {
+      console.warn("Could not read local quotations file:", e);
+    }
+    return [];
+  }
+
+  function saveLocalQuotation(quote: any) {
+    try {
+      const list = readLocalQuotations();
+      const idx = list.findIndex((q: any) => q.id === quote.id);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...quote };
+      } else {
+        list.unshift(quote);
+      }
+      fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(list, null, 2));
+    } catch (e) {
+      console.warn("Could not save to local quotations file:", e);
+    }
+  }
+
+  function updateLocalQuotation(id: string, updates: any) {
+    try {
+      const list = readLocalQuotations();
+      const idx = list.findIndex((q: any) => q.id === id);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...updates };
+        fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(list, null, 2));
+        return list[idx];
+      }
+    } catch (e) {
+      console.warn("Could not update local quotations file:", e);
+    }
+    return null;
+  }
+
+  function deleteLocalQuotation(id: string) {
+    try {
+      const list = readLocalQuotations();
+      const filtered = list.filter((q: any) => q.id !== id);
+      if (filtered.length !== list.length) {
+        fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(filtered, null, 2));
+      }
+    } catch (e) {
+      console.warn("Could not delete from local quotations file:", e);
+    }
+  }
+
+  async function getNextQuotationFolioNumber(): Promise<number> {
+    const localQuotes = readLocalQuotations();
+    let maxFolio = 0;
+    for (const q of localQuotes) {
+      const num = Number(q.folioNumber || (q.folio ? String(q.folio).replace(/\D/g, '') : 0));
+      if (num > maxFolio) maxFolio = num;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('quotations')
+        .select('folioNumber, folio')
+        .order('folioNumber', { ascending: false })
+        .limit(20);
+
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const num = Number(row.folioNumber || (row.folio ? String(row.folio).replace(/\D/g, '') : 0));
+          if (num > maxFolio) maxFolio = num;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return maxFolio + 1;
+  }
+
+  // GET /api/quotations - Listar cotizaciones
+  app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { sellerId } = req.query;
+    const user = req.user;
+
+    let quotes: any[] = [];
+    try {
+      let query = supabase.from('quotations').select('*').order('created_at', { ascending: false });
+      if (user.role === 'seller') {
+        query = query.eq('sellerId', user.id);
+      } else if (sellerId) {
+        query = query.eq('sellerId', sellerId);
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        quotes = data;
+      }
+    } catch (e) {
+      console.warn("Supabase quotations query fallback:", e);
+    }
+
+    if (quotes.length === 0) {
+      quotes = readLocalQuotations();
+      if (user.role === 'seller') {
+        quotes = quotes.filter((q: any) => q.sellerId === user.id || q.sellerId === user.email);
+      } else if (sellerId) {
+        quotes = quotes.filter((q: any) => q.sellerId === sellerId);
+      }
+    }
+
+    // Merge with seller names
+    let usersList: any[] = [];
+    try {
+      const { data: u } = await supabase.from('users').select('id, name, email');
+      if (u) usersList = u;
+    } catch (e) {}
+
+    const enriched = quotes.map((q: any) => {
+      const s = usersList.find((u: any) => u.id === q.sellerId || u.email === q.sellerId);
+      return {
+        ...q,
+        sellerName: s ? s.name : (q.sellerName || 'Vendedor')
+      };
+    });
+
+    res.json(enriched);
+  }));
+
+  // GET /api/quotations/:id - Obtener detalle
+  app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    let quote = null;
+
+    try {
+      const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
+      if (!error && data) {
+        quote = data;
+      }
+    } catch (e) {}
+
+    if (!quote) {
+      const local = readLocalQuotations();
+      quote = local.find((q: any) => q.id === id);
+    }
+
+    if (!quote) {
+      return res.status(404).json({ error: 'Cotización no encontrada' });
+    }
+
+    res.json(quote);
+  }));
+
+  // POST /api/quotations - Crear nueva cotización
+  app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { 
+      client, 
+      nit, 
+      phone, 
+      address, 
+      items, 
+      notes, 
+      validityDays = 15, 
+      date, 
+      sellerId 
+    } = req.body;
+
+    if (!client || !client.trim()) {
+      return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No se puede crear una cotización sin productos' });
+    }
+
+    // Validar cantidades positivas
+    for (const item of items) {
+      if (item.quantity === undefined || parseFloat(item.quantity) <= 0) {
+        return res.status(400).json({ error: `La cantidad de '${item.productName || 'producto'}' debe ser mayor a cero.` });
+      }
+      if (item.price === undefined || parseFloat(item.price) < 0) {
+        return res.status(400).json({ error: `El precio de '${item.productName || 'producto'}' no puede ser negativo.` });
+      }
+    }
+
+    // Auto-registrar / sincronizar cliente
+    if (client) {
+      let nameToSave = client.trim();
+      let companyToSave = '';
+      if (client.includes(' - ')) {
+        const parts = client.split(' - ');
+        nameToSave = parts[0].trim();
+        companyToSave = parts[1].trim();
+      }
+
+      let existingList: any[] = [];
+      try {
+        const { data } = await supabase.from("clients").select("*");
+        if (data) existingList = data;
+      } catch (e) {}
+
+      const localList = readLocalClients();
+      const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
+
+      if (matchedClient) {
+        const updates: any = {};
+        if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+        if (!matchedClient.phone && phone) updates.phone = phone;
+        if (!matchedClient.address && address) updates.address = address;
+        if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+
+        if (Object.keys(updates).length > 0) {
+          updateLocalClient(matchedClient.id, updates);
+          try {
+            await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+          } catch (e) {}
+        }
+      } else {
+        const clientData = {
+          id: `CLI-${Date.now()}`,
+          sellerId: sellerId || req.user.id,
+          name: nameToSave,
+          companyName: companyToSave,
+          nit: nit || '',
+          phone: phone || '',
+          address: address || '',
+          createdAt: new Date().toISOString()
+        };
+
+        addLocalClient(clientData);
+        try {
+          await safeInsertClient(clientData);
+        } catch (e) {}
+      }
+    }
+
+    // STRICT STOCK VALIDATION & ITEMS PROCESSING (WITHOUT DEDUCTING STOCK!)
+    let total = 0;
+    const processedItems: any[] = [];
+
+    for (const item of items) {
+      let product: any;
+      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+        product = {
+          id: item.productId,
+          name: 'COSTO DE ENVIO',
+          price: item.price !== undefined ? parseFloat(item.price) : 26,
+          stock: 999999,
+          is_external: true,
+          category: 'Servicios'
+        };
+      } else {
+        const { data: prods, error } = await supabase.from("products").select("*").eq('id', item.productId);
+        if (error || !prods || prods.length === 0) {
+          // Check local products fallback
+          const localProducts = getCachedData("products") || [];
+          const found = localProducts.find((p: any) => p.id === item.productId);
+          if (!found) throw new Error(`Producto ${item.productId} no encontrado`);
+          product = found;
+        } else {
+          product = prods[0];
+        }
+      }
+
+      const itemPrice = item.price !== undefined ? parseFloat(item.price) : parseFloat(product.price);
+      const isExempt = doesNotNeedStock(product) || product.is_external;
+
+      if (!isExempt) {
+        let availableStock = parseFloat(product.stock || 0);
+        let variantObj: any = null;
+
+        if (item.variantId && Array.isArray(product.variants)) {
+          variantObj = product.variants.find((v: any) => v.id === item.variantId);
+          if (variantObj && variantObj.stock !== undefined) {
+            availableStock = parseFloat(variantObj.stock || 0);
+          }
+        }
+
+        // VALIDACIÓN: NO PERMITIR AGREGAR SI NO HAY EXISTENCIAS O SI PIDE MÁS DEL STOCK
+        if (availableStock <= 0) {
+          const varDesc = variantObj ? ` (${variantObj.color} - ${variantObj.size})` : '';
+          return res.status(400).json({
+            error: `No se puede agregar '${product.name}${varDesc}' a la cotización porque se encuentra AGOTADO (Stock: 0).`
+          });
+        }
+
+        if (parseFloat(item.quantity) > availableStock) {
+          const varDesc = variantObj ? ` (${variantObj.color} - ${variantObj.size})` : '';
+          return res.status(400).json({
+            error: `La cantidad solicitada (${item.quantity}) para '${product.name}${varDesc}' supera las existencias disponibles (Stock actual: ${availableStock}).`
+          });
+        }
+      }
+
+      const itemTotal = parseFloat(item.quantity) * itemPrice;
+      total += itemTotal;
+      processedItems.push({
+        productId: item.productId,
+        productName: product.name,
+        quantity: parseFloat(item.quantity),
+        price: itemPrice,
+        originalPrice: parseFloat(product.price || itemPrice),
+        suggestedPrice: item.suggestedPrice,
+        isOfferApplied: !!item.isOfferApplied,
+        total: itemTotal,
+        variantId: item.variantId,
+        color: item.color,
+        size: item.size
+      });
+    }
+
+    // Generar Folio independiente exclusivo para cotizaciones
+    const nextSeq = await getNextQuotationFolioNumber();
+    const folioStr = `COT-${String(nextSeq).padStart(4, '0')}`;
+
+    const quoteDate = date ? new Date(date).toISOString() : new Date().toISOString();
+    const validDaysNum = parseInt(String(validityDays)) || 15;
+    const validUntilDate = new Date(new Date(quoteDate).getTime() + validDaysNum * 24 * 60 * 60 * 1000).toISOString();
+
+    const quoteId = `COT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const newQuotation = {
+      id: quoteId,
+      folio: folioStr,
+      folioNumber: nextSeq,
+      sellerId: sellerId || req.user.id,
+      sellerName: req.user.name || 'Vendedor',
+      client: client.trim(),
+      nit: nit || 'CF',
+      phone: phone || '',
+      address: address || '',
+      items: processedItems,
+      totalAmount: total,
+      status: 'pendiente',
+      date: quoteDate,
+      validityDays: validDaysNum,
+      validUntil: validUntilDate,
+      notes: notes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    // Guardar en Supabase y respaldo local
+    try {
+      const { data, error } = await supabase
+        .from('quotations')
+        .insert([newQuotation])
+        .select();
+
+      if (!error && data && data[0]) {
+        saveLocalQuotation(data[0]);
+        return res.status(201).json(data[0]);
+      }
+    } catch (e) {
+      console.warn("Supabase insert quotation fallback to local file:", e);
+    }
+
+    saveLocalQuotation(newQuotation);
+    res.status(201).json(newQuotation);
+  }));
+
+  // PUT /api/quotations/:id - Actualizar estado o datos de cotización
+  app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { status, notes, validityDays } = req.body;
+
+    const updates: any = {};
+    if (status) updates.status = status;
+    if (notes !== undefined) updates.notes = notes;
+    if (validityDays !== undefined) updates.validityDays = validityDays;
+
+    try {
+      const { data, error } = await supabase
+        .from('quotations')
+        .update(updates)
+        .eq('id', id)
+        .select();
+
+      if (!error && data && data[0]) {
+        updateLocalQuotation(id, data[0]);
+        return res.json(data[0]);
+      }
+    } catch (e) {
+      console.warn("Supabase update quotation fallback:", e);
+    }
+
+    const updated = updateLocalQuotation(id, updates);
+    if (!updated) {
+      return res.status(404).json({ error: 'Cotización no encontrada' });
+    }
+
+    res.json(updated);
+  }));
+
+  // DELETE /api/quotations/:id - Eliminar cotización
+  app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+
+    try {
+      const { error } = await supabase.from('quotations').delete().eq('id', id);
+      if (error) console.warn("Supabase delete quotation error:", error);
+    } catch (e) {}
+
+    deleteLocalQuotation(id);
+    res.json({ success: true, message: 'Cotización eliminada correctamente' });
+  }));
+
+  // POST /api/quotations/:id/convert-to-sale - Convertir cotización a venta formal
+  app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { customDate, invoiceType = 'agricola', creditDays = 30, transportMethod = 'personal', sellerPaysShipping = false, sellerSignature } = req.body;
+
+    let quote = null;
+    try {
+      const { data } = await supabase.from('quotations').select('*').eq('id', id).single();
+      if (data) quote = data;
+    } catch (e) {}
+
+    if (!quote) {
+      const local = readLocalQuotations();
+      quote = local.find((q: any) => q.id === id);
+    }
+
+    if (!quote) {
+      return res.status(404).json({ error: 'Cotización no encontrada' });
+    }
+
+    if (quote.status === 'convertida') {
+      return res.status(400).json({ error: 'Esta cotización ya fue convertida en una venta formal anteriormente.' });
+    }
+
+    // Validar existencias actuales antes de convertir
+    for (const item of quote.items) {
+      const { data: prods } = await supabase.from("products").select("*").eq('id', item.productId);
+      if (prods && prods[0]) {
+        const p = prods[0];
+        if (!doesNotNeedStock(p) && !p.is_external) {
+          let currentStock = parseFloat(p.stock || 0);
+          if (item.variantId && Array.isArray(p.variants)) {
+            const v = p.variants.find((vr: any) => vr.id === item.variantId);
+            if (v && v.stock !== undefined) currentStock = parseFloat(v.stock || 0);
+          }
+          if (currentStock < item.quantity) {
+            return res.status(400).json({
+              error: `No se puede convertir a venta: El producto '${p.name}' no cuenta con stock suficiente en este momento (Requerido: ${item.quantity}, Disponible: ${currentStock}).`
+            });
+          }
+        }
+      }
+    }
+
+    // Invocar creación de venta formal
+    const invoicePayload = {
+      sellerId: quote.sellerId || req.user.id,
+      client: quote.client,
+      nit: quote.nit,
+      phone: quote.phone,
+      address: quote.address,
+      items: quote.items,
+      isOwed: true,
+      invoiceType,
+      creditDays,
+      transportMethod,
+      sellerPaysShipping,
+      sellerSignature,
+      customDate: customDate || quote.date,
+      notes: `Venta originada de Cotización ${quote.folio}${quote.notes ? ' - ' + quote.notes : ''}`
+    };
+
+    // Llamada interna para crear invoice
+    let createdInvoice: any = null;
+    try {
+      // Reutilizar el endpoint de ventas invocándolo programáticamente o construyendo la venta
+      // Calculamos folio de venta real y procesamos ítems descontando inventario
+      let total = 0;
+      const processedItems = [];
+      let requiresAuth = false;
+
+      for (const item of quote.items) {
+        let product: any;
+        if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+          product = { id: item.productId, name: 'COSTO DE ENVIO', price: item.price, stock: 999999, is_external: true };
+        } else {
+          const { data: products } = await supabase.from("products").select("*").eq('id', item.productId);
+          if (!products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
+          product = products[0];
+        }
+
+        const itemPrice = parseFloat(item.price);
+        const isExemptFromStock = doesNotNeedStock(product) || product.is_external;
+
+        if (!product.is_external) {
+          let currentStock = parseFloat(product.stock || 0);
+          let variantObj = null;
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            if (varIndex !== -1) {
+              variantObj = variantsToUpdate[varIndex];
+              if (variantObj.stock !== undefined) {
+                currentStock = parseFloat(variantObj.stock || 0);
+              }
+            }
+          }
+
+          if (currentStock < item.quantity && !isExemptFromStock) {
+            requiresAuth = true;
+          }
+
+          const newStock = currentStock - parseFloat(item.quantity);
+
+          if (variantObj && variantObj.stock !== undefined) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+            await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
+          } else {
+            await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
+          }
+        }
+
+        const itemTotal = item.quantity * itemPrice;
+        total += itemTotal;
+        processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
+      }
+
+      const invoiceId = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+      invalidateCache("folio_map");
+      const currentFolioMap = await getFolioMap(true);
+      const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
+      const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
+
+      let startFromConfig = 1;
+      try {
+        const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+          const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+          startFromConfig = cfg.startFrom || 1;
+        }
+      } catch (e) {}
+
+      let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
+      while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
+        assignedFolio++;
+      }
+      let folioFlag = `|||FOLIO:${assignedFolio}`;
+      let baseNotes = (quote.nit || "");
+      let obsFlag = `|||OBS:Venta convertida desde Cotización ${quote.folio}`;
+      let invoiceTypeFlag = "|||TYPE:" + invoiceType;
+      let creditFlag = "|||CREDIT:" + creditDays;
+      let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
+      let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
+      let authFlag = requiresAuth ? "|||AUTH:pending" : "";
+      let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
+
+      const invoiceDataRaw: any = {
+        id: invoiceId,
+        sellerId: quote.sellerId || req.user.id,
+        notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
+        items: processedItems,
+        totalAmount: total,
+        paidAmount: 0,
+        status: 'pending',
+        date: new Date().toISOString(),
+        client: quote.client,
+        phone: quote.phone || "",
+        address: quote.address || "",
+        nit: quote.nit || ""
+      };
+
+      try {
+        await supabase.from("invoices").insert([invoiceDataRaw]);
+      } catch (e) {
+        console.warn("Error inserting invoice during quote conversion:", e);
+      }
+
+      await syncInvoiceToPermanentBackup(invoiceId, invoiceDataRaw);
+      invalidateCache("products");
+      invalidateCache("folio_map");
+
+      createdInvoice = { ...invoiceDataRaw, folio: assignedFolio };
+
+      // Actualizar estado de la cotización
+      const quoteUpdates = {
+        status: 'convertida',
+        invoiceId: invoiceId,
+        convertedInvoiceFolio: assignedFolio
+      };
+
+      try {
+        await supabase.from('quotations').update(quoteUpdates).eq('id', id);
+      } catch (e) {}
+
+      updateLocalQuotation(id, quoteUpdates);
+
+      res.json({
+        success: true,
+        message: `Cotización convertida exitosamente en la venta #${assignedFolio}`,
+        invoice: createdInvoice,
+        quotation: { ...quote, ...quoteUpdates }
+      });
+    } catch (err: any) {
+      console.error("Error converting quotation to sale:", err);
+      res.status(500).json({ error: err.message || 'Error al convertir la cotización a venta' });
+    }
+  }));
+
+
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
   const isProduction = process.env.NODE_ENV === "production";
@@ -6689,7 +7328,7 @@ async function startServer() {
             };
           });
 
-          const primarySeller = sellerResults[0] || {};
+          const primarySeller: any = sellerResults[0] || {};
           const payload = {
             fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
             vendedor: primarySeller.sellerName || 'Emanuel Lima',

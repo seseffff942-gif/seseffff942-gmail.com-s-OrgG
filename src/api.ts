@@ -586,31 +586,58 @@ export const api = {
 
   createProduct: async (product: Omit<Product, 'id' | 'image'>): Promise<Product> => {
     clearApiCache('products');
+    const finalCost = product.costPrice !== undefined ? product.costPrice : (product as any).cost_price;
+    const finalHidden = product.hiddenFromSales !== undefined ? product.hiddenFromSales : (product as any).hidden_from_sales;
+    const payload = {
+      ...product,
+      ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
+      ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
+    };
     const res = await fetchWithAuth('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(product)
+      body: JSON.stringify(payload)
     });
     const resData = await safeJson(res);
     if (!res.ok) {
       throw new Error(resData.error || 'Error al crear producto');
     }
-    return resData;
+    const normalized: Product = {
+      ...resData,
+      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+    };
+    return normalized;
   },
 
   getProducts: async (force: boolean = false): Promise<Product[]> => {
+    const mapProduct = (p: any): Product => ({
+      ...p,
+      costPrice: p.costPrice !== undefined ? Number(p.costPrice) : (p.cost_price !== undefined ? Number(p.cost_price) : 0),
+      cost_price: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
+      hiddenFromSales: p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : (p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : false),
+      hidden_from_sales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false),
+      variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : p.variants,
+      specifications: typeof p.specifications === 'string' ? JSON.parse(p.specifications) : p.specifications,
+    });
+
     if (!force) {
       const cachedMem = getCachedApi('products');
-      if (cachedMem) return cachedMem;
+      if (cachedMem && Array.isArray(cachedMem)) return cachedMem.map(mapProduct);
     }
     try {
       const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
       if (!error && data && Array.isArray(data) && data.length > 0) {
-        setCachedApi('products', data);
+        const normalized = data.map(mapProduct);
+        setCachedApi('products', normalized);
         if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('cached_products', JSON.stringify(data));
+          localStorage.setItem('cached_products', JSON.stringify(normalized));
         }
-        return data as Product[];
+        return normalized;
       }
     } catch (e) {
       console.warn('Direct Supabase products fetch fallback:', e);
@@ -622,32 +649,50 @@ export const api = {
         throw new Error(err.error || 'Failed to fetch products');
       }
       const data = await safeJson(res);
-      setCachedApi('products', data);
-      localStorage.setItem('cached_products', JSON.stringify(data));
-      return data;
+      const normalized = (Array.isArray(data) ? data : []).map(mapProduct);
+      setCachedApi('products', normalized);
+      localStorage.setItem('cached_products', JSON.stringify(normalized));
+      return normalized;
     } catch (err) {
       const cached = localStorage.getItem('cached_products') || localStorage.getItem('offline_products');
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(mapProduct);
         } catch (e) {}
       }
-      return (preloadedData.products || []) as any[];
+      return ((preloadedData.products || []) as any[]).map(mapProduct);
     }
   },
 
   updateProduct: async (id: string, updates: Partial<Product>): Promise<Product> => {
+    clearApiCache('products');
+    const finalCost = updates.costPrice !== undefined ? updates.costPrice : (updates as any).cost_price;
+    const finalHidden = updates.hiddenFromSales !== undefined ? updates.hiddenFromSales : (updates as any).hidden_from_sales;
+    const payload = {
+      ...updates,
+      ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
+      ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
+    };
     const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to update product');
     }
-    return res.json();
+    const resData = await res.json();
+    return {
+      ...resData,
+      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+    };
   },
 
   deleteProduct: async (id: string): Promise<{ success: boolean }> => {
@@ -1525,6 +1570,81 @@ export const api = {
     return data;
   },
 
+  // ======== COTIZACIONES (QUOTATIONS) ========
+  getQuotations: async (sellerId?: string) => {
+    const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
+    const res = await fetchWithAuth(url);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar las cotizaciones');
+    return data;
+  },
+
+  getQuotationById: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo obtener la cotización');
+    return data;
+  },
+
+  createQuotation: async (quotation: {
+    client: string;
+    nit?: string;
+    phone?: string;
+    address?: string;
+    items: any[];
+    notes?: string;
+    validityDays?: number;
+    date?: string;
+    sellerId?: string;
+  }) => {
+    const res = await fetchWithAuth('/api/quotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotation),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo crear la cotización');
+    return data;
+  },
+
+  updateQuotation: async (id: string, updates: { status?: string; notes?: string; validityDays?: number }) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar la cotización');
+    return data;
+  },
+
+  deleteQuotation: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar la cotización');
+    return data;
+  },
+
+  convertQuotationToSale: async (id: string, options?: {
+    customDate?: string;
+    invoiceType?: 'agricola' | 'veterinaria';
+    creditDays?: number;
+    transportMethod?: string;
+    sellerPaysShipping?: boolean;
+    sellerSignature?: string;
+  }) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo convertir la cotización a venta');
+    return data;
+  },
+
   getCustomServerUrl: (): string => {
     if (typeof localStorage !== 'undefined') {
       return localStorage.getItem('app_custom_api_url') || '';
@@ -1543,3 +1663,4 @@ export const api = {
   },
 
 };
+

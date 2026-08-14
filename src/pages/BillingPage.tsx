@@ -365,12 +365,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
   // Grouping and list rendering
   const renderInvoicesList = () => {
-    // Sort all selected invoices chronologically (newest first, by hour)
+    // Sort all selected invoices chronologically (newest first, by date and hour)
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const folioA = a.folio || 0;
-      const folioB = b.folio || 0;
-      if (folioA !== folioB) return folioB - folioA;
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
+      const timeA = new Date(a.date || 0).getTime();
+      const timeB = new Date(b.date || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      const folioA = Number(a.folio) || 0;
+      const folioB = Number(b.folio) || 0;
+      return folioB - folioA;
     });
 
     if (displayMode === 'seller_cards') {

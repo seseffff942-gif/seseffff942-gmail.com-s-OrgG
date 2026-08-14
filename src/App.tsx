@@ -16,6 +16,7 @@ import { HomePage } from './pages/HomePage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
+import { QuotationsPage } from './pages/QuotationsPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
@@ -78,7 +79,7 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'quotations', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -91,7 +92,7 @@ export default function App() {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
-      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'quotations', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -269,6 +270,7 @@ export default function App() {
         {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'quotations' && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
