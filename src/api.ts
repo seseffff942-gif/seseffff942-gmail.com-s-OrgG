@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL } from './types';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation } from './types';
 import preloadedData from './data/preloadedData.json';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
@@ -1615,7 +1615,7 @@ export const api = {
     return data;
   },
 
-  updateQuotation: async (id: string, updates: { status?: string; notes?: string; validityDays?: number }) => {
+  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
     const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

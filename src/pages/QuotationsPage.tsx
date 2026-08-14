@@ -6,7 +6,7 @@ import {
   AlertTriangle, AlertCircle, Send, MessageCircle, Download, 
   Printer, ArrowLeft, Clock, Eye, Check, RefreshCw, ShoppingCart,
   Building2, Phone, MapPin, Calendar, Tag, ShieldAlert, ArrowRight,
-  DollarSign, FileText, CheckCircle, Copy, ExternalLink, Sparkles
+  DollarSign, FileText, CheckCircle, Copy, ExternalLink, Sparkles, Edit2
 } from 'lucide-react';
 import { cn, printHtml, downloadHtmlAsPdf, formatMoney, compileQuotationTemplate, doesNotNeedStock } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -80,6 +80,18 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const [isConverting, setIsConverting] = useState(false);
   const [convertSuccessMsg, setConvertSuccessMsg] = useState<string>('');
   const [convertErrorMsg, setConvertErrorMsg] = useState<string>('');
+
+  // Edit Quotation Modal State
+  const [editingQuote, setEditingQuote] = useState<Quotation | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editAdvisorId, setEditAdvisorId] = useState('');
+  const [editClient, setEditClient] = useState('');
+  const [editNit, setEditNit] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editValidityDays, setEditValidityDays] = useState(15);
+  const [editNotes, setEditNotes] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // History Search & Filter State
   const [historySearch, setHistorySearch] = useState('');
@@ -385,6 +397,62 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       alert(err.message || "Error al generar la cotización");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Edit Quotation Handlers
+  const handleOpenEditModal = (quote: Quotation) => {
+    setEditingQuote(quote);
+    setEditAdvisorId(quote.sellerId || quote.sellerName || '');
+    setEditClient(quote.client || '');
+    setEditNit(quote.nit || 'CF');
+    setEditPhone(quote.phone || '');
+    setEditAddress(quote.address || '');
+    setEditValidityDays(quote.validityDays || 15);
+    setEditNotes(quote.notes || '');
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingQuote) return;
+    if (!editClient.trim()) {
+      alert("Por favor ingresa el nombre del cliente.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const advisor = teamMembers.find(t => t.id === editAdvisorId || t.email === editAdvisorId || (t.name && editAdvisorId.includes(t.name)));
+      const advisorName = advisor ? advisor.name : (editAdvisorId || editingQuote.sellerName || user.name);
+      const advisorId = advisor ? (advisor.email || advisor.id) : editAdvisorId;
+
+      const updates = {
+        client: editClient.trim(),
+        nit: editNit.trim() || 'CF',
+        phone: editPhone.trim(),
+        address: editAddress.trim(),
+        validityDays: editValidityDays,
+        notes: editNotes.trim(),
+        sellerId: advisorId,
+        sellerName: advisorName
+      };
+
+      const updated = await api.updateQuotation(editingQuote.id, updates);
+      
+      setQuotations(prev => prev.map(q => q.id === editingQuote.id ? { ...q, ...updates, ...updated } : q));
+      
+      if (previewQuotation?.id === editingQuote.id) {
+        setPreviewQuotation(prev => prev ? { ...prev, ...updates, ...updated } : null);
+      }
+
+      setShowEditModal(false);
+      setEditingQuote(null);
+      alert(`✅ Cotización ${editingQuote.folio} actualizada. Asesor asignado: ${advisorName}`);
+    } catch (err: any) {
+      console.error("Error updating quotation:", err);
+      alert(err.message || 'Error al guardar los cambios de la cotización');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -1053,6 +1121,13 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                             <Eye size={15} />
                           </button>
                           <button
+                            onClick={() => handleOpenEditModal(quote)}
+                            className="p-2 rounded-lg bg-slate-100 hover:bg-amber-50 hover:text-amber-700 text-slate-600 transition-all cursor-pointer"
+                            title="Editar Asesor / Datos"
+                          >
+                            <Edit2 size={15} />
+                          </button>
+                          <button
                             onClick={() => handlePrintQuotation(quote)}
                             className="p-2 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-[#00696a] text-slate-600 transition-all cursor-pointer"
                             title="Imprimir"
@@ -1502,6 +1577,13 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-between items-center gap-2">
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => handleOpenEditModal(previewQuotation)}
+                    className="py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Edit2 size={14} />
+                    <span>Editar Asesor</span>
+                  </button>
+                  <button
                     onClick={() => handlePrintQuotation(previewQuotation)}
                     className="py-2 px-3 bg-[#00696a] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
@@ -1578,6 +1660,166 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
               >
                 Entendido, Continuar
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ================= MODAL DE EDICIÓN DE COTIZACIÓN / ASESOR ================= */}
+      <AnimatePresence>
+        {showEditModal && editingQuote && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] border border-slate-200"
+            >
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-center text-[#00696a]">
+                    <Edit2 size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Editar Cotización {editingQuote.folio}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">Modifica el asesor responsable o los datos del cliente</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 flex-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                    👤 Asesor Comercial / Vendedor Responsable
+                  </label>
+                  <select
+                    value={editAdvisorId}
+                    onChange={(e) => setEditAdvisorId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-[#00696a] bg-white cursor-pointer"
+                  >
+                    {teamMembers.map((tm) => (
+                      <option key={tm.id || tm.email} value={tm.email || tm.id}>
+                        {tm.name} ({tm.role === 'admin' ? 'Administración' : 'Ventas'})
+                      </option>
+                    ))}
+                    {teamMembers.length === 0 && (
+                      <option value={user.email || user.id}>{user.name}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Nombre del Cliente
+                    </label>
+                    <input
+                      type="text"
+                      value={editClient}
+                      onChange={(e) => setEditClient(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-[#00696a]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      NIT
+                    </label>
+                    <input
+                      type="text"
+                      value={editNit}
+                      onChange={(e) => setEditNit(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-[#00696a]"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Teléfono
+                    </label>
+                    <input
+                      type="text"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 outline-none focus:border-[#00696a]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Vigencia (Días)
+                    </label>
+                    <select
+                      value={editValidityDays}
+                      onChange={(e) => setEditValidityDays(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-[#00696a]"
+                    >
+                      <option value={7}>7 días de validez</option>
+                      <option value={15}>15 días de validez (Recomendado)</option>
+                      <option value={30}>30 días de validez</option>
+                      <option value={60}>60 días de validez</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                    Dirección
+                  </label>
+                  <input
+                    type="text"
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 outline-none focus:border-[#00696a]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                    Observaciones / Condiciones Especiales
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#00696a] resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 text-xs font-black bg-[#00696a] hover:bg-[#004f50] text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      <span>Guardar Cambios</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

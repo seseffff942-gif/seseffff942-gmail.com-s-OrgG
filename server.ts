@@ -7014,15 +7014,27 @@ ${productsContext}`;
     res.status(201).json(newQuotation);
   }));
 
-  // PUT /api/quotations/:id - Actualizar estado o datos de cotización
+  // PUT /api/quotations/:id - Actualizar estado, asesor o datos de cotización
   app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    const { status, notes, validityDays } = req.body;
+    const { status, notes, validityDays, sellerId, sellerName, client, nit, phone, address, items, totalAmount } = req.body;
 
     const updates: any = {};
     if (status) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
-    if (validityDays !== undefined) updates.validityDays = validityDays;
+    if (validityDays !== undefined) {
+      updates.validityDays = validityDays;
+      const days = parseInt(String(validityDays)) || 15;
+      updates.validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    }
+    if (sellerId !== undefined) updates.sellerId = sellerId;
+    if (sellerName !== undefined) updates.sellerName = sellerName;
+    if (client !== undefined) updates.client = client;
+    if (nit !== undefined) updates.nit = nit;
+    if (phone !== undefined) updates.phone = phone;
+    if (address !== undefined) updates.address = address;
+    if (items !== undefined) updates.items = items;
+    if (totalAmount !== undefined) updates.totalAmount = totalAmount;
 
     try {
       const { data, error } = await supabase
