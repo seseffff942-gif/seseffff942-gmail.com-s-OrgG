@@ -580,7 +580,7 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   return (
     <div className="min-h-screen bg-slate-50 pb-24 md:pb-12">
       {/* Top Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 md:top-16 z-30 shadow-xs">
+      <div className="bg-white border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-[#00696a] shrink-0 shadow-xs">
@@ -805,7 +805,7 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
             </div>
 
             {/* Right Column: Quotation Summary & Cart */}
-            <div className="lg:col-span-4 sticky top-24 space-y-4">
+            <div className="lg:col-span-4 lg:sticky lg:top-6 space-y-4">
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col h-full">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">

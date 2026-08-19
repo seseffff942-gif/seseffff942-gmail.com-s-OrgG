@@ -28,7 +28,7 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 const N8N_WEBHOOK_URL =
   process.env.N8N_WEBHOOK_URL ||
-  'http://localhost:5678/webhook/ventas-mediodia';
+  'http://localhost:5678/webhook/cobros-diarios';
 
 const SALES_THRESHOLD = Number(process.env.SALES_THRESHOLD) || 8750;
 

@@ -365,13 +365,28 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
            i.status === 'pending' || i.status === 'paid'
        );
        
-       // Sort descending by date
-       activeInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+       // Sort descending by date, with folio as tie-breaker
+       activeInvoices.sort((a, b) => {
+         const timeA = new Date(a.date || 0).getTime();
+         const timeB = new Date(b.date || 0).getTime();
+         if (timeA !== timeB) return timeB - timeA;
+         const folioA = Number(a.folio) || 0;
+         const folioB = Number(b.folio) || 0;
+         return folioB - folioA;
+       });
        
        let historyInvoices = filteredInvoices.filter(i => 
            i.status === 'sent' || i.status === 'cancelled' || i.status === 'rejected'
        );
-       historyInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+       
+       historyInvoices.sort((a, b) => {
+         const timeA = new Date(a.date || 0).getTime();
+         const timeB = new Date(b.date || 0).getTime();
+         if (timeA !== timeB) return timeB - timeA;
+         const folioA = Number(a.folio) || 0;
+         const folioB = Number(b.folio) || 0;
+         return folioB - folioA;
+       });
 
        return (
          <div className="space-y-10">

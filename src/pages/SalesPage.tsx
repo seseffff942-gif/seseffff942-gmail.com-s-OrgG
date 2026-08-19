@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 // AGRICOLAS INTEGRATION: Added draft auto-save persistence via localStorage to prevent losing elements upon browser refresh.
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
@@ -182,6 +182,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [sellerSignature, setSellerSignature] = useState<string | null>(() => {
@@ -319,6 +320,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         setAddress(inv.address || '');
         if (inv.notes) {
           setNotes(inv.notes);
+        }
+        if (inv.date) {
+          setCustomDate(diaGuatemala(inv.date));
         }
 
         // Robust parsing of items list
@@ -736,10 +740,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
+    if (isSubmittingRef.current) return;
+
     const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com');
     if (hiddenItemsForNonAdmin.length > 0) {
       setErrorMsg(`No se puede procesar la venta porque incluye productos ocultos (${hiddenItemsForNonAdmin.map(i => i.product.name).join(', ')}). Únicamente Administradores pueden venderlos.`);
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
       return;
     }
 
@@ -752,6 +759,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
     const finalSignature = signature || sellerSignature || undefined;
     isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       const items = cart.map(i => {
@@ -807,7 +815,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           debtAlert: debtType !== 'none',
           customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
           transportMethod: transportMethod || undefined,
-          sellerSignature: finalSignature || undefined
+          sellerSignature: finalSignature || undefined,
+          idempotencyKey: `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
         };
 
         if (!navigator.onLine) {
@@ -919,12 +928,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     } catch (err: any) {
       alert(`Error procesando venta: ${err.message}`);
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
       setPendingCheckout(null);
     }
   };
 
   const handleSaveSignature = (sig: string) => {
+    if (isSubmitting || isSubmittingRef.current) return;
     setSellerSignature(sig);
     localStorage.setItem('last_seller_signature', sig);
     setShowSignaturePad(false);
@@ -935,7 +946,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
   const handleCheckout = async (isOwed: boolean) => {
     isOwed = true; // Forzar crédito siempre
-    if (isSubmitting) return;
+    if (isSubmitting || isSubmittingRef.current) return;
 
     if (!client.trim()) {
       setErrorMsg('Por favor ingresa el nombre del cliente');
@@ -1010,14 +1021,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const finalizeCheckoutAfterSeller = async () => {
+    if (isSubmitting || isSubmittingRef.current) return;
     setShowNewClientSellerModal(false);
-    setIsSubmitting(true);
     
     if (editingInvoiceId) {
       try {
         await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
       } catch (err: any) {
         setIsSubmitting(false);
+        isSubmittingRef.current = false;
         alert(`Error al actualizar la venta: ${err.message}`);
       }
       return;
@@ -1029,6 +1041,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
          if (type !== 'none' && !isDebtAuthorized) {
            setShowDebtModal(true);
            setIsSubmitting(false);
+           isSubmittingRef.current = false;
            return;
          }
       }
@@ -1036,6 +1049,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
     } catch (err: any) {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
       alert(`Error comprobando deuda: ${err.message}`);
     }
   };

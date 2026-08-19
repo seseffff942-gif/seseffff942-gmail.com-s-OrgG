@@ -646,11 +646,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Stock en Bodega</span>
               <h3 className="text-xl sm:text-2xl font-black text-slate-800 leading-none">
                 <span className="notranslate" translate="no">{products.reduce((acc, p) => {
-                  if (p.is_external) return acc;
+                  if (p.is_external || doesNotNeedStock(p)) return acc;
                   if (p.variants && p.variants.length > 0) {
-                    return acc + p.variants.reduce((vAcc, v) => vAcc + (v.stock !== undefined ? v.stock : p.stock), 0);
+                    return acc + p.variants.reduce((vAcc, v) => vAcc + Math.max(0, Number(v.stock !== undefined ? v.stock : p.stock || 0)), 0);
                   }
-                  return acc + (p.stock || 0);
+                  return acc + Math.max(0, Number(p.stock || 0));
                 }, 0).toLocaleString('es-GT', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> <span className="text-xs font-semibold text-slate-500">unidades</span>
               </h3>
             </div>

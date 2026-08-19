@@ -151,10 +151,15 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       try {
         setLoading(true);
         const data = await api.getInvoices();
-        // Sort by date descending (newest first) and filter out unwanted test users
-        const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => 
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        ).filter((inv: any) => 
+        // Sort by date descending (newest first, with folio as tie-breaker) and filter out unwanted test users
+        const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => {
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          if (timeA !== timeB) return timeB - timeA;
+          const folioA = Number(a.folio) || 0;
+          const folioB = Number(b.folio) || 0;
+          return folioB - folioA;
+        }).filter((inv: any) => 
           !inv.client?.toLowerCase().includes("francisco zepeda") && 
           !inv.client?.toLowerCase().includes("fernando zamora")
         );

@@ -24,11 +24,13 @@ import * as infileApi from "./fel/infile.js";
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value || !value.trim()) {
-    console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
-    if (name === "JWT_SECRET") return "agricovet-jwt-fallback-secret-2026";
-    if (name === "SUPABASE_URL") return "https://xyzcompany.supabase.co";
-    if (name === "SUPABASE_ANON_KEY") return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5emNvbXBhbnkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY3MDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder";
-    return "default_value";
+    if (process.env.NODE_ENV === 'production' || name === 'JWT_SECRET') {
+      throw new Error(`[CRITICAL] Variable de entorno requerida no configurada: ${name}`);
+    }
+    console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor local.`);
+    if (name === "SUPABASE_URL") return process.env.VITE_SUPABASE_URL || "https://vedgedsbuajueynnyvpn.supabase.co";
+    if (name === "SUPABASE_ANON_KEY") return process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno";
+    return "";
   }
   return value.trim();
 }
@@ -285,7 +287,19 @@ app.set("trust proxy", 1);
 
 // Enable CORS for mobile apps, Capacitor WebView, and web clients
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  const isAllowedOrigin = !origin || 
+    origin.includes('localhost') || 
+    origin.includes('127.0.0.1') || 
+    origin.endsWith('agricovet.lat') || 
+    origin.startsWith('capacitor://') ||
+    origin.startsWith('ionic://');
+    
+  if (isAllowedOrigin) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
+  } else {
+    res.header("Access-Control-Allow-Origin", "https://agricovet.lat");
+  }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   if (req.method === "OPTIONS") {
@@ -293,6 +307,17 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// In-memory deduplication cache for sales creation (anti-double-click)
+const recentInvoicesCache = new Map<string, { timestamp: number, response: any }>();
+function cleanRecentInvoicesCache() {
+  const now = Date.now();
+  for (const [key, val] of recentInvoicesCache.entries()) {
+    if (now - val.timestamp > 60000) { // 60s TTL
+      recentInvoicesCache.delete(key);
+    }
+  }
+}
 
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
@@ -562,13 +587,23 @@ if (!process.env.VERCEL) {
     next();
   };
 
+  const isTecunProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
+    if (!product) return false;
+    const nameL = (product.name || '').toLowerCase();
+    const catL = (product.category || '').toLowerCase();
+    return (
+      catL.includes('tecun') || nameL.includes('tecun') ||
+      catL.includes('tecún') || nameL.includes('tecún')
+    );
+  };
+
   const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
     if (!product) return false;
     const nameLower = (product.name || '').toLowerCase();
     const categoryLower = (product.category || '').toLowerCase();
     
     // Explicitly exclude INCUBADORAS
-    if (categoryLower.includes('incubadora') || nameLower.includes('incubadora')) {
+    if (categoryLower.includes('incubadora') || nameLower.includes('incubadora') || categoryLower === 'incubadoras') {
       return true;
     }
     
@@ -657,15 +692,32 @@ if (!process.env.VERCEL) {
     res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
   }));
 
-  // ======== CHECK DAILY SALES (Admin) ========
-  app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = req.body.webhookUrl
-      || process.env.N8N_WEBHOOK_URL
-      || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
-    const sendToWebhook = req.body.sendToWebhook !== false; // default true
+  // ======== AUTOMATIZACIÓN N8N: COBROS DIARIOS Y SEMANALES ========
+  const N8N_DEFAULT_WEBHOOK = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/cobros-diarios';
 
-    // ─── Vendedores objetivo ─────────────────────────────────────────────
+  // Helper para obtener el lunes de la semana actual en Guatemala (UTC-6)
+  function getLunesSemanaActualGT(date: Date): string {
+    const gtOffset = -6 * 60;
+    const utcMs = date.getTime() + date.getTimezoneOffset() * 60000;
+    const gtNow = new Date(utcMs + gtOffset * 60000);
+    const dayOfWeek = gtNow.getDay(); // 0: Dom, 1: Lun ...
+    const distToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const lunes = new Date(gtNow);
+    lunes.setDate(gtNow.getDate() - distToMon);
+    const y = lunes.getFullYear();
+    const m = String(lunes.getMonth() + 1).padStart(2, '0');
+    const d = String(lunes.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  async function getCobrosYVentasConsolidado() {
+    const now = new Date();
+    const todayLabel = diaGuatemala(now);
+    const mondayLabel = getLunesSemanaActualGT(now);
+
+    const META_COBRO_DIARIA = 7500;
+    const META_COBRO_SEMANAL = 45000;
+
     const TARGET_SELLERS = [
       { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
       { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
@@ -673,260 +725,236 @@ if (!process.env.VERCEL) {
       { email: 'limalopez22@gmail.com',          name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
     ];
 
-    // ─── Fecha Guatemala (UTC-6 sin DST) ──────────────────────────────────
-    const todayLabel = diaGuatemala(new Date());
+    // 1. Obtener usuarios
+    const { data: usersData } = await supabase.from('users').select('id, name, email, phone, role');
+    const allUsers = usersData || [];
 
-    // ─── Consultar facturas recientes ─────────────────────────────────────
-    const { data: invoicesData, error: invErr } = await supabase
-      .from('invoices')
-      .select('sellerId, totalAmount, date')
-      .order('date', { ascending: false })
-      .limit(200);
-
-    if (invErr) {
-      return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
-    }
-
-    // ─── Obtener IDs reales de BD para cada vendedor ───────────────────────
-    const emails = TARGET_SELLERS.map(s => s.email);
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, name, email, phone')
-      .in('email', emails);
-
-    // ─── Calcular ventas estrictamente del día de hoy en Guatemala ─────────
-    const sellerResults = TARGET_SELLERS.map(seller => {
-      const dbUser = (usersData || []).find(u => u.email?.toLowerCase() === seller.email.toLowerCase());
-      const dbId   = dbUser?.id?.toLowerCase() || '';
-      const dbName = dbUser?.name || seller.name;
-      const dbPhone = dbUser?.phone || seller.phone || '';
-
-      let cantidadVendida  = 0;
-      let cantidadFacturas = 0;
-
-      for (const inv of (invoicesData || [])) {
-        if (diaGuatemala(new Date(inv.date)) !== todayLabel) continue;
-        const sId = (inv.sellerId || '').toLowerCase();
-        if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
-          cantidadVendida  += Number(inv.totalAmount) || 0;
-          cantidadFacturas += 1;
-        }
-      }
-
-      cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-      const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
-      const excedente = alcanzoMeta ? Math.round((cantidadVendida - SALES_THRESHOLD) * 100) / 100 : 0;
-      const cantidadFaltante = !alcanzoMeta ? Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100) : 0;
-
-      const mensaje = alcanzoMeta
-        ? `🎉 ¡Felicidades! ${dbName} superó la meta de ventas de hoy por Q${excedente.toLocaleString('es-GT', { minimumFractionDigits: 2 })}, alcanzando un total de Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}.`
-        : `⚠️ ${dbName} ha vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`;
-
-      return {
-        email:            seller.email,
-        sellerName:       dbName,
-        phone:            dbPhone,
-        totalVentas:      cantidadVendida,
-        cantidadVendida:  cantidadVendida,
-        diferencia:       cantidadFaltante,
-        cantidadFaltante: cantidadFaltante,
-        excedente:        excedente,
-        sobrante:         excedente,
-        exceso:           excedente,
-        cantidadFacturas: cantidadFacturas,
-        alcanzoMeta:      alcanzoMeta,
-        umbral:           SALES_THRESHOLD,
-        mensaje:          mensaje,
-      };
+    // Combinar vendedores target y otros asesores
+    const sellerMap = new Map<string, { id: string; name: string; email: string; phone: string }>();
+    TARGET_SELLERS.forEach(s => {
+      const u = allUsers.find(dbU => dbU.email?.toLowerCase() === s.email.toLowerCase());
+      sellerMap.set(s.email.toLowerCase(), {
+        id: u?.id || '',
+        name: u?.name || s.name,
+        email: s.email,
+        phone: s.phone
+      });
     });
 
-    const vendedoresBajoUmbral  = sellerResults.filter(s => !s.alcanzoMeta);
-    const vendedoresSobreUmbral = sellerResults.filter(s => s.alcanzoMeta);
-
-    // ─── Enviar webhook ────────────────────────────────────────────────────
-    let webhookResult: any = null;
-    if (sendToWebhook) {
-      const primarySeller: any = sellerResults[0] || {};
-      const payload = {
-        fecha:                todayLabel,
-        umbral:               SALES_THRESHOLD,
-        // Campos de compatibilidad directa para n8n:
-        vendedor:             primarySeller.sellerName || 'Emanuel Lima',
-        email:                primarySeller.email || 'seseffff942@gmail.com',
-        phone:                primarySeller.phone || '50248234048',
-        cantidadVendida:      primarySeller.cantidadVendida || 0,
-        cantidadFaltante:     primarySeller.cantidadFaltante || 0,
-        alcanzoMeta:          primarySeller.alcanzoMeta || false,
-        cantidadFacturas:     primarySeller.cantidadFacturas || 0,
-        mensaje:              primarySeller.mensaje || '',
-        // Arreglo completo de todos los vendedores:
-        vendedores:           sellerResults,
-        vendedoresBajoUmbral,
-        vendedoresSobreUmbral,
-        resumenTotal: {
-          totalVentas:     sellerResults.reduce((acc, s) => acc + s.cantidadVendida, 0),
-          totalFacturas:   sellerResults.reduce((acc, s) => acc + s.cantidadFacturas, 0),
-          metasAlcanzadas: vendedoresSobreUmbral.length,
-          metasPendientes: vendedoresBajoUmbral.length,
-        },
-      };
-
-      console.log(`[CHECK-SALES] Enviando POST a n8n: ${N8N_WEBHOOK_URL}`);
-      try {
-        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
+    allUsers.forEach(u => {
+      if (
+        u.role !== 'admin' &&
+        u.email &&
+        !u.email.startsWith('system-') &&
+        !u.id.startsWith('sys-') &&
+        !u.name?.toLowerCase().includes('configuration') &&
+        !u.name?.toLowerCase().includes('store') &&
+        !sellerMap.has(u.email.toLowerCase())
+      ) {
+        let ph = u.phone || '50248234048';
+        sellerMap.set(u.email.toLowerCase(), {
+          id: u.id,
+          name: u.name || u.email,
+          email: u.email,
+          phone: ph
         });
-        const resText  = await webhookRes.text().catch(() => '');
-        webhookResult  = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
+      }
+    });
 
-        // Enviar también una petición individual por cada vendedor a su propio número
-        for (const s of sellerResults) {
-          const indPayload = {
-            fecha:                todayLabel,
-            umbral:               SALES_THRESHOLD,
-            vendedor:             s.sellerName,
-            email:                s.email,
-            phone:                s.phone,
-            cantidadVendida:      s.cantidadVendida,
-            cantidadFaltante:     s.cantidadFaltante,
-            excedente:            s.excedente,
-            sobrante:             s.sobrante,
-            exceso:               s.exceso,
-            alcanzoMeta:          s.alcanzoMeta,
-            cantidadFacturas:     s.cantidadFacturas,
-            mensaje:              s.mensaje,
-            vendedores:           sellerResults,
-            vendedoresBajoUmbral,
-            vendedoresSobreUmbral,
-          };
-          fetch(N8N_WEBHOOK_URL, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(indPayload),
-          }).catch(() => {});
+    // 2. Facturas (Ventas)
+    const { data: invData } = await supabase.from('invoices').select('*').order('date', { ascending: false }).limit(500);
+    const invoices = invData || [];
 
-          if (N8N_WEBHOOK_URL.includes('/webhook/')) {
-            const testUrl = N8N_WEBHOOK_URL.replace('/webhook/', '/webhook-test/');
-            fetch(testUrl, {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body:    JSON.stringify(indPayload),
-            }).catch(() => {});
+    // 3. Pagos / Abonos (Cobros)
+    let payments: any[] = [];
+    try {
+      const { data: pData } = await supabase.from('payments').select('*').order('date', { ascending: false }).limit(500);
+      if (pData) payments = pData;
+    } catch {}
+
+    // Leer pagos locales de respaldo
+    try {
+      const pBackup = path.join(process.cwd(), 'payments_permanent_backup.json');
+      if (fs.existsSync(pBackup)) {
+        const arr = JSON.parse(fs.readFileSync(pBackup, 'utf8'));
+        if (Array.isArray(arr)) {
+          const ids = new Set(payments.map(p => p.id));
+          arr.forEach(p => { if (p && p.id && !ids.has(p.id)) payments.push(p); });
+        }
+      }
+    } catch {}
+
+    // 4. Recibos de caja
+    let recibos: any[] = [];
+    try {
+      const { data: rData } = await supabase.from('recibos_caja').select('*').order('fecha_emision', { ascending: false }).limit(300);
+      if (rData) recibos = rData;
+    } catch {}
+
+    // Mapa de facturas para vincular pagos a vendedores
+    const invoiceSellerMap = new Map<string, string>();
+    invoices.forEach(i => {
+      if (i.id && i.sellerId) invoiceSellerMap.set(i.id, i.sellerId.toLowerCase());
+    });
+
+    // 5. Calcular para cada vendedor
+    const resultados = Array.from(sellerMap.values()).map(seller => {
+      const sEmail = seller.email.toLowerCase();
+      const sId = seller.id.toLowerCase();
+
+      let cobradoHoy = 0;
+      let cobradoSemana = 0;
+      let vendidoHoy = 0;
+      let vendidoSemana = 0;
+      let facturasHoy = 0;
+
+      // Calcular Ventas
+      invoices.forEach(inv => {
+        if (inv.status === 'cancelled' || inv.status === 'rejected') return;
+        const invSeller = (inv.sellerId || '').toLowerCase();
+        if (invSeller === sEmail || (sId && invSeller === sId)) {
+          const invDay = diaGuatemala(new Date(inv.date || ''));
+          const monto = Number(inv.totalAmount) || 0;
+          if (invDay === todayLabel) {
+            vendidoHoy += monto;
+            facturasHoy += 1;
+          }
+          if (invDay >= mondayLabel && invDay <= todayLabel) {
+            vendidoSemana += monto;
           }
         }
-      } catch (err: any) {
-        webhookResult = { error: err.message, ok: false };
-        console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
-      }
-    }
+      });
 
-    res.json({
-      fecha:                todayLabel,
-      umbral:               SALES_THRESHOLD,
-      totalFacturasHoy:     sellerResults.reduce((acc, s) => acc + s.cantidadFacturas, 0),
-      vendedores:           sellerResults,
-      vendedoresBajoUmbral,
-      vendedoresSobreUmbral,
-      webhookEnviado:       sendToWebhook,
-      webhookResult,
-    });
-  }));
+      // Calcular Cobros (Pagos / Abonos)
+      payments.forEach(pay => {
+        if (pay.is_archived) return;
+        const payDate = pay.date ? diaGuatemala(new Date(pay.date)) : '';
+        const rawRec = (pay.recordedBy || pay.recordedby || pay.recorded_by || '').toLowerCase();
+        const invSeller = pay.invoiceId ? invoiceSellerMap.get(pay.invoiceId) : '';
+        const match = rawRec === sEmail || (sId && rawRec === sId) || invSeller === sEmail || (sId && invSeller === sId);
 
-  // ======== CHECK DAILY SALES - CIERRE 5 PM (Admin) ========
-  app.post("/api/admin/check-daily-sales-cierre", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/ventas-mediodia');
-    const sendToWebhook = req.body.sendToWebhook !== false;
+        if (match) {
+          const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (Number(pay.amount) || 0);
+          if (payDate === todayLabel) cobradoHoy += amount;
+          if (payDate >= mondayLabel && payDate <= todayLabel) cobradoSemana += amount;
+        }
+      });
 
-    // Guatemala UTC-6
-    const now = new Date();
-    const gtOffset = -6 * 60;
-    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-    const gtNow = new Date(utcMs + gtOffset * 60000);
-    const year = gtNow.getFullYear();
-    const month = String(gtNow.getMonth() + 1).padStart(2, '0');
-    const day = String(gtNow.getDate()).padStart(2, '0');
-    const todayLabel = `${year}-${month}-${day}`;
-    const startOfDay = `${todayLabel}T00:00:00`;
-    const endOfDay   = `${todayLabel}T23:59:59`;
+      // Recibos de caja adicionales
+      recibos.forEach(rec => {
+        const recDate = rec.fecha_emision || (rec.created_at ? diaGuatemala(new Date(rec.created_at)) : '');
+        const cajero = (rec.cajero_nombre || rec.seller_id || '').toLowerCase();
+        if (cajero.includes(seller.name.toLowerCase()) || cajero === sEmail || (sId && cajero === sId)) {
+          const rTotal = Number(rec.monto_total || rec.efectivo_total) || 0;
+          if (recDate === todayLabel) cobradoHoy += rTotal;
+          if (recDate >= mondayLabel && recDate <= todayLabel) cobradoSemana += rTotal;
+        }
+      });
 
-    const { data: usersData } = await supabase.from('users').select('id, name, email, photo').neq('role', 'admin');
-    const { data: invoicesData, error: invErr } = await supabase
-      .from('invoices')
-      .select('sellerId, totalAmount, date, status')
-      .gte('date', startOfDay)
-      .lte('date', endOfDay)
-      .not('status', 'in', '("cancelled","rejected")');
+      cobradoHoy = Math.round(cobradoHoy * 100) / 100;
+      cobradoSemana = Math.round(cobradoSemana * 100) / 100;
+      vendidoHoy = Math.round(vendidoHoy * 100) / 100;
+      vendidoSemana = Math.round(vendidoSemana * 100) / 100;
 
-    if (invErr) return res.status(500).json({ error: `Error consultando facturas: ${invErr.message}` });
+      const faltanteDiario = Math.max(0, Math.round((META_COBRO_DIARIA - cobradoHoy) * 100) / 100);
+      const extraDiario = Math.max(0, Math.round((cobradoHoy - META_COBRO_DIARIA) * 100) / 100);
+      const alcanzoMeta = cobradoHoy >= META_COBRO_DIARIA;
 
-    const sellerMap: Record<string, { name: string; email: string; phone: string; vendido: number; facturas: number }> = {};
+      const faltanteSemanal = Math.max(0, Math.round((META_COBRO_SEMANAL - cobradoSemana) * 100) / 100);
+      const extraSemanal = Math.max(0, Math.round((cobradoSemana - META_COBRO_SEMANAL) * 100) / 100);
+      const alcanzoMetaSemanal = cobradoSemana >= META_COBRO_SEMANAL;
 
-    for (const user of (usersData || [])) {
-      const phone = (() => { try { const p = JSON.parse(user.photo || '{}'); return p.phone || p.telefono || '50248234048'; } catch { return '50248234048'; } })();
-      sellerMap[user.id] = { name: user.name || user.email, email: user.email, phone, vendido: 0, facturas: 0 };
-    }
-
-    for (const inv of (invoicesData || [])) {
-      const sId = inv.sellerId || '';
-      if (sellerMap[sId]) {
-        sellerMap[sId].vendido += Number(inv.totalAmount) || 0;
-        sellerMap[sId].facturas += 1;
-      }
-    }
-
-    let webhookResult: any = null;
-    for (const [id, seller] of Object.entries(sellerMap)) {
-      const vendido    = Math.round(seller.vendido * 100) / 100;
-      const faltante   = Math.max(0, Math.round((SALES_THRESHOLD - vendido) * 100) / 100);
-      const extra      = Math.max(0, Math.round((vendido - SALES_THRESHOLD) * 100) / 100);
-      const alcanzoMeta = vendido >= SALES_THRESHOLD;
-
-      const cierrePayload = {
-        tipo:             'cierre',
-        fecha:            todayLabel,
-        vendedor:         seller.name,
-        email:            seller.email,
-        phone:            seller.phone,
-        cantidadVendida:  vendido,
-        cantidadFaltante: faltante,
-        excedente:        extra,
+      return {
+        vendedor: seller.name,
+        email: seller.email,
+        phone: seller.phone,
+        telefono: seller.phone,
+        cobrado: cobradoHoy,
+        metaCobro: META_COBRO_DIARIA,
+        faltante: faltanteDiario,
+        extra: extraDiario,
         alcanzoMeta,
-        umbral:           SALES_THRESHOLD,
-        cantidadFacturas: seller.facturas,
-        vendedoresBajoUmbral:  !alcanzoMeta ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido, diferencia: faltante }] : [],
-        vendedoresSobreUmbral: alcanzoMeta  ? [{ sellerId: id, sellerName: seller.name, totalVentas: vendido }]                     : [],
+        cobradoSemanal: cobradoSemana,
+        metaSemanal: META_COBRO_SEMANAL,
+        faltanteSemanal,
+        extraSemanal,
+        alcanzoMetaSemanal,
+        moneda: 'Q',
+        totalVentas: vendidoHoy,
+        totalVentasSemanal: vendidoSemana,
+        cantidadFacturas: facturasHoy
+      };
+    });
+
+    return { todayLabel, mondayLabel, resultados };
+  }
+
+  async function dispararN8NCobros(tipo: 'mediodia' | 'cierre' | 'semanal', webhookUrl?: string) {
+    const targetUrl = webhookUrl || N8N_DEFAULT_WEBHOOK;
+    const { todayLabel, resultados } = await getCobrosYVentasConsolidado();
+    console.log(`[N8N-COBROS] Enviando reporte '${tipo}' (${todayLabel}) a: ${targetUrl}`);
+
+    const webhookResponses: any[] = [];
+    for (const r of resultados) {
+      const payload = {
+        tipo,
+        vendedor: r.vendedor,
+        phone: r.phone,
+        telefono: r.telefono,
+        cobrado: r.cobrado,
+        metaCobro: r.metaCobro,
+        cobradoSemanal: r.cobradoSemanal,
+        metaSemanal: r.metaSemanal,
+        moneda: 'Q',
+        alcanzoMeta: r.alcanzoMeta,
+        alcanzoMetaSemanal: r.alcanzoMetaSemanal,
+        totalVentas: r.totalVentas,
+        cantidadFacturas: r.cantidadFacturas
       };
 
-      if (sendToWebhook) {
-        try {
-          const r = await fetch(N8N_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cierrePayload),
-          });
-          const txt = await r.text().catch(() => '');
-          webhookResult = { status: r.status, ok: r.ok, body: txt };
-          console.log(`[CIERRE-SALES] ${seller.name}: HTTP ${r.status} - ${txt}`);
-        } catch (err: any) {
-          console.error(`[CIERRE-SALES] Error: ${err.message}`);
-        }
-        // Espera 500ms entre mensajes para no saturar la API de Meta
-        await new Promise(resolve => setTimeout(resolve, 500));
+      try {
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const resTxt = await res.text().catch(() => '');
+        webhookResponses.push({ vendedor: r.vendedor, status: res.status, ok: res.ok, response: resTxt });
+        console.log(`[N8N-COBROS] ${r.vendedor} (${tipo}): HTTP ${res.status}`);
+      } catch (e: any) {
+        webhookResponses.push({ vendedor: r.vendedor, error: e.message, ok: false });
+        console.error(`[N8N-COBROS] Error para ${r.vendedor}:`, e.message);
       }
+      await new Promise(res => setTimeout(res, 400));
     }
 
-    res.json({ success: true, fecha: todayLabel, vendedores: Object.keys(sellerMap).length, webhookResult });
+    return { tipo, fecha: todayLabel, totalVendedores: resultados.length, webhookResponses, data: resultados };
+  }
+
+  // Endpoint Mediodía (12:30 PM)
+  app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const tipo = (req.body.tipo || 'mediodia') as 'mediodia' | 'cierre' | 'semanal';
+    const result = await dispararN8NCobros(tipo, req.body.webhookUrl);
+    res.json(result);
   }));
 
-  // ======== SCHEDULER AUTOMÁTICO - 12 PM y 5 PM GUATEMALA ========
-  // Se ejecuta solo en entornos no-Vercel (local / VPS)
+  // Endpoint Cierre (5:00 PM)
+  app.post("/api/admin/check-daily-sales-cierre", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const result = await dispararN8NCobros('cierre', req.body.webhookUrl);
+    res.json(result);
+  }));
+
+  // Endpoint Semanal
+  app.post("/api/admin/check-weekly-report", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const result = await dispararN8NCobros('semanal', req.body.webhookUrl);
+    res.json(result);
+  }));
+
+  // ======== SCHEDULER AUTOMÁTICO - 12:30 PM, 5:00 PM Y SEMANAL SÁBADO (GUATEMALA) ========
   if (!process.env.VERCEL) {
-    let lastNoonFired   = '';
+    let lastNoonFired = '';
     let lastCierreFired = '';
+    let lastSemanalFired = '';
 
     setInterval(async () => {
       const now = new Date();
@@ -935,37 +963,39 @@ if (!process.env.VERCEL) {
       const gtNow = new Date(utcMs + gtOffset * 60000);
       const hh = gtNow.getHours();
       const mm = gtNow.getMinutes();
+      const day = gtNow.getDay(); // 0: Dom, 6: Sáb
       const yy = gtNow.getFullYear();
       const mo = String(gtNow.getMonth() + 1).padStart(2, '0');
       const dd = String(gtNow.getDate()).padStart(2, '0');
       const todayKey = `${yy}-${mo}-${dd}`;
 
-      // 12:00 PM Guatemala → dispara reporte mediodía
-      if (hh === 12 && mm === 0 && lastNoonFired !== todayKey) {
+      // 12:30 PM Guatemala → Dispara reporte mediodía
+      if (hh === 12 && mm === 30 && lastNoonFired !== todayKey) {
         lastNoonFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte mediodía (12:00 PM GT) ${todayKey}`);
+        console.log(`[SCHEDULER] Disparando reporte mediodía (12:30 PM GT) ${todayKey}`);
         try {
-          await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.SCHEDULER_TOKEN || ''}` },
-            body: JSON.stringify({ sendToWebhook: true }),
-          });
+          await dispararN8NCobros('mediodia');
         } catch (e: any) { console.error('[SCHEDULER] Error mediodía:', e.message); }
       }
 
-      // 17:00 (5 PM) Guatemala → dispara reporte cierre
+      // 17:00 (5:00 PM) Guatemala → Dispara reporte cierre diario
       if (hh === 17 && mm === 0 && lastCierreFired !== todayKey) {
         lastCierreFired = todayKey;
         console.log(`[SCHEDULER] Disparando reporte cierre (5:00 PM GT) ${todayKey}`);
         try {
-          await fetch(`http://localhost:${process.env.PORT || 3000}/api/admin/check-daily-sales-cierre`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.SCHEDULER_TOKEN || ''}` },
-            body: JSON.stringify({ sendToWebhook: true }),
-          });
+          await dispararN8NCobros('cierre');
         } catch (e: any) { console.error('[SCHEDULER] Error cierre:', e.message); }
       }
-    }, 30000); // revisa cada 30 segundos
+
+      // Sábado 17:30 (5:30 PM) Guatemala → Dispara reporte cierre semanal
+      if (day === 6 && hh === 17 && mm === 30 && lastSemanalFired !== todayKey) {
+        lastSemanalFired = todayKey;
+        console.log(`[SCHEDULER] Disparando reporte semanal (Sábado 5:30 PM GT) ${todayKey}`);
+        try {
+          await dispararN8NCobros('semanal');
+        } catch (e: any) { console.error('[SCHEDULER] Error semanal:', e.message); }
+      }
+    }, 30000);
   }
 
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -3658,7 +3688,7 @@ if (!process.env.VERCEL) {
   }));
 
   app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
+    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature, idempotencyKey } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
 
     // Prohibir venta si no hay productos
@@ -3677,6 +3707,20 @@ if (!process.env.VERCEL) {
     }
 
     const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
+
+    // DEDUPLICATION SHIELD: Prevent double execution on rapid repeated taps / clicks
+    cleanRecentInvoicesCache();
+    if (idempotencyKey && recentInvoicesCache.has(idempotencyKey)) {
+      console.log(`[DEDUPLICATE] Venta ya procesada con idempotencyKey: ${idempotencyKey}. Devolviendo resultado previo.`);
+      return res.json(recentInvoicesCache.get(idempotencyKey)!.response);
+    }
+
+    const itemsFingerprint = (items || []).map((i: any) => `${i.productId || i.id}:${i.quantity}:${i.price}`).join('|');
+    const saleFingerprint = `fp_${saleOwner}_${(client || '').trim().toLowerCase()}_${itemsFingerprint}`;
+    if (recentInvoicesCache.has(saleFingerprint)) {
+      console.log(`[DEDUPLICATE] Venta concurrente idéntica interceptada (${saleFingerprint}). Devolviendo resultado para evitar duplicación.`);
+      return res.json(recentInvoicesCache.get(saleFingerprint)!.response);
+    }
 
     // Auto-register client if not exists
     if (client) {
@@ -3786,7 +3830,10 @@ if (!process.env.VERCEL) {
           item.isStockAlert = true;
         }
         
-        const newStock = currentStock - parseFloat(item.quantity);
+        const isTecun = isTecunProduct(product);
+        const newStock = isTecun
+          ? Math.max(0, currentStock - parseFloat(item.quantity))
+          : currentStock - parseFloat(item.quantity);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
@@ -4042,7 +4089,7 @@ if (!process.env.VERCEL) {
 
     const folioMap = await getFolioMap();
 
-    res.json({
+    const finalInvoiceResponse = {
       ...returnInvoice,
       isOwed: true,
       folio: folioMap[returnInvoice.id] || 1,
@@ -4050,7 +4097,15 @@ if (!process.env.VERCEL) {
       nit: returnInvoice.nit || '',
       phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
       address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
-    });
+    };
+
+    // Store in recent invoices cache for idempotency protection
+    if (idempotencyKey) {
+      recentInvoicesCache.set(idempotencyKey, { timestamp: Date.now(), response: finalInvoiceResponse });
+    }
+    recentInvoicesCache.set(saleFingerprint, { timestamp: Date.now(), response: finalInvoiceResponse });
+
+    res.json(finalInvoiceResponse);
   }));
 
   app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -4203,10 +4258,30 @@ if (!process.env.VERCEL) {
         totalAmount: total,
         status: isOwed ? 'pending' : (oldInvoice.paidAmount >= total ? 'paid' : (oldInvoice.status === 'sent' ? 'sent' : 'pending'))
     };
+
     if (targetDate) {
-      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
-        ? new Date(`${targetDate}T12:00:00-06:00`).toISOString()
-        : (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
+      const oldDay = oldInvoice.date ? diaGuatemala(oldInvoice.date) : null;
+      const targetDay = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : diaGuatemala(targetDate);
+
+      // Si la fecha calendario es la misma que la original, se CONSERVA intacta la fecha y hora original exacta
+      if (oldDay && targetDay === oldDay) {
+        updatedDataRaw.date = oldInvoice.date;
+      } else if (oldInvoice.date && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        // Si el administrador cambió deliberadamente a otro día, trasladamos la fecha manteniendo la hora/minuto/segundo original
+        const oldDt = new Date(oldInvoice.date);
+        const [tYear, tMonth, tDay] = targetDate.split('-').map(Number);
+        const oldGt = new Date(oldDt.getTime() - 6 * 3600000);
+        const hours = oldGt.getUTCHours();
+        const minutes = oldGt.getUTCMinutes();
+        const seconds = oldGt.getUTCSeconds();
+        const ms = oldGt.getUTCMilliseconds();
+        const newGtUtc = Date.UTC(tYear, tMonth - 1, tDay, hours, minutes, seconds, ms) + 6 * 3600000;
+        updatedDataRaw.date = new Date(newGtUtc).toISOString();
+      } else {
+        updatedDataRaw.date = (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
+      }
+    } else {
+      updatedDataRaw.date = oldInvoice.date;
     }
     updatedDataRaw['clientName'] = client;
     updatedDataRaw['customerPhone'] = phone || '';
@@ -4657,7 +4732,14 @@ if (!process.env.VERCEL) {
       console.log(`Filtered invoices for client "${client}": found ${filteredInvoices.length} results.`);
     }
 
-    filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    filteredInvoices.sort((a: any, b: any) => {
+      const timeA = new Date(a.date || 0).getTime();
+      const timeB = new Date(b.date || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      const folioA = Number(a.folio) || 0;
+      const folioB = Number(b.folio) || 0;
+      return folioB - folioA;
+    });
     res.json(filteredInvoices);
   }));
 
@@ -7327,128 +7409,6 @@ async function startServer() {
     app.listen(PORT as number, "0.0.0.0", async () => {
       console.log(`Server running on http://localhost:${PORT}`);
 
-      // ─── Cron automático de ventas al mediodía (Guatemala UTC-6) ──────────
-      const NOON_WEBHOOK_URL  = process.env.N8N_WEBHOOK_URL || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-mediodia';
-      const NOON_SELLERS = [
-        { email: 'seseffff942@gmail.com',           name: 'Emanuel Lima',             phone: '50248234048' },
-        { email: 'jerickottoniel@gmail.com',       name: 'Erick Juárez',             phone: '50254743595' },
-        { email: 'gruasytransportesali@gmail.com',  name: 'Herbert Argueta',          phone: '50241323037' },
-        { email: 'limalopez22@gmail.com',           name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
-      ];
-
-      async function dispararWebhookVentasMediodia() {
-        try {
-          console.log('[CRON-NOON] Ejecutando reporte de ventas del mediodía...');
-          const todayLabel = diaGuatemala(new Date());
-          const { data: invoicesData } = await supabase.from('invoices').select('sellerId, totalAmount, date').order('date', { ascending: false }).limit(200);
-          const emails = NOON_SELLERS.map(s => s.email);
-          const { data: usersData } = await supabase.from('users').select('id, name, email, phone').in('email', emails);
-
-          const THRESHOLD = 8750;
-          const sellerResults = NOON_SELLERS.map(seller => {
-            const dbUser  = (usersData || []).find((u:any) => u.email?.toLowerCase() === seller.email.toLowerCase());
-            const dbId    = dbUser?.id?.toLowerCase() || '';
-            const dbName  = dbUser?.name  || seller.name;
-            const dbPhone = dbUser?.phone || seller.phone || '';
-            let cantidadVendida = 0, cantidadFacturas = 0;
-            for (const inv of (invoicesData || [])) {
-              if (diaGuatemala(new Date(inv.date)) !== todayLabel) continue;
-              const sId = (inv.sellerId || '').toLowerCase();
-              if (sId === seller.email.toLowerCase() || (dbId && sId === dbId)) {
-                cantidadVendida  += Number(inv.totalAmount) || 0;
-                cantidadFacturas += 1;
-              }
-            }
-            cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-            const alcanzoMeta = cantidadVendida >= THRESHOLD;
-            const excedente = alcanzoMeta ? Math.round((cantidadVendida - THRESHOLD) * 100) / 100 : 0;
-            const cantidadFaltante = !alcanzoMeta ? Math.max(0, Math.round((THRESHOLD - cantidadVendida) * 100) / 100) : 0;
-
-            return {
-              email: seller.email, sellerName: dbName, phone: dbPhone,
-              totalVentas: cantidadVendida, cantidadVendida,
-              diferencia: cantidadFaltante, cantidadFaltante,
-              excedente, sobrante: excedente, exceso: excedente,
-              cantidadFacturas, alcanzoMeta, umbral: THRESHOLD,
-              mensaje: alcanzoMeta
-                ? `🎉 ¡Felicidades! ${dbName} superó la meta de ventas hoy por Q${excedente.toLocaleString('es-GT',{minimumFractionDigits:2})}, alcanzando Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
-                : `⚠️ ${dbName} lleva Q${cantidadVendida.toLocaleString('es-GT',{minimumFractionDigits:2})} hoy. Le faltan Q${cantidadFaltante.toLocaleString('es-GT',{minimumFractionDigits:2})}.`
-            };
-          });
-
-          const primarySeller: any = sellerResults[0] || {};
-          const payload = {
-            fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
-            vendedor: primarySeller.sellerName || 'Emanuel Lima',
-            email: primarySeller.email || 'seseffff942@gmail.com',
-            phone: primarySeller.phone || '50248234048',
-            cantidadVendida: primarySeller.cantidadVendida || 0,
-            cantidadFaltante: primarySeller.cantidadFaltante || 0,
-            alcanzoMeta: primarySeller.alcanzoMeta || false,
-            cantidadFacturas: primarySeller.cantidadFacturas || 0,
-            mensaje: primarySeller.mensaje || '',
-            vendedores: sellerResults,
-            vendedoresBajoUmbral:  sellerResults.filter(s => !s.alcanzoMeta),
-            vendedoresSobreUmbral: sellerResults.filter(s => s.alcanzoMeta),
-            resumenTotal: {
-              totalVentas:     sellerResults.reduce((a,s) => a + s.cantidadVendida, 0),
-              totalFacturas:   sellerResults.reduce((a,s) => a + s.cantidadFacturas, 0),
-              metasAlcanzadas: sellerResults.filter(s => s.alcanzoMeta).length,
-              metasPendientes: sellerResults.filter(s => !s.alcanzoMeta).length,
-            },
-          };
-
-          const r = await fetch(NOON_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-          console.log(`[CRON-NOON] Webhook maestro enviado → HTTP ${r.status}`);
-
-          // Enviar una petición individual por cada vendedor a n8n
-          for (const s of sellerResults) {
-            const indPayload = {
-              fecha: todayLabel, tipo: 'mediodía-automatico', umbral: THRESHOLD,
-              vendedor: s.sellerName, email: s.email, phone: s.phone,
-              cantidadVendida: s.cantidadVendida, cantidadFaltante: s.cantidadFaltante,
-              excedente: s.excedente, sobrante: s.sobrante, exceso: s.exceso,
-              alcanzoMeta: s.alcanzoMeta, cantidadFacturas: s.cantidadFacturas,
-              mensaje: s.mensaje, vendedores: sellerResults,
-              vendedoresBajoUmbral:  sellerResults.filter(item => !item.alcanzoMeta),
-              vendedoresSobreUmbral: sellerResults.filter(item => item.alcanzoMeta),
-            };
-            fetch(NOON_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(indPayload) }).catch(() => {});
-            if (NOON_WEBHOOK_URL.includes('/webhook/')) {
-              const testUrl = NOON_WEBHOOK_URL.replace('/webhook/', '/webhook-test/');
-              fetch(testUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(indPayload) }).catch(() => {});
-            }
-          }
-        } catch (err: any) {
-          console.error('[CRON-NOON] Error:', err.message);
-        }
-      }
-
-      // Calcular milisegundos hasta el próximo mediodía Guatemala (12:00:00)
-      function msHastaMedianocheMediodia(): number {
-        const now = new Date();
-        const gtOffset = -6 * 60;
-        const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-        const gtNow = new Date(utcMs + gtOffset * 60000);
-        const noon = new Date(gtNow);
-        noon.setHours(12, 0, 0, 0);
-        if (gtNow >= noon) noon.setDate(noon.getDate() + 1); // ya pasó el mediodía hoy → mañana
-        return noon.getTime() - gtNow.getTime();
-      }
-
-      function programarCronMediodia() {
-        const ms = msHastaMedianocheMediodia();
-        const h = Math.floor(ms / 3600000);
-        const m = Math.floor((ms % 3600000) / 60000);
-        console.log(`[CRON-NOON] Próximo disparo en ${h}h ${m}min`);
-        setTimeout(async () => {
-          await dispararWebhookVentasMediodia();
-          setInterval(dispararWebhookVentasMediodia, 24 * 60 * 60 * 1000); // cada 24h a partir de ahí
-        }, ms);
-      }
-
-      programarCronMediodia();
-      // ──────────────────────────────────────────────────────────────────────
 
 
       
