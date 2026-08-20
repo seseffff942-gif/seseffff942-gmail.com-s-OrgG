@@ -4,6 +4,7 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { matchInvoiceSearch } from '../utils';
 
 interface SellerDebtsPageProps {
   user: User;
@@ -78,9 +79,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
 
   const pendingInvoices = invoices.filter(inv => inv.status === 'pending');
   const filteredInvoices = pendingInvoices.filter(inv => 
-    (inv.id || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (inv.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (inv.sellerId || '').toLowerCase().includes(searchTerm.toLowerCase())
+    matchInvoiceSearch(inv, searchTerm, getSellerName(inv.sellerId || ''))
   );
 
   const totalPending = filteredInvoices.reduce((acc, inv) => acc + (inv.totalAmount - inv.paidAmount), 0);
@@ -335,14 +334,14 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
-        <div className="mb-6 relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
+        <div className="sticky top-2 z-20 mb-6 relative w-full max-w-md bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-neutral-200/80 shadow-md">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
           <input
             type="text"
             placeholder="Buscar por cliente, vendedor o No. Factura..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
+            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-xs font-bold"
           />
         </div>
 

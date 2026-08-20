@@ -38,6 +38,7 @@
     "helmet": "^8.2.0",
     "html2canvas": "1.4.1",
     "html2pdf.js": "^0.14.0",
+    "isomorphic-git": "^1.41.7",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "4.2.1",
     "lucide-react": "^0.546.0",

@@ -20,7 +20,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 // @ts-ignore
-import { cn, pdfBlobDesdeElemento, descargarBlob } from '../utils';
+import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch } from '../utils';
 
 interface DispatchPageProps {
   user: User;
@@ -203,10 +203,7 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   const filteredInvoices = useMemo(() => {
     return invoices
       .filter(inv => activeTab === 'despachado' ? inv.status === 'despachado' : inv.status !== 'despachado')
-      .filter(inv => 
-        inv.client?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        inv.id.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      .filter(inv => matchInvoiceSearch(inv, searchQuery, getSellerName(inv.sellerId || inv.seller)));
   }, [invoices, activeTab, searchQuery]);
 
   const handleScan = React.useCallback((productId: string) => {

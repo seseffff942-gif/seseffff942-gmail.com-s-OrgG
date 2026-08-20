@@ -692,7 +692,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       <div className="flex flex-col space-y-6">
         
         {/* Search, Actions & Category Filter Panel */}
-        <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 sm:space-y-6">
+        <div className="sticky top-2 z-20 bg-white/95 backdrop-blur-md p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-md space-y-4 sm:space-y-5 transition-all">
           <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
             
             {/* Search Input */}

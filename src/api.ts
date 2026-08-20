@@ -1285,6 +1285,38 @@ export const api = {
     return res.json();
   },
 
+  getBusinessDebts: async (): Promise<any[]> => {
+    const res = await fetchWithAuth('/api/business-debts');
+    if (!res.ok) throw new Error('Error al obtener compras');
+    return res.json();
+  },
+
+  createBusinessDebt: async (data: any): Promise<any> => {
+    const res = await fetchWithAuth('/api/business-debts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al guardar factura de compra');
+    }
+    return res.json();
+  },
+
+  updateBusinessDebt: async (id: string, data: any): Promise<any> => {
+    const res = await fetchWithAuth(`/api/business-debts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al actualizar compra');
+    }
+    return res.json();
+  },
+
   deleteBusinessDebt: async (id: string): Promise<any> => {
     const res = await fetchWithAuth(`/api/business-debts/${id}`, {
       method: 'DELETE'

@@ -1532,3 +1532,83 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
     }, 1200);
   }
 }
+
+/**
+ * Búsqueda inteligente y precisa para facturas y folios.
+ * - Si se busca un folio explícito ('f984', 'F984', '#984', 'folio 984', '984'):
+ *   Coincide ÚNICAMENTE con el número de folio correspondiente, evitando falsos positivos con UUIDs.
+ * - Si se busca texto: Coincide con Cliente, Vendedor, Productos, Serie o Notas.
+ */
+export function matchInvoiceSearch(
+  invoice: any,
+  searchTerm: string,
+  sellerName?: string
+): boolean {
+  if (!searchTerm || !searchTerm.trim()) return true;
+  if (!invoice) return false;
+
+  const rawTerm = searchTerm.trim().toLowerCase();
+
+  // 1. Detección de Búsqueda Explícita de Folio (ej. 'f984', 'F984', '#984', 'f-984', 'fac984', 'folio 984', 'folio984')
+  const explicitFolioMatch = rawTerm.match(/^(?:f|fac|folio|#)[\s\-_]*(\d+)$/i);
+  if (explicitFolioMatch) {
+    const targetFolio = explicitFolioMatch[1]; // ej. '984'
+    const invFolio = invoice.folio !== undefined && invoice.folio !== null ? String(invoice.folio).trim() : '';
+    return invFolio === targetFolio || invFolio.startsWith(targetFolio);
+  }
+
+  // 2. Si el término es puramente numérico (ej. '984' o '1013')
+  if (/^\d+$/.test(rawTerm)) {
+    const invFolio = invoice.folio !== undefined && invoice.folio !== null ? String(invoice.folio).trim() : '';
+    if (invFolio === rawTerm || invFolio.startsWith(rawTerm)) {
+      return true;
+    }
+    // Verificar teléfono o NIT del cliente si coinciden
+    const phoneClean = String(invoice.phone || invoice.customerPhone || '').replace(/\D/g, '');
+    if (phoneClean && phoneClean.includes(rawTerm)) return true;
+
+    const nitClean = String(invoice.nit || invoice.customerNit || invoice.supplierNit || '').replace(/\D/g, '');
+    if (nitClean && nitClean.includes(rawTerm)) return true;
+
+    const invNum = String(invoice.invoiceNumber || invoice.correlative || '').trim();
+    if (invNum && (invNum === rawTerm || invNum.startsWith(rawTerm))) return true;
+
+    return false;
+  }
+
+  // 3. Búsqueda general de texto (por Cliente, Vendedor, Producto, Serie, Notas)
+  const clientStr = String(invoice.client || invoice.clientName || invoice.customerName || '').toLowerCase();
+  if (clientStr.includes(rawTerm)) return true;
+
+  const nitStr = String(invoice.nit || invoice.customerNit || invoice.supplierNit || '').toLowerCase();
+  if (nitStr.includes(rawTerm)) return true;
+
+  const sellerIdStr = String(invoice.sellerId || '').toLowerCase();
+  if (sellerIdStr.includes(rawTerm)) return true;
+
+  if (sellerName && sellerName.toLowerCase().includes(rawTerm)) return true;
+
+  // Productos en el pedido
+  if (Array.isArray(invoice.items)) {
+    const hasProductMatch = invoice.items.some((item: any) =>
+      (item.productName || item.name || '').toLowerCase().includes(rawTerm)
+    );
+    if (hasProductMatch) return true;
+  }
+
+  // Serie / correlativo de documento
+  const seriesStr = String(invoice.invoiceSeries || invoice.series || '').toLowerCase();
+  const invoiceNumStr = String(invoice.invoiceNumber || invoice.correlative || '').toLowerCase();
+  if (seriesStr && seriesStr.includes(rawTerm)) return true;
+  if (invoiceNumStr && invoiceNumStr.includes(rawTerm)) return true;
+  if (seriesStr && invoiceNumStr && `${seriesStr}-${invoiceNumStr}`.includes(rawTerm)) return true;
+
+  // DTE / UUID solo si la búsqueda empieza por inv- o tiene formato DTE
+  const dteStr = String(invoice.dte || invoice.uuid || invoice.felUuid || '').toLowerCase();
+  if (dteStr && dteStr.includes(rawTerm) && rawTerm.length >= 6) return true;
+
+  const idStr = String(invoice.id || '').toLowerCase();
+  if (rawTerm.startsWith('inv-') && idStr.includes(rawTerm)) return true;
+
+  return false;
+}

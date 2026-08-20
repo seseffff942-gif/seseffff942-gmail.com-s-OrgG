@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, matchInvoiceSearch } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -287,17 +287,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   };
 
   const filteredInvoices = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
     return invoices.filter(i => {
       // Hide cancelled and rejected invoices if the option is false
       if (!showCancelledAndRejected && (i.status === 'cancelled' || i.status === 'rejected')) {
         return false;
       }
 
-      const matchSearch = !term || (i.client || '').toLowerCase().includes(term) || 
-        (i.id || '').toLowerCase().includes(term) ||
-        (i.sellerId || '').toLowerCase().includes(term) ||
-        (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term);
+      const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
       
       let matchDate = true;
       if (dateViewMode === 'day') {

@@ -1,0 +1,128 @@
+[
+  {
+    "name": "Sistemas agropecuarios",
+    "phone": "//",
+    "email": "",
+    "address": "//",
+    "category": "Medicamentos",
+    "creditDays": 90,
+    "id": "sup_1782345545265"
+  },
+  {
+    "name": "Tecun ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Agroquímicos",
+    "creditDays": 90,
+    "id": "sup_1782345561718"
+  },
+  {
+    "name": "Avindustrias ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345577405"
+  },
+  {
+    "name": "Insumos modernos ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345594851"
+  },
+  {
+    "name": "Biozoo",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345607133"
+  },
+  {
+    "name": "Botica ganadera ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345644996"
+  },
+  {
+    "name": "DCA agroicubadoras ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 60,
+    "id": "sup_1782345657951"
+  },
+  {
+    "name": "Mallo",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 45,
+    "id": "sup_1782345674562"
+  },
+  {
+    "name": "Imagro",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 60,
+    "id": "sup_1782345683814"
+  },
+  {
+    "name": "Granorsa",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345698581"
+  },
+  {
+    "name": "Wellco y arboretto",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 30,
+    "id": "sup_1782345719440"
+  },
+  {
+    "name": "Foragro",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 90,
+    "id": "sup_1782345730799"
+  },
+  {
+    "name": "Duwest",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 0,
+    "id": "sup_1782345745916"
+  },
+  {
+    "name": "Farmacia moderna ",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "category": "Medicamentos",
+    "creditDays": 0,
+    "id": "sup_1782345754494"
+  }
+]

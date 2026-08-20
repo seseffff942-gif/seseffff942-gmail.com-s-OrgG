@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "debt_1782312307295",
+    "title": "Factura: OSCAR FERNANDO, GIRON CHACON",
+    "amount": 3600,
+    "invoiceDate": "2026-06-16",
+    "creditDays": 30,
+    "dueDate": "2026-07-16",
+    "supplierId": null,
+    "type": "paga",
+    "notes": "Compra de 10 litros de producto químico Nuvan para AGRONORSA. (Escaneado digitalmente)",
+    "isPaid": false,
+    "receipts": [],
+    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312282066.jpg?t=1782312282315",
+    "orderReceivedBy": "Emanuel Lima",
+    "status": "pendiente",
+    "items": [
+      {
+        "name": "Nuvan litros",
+        "quantity": 10,
+        "price": 360
+      }
+    ],
+    "createdAt": "2026-06-24T14:45:07.295Z"
+  },
+  {
+    "id": "debt_1782312332967",
+    "title": "Factura: OSCAR FERNANDO, GIRON CHACON",
+    "amount": 3300,
+    "invoiceDate": "2026-06-19",
+    "creditDays": 30,
+    "dueDate": "2026-07-19",
+    "supplierId": null,
+    "type": "paga",
+    "notes": "Factura de compra de insumos agrícolas (Nuvan 100ml) emitida por AGRONORSA. (Escaneado digitalmente)",
+    "isPaid": false,
+    "receipts": [],
+    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312324492.jpg?t=1782312324770",
+    "orderReceivedBy": "Emanuel Lima",
+    "status": "pendiente",
+    "items": [
+      {
+        "name": "Nuvan 100ml",
+        "quantity": 60,
+        "price": 55
+      }
+    ],
+    "createdAt": "2026-06-24T14:45:32.967Z"
+  },
+  {
+    "id": "debt_1782312428232",
+    "title": "Factura: Técnica Universal, Sociedad Anónima",
+    "amount": 1202.32,
+    "invoiceDate": "2026-06-20",
+    "creditDays": 90,
+    "dueDate": "2026-09-18",
+    "supplierId": null,
+    "type": "paga",
+    "notes": "Factura cambiaria por la compra de CIPERMETRINA 25 EC. (Escaneado digitalmente)",
+    "isPaid": false,
+    "receipts": [],
+    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312412923.jpg?t=1782312413115",
+    "orderReceivedBy": "Emanuel Lima",
+    "status": "pendiente",
+    "items": [
+      {
+        "name": "CIPERMETRINA 25 EC 500ML 500 m.l.",
+        "quantity": 38,
+        "price": 31.64
+      }
+    ],
+    "createdAt": "2026-06-24T14:47:08.232Z"
+  }
+]

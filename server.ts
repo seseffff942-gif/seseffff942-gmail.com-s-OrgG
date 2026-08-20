@@ -5350,14 +5350,31 @@ if (!process.env.VERCEL) {
 
   app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const d = await readDebts();
+    const amountVal = parseFloat(req.body.amount || "0");
+    const subtotalVal = req.body.subtotal !== undefined && req.body.subtotal !== null && req.body.subtotal !== ''
+      ? parseFloat(req.body.subtotal)
+      : parseFloat((amountVal / 1.12).toFixed(2));
+    const ivaVal = req.body.iva !== undefined && req.body.iva !== null && req.body.iva !== ''
+      ? parseFloat(req.body.iva)
+      : parseFloat((amountVal - subtotalVal).toFixed(2));
+
     const newDebt = { 
-      id: `debt_${Date.now()}`,
-      title: req.body.title || "Gasto sin título",
-      amount: parseFloat(req.body.amount || "0"),
-      invoiceDate: req.body.invoiceDate || new Date().toISOString().split('T')[0],
-      creditDays: parseInt(req.body.creditDays || "0"),
-      dueDate: req.body.dueDate || new Date().toISOString().split('T')[0],
+      id: req.body.id || `debt_${Date.now()}`,
+      title: req.body.title || (req.body.supplierCommercialName ? `Factura de ${req.body.supplierCommercialName}` : "Factura de Compra"),
+      invoiceNumber: (req.body.invoiceNumber || "").toString().trim(),
+      invoiceSeries: (req.body.invoiceSeries || "").toString().trim(),
+      invoiceType: req.body.invoiceType || "factura_normal",
+      dte: (req.body.dte || "").toString().trim(),
       supplierId: req.body.supplierId || null,
+      supplierNit: (req.body.supplierNit || "").toString().trim(),
+      supplierNitName: (req.body.supplierNitName || "").toString().trim(),
+      supplierCommercialName: (req.body.supplierCommercialName || "").toString().trim(),
+      invoiceDate: req.body.invoiceDate || new Date().toISOString().split('T')[0],
+      creditDays: parseInt(req.body.creditDays || "0", 10),
+      dueDate: req.body.dueDate || req.body.invoiceDate || new Date().toISOString().split('T')[0],
+      subtotal: subtotalVal,
+      iva: ivaVal,
+      amount: amountVal,
       type: req.body.type || "paga",
       notes: req.body.notes || "",
       isPaid: req.body.isPaid || false,
@@ -5366,7 +5383,7 @@ if (!process.env.VERCEL) {
       orderReceivedBy: req.body.orderReceivedBy || null,
       status: req.body.status || "pendiente",
       items: req.body.items || [],
-      createdAt: new Date().toISOString()
+      createdAt: req.body.createdAt || new Date().toISOString()
     };
     d.push(newDebt);
     await writeDebts(d);
@@ -5475,22 +5492,40 @@ if (!process.env.VERCEL) {
 
     try {
       const client = getGeminiClient();
-      const prompt = `Analiza la siguiente imagen de una factura/gasto de proveedor. Extrae la siguiente información estructurada de manera precisa y en español. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto de la imagen:
-1. Nombre del Proveedor (supplierName): Nombre legal o comercial del proveedor de la factura.
-2. Fecha de Compra/Factura (invoiceDate): En formato YYYY-MM-DD.
-3. Monto Total de la Factura (amount): Número decimal.
-4. Plazo de pago sugerido en días (creditDays): Un número entero (ej. 15, 30, 45, 60 ds). Si se paga de contado, pon 0.
-5. Detalle de artículos/productos (items): Una lista de lo que se compró (nombre, cantidad, precio unitario de ser posible).
-6. Notas (notes): Un resumen corto y útil del gasto.
+      const prompt = `Analiza detalladamente la siguiente imagen o documento de factura/compra de un proveedor en Guatemala.
+Debes identificar y extraer con máxima precisión fiscal los siguientes datos obligatorios en formato JSON estricto:
 
-Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquema:
+1. invoiceDate: Fecha de emisión de la factura en formato YYYY-MM-DD (busca 'Fecha de emisión', 'Fecha', 'Fecha certificación').
+2. invoiceNumber: Número correlativo o número de factura (busca 'Número de Factura', 'No. Documento', 'Correlativo', 'No.').
+3. invoiceSeries: Número de serie de la factura (busca 'Serie', 'Serie de Documento', ej: 'A', 'FC', 'F39B', 'B', etc.).
+4. invoiceType: 'factura_cambiaria' si en el documento dice expresamente 'Factura Cambiaria' o 'Cambiaria', de lo contrario 'factura_normal'.
+5. supplierNit: Número de NIT del proveedor/emisor (busca 'NIT Emisor', 'NIT Proveedor', 'NIT', 'N.I.T.', ej: '3491028-1', '7823419-5').
+6. supplierNitName: Nombre que aparece en el NIT del proveedor o Razón Social fiscal registrada ante SAT (busca 'Razón Social', 'Nombre del Emisor', 'Emisor', ej: 'Agroquímicos del Pacífico, S.A.').
+7. supplierCommercialName: Nombre comercial o nombre de la empresa / establecimiento del proveedor (ej: 'Agroquímicos del Pacífico', 'Droguería El Sol').
+8. amount: Gran total a pagar de la factura en Quetzales (número decimal, ej: 1120.00).
+9. iva: Monto del Impuesto al Valor Agregado (IVA 12%) en Quetzales. Si la factura no lo desglosa explícitamente, calcúlalo como (amount - (amount / 1.12)).
+10. subtotal: Monto base o subtotal sin IVA (número decimal, amount / 1.12).
+11. dte: Número de autorización DTE o UUID fiscal si es Factura Electrónica FEL.
+12. creditDays: Plazo de crédito / tiempo de vigencia en días (si indica 30 días pon 30; si es contado pon 0).
+13. items: Lista de productos/artículos comprados [{ "name": string, "quantity": number, "price": number, "subtotal": number }].
+14. notes: Resumen breve de los insumos o productos comprados.
+
+Genera la respuesta estrictamente en formato JSON con esta estructura exacta:
 {
-  "supplierName": "String",
   "invoiceDate": "YYYY-MM-DD",
-  "amount": number,
-  "creditDays": number,
-  "items": [{"name": "String", "quantity": number, "price": number}],
-  "notes": "String"
+  "invoiceNumber": "string",
+  "invoiceSeries": "string",
+  "invoiceType": "factura_normal" | "factura_cambiaria",
+  "supplierNit": "string",
+  "supplierNitName": "string",
+  "supplierCommercialName": "string",
+  "amount": 0.00,
+  "iva": 0.00,
+  "subtotal": 0.00,
+  "dte": "string",
+  "creditDays": 30,
+  "items": [{"name": "string", "quantity": 1, "price": 0.00, "subtotal": 0.00}],
+  "notes": "string"
 }`;
 
       const base64Data = req.file.buffer.toString("base64");
@@ -5556,43 +5591,71 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       console.warn("Gemini invoice recognition failed, using simulated high-fidelity agricultural parser fallback:", err.message);
       
       const fileNameLower = req.file.originalname.toLowerCase();
-      let supplierName = "Distribuidora Veterinaria El Sol, S.A.";
+      let supplierCommercialName = "Distribuidora Veterinaria El Sol";
+      let supplierNitName = "Distribuidora Veterinaria El Sol, Sociedad Anónima";
+      let supplierNit = "7823419-5";
+      let invoiceNumber = "104928";
+      let invoiceSeries = "A";
+      let dte = "DTE-" + Date.now().toString(16).toUpperCase();
+      let invoiceType = "factura_normal";
       let amount = 1450.00;
       let creditDays = 30;
       let notes = "Compra de medicamentos veterinarios y antibióticos";
       let items = [
-        { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00 },
-        { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00 }
+        { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00, subtotal: 450.00 },
+        { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00, subtotal: 1000.00 }
       ];
 
       if (fileNameLower.includes("agro") || fileNameLower.includes("fertil") || fileNameLower.includes("quim") || fileNameLower.includes("herbicida")) {
-        supplierName = "Agroquímicos del Pacífico";
+        supplierCommercialName = "Agroquímicos del Pacífico";
+        supplierNitName = "Agroquímicos del Pacífico, S.A.";
+        supplierNit = "3491028-1";
+        invoiceNumber = "85921";
+        invoiceSeries = "F";
+        invoiceType = "factura_cambiaria";
         amount = 3200.00;
         creditDays = 15;
         notes = "Compra de insecticidas y fertilizantes premium para catálogo";
         items = [
-          { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00 },
-          { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00 }
+          { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00, subtotal: 2200.00 },
+          { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00, subtotal: 1000.00 }
         ];
       } else if (fileNameLower.includes("ali") || fileNameLower.includes("con") || fileNameLower.includes("concentrado")) {
-        supplierName = "Nutri-Avícola Industrial";
+        supplierCommercialName = "Nutri-Avícola Industrial";
+        supplierNitName = "Nutri-Avícola Industrial de Guatemala";
+        supplierNit = "6192840-7";
+        invoiceNumber = "4521";
+        invoiceSeries = "NA";
+        invoiceType = "factura_cambiaria";
         amount = 4500.00;
         creditDays = 45;
         notes = "Compra de sacos de alimento balanceado para aves ponedoras";
         items = [
-          { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00 },
-          { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.05 }
+          { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00, subtotal: 2700.00 },
+          { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.00, subtotal: 1800.00 }
         ];
       }
+
+      const subtotalCalc = parseFloat((amount / 1.12).toFixed(2));
+      const ivaCalc = parseFloat((amount - subtotalCalc).toFixed(2));
 
       res.json({
         success: true,
         isSimulation: true,
         data: {
-          supplierName,
+          supplierCommercialName,
+          supplierNitName,
+          supplierNit,
+          invoiceNumber,
+          invoiceSeries,
+          dte,
+          invoiceType,
+          supplierName: supplierCommercialName,
           invoiceDate: new Date().toISOString().split('T')[0],
-          amount,
           creditDays,
+          subtotal: subtotalCalc,
+          iva: ivaCalc,
+          amount,
           items,
           notes: notes + " (Digitalizado mediante Escaneo Inteligente)",
           imageUrl: uploadedImageUrl

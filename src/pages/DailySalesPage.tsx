@@ -35,7 +35,7 @@ import {
   Target,
   AlertTriangle
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, matchInvoiceSearch } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -138,6 +138,27 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [activeChartTab, setActiveChartTab] = useState<'hourly' | 'sellers' | 'status'>('hourly');
   const [showCharts, setShowCharts] = useState(true);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const mainEl = document.querySelector('main');
+    const handleScroll = () => {
+      const scrollPos = mainEl ? mainEl.scrollTop : window.scrollY;
+      setShowScrollTop(scrollPos > 150);
+    };
+    if (mainEl) mainEl.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll);
+    return () => {
+      if (mainEl) mainEl.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  const scrollToTop = () => {
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     loadData();
@@ -235,10 +256,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   // Central filter logic same as BillingPage
   const filteredInvoices = invoices.filter(i => {
-    const matchSearch = (i.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (i.sellerId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (getSellerName(i.sellerId || '') || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
     
     let matchDate = true;
     if (dateViewMode === 'day') {
@@ -820,7 +838,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50/70 relative pb-[120px] md:pb-8 min-h-screen font-manrope">
+    <div className="min-h-screen bg-slate-50/70 relative pb-32 font-manrope">
       
       {/* Floating Ambient Blobs for Cinematic Depth */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
@@ -868,48 +886,66 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         </motion.div>
       </div>
 
-      {/* Header with Glassmorphism and Elegant Accents */}
-      <div className="bg-white/90 backdrop-blur-md border-b border-slate-200/50 px-6 py-8 relative z-20 sticky top-0 shadow-xs">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div className="space-y-2">
+      {/* Header with Glassmorphism and Persistent Search Input */}
+      <div className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 py-4 md:py-5 relative z-30 sticky top-0 shadow-sm">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 animate-pulse"></span>
               </span>
-              <span className="text-[9px] font-black tracking-widest text-[#0b4d2c] uppercase bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-150 font-mono flex items-center gap-1">
+              <span className="text-[9px] font-black tracking-widest text-[#0b4d2c] uppercase bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-150 font-mono flex items-center gap-1">
                 <Sparkles size={10} className="text-amber-500 animate-spin" />
                 Panel Premium • Tiempo Real
               </span>
             </div>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3 font-hanken">
-              <Clock className="text-[#0b4d2c] w-8 h-8 animate-pulse" />
+            <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2.5 font-hanken">
+              <Clock className="text-[#0b4d2c] w-7 h-7 animate-pulse" />
               Ventas Diarias
             </h1>
-            <p className="text-slate-400 text-xs font-semibold">
-              Gestione registros, analice flujos de ingresos y exporte estados contables hoy ({new Date().toLocaleDateString()})
-            </p>
+          </div>
+
+          {/* BARRA DE BÚSQUEDA PRINCIPAL SIEMPRE VISIBLE ARRIBA */}
+          <div className="w-full md:w-80 lg:w-96 relative flex items-center shrink-0">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              placeholder="Buscar por cliente, folio #1023, vendedor..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-9 py-2.5 bg-slate-100/90 hover:bg-slate-100 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 focus:bg-white outline-none transition text-xs font-bold shadow-inner placeholder-slate-400 text-slate-800"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-200 transition"
+                title="Limpiar búsqueda"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
           
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2.5">
             <motion.div 
-              whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 25px rgba(11, 77, 44, 0.12)" }}
+              whileHover={{ scale: 1.03, y: -1 }}
               onClick={() => setShowSalesModal(true)}
-              className="bg-emerald-50/90 backdrop-blur-sm border border-emerald-100 rounded-2xl px-5 py-3 flex flex-col items-end cursor-pointer hover:bg-emerald-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[130px]"
+              className="bg-emerald-50/90 backdrop-blur-sm border border-emerald-100 rounded-2xl px-4 py-2 flex flex-col items-end cursor-pointer hover:bg-emerald-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[120px]"
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-[#0b4d2c] to-emerald-400 group-hover:w-2 transition-all"></div>
-              <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-1 font-mono">Total Vendido</span>
-              <span className="text-xl font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">{formatMoney(totalSalesAmount)}</span>
+              <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest font-mono">Total Vendido</span>
+              <span className="text-lg font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">{formatMoney(totalSalesAmount)}</span>
             </motion.div>
             
             <motion.div 
-              whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 25px rgba(37, 99, 235, 0.12)" }}
+              whileHover={{ scale: 1.03, y: -1 }}
               onClick={() => setShowPaymentsModal(true)}
-              className="bg-blue-50/95 backdrop-blur-sm border border-blue-100 rounded-2xl px-5 py-3 flex flex-col items-end cursor-pointer hover:bg-blue-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[130px]"
+              className="bg-blue-50/95 backdrop-blur-sm border border-blue-100 rounded-2xl px-4 py-2 flex flex-col items-end cursor-pointer hover:bg-blue-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[120px]"
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-blue-600 to-sky-450 group-hover:w-2 transition-all"></div>
-              <span className="text-[9px] font-black text-blue-800 uppercase tracking-widest mb-1 font-mono">Cobrado</span>
-              <span className="text-xl font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">{formatMoney(totalPaidAmount)}</span>
+              <span className="text-[9px] font-black text-blue-800 uppercase tracking-widest font-mono">Cobrado</span>
+              <span className="text-lg font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">{formatMoney(totalPaidAmount)}</span>
             </motion.div>
           </div>
         </div>
@@ -2051,6 +2087,47 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         trackingNumber={viewingImageConfig?.trackingNumber}
         title="Guía de Envío" 
       />
+
+      {/* FLOATING PERSISTENT SEARCH & ACTION DOCK */}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 30 }}
+            className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-xl bg-slate-900/95 backdrop-blur-xl text-white p-2 sm:p-2.5 rounded-2xl md:rounded-3xl shadow-2xl border border-slate-700/80 flex items-center gap-2.5"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-teal-400" size={16} />
+              <input
+                type="text"
+                placeholder="🔍 Buscar cliente, folio #1023, vendedor..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-9 py-2.5 bg-slate-800/90 text-white placeholder-slate-400 rounded-xl md:rounded-2xl text-xs font-bold border border-slate-700 focus:border-teal-400 focus:bg-slate-800 outline-none shadow-inner transition-all"
+              />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white rounded-full hover:bg-slate-700 transition"
+                  title="Limpiar búsqueda"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <button
+              onClick={scrollToTop}
+              className="px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-xl md:rounded-2xl transition flex items-center gap-1.5 text-xs font-black shrink-0 cursor-pointer shadow-md active:scale-95"
+              title="Volver arriba"
+            >
+              <ArrowRight size={16} className="-rotate-90" />
+              <span className="hidden sm:inline">Inicio</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
