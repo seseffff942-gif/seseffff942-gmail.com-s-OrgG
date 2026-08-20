@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCw, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch } from '../utils';
+import { es } from 'date-fns/locale';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch, parseFolioNumber } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -139,16 +140,18 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   }, [selectedInvoiceForModal]);
 
-  const loadInvoices = async () => {
-    setLoading(true);
+  const loadInvoices = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const data = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+      const [data] = await Promise.all([
+        api.getInvoices(user.role === 'admin' ? undefined : user.email),
+        cargarEstadosFel()
+      ]);
       setInvoices(Array.isArray(data) ? data : []);
-      cargarEstadosFel();
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -362,11 +365,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const renderInvoicesList = () => {
     // Sort all selected invoices chronologically (newest first, by date and hour)
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const dayA = diaGuatemala(a.date);
-      const dayB = diaGuatemala(b.date);
-      if (dayA !== dayB) return dayB.localeCompare(dayA);
-      const folioA = Number(a.folio) || 0;
-      const folioB = Number(b.folio) || 0;
+      const folioA = parseFolioNumber(a.folio);
+      const folioB = parseFolioNumber(b.folio);
       if (folioA !== folioB) return folioB - folioA;
       const timeA = new Date(a.date || 0).getTime();
       const timeB = new Date(b.date || 0).getTime();
@@ -1288,14 +1288,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <p className="text-slate-400 mt-1 font-medium text-sm">
             {user.role === 'admin' ? 'Gestión avanzada de cuentas por cobrar, abonos y folios' : 'Monitoreo de ventas diarias y créditos'}
           </p>
-          {user.role === 'admin' && (
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setShowFelConfig(true)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+              >
+                <Settings2 size={12} /> Configuración FEL
+              </button>
+            )}
             <button
-              onClick={() => setShowFelConfig(true)}
-              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+              onClick={() => loadInvoices()}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
             >
-              <Settings2 size={12} /> Configuración FEL
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualizar
             </button>
-          )}
+          </div>
         </div>
         
         {/* Statistical Bento Deck */}
@@ -1306,9 +1315,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
              className="relative overflow-hidden bg-[#0c5c35]/[0.02] hover:bg-[#0c5c35]/[0.05] border border-emerald-500/15 hover:border-emerald-500/30 rounded-2xl px-5 py-3.5 flex flex-col cursor-pointer transition-all shadow-xs shrink-0"
           >
             <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-              <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa
+              <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa ({dailyStats?.totalSales || 0})
             </span>
-            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalSales || 0))}</span>
+            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalAmount || 0))}</span>
           </motion.div>
           
           <motion.div 
@@ -1319,7 +1328,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <span className="text-[9px] font-black text-teal-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <Receipt size={11} className="text-teal-600" /> Total Cobrado
             </span>
-            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.totalPayments || 0))}</span>
+            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.paidAmount || dailyStats?.totalPayments || 0))}</span>
           </motion.div>
 
           <motion.div 
@@ -1775,23 +1784,24 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             <p className="text-[9px] text-slate-400 uppercase font-black mb-1">Sobrescribe el correlativo automático</p>
                             <div className="flex gap-2">
                               <input 
-                                type="number" 
+                                type="text" 
                                 value={manualFolio}
                                 onChange={(e) => setManualFolio(e.target.value)}
-                                placeholder={selectedInvoiceForModal.folio ? `Folio #${selectedInvoiceForModal.folio}` : "Folio #"}
+                                placeholder={selectedInvoiceForModal.folio ? `Folio #${selectedInvoiceForModal.folio}` : "Folio # (ej: 880-2)"}
                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1 text-xs font-bold focus:ring-1 focus:ring-teal-500 outline-none"
                               />
                               <button 
                                 onClick={async () => {
                                    try {
+                                      const val = manualFolio.trim();
                                       await api.updateInvoiceStatus(
                                         selectedInvoiceForModal.id, 
                                         selectedInvoiceForModal.status, 
                                         undefined,
-                                        manualFolio ? parseInt(manualFolio) : undefined
+                                        val || undefined
                                       );
                                       alert("Folio actualizado.");
-                                      loadInvoices();
+                                      await loadInvoices(true);
                                       const refreshed = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
                                       const current = refreshed.find(v => v.id === selectedInvoiceForModal.id);
                                       if (current) setSelectedInvoiceForModal(current);

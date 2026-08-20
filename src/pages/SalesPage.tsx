@@ -1140,36 +1140,36 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       <section className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#f4f7f5] ${isMobile ? 'pb-32' : ''}`}>
         
         {/* Header / Search & Interactive Branding bar */}
-        <div className="flex flex-col gap-4.5 p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
+        <div className="flex flex-col gap-2.5 p-3 sm:p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
           
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
             <div className="flex items-center justify-between sm:justify-start gap-4">
               <div>
-                <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                  <span className="w-2.5 h-6 rounded-full bg-[#0b4d2c] block" />
+                <h2 className="text-base sm:text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                  <span className="w-2 h-4 sm:w-2.5 sm:h-6 rounded-full bg-[#0b4d2c] block" />
                   Catálogo de Productos
                 </h2>
-                <p className="text-xs text-slate-400 mt-1 font-bold uppercase tracking-wider">
-                  Selecciona insumos veterianarios y agrícolas para procesar la venta
+                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 font-bold uppercase tracking-wider">
+                  Selecciona insumos veterinarios y agrícolas
                 </p>
               </div>
             </div>
             
             <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
               <input
                 type="text"
-                placeholder="Buscar por código SKU, nombre de producto..."
+                placeholder="Buscar por código SKU, producto..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-2xl focus:bg-white focus:border-[#0b4d2c] focus:ring-2 focus:ring-[#0b4d2c]/10 outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
+                className="w-full pl-10 pr-9 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl focus:bg-white focus:border-[#0b4d2c] focus:ring-2 focus:ring-[#0b4d2c]/10 outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
               />
               {searchTerm && (
                 <button 
                   onClick={() => setSearchTerm('')} 
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               )}
             </div>

@@ -3,7 +3,8 @@ import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY } from '../utils';
+import { es } from 'date-fns/locale';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY, parseFolioNumber } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -14,11 +15,13 @@ interface BillingPageProps {
 }
 
 export function MySalesPage({ user, isMobile }: BillingPageProps) {
+  const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState<string>(diaGuatemala());
+  const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [showCancelledAndRejected, setShowCancelledAndRejected] = useState(false);
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
@@ -230,7 +233,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       return false;
     }
 
-    const matchSearch = matchInvoiceSearch(i, searchTerm);
+    const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
     
     let matchDate = true;
     if (isHistoryMode) {
@@ -346,13 +349,10 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
            i.status === 'pending' || i.status === 'paid'
        );
        
-       // Sort descending by day and folio
+       // Sort descending by folio
         activeInvoices.sort((a, b) => {
-          const dayA = diaGuatemala(a.date);
-          const dayB = diaGuatemala(b.date);
-          if (dayA !== dayB) return dayB.localeCompare(dayA);
-          const folioA = Number(a.folio) || 0;
-          const folioB = Number(b.folio) || 0;
+          const folioA = parseFolioNumber(a.folio);
+          const folioB = parseFolioNumber(b.folio);
           if (folioA !== folioB) return folioB - folioA;
           const timeA = new Date(a.date || 0).getTime();
           const timeB = new Date(b.date || 0).getTime();
@@ -364,11 +364,8 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
        );
        
        historyInvoices.sort((a, b) => {
-          const dayA = diaGuatemala(a.date);
-          const dayB = diaGuatemala(b.date);
-          if (dayA !== dayB) return dayB.localeCompare(dayA);
-          const folioA = Number(a.folio) || 0;
-          const folioB = Number(b.folio) || 0;
+          const folioA = parseFolioNumber(a.folio);
+          const folioB = parseFolioNumber(b.folio);
           if (folioA !== folioB) return folioB - folioA;
           const timeA = new Date(a.date || 0).getTime();
           const timeB = new Date(b.date || 0).getTime();

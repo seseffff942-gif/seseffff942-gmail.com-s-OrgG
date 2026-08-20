@@ -80,7 +80,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   sellerId: string;
-  folio?: number;
+  folio?: number | string;
   client: string;
   nit?: string;
   phone?: string;

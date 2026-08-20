@@ -35,7 +35,7 @@ import {
   Target,
   AlertTriangle
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch, parseFolioNumber } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -131,7 +131,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
-  const [sellerFilter, setSellerFilter] = useState<string>(user.role === 'seller' ? user.email : 'all');
+  const [sellerFilter, setSellerFilter] = useState<string>('all');
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
   const [searchTerm, setSearchTerm] = useState('');
@@ -513,7 +513,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
         <div className="space-y-2.5 mt-5">
           <div className="flex flex-col gap-2">
-            {invoice.items.slice(0, 3).map((item, idx) => (
+            {(Array.isArray(invoice.items) ? invoice.items : []).slice(0, 3).map((item, idx) => (
               <div key={idx} className="flex justify-between text-[13px] items-center py-0.5 border-b border-slate-50 last:border-0">
                 <div className="text-slate-600 flex flex-col truncate max-w-[70%]">
                   <div className="flex items-center gap-2 truncate font-medium">
@@ -533,7 +533,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <span className="font-extrabold text-slate-800 ml-2 font-mono group-hover/card:text-[#0b4d2c] transition-colors">{formatMoney(item.total)}</span>
               </div>
             ))}
-            {invoice.items.length > 3 && (
+            {Array.isArray(invoice.items) && invoice.items.length > 3 && (
               <div className="text-xs text-slate-400 mt-1 italic pl-5 font-semibold flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 + {invoice.items.length - 3} artículos más
@@ -565,11 +565,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   const renderInvoicesList = () => {
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const dayA = diaGuatemala(a.date);
-      const dayB = diaGuatemala(b.date);
-      if (dayA !== dayB) return dayB.localeCompare(dayA);
-      const folioA = Number(a.folio) || 0;
-      const folioB = Number(b.folio) || 0;
+      const folioA = parseFolioNumber(a.folio);
+      const folioB = parseFolioNumber(b.folio);
       if (folioA !== folioB) return folioB - folioA;
       const timeA = new Date(a.date || 0).getTime();
       const timeB = new Date(b.date || 0).getTime();
@@ -929,7 +926,17 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             )}
           </div>
           
-          <div className="flex flex-wrap gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => loadData()}
+              disabled={loading}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer border border-slate-200"
+              title="Actualizar datos en vivo"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin text-[#0b4d2c]" : "text-slate-600"} />
+              <span className="hidden sm:inline">Actualizar</span>
+            </button>
+
             <motion.div 
               whileHover={{ scale: 1.03, y: -1 }}
               onClick={() => setShowSalesModal(true)}
@@ -1937,23 +1944,24 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     <span className="text-slate-400 font-black text-[10px] block uppercase tracking-wider">Folio Manual (Sobrescribir)</span>
                     <div className="flex gap-2 mt-1">
                       <input 
-                        type="number" 
+                        type="text" 
                         value={manualFolio}
                         onChange={(e) => setManualFolio(e.target.value)}
-                        placeholder="Folio #"
+                        placeholder="Folio # (ej: 880-2)"
                         className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold focus:ring-1 focus:ring-emerald-500 outline-none"
                       />
                       <button 
                         onClick={async () => {
                            try {
+                              const val = manualFolio.trim();
                               await api.updateInvoiceStatus(
                                 selectedViewInvoice.id, 
                                 selectedViewInvoice.status, 
                                 undefined,
-                                manualFolio ? parseInt(manualFolio) : undefined
+                                val || undefined
                               );
                               alert("Folio actualizado.");
-                              const nF = manualFolio ? parseInt(manualFolio) : selectedViewInvoice.folio;
+                              const nF = val ? (/^\d+$/.test(val) ? parseInt(val, 10) : val) : selectedViewInvoice.folio;
                               setSelectedViewInvoice(prev => prev ? { ...prev, folio: nF } : null);
                               setInvoices(prev => prev.map(inv => inv.id === selectedViewInvoice.id ? { ...inv, folio: nF } : inv));
                               loadData();

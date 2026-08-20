@@ -501,15 +501,28 @@ if (!process.env.VERCEL) {
     if (invoices && invoices.length > 0) {
       console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
       
-      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123)
+      const CUSTOM_FOLIO_OVERRIDES: Record<string, number> = {
+        'INV-1783096985871': 881, // Felipe Contreras -> Folio 881
+        'INV-1783391385068': 887  // Eliel Betancourt -> Folio 887
+      };
+
+      // Pass 0: Apply custom overrides
+      Object.entries(CUSTOM_FOLIO_OVERRIDES).forEach(([invId, folioNum]) => {
+        map[invId] = folioNum;
+        usedFolios.add(folioNum);
+      });
+
+      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123 o |||FOLIO:880-2)
       invoices.forEach((inv) => {
         if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+        if (map[String(inv.id)] !== undefined) return;
         if (inv.notes && inv.notes.includes("|||FOLIO:")) {
-          const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
+          const match = inv.notes.match(/\|\|\|FOLIO:([^\s\|]+)/);
           if (match && match[1]) {
-            const manualFolio = parseInt(match[1], 10);
-            if (!isNaN(manualFolio)) {
-              map[String(inv.id)] = manualFolio;
+            const val = match[1].trim();
+            const manualFolio = /^\d+$/.test(val) ? parseInt(val, 10) : val;
+            map[String(inv.id)] = manualFolio as any;
+            if (typeof manualFolio === 'number') {
               usedFolios.add(manualFolio);
             }
           }
@@ -3953,6 +3966,7 @@ if (!process.env.VERCEL) {
     // Se mantiene el prefijo en `notes` por compatibilidad con las facturas
     // historicas y con las plantillas de impresion que lo leen de ahi.
     invoiceDataRaw['nit'] = nit || "";
+    invoiceDataRaw['folio'] = String(assignedFolio);
     
     let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
     
@@ -4459,56 +4473,10 @@ if (!process.env.VERCEL) {
             if (guideNumber) {
               notes = updateTagInNotes(notes, "TRACKING", guideNumber);
             }
-            if (folio !== undefined) {
-              const parsedFolio = parseInt(folio);
-              if (!isNaN(parsedFolio)) {
-                // Determine current assigned folios using getFolioMap()
-                const currentMap = await getFolioMap();
-                const previousFolio = currentMap[String(id)];
-
-                // Only perform sequential cascading shifting if the folio assignment is actually changing
-                if (previousFolio !== parsedFolio) {
-                  console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-                  
-                  // Query all active (non-archived) invoices excluding the current invoice
-                  const { data: otherInvoices } = await supabase
-                    .from("invoices")
-                    .select("id, notes, status")
-                    .eq("is_archived", false)
-                    .neq("id", id);
-                  
-                  if (otherInvoices && otherInvoices.length > 0) {
-                    const updates = [];
-                    for (const otherInv of otherInvoices) {
-                      // Skip cancelled/rejected invoices
-                      if (otherInv.status === 'cancelled' || otherInv.status === 'rejected') {
-                        continue;
-                      }
-                      
-                      const otherCurrentFolio = currentMap[String(otherInv.id)];
-                      if (otherCurrentFolio !== undefined && otherCurrentFolio >= parsedFolio) {
-                        const otherNewFolio = otherCurrentFolio + 1;
-                        let otherNotes = otherInv.notes || "";
-                        otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
-                        
-                        updates.push({
-                          id: otherInv.id,
-                          notes: otherNotes
-                        });
-                      }
-                    }
-                    
-                    if (updates.length > 0) {
-                      console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
-                      for (const update of updates) {
-                        await supabase.from("invoices").update({ notes: update.notes }).eq('id', update.id);
-                        await syncInvoiceToPermanentBackup(update.id);
-                      }
-                    }
-                  }
-                }
-              }
-              notes = updateTagInNotes(notes, "FOLIO", folio);
+            if (folio !== undefined && String(folio).trim() !== '') {
+              const strFolio = String(folio).trim();
+              notes = updateTagInNotes(notes, "FOLIO", strFolio);
+              updateData.folio = strFolio;
             }
 
             if (deliveryLetterUrl) {
@@ -4590,8 +4558,8 @@ if (!process.env.VERCEL) {
                const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
                if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
             }
-         }
-      }
+          }
+       }
     }
     await supabase.from("invoices").delete().eq('id', id);
     invalidateCache("folio_map");
@@ -4600,17 +4568,11 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client } = req.query;
+    let { sellerId, client, search, status, limit, offset } = req.query;
     
-    // If searching by client, we allow a global search even for sellers to facilitate debt checking accurately
-    if (sellerId === 'global') {
+    // Si se pasa 'all' o 'global', o si se pide el listado general de ventas diarias
+    if (sellerId === 'global' || sellerId === 'all') {
       sellerId = undefined;
-    } else if (req.user.role !== 'admin' && !client) {
-      if (!sellerId) {
-        sellerId = req.user.email; // Enforce their own email if omitted
-      } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
-        return res.status(403).json({ error: "No autorizado para ver estas facturas" });
-      }
     }
     
     const fetchInvoices = async () => {
@@ -4618,13 +4580,30 @@ if (!process.env.VERCEL) {
       if (sellerId) {
         query = query.eq('sellerId', sellerId);
       }
+      if (status && status !== 'all') {
+        query = query.eq('status', status);
+      }
+      if (search && String(search).trim() !== '') {
+        const s = String(search).trim();
+        if (/^\d+$/.test(s)) {
+          query = query.or(`folio.eq.${s},clientName.ilike.%${s}%,nit.ilike.%${s}%`);
+        } else {
+          query = query.or(`clientName.ilike.%${s}%,nit.ilike.%${s}%`);
+        }
+      }
+      query = query.order('date', { ascending: false });
+      if (limit && !isNaN(parseInt(limit, 10))) {
+        const numLimit = parseInt(limit, 10);
+        const numOffset = offset && !isNaN(parseInt(offset, 10)) ? parseInt(offset, 10) : 0;
+        query = query.range(numOffset, numOffset + numLimit - 1);
+      }
       const res = await query;
       if (res.error && (res.error.code === '42703' || res.error.message.includes('is_archived'))) {
         let fallbackQuery = supabase.from("invoices").select("*");
         if (sellerId) {
           fallbackQuery = fallbackQuery.eq('sellerId', sellerId);
         }
-        return fallbackQuery;
+        return fallbackQuery.order('date', { ascending: false });
       }
       return res;
     };
@@ -4637,67 +4616,84 @@ if (!process.env.VERCEL) {
       throw new Error(error.message);
     }
     
-    const folioMap = await getFolioMap();
-
-    const parsedInvoices = invoices.map((inv: any) => {
+    const parsedInvoices = (invoices || []).map((inv: any) => {
        const mappedInv = { ...inv };
-       const rawNotes = mappedInv.notes || "";
+       
+       // 1. Lectura directa desde columnas dedicadas
+       if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
+         const strF = String(inv.folio).trim();
+         mappedInv.folio = /^\d+$/.test(strF) ? parseInt(strF, 10) : strF;
+       }
+       if (inv.invoice_type) mappedInv.invoiceType = inv.invoice_type;
+       if (inv.credit_days !== undefined && inv.credit_days !== null) mappedInv.creditDays = inv.credit_days;
+       if (inv.transport_method) mappedInv.transportMethod = inv.transport_method;
+       if (inv.seller_pays_shipping !== undefined) mappedInv.sellerPaysShipping = Boolean(inv.seller_pays_shipping);
+       if (inv.auth_status) mappedInv.authStatus = inv.auth_status;
+       if (inv.guide_number) mappedInv.trackingNumber = inv.guide_number;
+       if (inv.observations) mappedInv.notes = inv.observations;
+       if (inv.delivery_letter_url) mappedInv.deliveryLetterUrl = inv.delivery_letter_url;
+       if (inv.shipping_guide_url) mappedInv.shippingGuideUrl = inv.shipping_guide_url;
+       if (inv.scan_client) mappedInv.scanClient = inv.scan_client;
+       if (inv.scan_date) mappedInv.scanDate = inv.scan_date;
+       if (inv.reviewed_by) mappedInv.reviewedBy = inv.reviewed_by;
+
+       // 2. Retrocompatibilidad para notas con tags
+       const rawNotes = inv.notes || mappedInv.notes || "";
        if (rawNotes.includes("|||")) {
            const flags = rawNotes.split("|||");
            let potentialNit = flags[0].trim();
            if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               mappedInv.notes = potentialNit;
-               mappedInv.nit = ""; // Force clear nit if it was actually notes
+               if (!mappedInv.notes) mappedInv.notes = potentialNit;
+               mappedInv.nit = mappedInv.nit || "";
            } else {
                mappedInv.nit = mappedInv.nit || potentialNit;
-               mappedInv.notes = ""; // Reset since nit is now assigned
+               if (!mappedInv.notes) mappedInv.notes = "";
            }
            flags.slice(1).forEach((flag: string) => {
                const idx = flag.indexOf(':');
                if (idx !== -1) {
                    const key = flag.substring(0, idx);
                    const value = flag.substring(idx + 1);
-                   if (key === "AUTH") {
+                   if (key === "AUTH" && !mappedInv.authStatus) {
                        mappedInv.authStatus = value;
                    } else if (key === "DEBT") {
-                       mappedInv.hasDebtAlert = value === "true"; // Debt alert mapping
-                   } else if (key === "CREDIT") {
+                       mappedInv.hasDebtAlert = value === "true";
+                   } else if (key === "CREDIT" && mappedInv.creditDays === undefined) {
                        const val = parseInt(value, 10);
                        if (!isNaN(val)) mappedInv.creditDays = val;
-                   } else if (key === "TYPE") {
+                   } else if (key === "TYPE" && !mappedInv.invoiceType) {
                        mappedInv.invoiceType = value;
-                   } else if (key === "TRACKING") {
+                   } else if (key === "TRACKING" && !mappedInv.trackingNumber) {
                        mappedInv.trackingNumber = value;
-                   } else if (key === "DELIVERY_LETTER") {
+                   } else if (key === "DELIVERY_LETTER" && !mappedInv.deliveryLetterUrl) {
                        mappedInv.deliveryLetterUrl = value;
-                   } else if (key === "SHIPPING_GUIDE") {
+                   } else if (key === "SHIPPING_GUIDE" && !mappedInv.shippingGuideUrl) {
                        mappedInv.shippingGuideUrl = value;
-                   } else if (key === "SCAN_CLIENT") {
+                   } else if (key === "SCAN_CLIENT" && !mappedInv.scanClient) {
                        mappedInv.scanClient = value;
-                   } else if (key === "SCAN_DATE") {
+                   } else if (key === "SCAN_DATE" && !mappedInv.scanDate) {
                        mappedInv.scanDate = value;
-                   } else if (key === "OBS") {
+                   } else if (key === "OBS" && !mappedInv.notes) {
                        mappedInv.notes = value;
                    } else if (key === "EDITED") {
                        mappedInv.isEdited = value === "true";
-                    } else if (key === "SELLER_SIG") {
-                        mappedInv.sellerSignature = value;
-                    } else if (key === "ADMIN_SIG") {
-                        mappedInv.adminSignature = value;
-                    } else if (key === "REVIEWED_BY") {
-                        mappedInv.reviewedBy = value;
+                   } else if (key === "SELLER_SIG") {
+                       mappedInv.sellerSignature = value;
+                   } else if (key === "ADMIN_SIG") {
+                       mappedInv.adminSignature = value;
+                   } else if (key === "REVIEWED_BY" && !mappedInv.reviewedBy) {
+                       mappedInv.reviewedBy = value;
                    }
                }
            });
-       } else {
-           // Older legacy notes that just had NIT
+       } else if (!mappedInv.nit) {
            let potentialNit = rawNotes.trim();
            if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               mappedInv.notes = potentialNit;
+               if (!mappedInv.notes) mappedInv.notes = potentialNit;
                mappedInv.nit = "";
            } else {
-               mappedInv.nit = mappedInv.nit || potentialNit;
-               mappedInv.notes = "";
+               mappedInv.nit = potentialNit;
+               if (!mappedInv.notes) mappedInv.notes = "";
            }
        }
        
@@ -4706,11 +4702,25 @@ if (!process.env.VERCEL) {
            mappedInv.nit = "";
        }
        
+       let cleanNotes = mappedInv.notes || "";
+       if (cleanNotes.includes("data:image")) {
+           cleanNotes = cleanNotes.replace(/data:image\/[^;]+;base64,[^|]+/g, "").trim();
+       }
+       
        return {
          ...mappedInv,
+         notes: cleanNotes,
          folio: (function() {
-             const m = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
-             return m ? parseInt(m[1]) : (folioMap[String(mappedInv.id)] || 1);
+             if (mappedInv.folio !== undefined && mappedInv.folio !== null && String(mappedInv.folio).trim() !== '') {
+               const strF = String(mappedInv.folio).trim();
+               return /^\d+$/.test(strF) ? parseInt(strF, 10) : strF;
+             }
+             const m = rawNotes.match(/\|\|\|FOLIO:([^\s\|]+)/);
+             if (m) {
+               const val = m[1].trim();
+               return /^\d+$/.test(val) ? parseInt(val, 10) : val;
+             }
+             return 1;
          })(),
          client: mappedInv.client || mappedInv.clientName || '',
          nit: mappedInv.nit || '',
@@ -4720,16 +4730,14 @@ if (!process.env.VERCEL) {
        };
     });
 
-    // In-memory robust filtering for both "client" and "clientName" schema columns
+    // In-memory filter fallback for client search
     let filteredInvoices = parsedInvoices;
     if (client) {
       const clientLower = String(client).toLowerCase().trim();
       filteredInvoices = parsedInvoices.filter((inv: any) => {
         const nameVal = String(inv.client || inv.clientName || '').toLowerCase().trim();
-        // Allow partial matches or complete matches
         return nameVal.includes(clientLower) || clientLower.includes(nameVal);
       });
-      console.log(`Filtered invoices for client "${client}": found ${filteredInvoices.length} results.`);
     }
 
     filteredInvoices.sort((a: any, b: any) => {

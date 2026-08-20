@@ -8,6 +8,7 @@ import {
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
 } from 'lucide-react';
 import { cn, fechaDDMMYYYY } from '../utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface ClientsPageProps {
   user: User;

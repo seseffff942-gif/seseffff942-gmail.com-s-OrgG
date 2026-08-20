@@ -24,6 +24,11 @@ export const fetchSupabaseRest = async (table: string, queryParams: string = 'se
   return res.json();
 };
 
+export const CUSTOM_FOLIO_OVERRIDES: Record<string, number> = {
+  'INV-1783096985871': 881, // Felipe Contreras - Agropecuaria Mardoqueo -> Folio 881
+  'INV-1783391385068': 887  // Eliel Betancourt - Agroveterinaria La cumbre -> Folio 887
+};
+
 export const parseInvoiceFlags = (inv: any): Invoice => {
   const mappedInv = { ...inv };
   mappedInv.client = inv.client || inv.clientName || inv.customerName || inv.name || 'Cliente sin nombre';
@@ -32,55 +37,66 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
   mappedInv.address = inv.address || inv.deliveryAddress || '';
   const rawNotes = mappedInv.notes || "";
 
-  // Extract folio from notes or inv.folio
-  const folioMatch = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
-  if (folioMatch) {
-    mappedInv.folio = parseInt(folioMatch[1], 10);
-  } else if (inv.folio !== undefined && inv.folio !== null && !isNaN(parseInt(inv.folio))) {
-    mappedInv.folio = parseInt(inv.folio, 10);
+  // 1. Lectura directa desde columnas dedicadas de la base de datos
+  if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
+    const strVal = String(inv.folio).trim();
+    mappedInv.folio = /^\d+$/.test(strVal) ? parseInt(strVal, 10) : strVal;
   }
+  if (inv.invoice_type) mappedInv.invoiceType = inv.invoice_type;
+  if (inv.credit_days !== undefined && inv.credit_days !== null) mappedInv.creditDays = inv.credit_days;
+  if (inv.transport_method) mappedInv.transportMethod = inv.transport_method;
+  if (inv.seller_pays_shipping !== undefined) mappedInv.sellerPaysShipping = Boolean(inv.seller_pays_shipping);
+  if (inv.auth_status) mappedInv.authStatus = inv.auth_status;
+  if (inv.guide_number) mappedInv.trackingNumber = inv.guide_number;
+  if (inv.observations) mappedInv.notes = inv.observations;
+  if (inv.delivery_letter_url) mappedInv.deliveryLetterUrl = inv.delivery_letter_url;
+  if (inv.shipping_guide_url) mappedInv.shippingGuideUrl = inv.shipping_guide_url;
+  if (inv.scan_client) mappedInv.scanClient = inv.scan_client;
+  if (inv.scan_date) mappedInv.scanDate = inv.scan_date;
+  if (inv.reviewed_by) mappedInv.reviewedBy = inv.reviewed_by;
 
+  // 2. Retrocompatibilidad para campos empaquetados en notes
   if (rawNotes.includes("|||")) {
     const flags = rawNotes.split("|||");
     let potentialNit = flags[0].trim();
     if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-      mappedInv.notes = potentialNit;
-      mappedInv.nit = "";
+      if (!mappedInv.notes) mappedInv.notes = potentialNit;
+      mappedInv.nit = mappedInv.nit || "";
     } else {
       mappedInv.nit = mappedInv.nit || potentialNit;
-      mappedInv.notes = "";
+      if (!mappedInv.notes) mappedInv.notes = "";
     }
     flags.slice(1).forEach((flag: string) => {
       const idx = flag.indexOf(':');
       if (idx !== -1) {
         const key = flag.substring(0, idx);
         const value = flag.substring(idx + 1);
-        if (key === "AUTH") {
+        if (key === "AUTH" && !mappedInv.authStatus) {
           mappedInv.authStatus = value;
         } else if (key === "DEBT") {
           mappedInv.hasDebtAlert = value === "true";
-        } else if (key === "CREDIT") {
+        } else if (key === "CREDIT" && mappedInv.creditDays === undefined) {
           const val = parseInt(value, 10);
           if (!isNaN(val)) mappedInv.creditDays = val;
-        } else if (key === "TYPE") {
+        } else if (key === "TYPE" && !mappedInv.invoiceType) {
           mappedInv.invoiceType = value;
-        } else if (key === "TRACKING") {
+        } else if (key === "TRACKING" && !mappedInv.trackingNumber) {
           mappedInv.trackingNumber = value;
-        } else if (key === "DELIVERY_LETTER") {
+        } else if (key === "DELIVERY_LETTER" && !mappedInv.deliveryLetterUrl) {
           mappedInv.deliveryLetterUrl = value;
-        } else if (key === "SHIPPING_GUIDE") {
+        } else if (key === "SHIPPING_GUIDE" && !mappedInv.shippingGuideUrl) {
           mappedInv.shippingGuideUrl = value;
-        } else if (key === "SCAN_CLIENT") {
+        } else if (key === "SCAN_CLIENT" && !mappedInv.scanClient) {
           mappedInv.scanClient = value;
-        } else if (key === "SCAN_DATE") {
+        } else if (key === "SCAN_DATE" && !mappedInv.scanDate) {
           mappedInv.scanDate = value;
-        } else if (key === "OBS") {
+        } else if (key === "OBS" && !mappedInv.notes) {
           mappedInv.notes = value;
         } else if (key === "EDITED") {
           mappedInv.isEdited = value === "true";
-        } else if (key === "FOLIO") {
-          const f = parseInt(value, 10);
-          if (!isNaN(f)) mappedInv.folio = f;
+        } else if (key === "FOLIO" && mappedInv.folio === undefined) {
+          const val = value.trim();
+          mappedInv.folio = /^\d+$/.test(val) ? parseInt(val, 10) : val;
         }
       }
     });
@@ -778,7 +794,7 @@ export const api = {
     return res.json();
   },
 
-  updateInvoiceStatus: async (id: string, status: string, guideNumber?: string, folio?: number, deliveryLetterUrl?: string, shippingGuideUrl?: string, clientName?: string, shippingDate?: string): Promise<void> => {
+  updateInvoiceStatus: async (id: string, status: string, guideNumber?: string, folio?: number | string, deliveryLetterUrl?: string, shippingGuideUrl?: string, clientName?: string, shippingDate?: string): Promise<void> => {
     const res = await fetchWithAuth(`/api/invoices/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -849,14 +865,22 @@ export const api = {
     return res.json();
   },
 
-  getInvoices: async (sellerId?: string): Promise<Invoice[]> => {
+  getInvoices: async (sellerId?: string, options?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<Invoice[]> => {
     try {
-      const url = sellerId && sellerId !== 'global' && sellerId !== 'all' ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
-      const res = await fetchWithAuth(url);
+      const params = new URLSearchParams();
+      if (sellerId && sellerId !== 'global' && sellerId !== 'all') params.append('sellerId', sellerId);
+      if (options?.limit) params.append('limit', String(options.limit));
+      if (options?.offset) params.append('offset', String(options.offset));
+      if (options?.search) params.append('search', options.search);
+      if (options?.status && options.status !== 'all') params.append('status', options.status);
+      params.append('_t', String(Date.now()));
+
+      const url = `/api/invoices${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetchWithAuth(url, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : [];
-        if (typeof localStorage !== 'undefined') {
+        if (typeof localStorage !== 'undefined' && !options?.offset) {
           localStorage.setItem('cached_invoices', JSON.stringify(list));
         }
         return list;
@@ -869,10 +893,17 @@ export const api = {
       if (sellerId && sellerId !== 'global' && sellerId !== 'all') {
         query = query.eq('sellerId', sellerId);
       }
+      if (options?.status && options.status !== 'all') {
+        query = query.eq('status', options.status);
+      }
+      if (options?.limit) {
+        const offset = options.offset || 0;
+        query = query.range(offset, offset + options.limit - 1);
+      }
       const { data, error } = await query;
       if (!error && data && Array.isArray(data) && data.length > 0) {
         const parsedList = data.map(inv => parseInvoiceFlags(inv));
-        if (typeof localStorage !== 'undefined') {
+        if (typeof localStorage !== 'undefined' && !options?.offset) {
           localStorage.setItem('cached_invoices', JSON.stringify(parsedList));
         }
         return parsedList;

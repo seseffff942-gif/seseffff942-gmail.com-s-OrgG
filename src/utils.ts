@@ -354,17 +354,34 @@ export function diaGuatemala(fecha?: any): string {
   }
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
-    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) {
-      return `${match[1]}-${match[2]}-${match[3]}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
     }
   }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
+}
+
+export function parseFolioNumber(folioVal: any): number {
+  if (folioVal === undefined || folioVal === null || folioVal === '') return 0;
+  const str = String(folioVal).trim();
+  const match = str.match(/^(\d+)(?:[-._/\s]([0-9a-zA-Z]+))?$/);
+  if (match) {
+    const base = parseFloat(match[1]);
+    if (match[2]) {
+      const subNum = parseFloat(match[2]);
+      if (!isNaN(subNum)) {
+        return base + (subNum / 100);
+      } else {
+        const charCode = match[2].toLowerCase().charCodeAt(0) - 96;
+        return base + (Math.max(1, charCode) / 100);
+      }
+    }
+    return base;
+  }
+  const val = parseFloat(str.replace(/[^\d.]/g, ''));
+  return isNaN(val) ? 0 : val;
 }
 
 export function fechaDDMMYYYY(fecha: any, conHora = false): string {
