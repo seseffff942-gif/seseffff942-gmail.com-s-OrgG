@@ -4,8 +4,7 @@ import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, matchInvoiceSearch } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -2066,7 +2065,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div>
                       <span className="text-slate-400 block font-bold">Fecha de Emisión</span>
                       <span className="font-extrabold text-slate-200">
-                        {selectedInvoiceForModal.date ? format(new Date(selectedInvoiceForModal.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                        {selectedInvoiceForModal.date ? fechaDDMMYYYY(selectedInvoiceForModal.date, true) : 'N/A'}
                       </span>
                     </div>
                     <div className="text-right">
@@ -2101,7 +2100,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <div>
                             <p className="font-bold text-slate-700">Abono certificado</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">
-                              {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                              {payment.date ? fechaDDMMYYYY(payment.date, true) : 'N/A'}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">

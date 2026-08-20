@@ -7,8 +7,7 @@ import {
   MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../utils';
+import { cn, fechaDDMMYYYY } from '../utils';
 
 interface ClientsPageProps {
   user: User;
@@ -859,7 +858,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                               </span>
                               <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
                                 <Calendar size={12} />
-                                {new Date(inv.date).toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                {fechaDDMMYYYY(inv.date)}
                               </span>
                             </div>
                             <h5 className="font-bold text-slate-800 text-sm">

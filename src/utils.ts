@@ -354,41 +354,43 @@ export function diaGuatemala(fecha?: any): string {
   }
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      return trimmed;
-    }
-    if (/^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
-      return trimmed.slice(0, 10);
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
     }
   }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-function fechaDDMMYYYY(fecha: any, conHora = false): string {
+export function fechaDDMMYYYY(fecha: any, conHora = false): string {
   if (!fecha) return '';
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      const [y, m, dStr] = trimmed.split('-');
-      return `${dStr}/${m}/${y}`;
-    }
-    if (!conHora && /^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
-      const [y, m, dStr] = trimmed.slice(0, 10).split('-');
-      return `${dStr}/${m}/${y}`;
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+    if (match) {
+      const [_, y, m, dStr, h, min] = match;
+      const base = `${parseInt(dStr, 10)}/${parseInt(m, 10)}/${y}`;
+      if (conHora && h !== undefined && min !== undefined) {
+        return `${base} ${h}:${min}`;
+      }
+      return base;
     }
   }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  const base = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TZ_GUATEMALA, day: '2-digit', month: '2-digit', year: 'numeric',
-  }).format(d);
+  const day = d.getUTCDate();
+  const month = d.getUTCMonth() + 1;
+  const year = d.getUTCFullYear();
+  const base = `${day}/${month}/${year}`;
   if (!conHora) return base;
-  const hora = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TZ_GUATEMALA, hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(d);
-  return `${base} ${hora}`;
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${base} ${h}:${min}`;
 }
 
 /**

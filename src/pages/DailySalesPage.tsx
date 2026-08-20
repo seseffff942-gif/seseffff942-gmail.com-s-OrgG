@@ -35,7 +35,7 @@ import {
   Target,
   AlertTriangle
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, matchInvoiceSearch } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -283,9 +283,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   });
 
   const renderInvoiceCard = (invoice: Invoice) => {
-    const dateObj = new Date(invoice.date);
-    const timeString = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const dateString = dateObj.toLocaleDateString();
+    const timeString = invoice.date && invoice.date.includes('T') ? invoice.date.split('T')[1].slice(0, 5) : '';
+    const dateString = fechaDDMMYYYY(invoice.date);
     const isPaid = invoice.totalAmount <= (invoice.paidAmount || 0);
 
     let statusBadge;
@@ -1916,7 +1915,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div>
                 <h2 className="text-lg font-black text-slate-800 tracking-tight">Detalle de Venta</h2>
-                <p className="text-xs text-slate-500 font-medium">#{selectedViewInvoice.folio} • {new Date(selectedViewInvoice.date).toLocaleDateString()}</p>
+                <p className="text-xs text-slate-500 font-medium">#{selectedViewInvoice.folio} • {fechaDDMMYYYY(selectedViewInvoice.date)}</p>
               </div>
               <button onClick={() => setSelectedViewInvoice(null)} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-700 transition">
                 <X size={20} />

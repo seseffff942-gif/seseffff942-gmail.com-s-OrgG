@@ -19,8 +19,7 @@ import {
   History,
   AlertCircle
 } from 'lucide-react';
-// @ts-ignore
-import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch } from '../utils';
+import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch, fechaDDMMYYYY } from '../utils';
 
 interface DispatchPageProps {
   user: User;
@@ -598,9 +597,9 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                           <div className="flex items-center gap-1.5 text-slate-400">
                             <Clock size={14} />
-                            <span className="text-[10px] font-bold">
-                              {new Date(inv.date).toLocaleDateString()}
-                            </span>
+                             <span className="text-[10px] font-bold">
+                               {fechaDDMMYYYY(inv.date)}
+                             </span>
                           </div>
                           <p className="text-xs font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
                             Q {inv.totalAmount?.toLocaleString()}

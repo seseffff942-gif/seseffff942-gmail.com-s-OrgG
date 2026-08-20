@@ -3,8 +3,7 @@ import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, matchInvoiceSearch } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -19,10 +18,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const getLocalDateStr = (d = new Date()) => {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-  };
-  const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
+  const [filterDate, setFilterDate] = useState<string>(diaGuatemala());
   const [showCancelledAndRejected, setShowCancelledAndRejected] = useState(false);
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
@@ -239,20 +235,8 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
     let matchDate = true;
     if (isHistoryMode) {
       matchDate = true;
-    } else if (i.date) {
-      if (i.date.startsWith(filterDate)) {
-        matchDate = true;
-      } else {
-        try {
-          const d = new Date(i.date);
-          const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-          matchDate = adjusted.toISOString().split('T')[0] === filterDate;
-        } catch {
-          matchDate = false;
-        }
-      }
     } else {
-      matchDate = false;
+      matchDate = diaGuatemala(i.date) === filterDate;
     }
 
     return matchSearch && matchDate;
@@ -490,7 +474,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
             </div>
             <div>
               <h3 className={`font-bold ${isCancelled ? 'text-red-800 line-through' : 'text-neutral-800'}`}>{invoice.client}</h3>
-              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {format(new Date(invoice.date), "dd MMM yyyy, HH:mm", { locale: es })}</p>
+              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {fechaDDMMYYYY(invoice.date, true)}</p>
             </div>
           </div>
 

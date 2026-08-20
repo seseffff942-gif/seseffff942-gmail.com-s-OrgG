@@ -4,7 +4,7 @@ import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, fechaDDMMYYYY } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -666,7 +666,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const getWhatsAppTextReceipt = (invoice: any) => {
-    const dateStr = invoice.date ? new Date(invoice.date).toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+    const dateStr = invoice.date ? fechaDDMMYYYY(invoice.date) : '';
     const sellerName = getSellerDisplayName(invoice);
     let msg = `📋 COMPROBANTE DE COMPRA - Agricovet\n`;
     msg += `---------------------------------------\n`;
@@ -2882,7 +2882,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           >
                              <div className="text-left">
                                 <p className="text-xs font-bold text-slate-800">{inv.id}</p>
-                                <p className="text-[10px] text-slate-500 font-medium">{new Date(inv.date).toLocaleDateString()}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">{fechaDDMMYYYY(inv.date)}</p>
                              </div>
                              <div className="text-right">
                                 <p className="text-sm font-black text-teal-700">{formatMoney(inv.totalAmount - (inv.paidAmount || 0))}</p>
