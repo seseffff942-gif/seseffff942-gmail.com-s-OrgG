@@ -4,7 +4,7 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { matchInvoiceSearch } from '../utils';
+import { matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY } from '../utils';
 
 interface SellerDebtsPageProps {
   user: User;
@@ -107,7 +107,18 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
 
     return (
       <div className="space-y-4">
-        {Object.entries(grouped).map(([seller, invs]) => {
+        {Object.entries(grouped).map(([seller, rawInvs]) => {
+          const invs = [...rawInvs].sort((a, b) => {
+            const dayA = diaGuatemala(a.date);
+            const dayB = diaGuatemala(b.date);
+            if (dayA !== dayB) return dayB.localeCompare(dayA);
+            const folioA = Number(a.folio) || 0;
+            const folioB = Number(b.folio) || 0;
+            if (folioA !== folioB) return folioB - folioA;
+            const timeA = new Date(a.date || 0).getTime();
+            const timeB = new Date(b.date || 0).getTime();
+            return timeB - timeA;
+          });
           const isSellerExpanded = expandedSeller === seller;
           const totalDebt = invs.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
           

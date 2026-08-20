@@ -19,7 +19,7 @@ import {
   History,
   AlertCircle
 } from 'lucide-react';
-import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch, fechaDDMMYYYY } from '../utils';
+import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch, fechaDDMMYYYY, diaGuatemala } from '../utils';
 
 interface DispatchPageProps {
   user: User;
@@ -152,12 +152,15 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
         const data = await api.getInvoices();
         // Sort by date descending (newest first, with folio as tie-breaker) and filter out unwanted test users
         const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => {
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          if (timeA !== timeB) return timeB - timeA;
+          const dayA = diaGuatemala(a.date);
+          const dayB = diaGuatemala(b.date);
+          if (dayA !== dayB) return dayB.localeCompare(dayA);
           const folioA = Number(a.folio) || 0;
           const folioB = Number(b.folio) || 0;
-          return folioB - folioA;
+          if (folioA !== folioB) return folioB - folioA;
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          return timeB - timeA;
         }).filter((inv: any) => 
           !inv.client?.toLowerCase().includes("francisco zepeda") && 
           !inv.client?.toLowerCase().includes("fernando zamora")

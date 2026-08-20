@@ -557,15 +557,22 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
 
   // Filtered History
   const filteredQuotations = useMemo(() => {
-    return quotations.filter(q => {
-      const matchesSearch = 
-        q.client.toLowerCase().includes(historySearch.toLowerCase()) ||
-        q.folio.toLowerCase().includes(historySearch.toLowerCase()) ||
-        (q.sellerName && q.sellerName.toLowerCase().includes(historySearch.toLowerCase()));
-      
-      const matchesStatus = statusFilter === 'all' || q.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
+    return quotations
+      .filter(q => {
+        const matchesSearch = 
+          q.client.toLowerCase().includes(historySearch.toLowerCase()) ||
+          q.folio.toLowerCase().includes(historySearch.toLowerCase()) ||
+          (q.sellerName && q.sellerName.toLowerCase().includes(historySearch.toLowerCase()));
+        
+        const matchesStatus = statusFilter === 'all' || q.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => {
+        const numA = a.folioNumber || 0;
+        const numB = b.folioNumber || 0;
+        if (numA !== numB) return numB - numA;
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+      });
   }, [quotations, historySearch, statusFilter]);
 
   // Metrics
