@@ -346,27 +346,33 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
            i.status === 'pending' || i.status === 'paid'
        );
        
-       // Sort descending by date, with folio as tie-breaker
-       activeInvoices.sort((a, b) => {
-         const timeA = new Date(a.date || 0).getTime();
-         const timeB = new Date(b.date || 0).getTime();
-         if (timeA !== timeB) return timeB - timeA;
-         const folioA = Number(a.folio) || 0;
-         const folioB = Number(b.folio) || 0;
-         return folioB - folioA;
-       });
+       // Sort descending by day and folio
+        activeInvoices.sort((a, b) => {
+          const dayA = diaGuatemala(a.date);
+          const dayB = diaGuatemala(b.date);
+          if (dayA !== dayB) return dayB.localeCompare(dayA);
+          const folioA = Number(a.folio) || 0;
+          const folioB = Number(b.folio) || 0;
+          if (folioA !== folioB) return folioB - folioA;
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          return timeB - timeA;
+        });
        
        let historyInvoices = filteredInvoices.filter(i => 
            i.status === 'sent' || i.status === 'cancelled' || i.status === 'rejected'
        );
        
        historyInvoices.sort((a, b) => {
-         const timeA = new Date(a.date || 0).getTime();
-         const timeB = new Date(b.date || 0).getTime();
-         if (timeA !== timeB) return timeB - timeA;
-         const folioA = Number(a.folio) || 0;
-         const folioB = Number(b.folio) || 0;
-         return folioB - folioA;
+          const dayA = diaGuatemala(a.date);
+          const dayB = diaGuatemala(b.date);
+          if (dayA !== dayB) return dayB.localeCompare(dayA);
+          const folioA = Number(a.folio) || 0;
+          const folioB = Number(b.folio) || 0;
+          if (folioA !== folioB) return folioB - folioA;
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          return timeB - timeA;
        });
 
        return (

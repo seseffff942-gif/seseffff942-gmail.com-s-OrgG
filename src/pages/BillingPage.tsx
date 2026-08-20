@@ -362,12 +362,15 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const renderInvoicesList = () => {
     // Sort all selected invoices chronologically (newest first, by date and hour)
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const timeA = new Date(a.date || 0).getTime();
-      const timeB = new Date(b.date || 0).getTime();
-      if (timeA !== timeB) return timeB - timeA;
+      const dayA = diaGuatemala(a.date);
+      const dayB = diaGuatemala(b.date);
+      if (dayA !== dayB) return dayB.localeCompare(dayA);
       const folioA = Number(a.folio) || 0;
       const folioB = Number(b.folio) || 0;
-      return folioB - folioA;
+      if (folioA !== folioB) return folioB - folioA;
+      const timeA = new Date(a.date || 0).getTime();
+      const timeB = new Date(b.date || 0).getTime();
+      return timeB - timeA;
     });
 
     if (displayMode === 'seller_cards') {
