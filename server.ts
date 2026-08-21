@@ -6179,9 +6179,6 @@ ${productsContext}`;
   }
 
   app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const deletedIds = readDeletedReciboIds();
-    let resultList: any[] = [];
-
     try {
       const { data, error } = await supabase
         .from('recibos_caja')
@@ -6189,39 +6186,25 @@ ${productsContext}`;
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        resultList = data.filter((r: any) => 
-          !deletedIds.has(r.id) && 
+        const filtered = data.filter((r: any) => 
           !r.is_deleted && 
           r.observaciones !== '[ELIMINADO]' && 
           !r.observaciones?.includes('[ELIMINADO]') &&
           r.cliente_nombre !== '[ELIMINADO]' &&
           !r.cliente_nombre?.includes('[ELIMINADO]')
         );
+        return res.json(filtered);
       }
     } catch (e) {
       console.warn("Supabase recibos_caja query fallback:", e);
     }
 
-    if (resultList.length === 0) {
-      const localList = readLocalRecibosCaja();
-      resultList = localList.filter((r: any) => 
-        !deletedIds.has(r.id) && 
-        !r.is_deleted && 
-        !r.observaciones?.includes('[ELIMINADO]') &&
-        !r.cliente_nombre?.includes('[ELIMINADO]')
-      );
-    } else {
-      // Merge unique local receipts if any exist
-      const remoteIds = new Set(resultList.map((r: any) => r.id));
-      const localList = readLocalRecibosCaja();
-      for (const loc of localList) {
-        if (!remoteIds.has(loc.id) && !deletedIds.has(loc.id) && !loc.observaciones?.includes('[ELIMINADO]')) {
-          resultList.push(loc);
-        }
-      }
-      resultList.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-    }
-
+    const localList = readLocalRecibosCaja();
+    const resultList = localList.filter((r: any) => 
+      !r.is_deleted && 
+      !r.observaciones?.includes('[ELIMINADO]') &&
+      !r.cliente_nombre?.includes('[ELIMINADO]')
+    );
     res.json(resultList);
   }));
 
