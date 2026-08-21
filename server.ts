@@ -6124,6 +6124,30 @@ ${productsContext}`;
 
   // ======== RECIBOS DE CAJA ENDPOINTS ========
   const RECIBOS_CAJA_FILE = path.join(process.cwd(), 'recibos_caja_local.json');
+  const DELETED_RECIBOS_FILE = path.join(process.cwd(), 'deleted_recibos_ids.json');
+
+  function readDeletedReciboIds(): Set<string> {
+    try {
+      if (fs.existsSync(DELETED_RECIBOS_FILE)) {
+        const raw = fs.readFileSync(DELETED_RECIBOS_FILE, 'utf-8');
+        const list = JSON.parse(raw);
+        return new Set(Array.isArray(list) ? list : []);
+      }
+    } catch (e) {
+      console.warn("Could not read deleted_recibos_ids file:", e);
+    }
+    return new Set();
+  }
+
+  function addDeletedReciboId(id: string) {
+    try {
+      const set = readDeletedReciboIds();
+      set.add(id);
+      fs.writeFileSync(DELETED_RECIBOS_FILE, JSON.stringify(Array.from(set), null, 2));
+    } catch (e) {
+      console.warn("Could not save to deleted_recibos_ids file:", e);
+    }
+  }
 
   function readLocalRecibosCaja(): any[] {
     try {
@@ -6148,6 +6172,9 @@ ${productsContext}`;
   }
 
   app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const deletedIds = readDeletedReciboIds();
+    let resultList: any[] = [];
+
     try {
       const { data, error } = await supabase
         .from('recibos_caja')
@@ -6155,14 +6182,28 @@ ${productsContext}`;
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        return res.json(data);
+        resultList = data.filter((r: any) => !deletedIds.has(r.id) && !r.is_deleted && r.observaciones !== '[ELIMINADO]');
       }
     } catch (e) {
       console.warn("Supabase recibos_caja query fallback:", e);
     }
 
-    const localList = readLocalRecibosCaja();
-    res.json(localList);
+    if (resultList.length === 0) {
+      const localList = readLocalRecibosCaja();
+      resultList = localList.filter((r: any) => !deletedIds.has(r.id) && !r.is_deleted);
+    } else {
+      // Merge unique local receipts if any exist
+      const remoteIds = new Set(resultList.map((r: any) => r.id));
+      const localList = readLocalRecibosCaja();
+      for (const loc of localList) {
+        if (!remoteIds.has(loc.id) && !deletedIds.has(loc.id)) {
+          resultList.push(loc);
+        }
+      }
+      resultList.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    }
+
+    res.json(resultList);
   }));
 
   app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -6229,21 +6270,10 @@ ${productsContext}`;
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-    // Eliminar de Supabase
-    try {
-      const { error } = await supabase
-        .from('recibos_caja')
-        .delete()
-        .eq('id', id);
+    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión
+    addDeletedReciboId(id);
 
-      if (error) {
-        console.warn("Supabase delete recibo_caja error:", error);
-      }
-    } catch (e) {
-      console.warn("Supabase delete recibo_caja fallback:", e);
-    }
-
-    // Eliminar del archivo local
+    // 2. Eliminar del archivo local
     try {
       const localList = readLocalRecibosCaja();
       const filtered = localList.filter((r: any) => r.id !== id);
@@ -6252,6 +6282,21 @@ ${productsContext}`;
       }
     } catch (e) {
       console.warn("Could not remove from local recibos_caja file:", e);
+    }
+
+    // 3. Eliminar de Supabase o marcar como eliminado
+    try {
+      await supabase
+        .from('recibos_caja')
+        .delete()
+        .eq('id', id);
+
+      await supabase
+        .from('recibos_caja')
+        .update({ is_deleted: true, observaciones: '[ELIMINADO]' })
+        .eq('id', id);
+    } catch (e) {
+      console.warn("Supabase delete recibo_caja error:", e);
     }
 
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
