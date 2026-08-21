@@ -713,11 +713,14 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 if (!confirm(`¿Eliminar recibo ${recibo.folio} de ${recibo.cliente_nombre}?\n\nEsta acción NO se puede deshacer.`)) return;
+                                const targetId = recibo.id!;
+                                setRecibos(prev => prev.filter(r => r.id !== targetId));
                                 try {
-                                  await api.deleteReciboCaja(recibo.id!);
+                                  await api.deleteReciboCaja(targetId);
                                   await cargarDatos();
                                 } catch (err: any) {
                                   alert(`Error al eliminar: ${err.message || 'Intente de nuevo'}`);
+                                  await cargarDatos();
                                 }
                               }}
                               className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-bold text-[11px] flex items-center gap-1 border border-red-200 transition cursor-pointer"
@@ -1259,13 +1262,15 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                   <button
                     onClick={async () => {
                       if (!confirm(`¿Eliminar permanentemente el recibo ${selectedReciboForPrint.folio} de ${selectedReciboForPrint.cliente_nombre}?\n\nEsta acción NO se puede deshacer.`)) return;
+                      const targetId = selectedReciboForPrint.id!;
+                      setRecibos(prev => prev.filter(r => r.id !== targetId));
+                      setSelectedReciboForPrint(null);
                       try {
-                        await api.deleteReciboCaja(selectedReciboForPrint.id!);
-                        setSelectedReciboForPrint(null);
+                        await api.deleteReciboCaja(targetId);
                         await cargarDatos();
-                        alert('Recibo eliminado con éxito.');
                       } catch (err: any) {
                         alert(`Error al eliminar: ${err.message || 'Intente de nuevo'}`);
+                        await cargarDatos();
                       }
                     }}
                     className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-red-200 transition cursor-pointer"
