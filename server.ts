@@ -25,9 +25,9 @@ function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value || !value.trim()) {
     console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
-    if (name === "JWT_SECRET") return "agricovet-jwt-fallback-secret-2026";
-    if (name === "SUPABASE_URL") return "https://xyzcompany.supabase.co";
-    if (name === "SUPABASE_ANON_KEY") return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5emNvbXBhbnkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY3MDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder";
+    if (name === "JWT_SECRET") return "agricovet_secret_key_2026";
+    if (name === "SUPABASE_URL") return "https://vedgedsbuajueynnyvpn.supabase.co";
+    if (name === "SUPABASE_ANON_KEY") return "sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno";
     return "default_value";
   }
   return value.trim();
