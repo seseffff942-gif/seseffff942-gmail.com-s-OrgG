@@ -24,13 +24,11 @@ import * as infileApi from "./fel/infile.js";
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value || !value.trim()) {
-    if (process.env.NODE_ENV === 'production' || name === 'JWT_SECRET') {
-      throw new Error(`[CRITICAL] Variable de entorno requerida no configurada: ${name}`);
-    }
-    console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor local.`);
-    if (name === "SUPABASE_URL") return process.env.VITE_SUPABASE_URL || "https://vedgedsbuajueynnyvpn.supabase.co";
-    if (name === "SUPABASE_ANON_KEY") return process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno";
-    return "";
+    console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
+    if (name === "JWT_SECRET") return "agricovet-jwt-fallback-secret-2026";
+    if (name === "SUPABASE_URL") return "https://xyzcompany.supabase.co";
+    if (name === "SUPABASE_ANON_KEY") return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5emNvbXBhbnkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY3MDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder";
+    return "default_value";
   }
   return value.trim();
 }
@@ -40,17 +38,6 @@ const JWT_SECRET = requireEnv("JWT_SECRET");
 import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = requireEnv("SUPABASE_URL");
 const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
-
-function diaGuatemala(d: Date | string = new Date()): string {
-  const dt = typeof d === 'string' ? new Date(d) : d;
-  const gtOffset = -6 * 60;
-  const utcMs = dt.getTime() + dt.getTimezoneOffset() * 60000;
-  const gt = new Date(utcMs + gtOffset * 60000);
-  const y = gt.getFullYear();
-  const m = String(gt.getMonth() + 1).padStart(2, '0');
-  const day = String(gt.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
@@ -284,41 +271,6 @@ const upload = multer({ storage, fileFilter: imageFilter, limits: { fileSize: 20
 
 export const app = express();
 app.set("trust proxy", 1);
-
-// Enable CORS for mobile apps, Capacitor WebView, and web clients
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const isAllowedOrigin = !origin || 
-    origin.includes('localhost') || 
-    origin.includes('127.0.0.1') || 
-    origin.endsWith('agricovet.lat') || 
-    origin.startsWith('capacitor://') ||
-    origin.startsWith('ionic://');
-    
-  if (isAllowedOrigin) {
-    res.header("Access-Control-Allow-Origin", origin || "*");
-  } else {
-    res.header("Access-Control-Allow-Origin", "https://agricovet.lat");
-  }
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// In-memory deduplication cache for sales creation (anti-double-click)
-const recentInvoicesCache = new Map<string, { timestamp: number, response: any }>();
-function cleanRecentInvoicesCache() {
-  const now = Date.now();
-  for (const [key, val] of recentInvoicesCache.entries()) {
-    if (now - val.timestamp > 60000) { // 60s TTL
-      recentInvoicesCache.delete(key);
-    }
-  }
-}
-
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -470,29 +422,22 @@ if (!process.env.VERCEL) {
       }
     } catch (e) {}
 
-    let invoices: any[] = [];
-    try {
-      const res = await supabase
-        .from("invoices")
-        .select("id, date, status, notes")
-        .eq("is_archived", false)
-        .order("date", { ascending: true, nullsFirst: false })
-        .order("id", { ascending: true });
+    let query = supabase
+      .from("invoices")
+      .select("id, date")
+      .eq("is_archived", false);
+    
+    if (resetDate) {
+      query = query.gte("date", resetDate);
+    }
 
-      if (!res.error && Array.isArray(res.data)) {
-        invoices = res.data;
-      } else {
-        const fallbackRes = await supabase
-          .from("invoices")
-          .select("id, date, status, notes")
-          .order("date", { ascending: true, nullsFirst: false })
-          .order("id", { ascending: true });
-        if (fallbackRes.data && Array.isArray(fallbackRes.data)) {
-          invoices = fallbackRes.data;
-        }
-      }
-    } catch (e: any) {
-      console.error("Error fetching for folio map:", e?.message || e);
+    const { data: invoices, error } = await query
+      .select("id, date, status, notes")
+      .order("date", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching for folio map:", error.message);
     }
 
     const map: Record<string, number> = {};
@@ -501,40 +446,27 @@ if (!process.env.VERCEL) {
     if (invoices && invoices.length > 0) {
       console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
       
-      const CUSTOM_FOLIO_OVERRIDES: Record<string, number> = {
-        'INV-1783096985871': 881, // Felipe Contreras -> Folio 881
-        'INV-1783391385068': 887  // Eliel Betancourt -> Folio 887
-      };
-
-      // Pass 0: Apply custom overrides
-      Object.entries(CUSTOM_FOLIO_OVERRIDES).forEach(([invId, folioNum]) => {
-        map[invId] = folioNum;
-        usedFolios.add(folioNum);
-      });
-
-      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123 o |||FOLIO:880-2)
+      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123)
       invoices.forEach((inv) => {
         if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
-        if (map[String(inv.id)] !== undefined) return;
         if (inv.notes && inv.notes.includes("|||FOLIO:")) {
-          const match = inv.notes.match(/\|\|\|FOLIO:([^\s\|]+)/);
+          const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
           if (match && match[1]) {
-            const val = match[1].trim();
-            const manualFolio = /^\d+$/.test(val) ? parseInt(val, 10) : val;
-            map[String(inv.id)] = manualFolio as any;
-            if (typeof manualFolio === 'number') {
+            const manualFolio = parseInt(match[1], 10);
+            if (!isNaN(manualFolio)) {
+              map[String(inv.id)] = manualFolio;
               usedFolios.add(manualFolio);
             }
           }
         }
       });
 
-      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio (ordered chronologically)
+      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio
       let currentFolio = startFrom;
-      const unassigned = invoices.filter(inv => inv.id && inv.status !== 'cancelled' && inv.status !== 'rejected' && map[String(inv.id)] === undefined);
-      unassigned.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+      invoices.forEach((inv) => {
+        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+        if (map[String(inv.id)] !== undefined) return; // already locked
 
-      unassigned.forEach((inv) => {
         while (usedFolios.has(currentFolio) || currentFolio === 812) {
           currentFolio++;
         }
@@ -600,23 +532,13 @@ if (!process.env.VERCEL) {
     next();
   };
 
-  const isTecunProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
-    if (!product) return false;
-    const nameL = (product.name || '').toLowerCase();
-    const catL = (product.category || '').toLowerCase();
-    return (
-      catL.includes('tecun') || nameL.includes('tecun') ||
-      catL.includes('tecún') || nameL.includes('tecún')
-    );
-  };
-
   const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
     if (!product) return false;
     const nameLower = (product.name || '').toLowerCase();
     const categoryLower = (product.category || '').toLowerCase();
     
     // Explicitly exclude INCUBADORAS
-    if (categoryLower.includes('incubadora') || nameLower.includes('incubadora') || categoryLower === 'incubadoras') {
+    if (categoryLower.includes('incubadora') || nameLower.includes('incubadora')) {
       return true;
     }
     
@@ -704,312 +626,6 @@ if (!process.env.VERCEL) {
     await seedDatabase(!!force);
     res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
   }));
-
-  // ======== AUTOMATIZACIÓN N8N: COBROS DIARIOS Y SEMANALES ========
-  const N8N_DEFAULT_WEBHOOK = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/cobros-diarios';
-
-  // Helper para obtener el lunes de la semana actual en Guatemala (UTC-6)
-  function getLunesSemanaActualGT(date: Date): string {
-    const gtOffset = -6 * 60;
-    const utcMs = date.getTime() + date.getTimezoneOffset() * 60000;
-    const gtNow = new Date(utcMs + gtOffset * 60000);
-    const dayOfWeek = gtNow.getDay(); // 0: Dom, 1: Lun ...
-    const distToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const lunes = new Date(gtNow);
-    lunes.setDate(gtNow.getDate() - distToMon);
-    const y = lunes.getFullYear();
-    const m = String(lunes.getMonth() + 1).padStart(2, '0');
-    const d = String(lunes.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  async function getCobrosYVentasConsolidado() {
-    const now = new Date();
-    const todayLabel = diaGuatemala(now);
-    const mondayLabel = getLunesSemanaActualGT(now);
-
-    const META_COBRO_DIARIA = 7500;
-    const META_COBRO_SEMANAL = 45000;
-
-    const TARGET_SELLERS = [
-      { email: 'seseffff942@gmail.com',          name: 'Emanuel Lima',             phone: '50248234048' },
-      { email: 'jerickottoniel@gmail.com',      name: 'Erick Juárez',             phone: '50254743595' },
-      { email: 'gruasytransportesali@gmail.com', name: 'Herbert Argueta',           phone: '50241323037' },
-      { email: 'limalopez22@gmail.com',          name: 'Sergio Misael Lima Lopez', phone: '50248234048' },
-    ];
-
-    // 1. Obtener usuarios
-    const { data: usersData } = await supabase.from('users').select('id, name, email, phone, role');
-    const allUsers = usersData || [];
-
-    // Combinar vendedores target y otros asesores
-    const sellerMap = new Map<string, { id: string; name: string; email: string; phone: string }>();
-    TARGET_SELLERS.forEach(s => {
-      const u = allUsers.find(dbU => dbU.email?.toLowerCase() === s.email.toLowerCase());
-      sellerMap.set(s.email.toLowerCase(), {
-        id: u?.id || '',
-        name: u?.name || s.name,
-        email: s.email,
-        phone: s.phone
-      });
-    });
-
-    allUsers.forEach(u => {
-      if (
-        u.role !== 'admin' &&
-        u.email &&
-        !u.email.startsWith('system-') &&
-        !u.id.startsWith('sys-') &&
-        !u.name?.toLowerCase().includes('configuration') &&
-        !u.name?.toLowerCase().includes('store') &&
-        !sellerMap.has(u.email.toLowerCase())
-      ) {
-        let ph = u.phone || '50248234048';
-        sellerMap.set(u.email.toLowerCase(), {
-          id: u.id,
-          name: u.name || u.email,
-          email: u.email,
-          phone: ph
-        });
-      }
-    });
-
-    // 2. Facturas (Ventas)
-    const { data: invData } = await supabase.from('invoices').select('*').order('date', { ascending: false }).limit(500);
-    const invoices = invData || [];
-
-    // 3. Pagos / Abonos (Cobros)
-    let payments: any[] = [];
-    try {
-      const { data: pData } = await supabase.from('payments').select('*').order('date', { ascending: false }).limit(500);
-      if (pData) payments = pData;
-    } catch {}
-
-    // Leer pagos locales de respaldo
-    try {
-      const pBackup = path.join(process.cwd(), 'payments_permanent_backup.json');
-      if (fs.existsSync(pBackup)) {
-        const arr = JSON.parse(fs.readFileSync(pBackup, 'utf8'));
-        if (Array.isArray(arr)) {
-          const ids = new Set(payments.map(p => p.id));
-          arr.forEach(p => { if (p && p.id && !ids.has(p.id)) payments.push(p); });
-        }
-      }
-    } catch {}
-
-    // 4. Recibos de caja
-    let recibos: any[] = [];
-    try {
-      const { data: rData } = await supabase.from('recibos_caja').select('*').order('fecha_emision', { ascending: false }).limit(300);
-      if (rData) recibos = rData;
-    } catch {}
-
-    // Mapa de facturas para vincular pagos a vendedores
-    const invoiceSellerMap = new Map<string, string>();
-    invoices.forEach(i => {
-      if (i.id && i.sellerId) invoiceSellerMap.set(i.id, i.sellerId.toLowerCase());
-    });
-
-    // 5. Calcular para cada vendedor
-    const resultados = Array.from(sellerMap.values()).map(seller => {
-      const sEmail = seller.email.toLowerCase();
-      const sId = seller.id.toLowerCase();
-
-      let cobradoHoy = 0;
-      let cobradoSemana = 0;
-      let vendidoHoy = 0;
-      let vendidoSemana = 0;
-      let facturasHoy = 0;
-
-      // Calcular Ventas
-      invoices.forEach(inv => {
-        if (inv.status === 'cancelled' || inv.status === 'rejected') return;
-        const invSeller = (inv.sellerId || '').toLowerCase();
-        if (invSeller === sEmail || (sId && invSeller === sId)) {
-          const invDay = diaGuatemala(new Date(inv.date || ''));
-          const monto = Number(inv.totalAmount) || 0;
-          if (invDay === todayLabel) {
-            vendidoHoy += monto;
-            facturasHoy += 1;
-          }
-          if (invDay >= mondayLabel && invDay <= todayLabel) {
-            vendidoSemana += monto;
-          }
-        }
-      });
-
-      // Calcular Cobros (Pagos / Abonos)
-      payments.forEach(pay => {
-        if (pay.is_archived) return;
-        const payDate = pay.date ? diaGuatemala(new Date(pay.date)) : '';
-        const rawRec = (pay.recordedBy || pay.recordedby || pay.recorded_by || '').toLowerCase();
-        const invSeller = pay.invoiceId ? invoiceSellerMap.get(pay.invoiceId) : '';
-        const match = rawRec === sEmail || (sId && rawRec === sId) || invSeller === sEmail || (sId && invSeller === sId);
-
-        if (match) {
-          const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (Number(pay.amount) || 0);
-          if (payDate === todayLabel) cobradoHoy += amount;
-          if (payDate >= mondayLabel && payDate <= todayLabel) cobradoSemana += amount;
-        }
-      });
-
-      // Recibos de caja adicionales
-      recibos.forEach(rec => {
-        const recDate = rec.fecha_emision || (rec.created_at ? diaGuatemala(new Date(rec.created_at)) : '');
-        const cajero = (rec.cajero_nombre || rec.seller_id || '').toLowerCase();
-        if (cajero.includes(seller.name.toLowerCase()) || cajero === sEmail || (sId && cajero === sId)) {
-          const rTotal = Number(rec.monto_total || rec.efectivo_total) || 0;
-          if (recDate === todayLabel) cobradoHoy += rTotal;
-          if (recDate >= mondayLabel && recDate <= todayLabel) cobradoSemana += rTotal;
-        }
-      });
-
-      cobradoHoy = Math.round(cobradoHoy * 100) / 100;
-      cobradoSemana = Math.round(cobradoSemana * 100) / 100;
-      vendidoHoy = Math.round(vendidoHoy * 100) / 100;
-      vendidoSemana = Math.round(vendidoSemana * 100) / 100;
-
-      const faltanteDiario = Math.max(0, Math.round((META_COBRO_DIARIA - cobradoHoy) * 100) / 100);
-      const extraDiario = Math.max(0, Math.round((cobradoHoy - META_COBRO_DIARIA) * 100) / 100);
-      const alcanzoMeta = cobradoHoy >= META_COBRO_DIARIA;
-
-      const faltanteSemanal = Math.max(0, Math.round((META_COBRO_SEMANAL - cobradoSemana) * 100) / 100);
-      const extraSemanal = Math.max(0, Math.round((cobradoSemana - META_COBRO_SEMANAL) * 100) / 100);
-      const alcanzoMetaSemanal = cobradoSemana >= META_COBRO_SEMANAL;
-
-      return {
-        vendedor: seller.name,
-        email: seller.email,
-        phone: seller.phone,
-        telefono: seller.phone,
-        cobrado: cobradoHoy,
-        metaCobro: META_COBRO_DIARIA,
-        faltante: faltanteDiario,
-        extra: extraDiario,
-        alcanzoMeta,
-        cobradoSemanal: cobradoSemana,
-        metaSemanal: META_COBRO_SEMANAL,
-        faltanteSemanal,
-        extraSemanal,
-        alcanzoMetaSemanal,
-        moneda: 'Q',
-        totalVentas: vendidoHoy,
-        totalVentasSemanal: vendidoSemana,
-        cantidadFacturas: facturasHoy
-      };
-    });
-
-    return { todayLabel, mondayLabel, resultados };
-  }
-
-  async function dispararN8NCobros(tipo: 'mediodia' | 'cierre' | 'semanal', webhookUrl?: string) {
-    const targetUrl = webhookUrl || N8N_DEFAULT_WEBHOOK;
-    const { todayLabel, resultados } = await getCobrosYVentasConsolidado();
-    console.log(`[N8N-COBROS] Enviando reporte '${tipo}' (${todayLabel}) a: ${targetUrl}`);
-
-    const webhookResponses: any[] = [];
-    for (const r of resultados) {
-      const payload = {
-        tipo,
-        vendedor: r.vendedor,
-        phone: r.phone,
-        telefono: r.telefono,
-        cobrado: r.cobrado,
-        metaCobro: r.metaCobro,
-        cobradoSemanal: r.cobradoSemanal,
-        metaSemanal: r.metaSemanal,
-        moneda: 'Q',
-        alcanzoMeta: r.alcanzoMeta,
-        alcanzoMetaSemanal: r.alcanzoMetaSemanal,
-        totalVentas: r.totalVentas,
-        cantidadFacturas: r.cantidadFacturas
-      };
-
-      try {
-        const res = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const resTxt = await res.text().catch(() => '');
-        webhookResponses.push({ vendedor: r.vendedor, status: res.status, ok: res.ok, response: resTxt });
-        console.log(`[N8N-COBROS] ${r.vendedor} (${tipo}): HTTP ${res.status}`);
-      } catch (e: any) {
-        webhookResponses.push({ vendedor: r.vendedor, error: e.message, ok: false });
-        console.error(`[N8N-COBROS] Error para ${r.vendedor}:`, e.message);
-      }
-      await new Promise(res => setTimeout(res, 400));
-    }
-
-    return { tipo, fecha: todayLabel, totalVendedores: resultados.length, webhookResponses, data: resultados };
-  }
-
-  // Endpoint Mediodía (12:30 PM)
-  app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const tipo = (req.body.tipo || 'mediodia') as 'mediodia' | 'cierre' | 'semanal';
-    const result = await dispararN8NCobros(tipo, req.body.webhookUrl);
-    res.json(result);
-  }));
-
-  // Endpoint Cierre (5:00 PM)
-  app.post("/api/admin/check-daily-sales-cierre", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const result = await dispararN8NCobros('cierre', req.body.webhookUrl);
-    res.json(result);
-  }));
-
-  // Endpoint Semanal
-  app.post("/api/admin/check-weekly-report", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const result = await dispararN8NCobros('semanal', req.body.webhookUrl);
-    res.json(result);
-  }));
-
-  // ======== SCHEDULER AUTOMÁTICO - 12:30 PM, 5:00 PM Y SEMANAL SÁBADO (GUATEMALA) ========
-  if (!process.env.VERCEL) {
-    let lastNoonFired = '';
-    let lastCierreFired = '';
-    let lastSemanalFired = '';
-
-    setInterval(async () => {
-      const now = new Date();
-      const gtOffset = -6 * 60;
-      const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-      const gtNow = new Date(utcMs + gtOffset * 60000);
-      const hh = gtNow.getHours();
-      const mm = gtNow.getMinutes();
-      const day = gtNow.getDay(); // 0: Dom, 6: Sáb
-      const yy = gtNow.getFullYear();
-      const mo = String(gtNow.getMonth() + 1).padStart(2, '0');
-      const dd = String(gtNow.getDate()).padStart(2, '0');
-      const todayKey = `${yy}-${mo}-${dd}`;
-
-      // 12:30 PM Guatemala → Dispara reporte mediodía
-      if (hh === 12 && mm === 30 && lastNoonFired !== todayKey) {
-        lastNoonFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte mediodía (12:30 PM GT) ${todayKey}`);
-        try {
-          await dispararN8NCobros('mediodia');
-        } catch (e: any) { console.error('[SCHEDULER] Error mediodía:', e.message); }
-      }
-
-      // 17:00 (5:00 PM) Guatemala → Dispara reporte cierre diario
-      if (hh === 17 && mm === 0 && lastCierreFired !== todayKey) {
-        lastCierreFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte cierre (5:00 PM GT) ${todayKey}`);
-        try {
-          await dispararN8NCobros('cierre');
-        } catch (e: any) { console.error('[SCHEDULER] Error cierre:', e.message); }
-      }
-
-      // Sábado 17:30 (5:30 PM) Guatemala → Dispara reporte cierre semanal
-      if (day === 6 && hh === 17 && mm === 30 && lastSemanalFired !== todayKey) {
-        lastSemanalFired = todayKey;
-        console.log(`[SCHEDULER] Disparando reporte semanal (Sábado 5:30 PM GT) ${todayKey}`);
-        try {
-          await dispararN8NCobros('semanal');
-        } catch (e: any) { console.error('[SCHEDULER] Error semanal:', e.message); }
-      }
-    }, 30000);
-  }
 
   app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { invoiceId, items, client, sellerId } = req.body;
@@ -2577,18 +2193,6 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const isSystemUser = (u: any) => {
-      if (!u) return true;
-      if (u.role === 'system') return true;
-      const id = String(u.id || '').toLowerCase();
-      const email = String(u.email || '').toLowerCase();
-      const name = String(u.name || '').toLowerCase();
-      if (id.startsWith('sys-') || id.startsWith('system-')) return true;
-      if (email.startsWith('system-') || email.includes('agricovet.internal')) return true;
-      if (name.includes('critical stock') || name.includes('logo config') || name.includes('whatsapp config') || name.includes('signature config') || name.includes('suppliers store') || name.includes('debts store') || name.includes('system') || name.includes('exclusion')) return true;
-      return false;
-    };
-
     try {
       const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
       if (error) {
@@ -2596,11 +2200,11 @@ if (!process.env.VERCEL) {
         if (error.message.includes('sellerCode')) {
           const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
           if (errFallback) throw new Error(errFallback.message);
-          return res.json((usersFallback || []).filter((u: any) => !isSystemUser(u)));
+          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
         }
         throw new Error(error.message);
       }
-      res.json((users || []).filter((u: any) => !isSystemUser(u)));
+      res.json((users || []).filter((u: any) => u.role !== 'system'));
     } catch (err: any) {
       console.error("Error fetching users:", err);
       res.status(500).json({ error: err.message });
@@ -2685,26 +2289,6 @@ if (!process.env.VERCEL) {
 
     await supabase.from("users").update({ photo: photoUrl }).eq('id', id);
     res.json({ success: true, photo: photoUrl });
-  }));
-
-  app.delete("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    if (req.user.id === id) {
-      return res.status(400).json({ error: "No puedes eliminar tu propio usuario de sesión activa." });
-    }
-
-    const { data: userToDelete } = await supabase.from("users").select("*").eq("id", id).single();
-    if (userToDelete) {
-      const emailLower = (userToDelete.email || '').toLowerCase();
-      if (emailLower === 'seseffff942@gmail.com' || emailLower === 'limalopez22@gmail.com') {
-        return res.status(403).json({ error: "Este usuario principal protegido no puede ser eliminado." });
-      }
-    }
-
-    const { error } = await supabase.from("users").delete().eq("id", id);
-    if (error) throw new Error(error.message);
-
-    res.json({ success: true, message: "Usuario eliminado correctamente" });
   }));
 
   // OFFICE INVENTORY
@@ -2836,10 +2420,8 @@ if (!process.env.VERCEL) {
     // Normalize: map DB snake_case to camelCase aliases for frontend
     const normalized = (products || []).map((p: any) => ({
       ...p,
-      costPrice: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
-      cost_price: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
-      hiddenFromSales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false),
-      hidden_from_sales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false)
+      costPrice: p.cost_price || 0,
+      hiddenFromSales: p.hidden_from_sales || false
     }));
     setCachedData("products", normalized);
 
@@ -2851,7 +2433,7 @@ if (!process.env.VERCEL) {
 
   app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
-    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, cost_price, hiddenFromSales, hidden_from_sales } = req.body;
+    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
     
     if (name) {
       const trimmedName = name.trim();
@@ -2879,13 +2461,11 @@ if (!process.env.VERCEL) {
 
     // Campos exclusivos del dueño y admin: visibilidad en ventas para admins, costo para el dueño
     const isAdmin = req.user && (req.user.role === 'admin' || isOwner);
-    const finalCostPrice = costPrice !== undefined ? costPrice : cost_price;
-    const finalHiddenFromSales = hiddenFromSales !== undefined ? hiddenFromSales : hidden_from_sales;
     if (isOwner) {
-      if (finalCostPrice !== undefined) product.cost_price = Number(finalCostPrice);
+      if (costPrice !== undefined) product.cost_price = costPrice;
     }
     if (isAdmin) {
-      if (finalHiddenFromSales !== undefined) product.hidden_from_sales = Boolean(finalHiddenFromSales);
+      if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
     }
 
     const { error } = await supabase.from("products").insert([product]);
@@ -2908,24 +2488,17 @@ if (!process.env.VERCEL) {
 
          const { error: err2 } = await supabase.from("products").insert([retryProduct]);
          if (err2) throw new Error(err2.message);
-         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, cost_price: 0, hiddenFromSales: false, hidden_from_sales: false });
+         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
        }
        throw new Error(error.message);
     }
-    const retProduct = {
-      ...product,
-      costPrice: product.cost_price !== undefined ? Number(product.cost_price) : 0,
-      cost_price: product.cost_price !== undefined ? Number(product.cost_price) : 0,
-      hiddenFromSales: product.hidden_from_sales !== undefined ? Boolean(product.hidden_from_sales) : false,
-      hidden_from_sales: product.hidden_from_sales !== undefined ? Boolean(product.hidden_from_sales) : false,
-    };
-    res.json(retProduct);
+    res.json(product);
   }));
 
   app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("products");
     const { id } = req.params;
-    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, cost_price, hiddenFromSales, hidden_from_sales } = req.body;
+    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
     const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
     const isAdmin = req.user.role === 'admin' || isOwner;
     
@@ -2953,13 +2526,11 @@ if (!process.env.VERCEL) {
     if (specifications !== undefined) updates.specifications = specifications;
     if (is_external !== undefined) updates.is_external = is_external;
     
-    const finalCostPrice = costPrice !== undefined ? costPrice : cost_price;
-    const finalHiddenFromSales = hiddenFromSales !== undefined ? hiddenFromSales : hidden_from_sales;
     if (isOwner) {
-      if (finalCostPrice !== undefined) updates.cost_price = Number(finalCostPrice);
+      if (costPrice !== undefined) updates.cost_price = costPrice;
     }
     if (isAdmin) {
-      if (finalHiddenFromSales !== undefined) updates.hidden_from_sales = Boolean(finalHiddenFromSales);
+      if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
     }
     
     const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
@@ -3028,14 +2599,7 @@ if (!process.env.VERCEL) {
       await createNotification('price_changed', 'Precio Modificado', `El precio de ${originalProduct.name} cambió de Q${originalProduct.price} a Q${price}.`, { productId: id });
     }
 
-    const retUpdated = {
-      ...updatedProduct,
-      costPrice: updatedProduct.cost_price !== undefined ? Number(updatedProduct.cost_price) : (updatedProduct.costPrice !== undefined ? Number(updatedProduct.costPrice) : 0),
-      cost_price: updatedProduct.cost_price !== undefined ? Number(updatedProduct.cost_price) : (updatedProduct.costPrice !== undefined ? Number(updatedProduct.costPrice) : 0),
-      hiddenFromSales: updatedProduct.hidden_from_sales !== undefined ? Boolean(updatedProduct.hidden_from_sales) : (updatedProduct.hiddenFromSales !== undefined ? Boolean(updatedProduct.hiddenFromSales) : false),
-      hidden_from_sales: updatedProduct.hidden_from_sales !== undefined ? Boolean(updatedProduct.hidden_from_sales) : (updatedProduct.hiddenFromSales !== undefined ? Boolean(updatedProduct.hiddenFromSales) : false),
-    };
-    res.json(retUpdated);
+    res.json(updatedProduct);
   }));
 
   // NOTIFICATIONS API
@@ -3701,7 +3265,7 @@ if (!process.env.VERCEL) {
   }));
 
   app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature, idempotencyKey } = req.body;
+    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
     isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
 
     // Prohibir venta si no hay productos
@@ -3720,20 +3284,6 @@ if (!process.env.VERCEL) {
     }
 
     const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
-
-    // DEDUPLICATION SHIELD: Prevent double execution on rapid repeated taps / clicks
-    cleanRecentInvoicesCache();
-    if (idempotencyKey && recentInvoicesCache.has(idempotencyKey)) {
-      console.log(`[DEDUPLICATE] Venta ya procesada con idempotencyKey: ${idempotencyKey}. Devolviendo resultado previo.`);
-      return res.json(recentInvoicesCache.get(idempotencyKey)!.response);
-    }
-
-    const itemsFingerprint = (items || []).map((i: any) => `${i.productId || i.id}:${i.quantity}:${i.price}`).join('|');
-    const saleFingerprint = `fp_${saleOwner}_${(client || '').trim().toLowerCase()}_${itemsFingerprint}`;
-    if (recentInvoicesCache.has(saleFingerprint)) {
-      console.log(`[DEDUPLICATE] Venta concurrente idéntica interceptada (${saleFingerprint}). Devolviendo resultado para evitar duplicación.`);
-      return res.json(recentInvoicesCache.get(saleFingerprint)!.response);
-    }
 
     // Auto-register client if not exists
     if (client) {
@@ -3843,10 +3393,7 @@ if (!process.env.VERCEL) {
           item.isStockAlert = true;
         }
         
-        const isTecun = isTecunProduct(product);
-        const newStock = isTecun
-          ? Math.max(0, currentStock - parseFloat(item.quantity))
-          : currentStock - parseFloat(item.quantity);
+        const newStock = currentStock - parseFloat(item.quantity);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
@@ -3962,11 +3509,14 @@ if (!process.env.VERCEL) {
     invoiceDataRaw['clientName'] = client;
     invoiceDataRaw['customerPhone'] = phone || "";
     invoiceDataRaw['deliveryAddress'] = address || "";
-    // El NIT tambien se guarda en su propia columna, no solo dentro de `notes`.
-    // Se mantiene el prefijo en `notes` por compatibilidad con las facturas
-    // historicas y con las plantillas de impresion que lo leen de ahi.
     invoiceDataRaw['nit'] = nit || "";
     invoiceDataRaw['folio'] = String(assignedFolio);
+    invoiceDataRaw['invoice_type'] = invoiceType || 'veterinaria';
+    invoiceDataRaw['credit_days'] = creditDays || (invoiceType === 'agricola' ? 60 : 30);
+    invoiceDataRaw['transport_method'] = transportMethod || "";
+    invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
+    invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
+    if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
     
     let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
     
@@ -3980,6 +3530,7 @@ if (!process.env.VERCEL) {
       fallbackInvoice1['client'] = client;
       fallbackInvoice1['phone'] = phone || "";
       fallbackInvoice1['address'] = address || "";
+      fallbackInvoice1['folio'] = String(assignedFolio);
       
       const { error: retryError1 } = await supabase.from("invoices").insert([fallbackInvoice1]);
       if (retryError1) {
@@ -4021,7 +3572,7 @@ if (!process.env.VERCEL) {
 
           for (const admin of admins) {
               if (admin.phone) {
-                  const message = `🚨 ¡Nuevo Pedido Ingresado! 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 Cliente: ${client}\n📦 Productos: ${itemSummaryTruncated}\n💰 Total: ${totalFormatted}\n📍 Ubicación / Ruta: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
+                  const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
 
                   console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
                   internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
@@ -4103,7 +3654,7 @@ if (!process.env.VERCEL) {
 
     const folioMap = await getFolioMap();
 
-    const finalInvoiceResponse = {
+    res.json({
       ...returnInvoice,
       isOwed: true,
       folio: folioMap[returnInvoice.id] || 1,
@@ -4111,15 +3662,7 @@ if (!process.env.VERCEL) {
       nit: returnInvoice.nit || '',
       phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
       address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
-    };
-
-    // Store in recent invoices cache for idempotency protection
-    if (idempotencyKey) {
-      recentInvoicesCache.set(idempotencyKey, { timestamp: Date.now(), response: finalInvoiceResponse });
-    }
-    recentInvoicesCache.set(saleFingerprint, { timestamp: Date.now(), response: finalInvoiceResponse });
-
-    res.json(finalInvoiceResponse);
+    });
   }));
 
   app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -4272,30 +3815,10 @@ if (!process.env.VERCEL) {
         totalAmount: total,
         status: isOwed ? 'pending' : (oldInvoice.paidAmount >= total ? 'paid' : (oldInvoice.status === 'sent' ? 'sent' : 'pending'))
     };
-
     if (targetDate) {
-      const oldDay = oldInvoice.date ? diaGuatemala(oldInvoice.date) : null;
-      const targetDay = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : diaGuatemala(targetDate);
-
-      // Si la fecha calendario es la misma que la original, se CONSERVA intacta la fecha y hora original exacta
-      if (oldDay && targetDay === oldDay) {
-        updatedDataRaw.date = oldInvoice.date;
-      } else if (oldInvoice.date && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-        // Si el administrador cambió deliberadamente a otro día, trasladamos la fecha manteniendo la hora/minuto/segundo original
-        const oldDt = new Date(oldInvoice.date);
-        const [tYear, tMonth, tDay] = targetDate.split('-').map(Number);
-        const oldGt = new Date(oldDt.getTime() - 6 * 3600000);
-        const hours = oldGt.getUTCHours();
-        const minutes = oldGt.getUTCMinutes();
-        const seconds = oldGt.getUTCSeconds();
-        const ms = oldGt.getUTCMilliseconds();
-        const newGtUtc = Date.UTC(tYear, tMonth - 1, tDay, hours, minutes, seconds, ms) + 6 * 3600000;
-        updatedDataRaw.date = new Date(newGtUtc).toISOString();
-      } else {
-        updatedDataRaw.date = (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
-      }
-    } else {
-      updatedDataRaw.date = oldInvoice.date;
+      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+        ? new Date(`${targetDate}T12:00:00-06:00`).toISOString()
+        : (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
     }
     updatedDataRaw['clientName'] = client;
     updatedDataRaw['customerPhone'] = phone || '';
@@ -4473,10 +3996,56 @@ if (!process.env.VERCEL) {
             if (guideNumber) {
               notes = updateTagInNotes(notes, "TRACKING", guideNumber);
             }
-            if (folio !== undefined && String(folio).trim() !== '') {
-              const strFolio = String(folio).trim();
-              notes = updateTagInNotes(notes, "FOLIO", strFolio);
-              updateData.folio = strFolio;
+            if (folio !== undefined) {
+              const parsedFolio = parseInt(folio);
+              if (!isNaN(parsedFolio)) {
+                // Determine current assigned folios using getFolioMap()
+                const currentMap = await getFolioMap();
+                const previousFolio = currentMap[String(id)];
+
+                // Only perform sequential cascading shifting if the folio assignment is actually changing
+                if (previousFolio !== parsedFolio) {
+                  console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
+                  
+                  // Query all active (non-archived) invoices excluding the current invoice
+                  const { data: otherInvoices } = await supabase
+                    .from("invoices")
+                    .select("id, notes, status")
+                    .eq("is_archived", false)
+                    .neq("id", id);
+                  
+                  if (otherInvoices && otherInvoices.length > 0) {
+                    const updates = [];
+                    for (const otherInv of otherInvoices) {
+                      // Skip cancelled/rejected invoices
+                      if (otherInv.status === 'cancelled' || otherInv.status === 'rejected') {
+                        continue;
+                      }
+                      
+                      const otherCurrentFolio = currentMap[String(otherInv.id)];
+                      if (otherCurrentFolio !== undefined && otherCurrentFolio >= parsedFolio) {
+                        const otherNewFolio = otherCurrentFolio + 1;
+                        let otherNotes = otherInv.notes || "";
+                        otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
+                        
+                        updates.push({
+                          id: otherInv.id,
+                          notes: otherNotes
+                        });
+                      }
+                    }
+                    
+                    if (updates.length > 0) {
+                      console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
+                      for (const update of updates) {
+                        await supabase.from("invoices").update({ notes: update.notes }).eq('id', update.id);
+                        await syncInvoiceToPermanentBackup(update.id);
+                      }
+                    }
+                  }
+                }
+              }
+              notes = updateTagInNotes(notes, "FOLIO", folio);
             }
 
             if (deliveryLetterUrl) {
@@ -4558,8 +4127,8 @@ if (!process.env.VERCEL) {
                const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
                if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
             }
-          }
-       }
+         }
+      }
     }
     await supabase.from("invoices").delete().eq('id', id);
     invalidateCache("folio_map");
@@ -4568,11 +4137,17 @@ if (!process.env.VERCEL) {
   }));
 
   app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client, search, status, limit, offset } = req.query;
+    let { sellerId, client } = req.query;
     
-    // Si se pasa 'all' o 'global', o si se pide el listado general de ventas diarias
-    if (sellerId === 'global' || sellerId === 'all') {
+    // If searching by client, we allow a global search even for sellers to facilitate debt checking accurately
+    if (sellerId === 'global') {
       sellerId = undefined;
+    } else if (req.user.role !== 'admin' && !client) {
+      if (!sellerId) {
+        sellerId = req.user.email; // Enforce their own email if omitted
+      } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
+        return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+      }
     }
     
     const fetchInvoices = async () => {
@@ -4580,30 +4155,13 @@ if (!process.env.VERCEL) {
       if (sellerId) {
         query = query.eq('sellerId', sellerId);
       }
-      if (status && status !== 'all') {
-        query = query.eq('status', status);
-      }
-      if (search && String(search).trim() !== '') {
-        const s = String(search).trim();
-        if (/^\d+$/.test(s)) {
-          query = query.or(`folio.eq.${s},clientName.ilike.%${s}%,nit.ilike.%${s}%`);
-        } else {
-          query = query.or(`clientName.ilike.%${s}%,nit.ilike.%${s}%`);
-        }
-      }
-      query = query.order('date', { ascending: false });
-      if (limit && !isNaN(parseInt(limit, 10))) {
-        const numLimit = parseInt(limit, 10);
-        const numOffset = offset && !isNaN(parseInt(offset, 10)) ? parseInt(offset, 10) : 0;
-        query = query.range(numOffset, numOffset + numLimit - 1);
-      }
       const res = await query;
       if (res.error && (res.error.code === '42703' || res.error.message.includes('is_archived'))) {
         let fallbackQuery = supabase.from("invoices").select("*");
         if (sellerId) {
           fallbackQuery = fallbackQuery.eq('sellerId', sellerId);
         }
-        return fallbackQuery.order('date', { ascending: false });
+        return fallbackQuery;
       }
       return res;
     };
@@ -4616,84 +4174,67 @@ if (!process.env.VERCEL) {
       throw new Error(error.message);
     }
     
-    const parsedInvoices = (invoices || []).map((inv: any) => {
-       const mappedInv = { ...inv };
-       
-       // 1. Lectura directa desde columnas dedicadas
-       if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
-         const strF = String(inv.folio).trim();
-         mappedInv.folio = /^\d+$/.test(strF) ? parseInt(strF, 10) : strF;
-       }
-       if (inv.invoice_type) mappedInv.invoiceType = inv.invoice_type;
-       if (inv.credit_days !== undefined && inv.credit_days !== null) mappedInv.creditDays = inv.credit_days;
-       if (inv.transport_method) mappedInv.transportMethod = inv.transport_method;
-       if (inv.seller_pays_shipping !== undefined) mappedInv.sellerPaysShipping = Boolean(inv.seller_pays_shipping);
-       if (inv.auth_status) mappedInv.authStatus = inv.auth_status;
-       if (inv.guide_number) mappedInv.trackingNumber = inv.guide_number;
-       if (inv.observations) mappedInv.notes = inv.observations;
-       if (inv.delivery_letter_url) mappedInv.deliveryLetterUrl = inv.delivery_letter_url;
-       if (inv.shipping_guide_url) mappedInv.shippingGuideUrl = inv.shipping_guide_url;
-       if (inv.scan_client) mappedInv.scanClient = inv.scan_client;
-       if (inv.scan_date) mappedInv.scanDate = inv.scan_date;
-       if (inv.reviewed_by) mappedInv.reviewedBy = inv.reviewed_by;
+    const folioMap = await getFolioMap();
 
-       // 2. Retrocompatibilidad para notas con tags
-       const rawNotes = inv.notes || mappedInv.notes || "";
+    const parsedInvoices = invoices.map((inv: any) => {
+       const mappedInv = { ...inv };
+       const rawNotes = mappedInv.notes || "";
        if (rawNotes.includes("|||")) {
            const flags = rawNotes.split("|||");
            let potentialNit = flags[0].trim();
            if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               if (!mappedInv.notes) mappedInv.notes = potentialNit;
-               mappedInv.nit = mappedInv.nit || "";
+               mappedInv.notes = potentialNit;
+               mappedInv.nit = ""; // Force clear nit if it was actually notes
            } else {
                mappedInv.nit = mappedInv.nit || potentialNit;
-               if (!mappedInv.notes) mappedInv.notes = "";
+               mappedInv.notes = ""; // Reset since nit is now assigned
            }
            flags.slice(1).forEach((flag: string) => {
                const idx = flag.indexOf(':');
                if (idx !== -1) {
                    const key = flag.substring(0, idx);
                    const value = flag.substring(idx + 1);
-                   if (key === "AUTH" && !mappedInv.authStatus) {
+                   if (key === "AUTH") {
                        mappedInv.authStatus = value;
                    } else if (key === "DEBT") {
-                       mappedInv.hasDebtAlert = value === "true";
-                   } else if (key === "CREDIT" && mappedInv.creditDays === undefined) {
+                       mappedInv.hasDebtAlert = value === "true"; // Debt alert mapping
+                   } else if (key === "CREDIT") {
                        const val = parseInt(value, 10);
                        if (!isNaN(val)) mappedInv.creditDays = val;
-                   } else if (key === "TYPE" && !mappedInv.invoiceType) {
+                   } else if (key === "TYPE") {
                        mappedInv.invoiceType = value;
-                   } else if (key === "TRACKING" && !mappedInv.trackingNumber) {
+                   } else if (key === "TRACKING") {
                        mappedInv.trackingNumber = value;
-                   } else if (key === "DELIVERY_LETTER" && !mappedInv.deliveryLetterUrl) {
+                   } else if (key === "DELIVERY_LETTER") {
                        mappedInv.deliveryLetterUrl = value;
-                   } else if (key === "SHIPPING_GUIDE" && !mappedInv.shippingGuideUrl) {
+                   } else if (key === "SHIPPING_GUIDE") {
                        mappedInv.shippingGuideUrl = value;
-                   } else if (key === "SCAN_CLIENT" && !mappedInv.scanClient) {
+                   } else if (key === "SCAN_CLIENT") {
                        mappedInv.scanClient = value;
-                   } else if (key === "SCAN_DATE" && !mappedInv.scanDate) {
+                   } else if (key === "SCAN_DATE") {
                        mappedInv.scanDate = value;
-                   } else if (key === "OBS" && !mappedInv.notes) {
+                   } else if (key === "OBS") {
                        mappedInv.notes = value;
                    } else if (key === "EDITED") {
                        mappedInv.isEdited = value === "true";
-                   } else if (key === "SELLER_SIG") {
-                       mappedInv.sellerSignature = value;
-                   } else if (key === "ADMIN_SIG") {
-                       mappedInv.adminSignature = value;
-                   } else if (key === "REVIEWED_BY" && !mappedInv.reviewedBy) {
-                       mappedInv.reviewedBy = value;
+                    } else if (key === "SELLER_SIG") {
+                        mappedInv.sellerSignature = value;
+                    } else if (key === "ADMIN_SIG") {
+                        mappedInv.adminSignature = value;
+                    } else if (key === "REVIEWED_BY") {
+                        mappedInv.reviewedBy = value;
                    }
                }
            });
-       } else if (!mappedInv.nit) {
+       } else {
+           // Older legacy notes that just had NIT
            let potentialNit = rawNotes.trim();
            if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               if (!mappedInv.notes) mappedInv.notes = potentialNit;
+               mappedInv.notes = potentialNit;
                mappedInv.nit = "";
            } else {
-               mappedInv.nit = potentialNit;
-               if (!mappedInv.notes) mappedInv.notes = "";
+               mappedInv.nit = mappedInv.nit || potentialNit;
+               mappedInv.notes = "";
            }
        }
        
@@ -4702,25 +4243,11 @@ if (!process.env.VERCEL) {
            mappedInv.nit = "";
        }
        
-       let cleanNotes = mappedInv.notes || "";
-       if (cleanNotes.includes("data:image")) {
-           cleanNotes = cleanNotes.replace(/data:image\/[^;]+;base64,[^|]+/g, "").trim();
-       }
-       
        return {
          ...mappedInv,
-         notes: cleanNotes,
          folio: (function() {
-             if (mappedInv.folio !== undefined && mappedInv.folio !== null && String(mappedInv.folio).trim() !== '') {
-               const strF = String(mappedInv.folio).trim();
-               return /^\d+$/.test(strF) ? parseInt(strF, 10) : strF;
-             }
-             const m = rawNotes.match(/\|\|\|FOLIO:([^\s\|]+)/);
-             if (m) {
-               const val = m[1].trim();
-               return /^\d+$/.test(val) ? parseInt(val, 10) : val;
-             }
-             return 1;
+             const m = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
+             return m ? parseInt(m[1]) : (folioMap[String(mappedInv.id)] || 1);
          })(),
          client: mappedInv.client || mappedInv.clientName || '',
          nit: mappedInv.nit || '',
@@ -4730,24 +4257,19 @@ if (!process.env.VERCEL) {
        };
     });
 
-    // In-memory filter fallback for client search
+    // In-memory robust filtering for both "client" and "clientName" schema columns
     let filteredInvoices = parsedInvoices;
     if (client) {
       const clientLower = String(client).toLowerCase().trim();
       filteredInvoices = parsedInvoices.filter((inv: any) => {
         const nameVal = String(inv.client || inv.clientName || '').toLowerCase().trim();
+        // Allow partial matches or complete matches
         return nameVal.includes(clientLower) || clientLower.includes(nameVal);
       });
+      console.log(`Filtered invoices for client "${client}": found ${filteredInvoices.length} results.`);
     }
 
-    filteredInvoices.sort((a: any, b: any) => {
-      const timeA = new Date(a.date || 0).getTime();
-      const timeB = new Date(b.date || 0).getTime();
-      if (timeA !== timeB) return timeB - timeA;
-      const folioA = Number(a.folio) || 0;
-      const folioB = Number(b.folio) || 0;
-      return folioB - folioA;
-    });
+    filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
     res.json(filteredInvoices);
   }));
 
@@ -4974,7 +4496,7 @@ if (!process.env.VERCEL) {
                 
                 if (seller && seller.phone) {
                     const actionText = status === 'rejected' ? 'RECHAZADO' : 'AUTORIZADO';
-                    const message = `Hola ${seller.name},\n\nTu pedido para ${clientName} ha sido ${actionText} por un administrador.`;
+                    const message = `Hola ${seller.name},\n\nTu pedido para *${clientName}* ha sido *${actionText}* por un administrador.`;
                     
                     if (status === 'rejected') {
                         // Notify seller
@@ -4987,7 +4509,7 @@ if (!process.env.VERCEL) {
                         // Notify client too if phone exists
                         const clientPhone = data.phone || data.customerPhone;
                         if (clientPhone) {
-                            const clientMsg = `Hola ${clientName}, tu pedido ${id} ha sido rechazado.`;
+                            const clientMsg = `Hola *${clientName}*, tu pedido ${id} ha sido rechazado.`;
                             internalSendWhatsApp(clientPhone, clientMsg, "alert_rechazo_factura", "es_MX", [
                                 { name: "w_pedido", value: id },
                                 { name: "w_vendedor", value: seller.name || "Ventas" },
@@ -5358,31 +4880,14 @@ if (!process.env.VERCEL) {
 
   app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const d = await readDebts();
-    const amountVal = parseFloat(req.body.amount || "0");
-    const subtotalVal = req.body.subtotal !== undefined && req.body.subtotal !== null && req.body.subtotal !== ''
-      ? parseFloat(req.body.subtotal)
-      : parseFloat((amountVal / 1.12).toFixed(2));
-    const ivaVal = req.body.iva !== undefined && req.body.iva !== null && req.body.iva !== ''
-      ? parseFloat(req.body.iva)
-      : parseFloat((amountVal - subtotalVal).toFixed(2));
-
     const newDebt = { 
-      id: req.body.id || `debt_${Date.now()}`,
-      title: req.body.title || (req.body.supplierCommercialName ? `Factura de ${req.body.supplierCommercialName}` : "Factura de Compra"),
-      invoiceNumber: (req.body.invoiceNumber || "").toString().trim(),
-      invoiceSeries: (req.body.invoiceSeries || "").toString().trim(),
-      invoiceType: req.body.invoiceType || "factura_normal",
-      dte: (req.body.dte || "").toString().trim(),
-      supplierId: req.body.supplierId || null,
-      supplierNit: (req.body.supplierNit || "").toString().trim(),
-      supplierNitName: (req.body.supplierNitName || "").toString().trim(),
-      supplierCommercialName: (req.body.supplierCommercialName || "").toString().trim(),
+      id: `debt_${Date.now()}`,
+      title: req.body.title || "Gasto sin título",
+      amount: parseFloat(req.body.amount || "0"),
       invoiceDate: req.body.invoiceDate || new Date().toISOString().split('T')[0],
-      creditDays: parseInt(req.body.creditDays || "0", 10),
-      dueDate: req.body.dueDate || req.body.invoiceDate || new Date().toISOString().split('T')[0],
-      subtotal: subtotalVal,
-      iva: ivaVal,
-      amount: amountVal,
+      creditDays: parseInt(req.body.creditDays || "0"),
+      dueDate: req.body.dueDate || new Date().toISOString().split('T')[0],
+      supplierId: req.body.supplierId || null,
       type: req.body.type || "paga",
       notes: req.body.notes || "",
       isPaid: req.body.isPaid || false,
@@ -5391,7 +4896,7 @@ if (!process.env.VERCEL) {
       orderReceivedBy: req.body.orderReceivedBy || null,
       status: req.body.status || "pendiente",
       items: req.body.items || [],
-      createdAt: req.body.createdAt || new Date().toISOString()
+      createdAt: new Date().toISOString()
     };
     d.push(newDebt);
     await writeDebts(d);
@@ -5500,40 +5005,22 @@ if (!process.env.VERCEL) {
 
     try {
       const client = getGeminiClient();
-      const prompt = `Analiza detalladamente la siguiente imagen o documento de factura/compra de un proveedor en Guatemala.
-Debes identificar y extraer con máxima precisión fiscal los siguientes datos obligatorios en formato JSON estricto:
+      const prompt = `Analiza la siguiente imagen de una factura/gasto de proveedor. Extrae la siguiente información estructurada de manera precisa y en español. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto de la imagen:
+1. Nombre del Proveedor (supplierName): Nombre legal o comercial del proveedor de la factura.
+2. Fecha de Compra/Factura (invoiceDate): En formato YYYY-MM-DD.
+3. Monto Total de la Factura (amount): Número decimal.
+4. Plazo de pago sugerido en días (creditDays): Un número entero (ej. 15, 30, 45, 60 ds). Si se paga de contado, pon 0.
+5. Detalle de artículos/productos (items): Una lista de lo que se compró (nombre, cantidad, precio unitario de ser posible).
+6. Notas (notes): Un resumen corto y útil del gasto.
 
-1. invoiceDate: Fecha de emisión de la factura en formato YYYY-MM-DD (busca 'Fecha de emisión', 'Fecha', 'Fecha certificación').
-2. invoiceNumber: Número correlativo o número de factura (busca 'Número de Factura', 'No. Documento', 'Correlativo', 'No.').
-3. invoiceSeries: Número de serie de la factura (busca 'Serie', 'Serie de Documento', ej: 'A', 'FC', 'F39B', 'B', etc.).
-4. invoiceType: 'factura_cambiaria' si en el documento dice expresamente 'Factura Cambiaria' o 'Cambiaria', de lo contrario 'factura_normal'.
-5. supplierNit: Número de NIT del proveedor/emisor (busca 'NIT Emisor', 'NIT Proveedor', 'NIT', 'N.I.T.', ej: '3491028-1', '7823419-5').
-6. supplierNitName: Nombre que aparece en el NIT del proveedor o Razón Social fiscal registrada ante SAT (busca 'Razón Social', 'Nombre del Emisor', 'Emisor', ej: 'Agroquímicos del Pacífico, S.A.').
-7. supplierCommercialName: Nombre comercial o nombre de la empresa / establecimiento del proveedor (ej: 'Agroquímicos del Pacífico', 'Droguería El Sol').
-8. amount: Gran total a pagar de la factura en Quetzales (número decimal, ej: 1120.00).
-9. iva: Monto del Impuesto al Valor Agregado (IVA 12%) en Quetzales. Si la factura no lo desglosa explícitamente, calcúlalo como (amount - (amount / 1.12)).
-10. subtotal: Monto base o subtotal sin IVA (número decimal, amount / 1.12).
-11. dte: Número de autorización DTE o UUID fiscal si es Factura Electrónica FEL.
-12. creditDays: Plazo de crédito / tiempo de vigencia en días (si indica 30 días pon 30; si es contado pon 0).
-13. items: Lista de productos/artículos comprados [{ "name": string, "quantity": number, "price": number, "subtotal": number }].
-14. notes: Resumen breve de los insumos o productos comprados.
-
-Genera la respuesta estrictamente en formato JSON con esta estructura exacta:
+Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquema:
 {
+  "supplierName": "String",
   "invoiceDate": "YYYY-MM-DD",
-  "invoiceNumber": "string",
-  "invoiceSeries": "string",
-  "invoiceType": "factura_normal" | "factura_cambiaria",
-  "supplierNit": "string",
-  "supplierNitName": "string",
-  "supplierCommercialName": "string",
-  "amount": 0.00,
-  "iva": 0.00,
-  "subtotal": 0.00,
-  "dte": "string",
-  "creditDays": 30,
-  "items": [{"name": "string", "quantity": 1, "price": 0.00, "subtotal": 0.00}],
-  "notes": "string"
+  "amount": number,
+  "creditDays": number,
+  "items": [{"name": "String", "quantity": number, "price": number}],
+  "notes": "String"
 }`;
 
       const base64Data = req.file.buffer.toString("base64");
@@ -5599,71 +5086,43 @@ Genera la respuesta estrictamente en formato JSON con esta estructura exacta:
       console.warn("Gemini invoice recognition failed, using simulated high-fidelity agricultural parser fallback:", err.message);
       
       const fileNameLower = req.file.originalname.toLowerCase();
-      let supplierCommercialName = "Distribuidora Veterinaria El Sol";
-      let supplierNitName = "Distribuidora Veterinaria El Sol, Sociedad Anónima";
-      let supplierNit = "7823419-5";
-      let invoiceNumber = "104928";
-      let invoiceSeries = "A";
-      let dte = "DTE-" + Date.now().toString(16).toUpperCase();
-      let invoiceType = "factura_normal";
+      let supplierName = "Distribuidora Veterinaria El Sol, S.A.";
       let amount = 1450.00;
       let creditDays = 30;
       let notes = "Compra de medicamentos veterinarios y antibióticos";
       let items = [
-        { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00, subtotal: 450.00 },
-        { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00, subtotal: 1000.00 }
+        { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00 },
+        { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00 }
       ];
 
       if (fileNameLower.includes("agro") || fileNameLower.includes("fertil") || fileNameLower.includes("quim") || fileNameLower.includes("herbicida")) {
-        supplierCommercialName = "Agroquímicos del Pacífico";
-        supplierNitName = "Agroquímicos del Pacífico, S.A.";
-        supplierNit = "3491028-1";
-        invoiceNumber = "85921";
-        invoiceSeries = "F";
-        invoiceType = "factura_cambiaria";
+        supplierName = "Agroquímicos del Pacífico";
         amount = 3200.00;
         creditDays = 15;
         notes = "Compra de insecticidas y fertilizantes premium para catálogo";
         items = [
-          { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00, subtotal: 2200.00 },
-          { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00, subtotal: 1000.00 }
+          { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00 },
+          { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00 }
         ];
       } else if (fileNameLower.includes("ali") || fileNameLower.includes("con") || fileNameLower.includes("concentrado")) {
-        supplierCommercialName = "Nutri-Avícola Industrial";
-        supplierNitName = "Nutri-Avícola Industrial de Guatemala";
-        supplierNit = "6192840-7";
-        invoiceNumber = "4521";
-        invoiceSeries = "NA";
-        invoiceType = "factura_cambiaria";
+        supplierName = "Nutri-Avícola Industrial";
         amount = 4500.00;
         creditDays = 45;
         notes = "Compra de sacos de alimento balanceado para aves ponedoras";
         items = [
-          { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00, subtotal: 2700.00 },
-          { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.00, subtotal: 1800.00 }
+          { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00 },
+          { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.05 }
         ];
       }
-
-      const subtotalCalc = parseFloat((amount / 1.12).toFixed(2));
-      const ivaCalc = parseFloat((amount - subtotalCalc).toFixed(2));
 
       res.json({
         success: true,
         isSimulation: true,
         data: {
-          supplierCommercialName,
-          supplierNitName,
-          supplierNit,
-          invoiceNumber,
-          invoiceSeries,
-          dte,
-          invoiceType,
-          supplierName: supplierCommercialName,
+          supplierName,
           invoiceDate: new Date().toISOString().split('T')[0],
-          creditDays,
-          subtotal: subtotalCalc,
-          iva: ivaCalc,
           amount,
+          creditDays,
           items,
           notes: notes + " (Digitalizado mediante Escaneo Inteligente)",
           imageUrl: uploadedImageUrl
@@ -6255,8 +5714,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     const challenge = req.query['hub.challenge'];
 
     if (mode && token) {
-      const validToken = process.env.WHATSAPP_VERIFY_TOKEN || 'Agricovet de Guatemala';
-      if (mode === 'subscribe' && (token === validToken || token === 'Agricovet de Guatemala')) {
+      if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
         console.log('WEBHOOK_VERIFIED');
         res.status(200).send(challenge);
       } else {
@@ -6799,634 +6257,6 @@ ${productsContext}`;
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
-  // ======== COTIZACIONES (QUOTATIONS) ENDPOINTS ========
-  const QUOTATIONS_FILE = path.join(process.cwd(), 'quotations_local.json');
-
-  function readLocalQuotations(): any[] {
-    try {
-      if (fs.existsSync(QUOTATIONS_FILE)) {
-        const raw = fs.readFileSync(QUOTATIONS_FILE, 'utf-8');
-        return JSON.parse(raw) || [];
-      }
-    } catch (e) {
-      console.warn("Could not read local quotations file:", e);
-    }
-    return [];
-  }
-
-  function saveLocalQuotation(quote: any) {
-    try {
-      const list = readLocalQuotations();
-      const idx = list.findIndex((q: any) => q.id === quote.id);
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], ...quote };
-      } else {
-        list.unshift(quote);
-      }
-      fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(list, null, 2));
-    } catch (e) {
-      console.warn("Could not save to local quotations file:", e);
-    }
-  }
-
-  function updateLocalQuotation(id: string, updates: any) {
-    try {
-      const list = readLocalQuotations();
-      const idx = list.findIndex((q: any) => q.id === id);
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], ...updates };
-        fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(list, null, 2));
-        return list[idx];
-      }
-    } catch (e) {
-      console.warn("Could not update local quotations file:", e);
-    }
-    return null;
-  }
-
-  function deleteLocalQuotation(id: string) {
-    try {
-      const list = readLocalQuotations();
-      const filtered = list.filter((q: any) => q.id !== id);
-      if (filtered.length !== list.length) {
-        fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(filtered, null, 2));
-      }
-    } catch (e) {
-      console.warn("Could not delete from local quotations file:", e);
-    }
-  }
-
-  async function getNextQuotationFolioNumber(): Promise<number> {
-    const localQuotes = readLocalQuotations();
-    let maxFolio = 0;
-    for (const q of localQuotes) {
-      const num = Number(q.folioNumber || (q.folio ? String(q.folio).replace(/\D/g, '') : 0));
-      if (num > maxFolio) maxFolio = num;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('quotations')
-        .select('folioNumber, folio')
-        .order('folioNumber', { ascending: false })
-        .limit(20);
-
-      if (!error && Array.isArray(data)) {
-        for (const row of data) {
-          const num = Number(row.folioNumber || (row.folio ? String(row.folio).replace(/\D/g, '') : 0));
-          if (num > maxFolio) maxFolio = num;
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    return maxFolio + 1;
-  }
-
-  const isQuotationAdmin = (u: any) => {
-    if (!u) return false;
-    if (u.role === 'admin') return true;
-    const email = (u.email || '').toLowerCase();
-    const name = (u.name || '').toLowerCase();
-    if (['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(email)) return true;
-    if (name.includes('susana') || name.includes('sergio') || name.includes('emanuel')) return true;
-    return false;
-  };
-
-  // GET /api/quotations - Listar cotizaciones (Exclusivo Administradores)
-  app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-    if (!isQuotationAdmin(req.user)) {
-      return res.status(403).json({ error: "Acceso exclusivo para administradores autorizados." });
-    }
-    const { sellerId } = req.query;
-    const user = req.user;
-
-    let quotes: any[] = [];
-    try {
-      let query = supabase.from('quotations').select('*').order('created_at', { ascending: false });
-      if (user.role === 'seller') {
-        query = query.eq('sellerId', user.id);
-      } else if (sellerId) {
-        query = query.eq('sellerId', sellerId);
-      }
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
-        quotes = data;
-      }
-    } catch (e) {
-      console.warn("Supabase quotations query fallback:", e);
-    }
-
-    if (quotes.length === 0) {
-      quotes = readLocalQuotations();
-      if (user.role === 'seller') {
-        quotes = quotes.filter((q: any) => q.sellerId === user.id || q.sellerId === user.email);
-      } else if (sellerId) {
-        quotes = quotes.filter((q: any) => q.sellerId === sellerId);
-      }
-    }
-
-    // Merge with seller names
-    let usersList: any[] = [];
-    try {
-      const { data: u } = await supabase.from('users').select('id, name, email');
-      if (u) usersList = u;
-    } catch (e) {}
-
-    const enriched = quotes.map((q: any) => {
-      const s = usersList.find((u: any) => u.id === q.sellerId || u.email === q.sellerId);
-      return {
-        ...q,
-        sellerName: s ? s.name : (q.sellerName || 'Vendedor')
-      };
-    });
-
-    res.json(enriched);
-  }));
-
-  // GET /api/quotations/:id - Obtener detalle
-  app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    if (!isQuotationAdmin(req.user)) {
-      return res.status(403).json({ error: "Acceso exclusivo para administradores autorizados." });
-    }
-    const { id } = req.params;
-    let quote = null;
-
-    try {
-      const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
-      if (!error && data) {
-        quote = data;
-      }
-    } catch (e) {}
-
-    if (!quote) {
-      const local = readLocalQuotations();
-      quote = local.find((q: any) => q.id === id);
-    }
-
-    if (!quote) {
-      return res.status(404).json({ error: 'Cotización no encontrada' });
-    }
-
-    res.json(quote);
-  }));
-
-  // POST /api/quotations - Crear nueva cotización
-  app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { 
-      client, 
-      nit, 
-      phone, 
-      address, 
-      items, 
-      notes, 
-      validityDays = 15, 
-      date, 
-      sellerId 
-    } = req.body;
-
-    if (!client || !client.trim()) {
-      return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
-    }
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'No se puede crear una cotización sin productos' });
-    }
-
-    // Validar cantidades positivas
-    for (const item of items) {
-      if (item.quantity === undefined || parseFloat(item.quantity) <= 0) {
-        return res.status(400).json({ error: `La cantidad de '${item.productName || 'producto'}' debe ser mayor a cero.` });
-      }
-      if (item.price === undefined || parseFloat(item.price) < 0) {
-        return res.status(400).json({ error: `El precio de '${item.productName || 'producto'}' no puede ser negativo.` });
-      }
-    }
-
-    // Auto-registrar / sincronizar cliente
-    if (client) {
-      let nameToSave = client.trim();
-      let companyToSave = '';
-      if (client.includes(' - ')) {
-        const parts = client.split(' - ');
-        nameToSave = parts[0].trim();
-        companyToSave = parts[1].trim();
-      }
-
-      let existingList: any[] = [];
-      try {
-        const { data } = await supabase.from("clients").select("*");
-        if (data) existingList = data;
-      } catch (e) {}
-
-      const localList = readLocalClients();
-      const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
-
-      if (matchedClient) {
-        const updates: any = {};
-        if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-        if (!matchedClient.phone && phone) updates.phone = phone;
-        if (!matchedClient.address && address) updates.address = address;
-        if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
-
-        if (Object.keys(updates).length > 0) {
-          updateLocalClient(matchedClient.id, updates);
-          try {
-            await supabase.from("clients").update(updates).eq("id", matchedClient.id);
-          } catch (e) {}
-        }
-      } else {
-        const clientData = {
-          id: `CLI-${Date.now()}`,
-          sellerId: sellerId || req.user.id,
-          name: nameToSave,
-          companyName: companyToSave,
-          nit: nit || '',
-          phone: phone || '',
-          address: address || '',
-          createdAt: new Date().toISOString()
-        };
-
-        addLocalClient(clientData);
-        try {
-          await safeInsertClient(clientData);
-        } catch (e) {}
-      }
-    }
-
-    // STRICT STOCK VALIDATION & ITEMS PROCESSING (WITHOUT DEDUCTING STOCK!)
-    let total = 0;
-    const processedItems: any[] = [];
-
-    for (const item of items) {
-      let product: any;
-      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
-        product = {
-          id: item.productId,
-          name: 'COSTO DE ENVIO',
-          price: item.price !== undefined ? parseFloat(item.price) : 26,
-          stock: 999999,
-          is_external: true,
-          category: 'Servicios'
-        };
-      } else {
-        const { data: prods, error } = await supabase.from("products").select("*").eq('id', item.productId);
-        if (error || !prods || prods.length === 0) {
-          // Check local products fallback
-          const localProducts = getCachedData("products") || [];
-          const found = localProducts.find((p: any) => p.id === item.productId);
-          if (!found) throw new Error(`Producto ${item.productId} no encontrado`);
-          product = found;
-        } else {
-          product = prods[0];
-        }
-      }
-
-      const itemPrice = item.price !== undefined ? parseFloat(item.price) : parseFloat(product.price);
-      const isExempt = doesNotNeedStock(product) || product.is_external;
-
-      if (!isExempt) {
-        let availableStock = parseFloat(product.stock || 0);
-        let variantObj: any = null;
-
-        if (item.variantId && Array.isArray(product.variants)) {
-          variantObj = product.variants.find((v: any) => v.id === item.variantId);
-          if (variantObj && variantObj.stock !== undefined) {
-            availableStock = parseFloat(variantObj.stock || 0);
-          }
-        }
-      }
-
-      // Para cotizaciones se permite incluir productos sin stock (pedidos futuros / por arribar)
-      // sin modificar el stock ni el estado del producto en base de datos.
-
-      const itemTotal = parseFloat(item.quantity) * itemPrice;
-      total += itemTotal;
-      processedItems.push({
-        productId: item.productId,
-        productName: product.name,
-        quantity: parseFloat(item.quantity),
-        price: itemPrice,
-        originalPrice: parseFloat(product.price || itemPrice),
-        suggestedPrice: item.suggestedPrice,
-        isOfferApplied: !!item.isOfferApplied,
-        total: itemTotal,
-        variantId: item.variantId,
-        color: item.color,
-        size: item.size
-      });
-    }
-
-    // Generar Folio independiente exclusivo para cotizaciones
-    const nextSeq = await getNextQuotationFolioNumber();
-    const folioStr = `COT-${String(nextSeq).padStart(4, '0')}`;
-
-    const quoteDate = date ? new Date(date).toISOString() : new Date().toISOString();
-    const validDaysNum = parseInt(String(validityDays)) || 15;
-    const validUntilDate = new Date(new Date(quoteDate).getTime() + validDaysNum * 24 * 60 * 60 * 1000).toISOString();
-
-    const quoteId = `COT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-    const newQuotation = {
-      id: quoteId,
-      folio: folioStr,
-      folioNumber: nextSeq,
-      sellerId: sellerId || req.user.id,
-      sellerName: (req.body.sellerName && String(req.body.sellerName).trim()) || req.user.name || 'Vendedor',
-      client: client.trim(),
-      nit: nit || 'CF',
-      phone: phone || '',
-      address: address || '',
-      items: processedItems,
-      totalAmount: total,
-      status: 'pendiente',
-      date: quoteDate,
-      validityDays: validDaysNum,
-      validUntil: validUntilDate,
-      notes: notes || '',
-      createdAt: new Date().toISOString()
-    };
-
-    // Guardar en Supabase y respaldo local
-    try {
-      const { data, error } = await supabase
-        .from('quotations')
-        .insert([newQuotation])
-        .select();
-
-      if (!error && data && data[0]) {
-        saveLocalQuotation(data[0]);
-        return res.status(201).json(data[0]);
-      }
-    } catch (e) {
-      console.warn("Supabase insert quotation fallback to local file:", e);
-    }
-
-    saveLocalQuotation(newQuotation);
-    res.status(201).json(newQuotation);
-  }));
-
-  // PUT /api/quotations/:id - Actualizar estado, asesor o datos de cotización
-  app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { status, notes, validityDays, sellerId, sellerName, client, nit, phone, address, items, totalAmount } = req.body;
-
-    const updates: any = {};
-    if (status) updates.status = status;
-    if (notes !== undefined) updates.notes = notes;
-    if (validityDays !== undefined) {
-      updates.validityDays = validityDays;
-      const days = parseInt(String(validityDays)) || 15;
-      updates.validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    }
-    if (sellerId !== undefined) updates.sellerId = sellerId;
-    if (sellerName !== undefined) updates.sellerName = sellerName;
-    if (client !== undefined) updates.client = client;
-    if (nit !== undefined) updates.nit = nit;
-    if (phone !== undefined) updates.phone = phone;
-    if (address !== undefined) updates.address = address;
-    if (items !== undefined) updates.items = items;
-    if (totalAmount !== undefined) updates.totalAmount = totalAmount;
-
-    try {
-      const { data, error } = await supabase
-        .from('quotations')
-        .update(updates)
-        .eq('id', id)
-        .select();
-
-      if (!error && data && data[0]) {
-        updateLocalQuotation(id, data[0]);
-        return res.json(data[0]);
-      }
-    } catch (e) {
-      console.warn("Supabase update quotation fallback:", e);
-    }
-
-    const updated = updateLocalQuotation(id, updates);
-    if (!updated) {
-      return res.status(404).json({ error: 'Cotización no encontrada' });
-    }
-
-    res.json(updated);
-  }));
-
-  // DELETE /api/quotations/:id - Eliminar cotización
-  app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-
-    try {
-      const { error } = await supabase.from('quotations').delete().eq('id', id);
-      if (error) console.warn("Supabase delete quotation error:", error);
-    } catch (e) {}
-
-    deleteLocalQuotation(id);
-    res.json({ success: true, message: 'Cotización eliminada correctamente' });
-  }));
-
-  // POST /api/quotations/:id/convert-to-sale - Convertir cotización a venta formal
-  app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { customDate, invoiceType = 'agricola', creditDays = 30, transportMethod = 'personal', sellerPaysShipping = false, sellerSignature } = req.body;
-
-    let quote = null;
-    try {
-      const { data } = await supabase.from('quotations').select('*').eq('id', id).single();
-      if (data) quote = data;
-    } catch (e) {}
-
-    if (!quote) {
-      const local = readLocalQuotations();
-      quote = local.find((q: any) => q.id === id);
-    }
-
-    if (!quote) {
-      return res.status(404).json({ error: 'Cotización no encontrada' });
-    }
-
-    if (quote.status === 'convertida') {
-      return res.status(400).json({ error: 'Esta cotización ya fue convertida en una venta formal anteriormente.' });
-    }
-
-    // Validar existencias actuales antes de convertir
-    for (const item of quote.items) {
-      const { data: prods } = await supabase.from("products").select("*").eq('id', item.productId);
-      if (prods && prods[0]) {
-        const p = prods[0];
-        if (!doesNotNeedStock(p) && !p.is_external) {
-          let currentStock = parseFloat(p.stock || 0);
-          if (item.variantId && Array.isArray(p.variants)) {
-            const v = p.variants.find((vr: any) => vr.id === item.variantId);
-            if (v && v.stock !== undefined) currentStock = parseFloat(v.stock || 0);
-          }
-          if (currentStock < item.quantity) {
-            return res.status(400).json({
-              error: `No se puede convertir a venta: El producto '${p.name}' no cuenta con stock suficiente en este momento (Requerido: ${item.quantity}, Disponible: ${currentStock}).`
-            });
-          }
-        }
-      }
-    }
-
-    // Invocar creación de venta formal
-    const invoicePayload = {
-      sellerId: quote.sellerId || req.user.id,
-      client: quote.client,
-      nit: quote.nit,
-      phone: quote.phone,
-      address: quote.address,
-      items: quote.items,
-      isOwed: true,
-      invoiceType,
-      creditDays,
-      transportMethod,
-      sellerPaysShipping,
-      sellerSignature,
-      customDate: customDate || quote.date,
-      notes: `Venta originada de Cotización ${quote.folio}${quote.notes ? ' - ' + quote.notes : ''}`
-    };
-
-    // Llamada interna para crear invoice
-    let createdInvoice: any = null;
-    try {
-      // Reutilizar el endpoint de ventas invocándolo programáticamente o construyendo la venta
-      // Calculamos folio de venta real y procesamos ítems descontando inventario
-      let total = 0;
-      const processedItems = [];
-      let requiresAuth = false;
-
-      for (const item of quote.items) {
-        let product: any;
-        if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
-          product = { id: item.productId, name: 'COSTO DE ENVIO', price: item.price, stock: 999999, is_external: true };
-        } else {
-          const { data: products } = await supabase.from("products").select("*").eq('id', item.productId);
-          if (!products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
-          product = products[0];
-        }
-
-        const itemPrice = parseFloat(item.price);
-        const isExemptFromStock = doesNotNeedStock(product) || product.is_external;
-
-        if (!product.is_external) {
-          let currentStock = parseFloat(product.stock || 0);
-          let variantObj = null;
-          let variantsToUpdate = product.variants ? [...product.variants] : [];
-
-          if (item.variantId) {
-            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-            if (varIndex !== -1) {
-              variantObj = variantsToUpdate[varIndex];
-              if (variantObj.stock !== undefined) {
-                currentStock = parseFloat(variantObj.stock || 0);
-              }
-            }
-          }
-
-          if (currentStock < item.quantity && !isExemptFromStock) {
-            requiresAuth = true;
-          }
-
-          const newStock = currentStock - parseFloat(item.quantity);
-
-          if (variantObj && variantObj.stock !== undefined) {
-            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-            await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
-          } else {
-            await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
-          }
-        }
-
-        const itemTotal = item.quantity * itemPrice;
-        total += itemTotal;
-        processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
-      }
-
-      const invoiceId = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
-      invalidateCache("folio_map");
-      const currentFolioMap = await getFolioMap(true);
-      const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
-      const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
-
-      let startFromConfig = 1;
-      try {
-        const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-          const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-          startFromConfig = cfg.startFrom || 1;
-        }
-      } catch (e) {}
-
-      let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
-      while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
-        assignedFolio++;
-      }
-      let folioFlag = `|||FOLIO:${assignedFolio}`;
-      let baseNotes = (quote.nit || "");
-      let obsFlag = `|||OBS:Venta convertida desde Cotización ${quote.folio}`;
-      let invoiceTypeFlag = "|||TYPE:" + invoiceType;
-      let creditFlag = "|||CREDIT:" + creditDays;
-      let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
-      let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
-      let authFlag = requiresAuth ? "|||AUTH:pending" : "";
-      let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-
-      const invoiceDataRaw: any = {
-        id: invoiceId,
-        sellerId: quote.sellerId || req.user.id,
-        notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
-        items: processedItems,
-        totalAmount: total,
-        paidAmount: 0,
-        status: 'pending',
-        date: new Date().toISOString(),
-        client: quote.client,
-        phone: quote.phone || "",
-        address: quote.address || "",
-        nit: quote.nit || ""
-      };
-
-      try {
-        await supabase.from("invoices").insert([invoiceDataRaw]);
-      } catch (e) {
-        console.warn("Error inserting invoice during quote conversion:", e);
-      }
-
-      await syncInvoiceToPermanentBackup(invoiceId, invoiceDataRaw);
-      invalidateCache("products");
-      invalidateCache("folio_map");
-
-      createdInvoice = { ...invoiceDataRaw, folio: assignedFolio };
-
-      // Actualizar estado de la cotización
-      const quoteUpdates = {
-        status: 'convertida',
-        invoiceId: invoiceId,
-        convertedInvoiceFolio: assignedFolio
-      };
-
-      try {
-        await supabase.from('quotations').update(quoteUpdates).eq('id', id);
-      } catch (e) {}
-
-      updateLocalQuotation(id, quoteUpdates);
-
-      res.json({
-        success: true,
-        message: `Cotización convertida exitosamente en la venta #${assignedFolio}`,
-        invoice: createdInvoice,
-        quotation: { ...quote, ...quoteUpdates }
-      });
-    } catch (err: any) {
-      console.error("Error converting quotation to sale:", err);
-      res.status(500).json({ error: err.message || 'Error al convertir la cotización a venta' });
-    }
-  }));
-
-
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
   const isProduction = process.env.NODE_ENV === "production";
@@ -7451,37 +6281,24 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   // ======== VITE MIDDLEWARE / SPA ========
-  const distPath = path.join(process.cwd(), 'dist');
-  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
-
-  if (process.env.NODE_ENV === "production" || process.env.SERVE_DIST === "true" || (hasDist && process.env.DEV_VITE !== "true")) {
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
-  } else {
-    try {
-      const { createServer: createViteServer } = await import("vite");
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: "spa",
-      });
-      app.use(vite.middlewares);
-    } catch (viteErr) {
-      console.warn("Vite middleware init fallback to dist:", viteErr);
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
-      });
-    }
   }
 
   if (!process.env.VERCEL) {
     app.listen(PORT as number, "0.0.0.0", async () => {
       console.log(`Server running on http://localhost:${PORT}`);
-
-
-
       
       // One-time migration to ensure all clients have a code
       try {
