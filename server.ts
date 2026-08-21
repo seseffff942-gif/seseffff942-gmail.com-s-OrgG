@@ -52,7 +52,7 @@ const initialDb = {
     { id: "u2", name: "Ventas Principal", email: "ventas1@agricovet.com", role: "seller", photo: "https://i.pravatar.cc/150?u=u2", password: "123" },
     { id: "u2b", name: "Ventas 2", email: "ventas2@agricovet.com", role: "seller", photo: "https://i.pravatar.cc/150?u=5", password: "123" },
     { id: "u3", name: "Vendedor 3", email: "ll4961839@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=12", password: "123" },
-    { id: "u4", name: "Vendedor 4", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
+    { id: "u4", name: "Herbert Argueta", sellerCode: "1521", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
     { id: "u5", name: "Erick Juárez", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
     { id: "u6", name: "Lima Lopez", email: "limalopez22@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
   ],
@@ -487,11 +487,17 @@ if (!process.env.VERCEL) {
 
   // ======== MIDDLEWARES ========
   const requireAuth = async (req: any, res: any, next: any) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token = null;
+    const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'] || req.headers['x-access-token'];
+    if (authHeader && typeof authHeader === 'string') {
+      token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
+    } else if (req.query && req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
       return res.status(401).json({ error: "Acceso no autorizado: Token faltante" });
     }
-    const token = authHeader.split(' ')[1];
     try {
       const payload = jwt.verify(token, JWT_SECRET) as any;
       const iat = payload.iat ? payload.iat * 1000 : 0;
@@ -6183,7 +6189,14 @@ ${productsContext}`;
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        resultList = data.filter((r: any) => !deletedIds.has(r.id) && !r.is_deleted && r.observaciones !== '[ELIMINADO]');
+        resultList = data.filter((r: any) => 
+          !deletedIds.has(r.id) && 
+          !r.is_deleted && 
+          r.observaciones !== '[ELIMINADO]' && 
+          !r.observaciones?.includes('[ELIMINADO]') &&
+          r.cliente_nombre !== '[ELIMINADO]' &&
+          !r.cliente_nombre?.includes('[ELIMINADO]')
+        );
       }
     } catch (e) {
       console.warn("Supabase recibos_caja query fallback:", e);
@@ -6191,13 +6204,18 @@ ${productsContext}`;
 
     if (resultList.length === 0) {
       const localList = readLocalRecibosCaja();
-      resultList = localList.filter((r: any) => !deletedIds.has(r.id) && !r.is_deleted);
+      resultList = localList.filter((r: any) => 
+        !deletedIds.has(r.id) && 
+        !r.is_deleted && 
+        !r.observaciones?.includes('[ELIMINADO]') &&
+        !r.cliente_nombre?.includes('[ELIMINADO]')
+      );
     } else {
       // Merge unique local receipts if any exist
       const remoteIds = new Set(resultList.map((r: any) => r.id));
       const localList = readLocalRecibosCaja();
       for (const loc of localList) {
-        if (!remoteIds.has(loc.id) && !deletedIds.has(loc.id)) {
+        if (!remoteIds.has(loc.id) && !deletedIds.has(loc.id) && !loc.observaciones?.includes('[ELIMINADO]')) {
           resultList.push(loc);
         }
       }
@@ -6271,7 +6289,7 @@ ${productsContext}`;
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión
+    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión local
     addDeletedReciboId(id);
 
     // 2. Eliminar del archivo local
@@ -6285,19 +6303,23 @@ ${productsContext}`;
       console.warn("Could not remove from local recibos_caja file:", e);
     }
 
-    // 3. Eliminar de Supabase o marcar como eliminado
+    // 3. Actualizar en Supabase (funciona en serverless Vercel aunque RLS bloquee DELETE puro)
     try {
       await supabase
         .from('recibos_caja')
-        .delete()
+        .update({ 
+          observaciones: '[ELIMINADO]',
+          cliente_nombre: '[ELIMINADO]',
+          is_deleted: true 
+        })
         .eq('id', id);
 
       await supabase
         .from('recibos_caja')
-        .update({ is_deleted: true, observaciones: '[ELIMINADO]' })
+        .delete()
         .eq('id', id);
     } catch (e) {
-      console.warn("Supabase delete recibo_caja error:", e);
+      console.warn("Supabase delete/update recibo_caja error:", e);
     }
 
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
