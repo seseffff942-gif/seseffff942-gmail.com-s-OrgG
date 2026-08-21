@@ -6,16 +6,8 @@ coverage/
 .env*
 !.env.example
 
-# Android build outputs and caches
-.gradle/
-android/.gradle/
-android/app/build/
-android/build/
-android/captures/
-*.apk
-*.aab
-*.jar
-*.bin
+# Respaldo de migracion
+migration_backup/
 
 # Llaves VAPID generadas automaticamente (contienen llave privada)
 vapid_keys.json
@@ -28,4 +20,3 @@ notifications_local.json
 offers_extra.json
 push_subscriptions.json
 excluded_critical.json
-scripts/git-sync.cjs
