@@ -29,13 +29,9 @@ import {
   RefreshCw,
   Printer,
   ScanLine,
-  Download,
-  Bell,
-  Send,
-  Target,
-  AlertTriangle
+  Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch, parseFolioNumber } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -84,13 +80,6 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [printTemplate, setPrintTemplate] = useState<string>(DEFAULT_PRINT_TEMPLATE);
 
-  // Check daily sales state
-  const [isCheckingSales, setIsCheckingSales] = useState(false);
-  const [salesCheckResult, setSalesCheckResult] = useState<any>(null);
-  const [showSalesCheckModal, setShowSalesCheckModal] = useState(false);
-  const [salesCheckSendWebhook, setSalesCheckSendWebhook] = useState(true);
-
-
   useEffect(() => {
     if (selectedViewInvoice) {
       setManualFolio(selectedViewInvoice.folio ? String(selectedViewInvoice.folio) : '');
@@ -131,34 +120,13 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
-  const [sellerFilter, setSellerFilter] = useState<string>('all');
+  const [sellerFilter, setSellerFilter] = useState<string>(user.role === 'seller' ? user.email : 'all');
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [activeChartTab, setActiveChartTab] = useState<'hourly' | 'sellers' | 'status'>('hourly');
   const [showCharts, setShowCharts] = useState(true);
-  const [showScrollTop, setShowScrollTop] = useState(false);
-
-  useEffect(() => {
-    const mainEl = document.querySelector('main');
-    const handleScroll = () => {
-      const scrollPos = mainEl ? mainEl.scrollTop : window.scrollY;
-      setShowScrollTop(scrollPos > 150);
-    };
-    if (mainEl) mainEl.addEventListener('scroll', handleScroll);
-    window.addEventListener('scroll', handleScroll);
-    return () => {
-      if (mainEl) mainEl.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('scroll', handleScroll);
-    };
-  }, []);
-
-  const scrollToTop = () => {
-    const mainEl = document.querySelector('main');
-    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   useEffect(() => {
     loadData();
@@ -256,7 +224,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   // Central filter logic same as BillingPage
   const filteredInvoices = invoices.filter(i => {
-    const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
+    const matchSearch = (i.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (i.sellerId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (getSellerName(i.sellerId || '') || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     let matchDate = true;
     if (dateViewMode === 'day') {
@@ -283,8 +254,9 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   });
 
   const renderInvoiceCard = (invoice: Invoice) => {
-    const timeString = invoice.date && invoice.date.includes('T') ? invoice.date.split('T')[1].slice(0, 5) : '';
-    const dateString = fechaDDMMYYYY(invoice.date);
+    const dateObj = new Date(invoice.date);
+    const timeString = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateString = dateObj.toLocaleDateString();
     const isPaid = invoice.totalAmount <= (invoice.paidAmount || 0);
 
     let statusBadge;
@@ -376,7 +348,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-extrabold text-slate-400 font-mono tracking-wider bg-slate-100/80 px-2 py-0.5 rounded-lg border border-slate-200/50 uppercase group-hover/card:bg-emerald-50 group-hover/card:text-emerald-800 transition-colors">
-                #{invoice.folio || 1}
+                #{invoice.folio}
               </span>
               { user.role === 'admin' && invoice.status !== 'sent' && (
                  <button 
@@ -392,9 +364,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                  </button>
               )}
             </div>
-            <h3 className="font-hanken font-extrabold text-slate-800 line-clamp-1 text-[16px] notranslate group-hover/card:text-[#0b4d2c] transition-colors" translate="no">
-              {invoice.client || invoice.clientName || (invoice as any).customerName || 'Cliente sin nombre'}
-            </h3>
+            <h3 className="font-hanken font-extrabold text-slate-800 line-clamp-1 text-[16px] notranslate group-hover/card:text-[#0b4d2c] transition-colors" translate="no">{invoice.client}</h3>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
               <span>Vendedor:</span>
               <span className="text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">{getSellerName(invoice.sellerId || '')}</span>
@@ -513,7 +483,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
         <div className="space-y-2.5 mt-5">
           <div className="flex flex-col gap-2">
-            {(Array.isArray(invoice.items) ? invoice.items : []).slice(0, 3).map((item, idx) => (
+            {invoice.items.slice(0, 3).map((item, idx) => (
               <div key={idx} className="flex justify-between text-[13px] items-center py-0.5 border-b border-slate-50 last:border-0">
                 <div className="text-slate-600 flex flex-col truncate max-w-[70%]">
                   <div className="flex items-center gap-2 truncate font-medium">
@@ -533,7 +503,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <span className="font-extrabold text-slate-800 ml-2 font-mono group-hover/card:text-[#0b4d2c] transition-colors">{formatMoney(item.total)}</span>
               </div>
             ))}
-            {Array.isArray(invoice.items) && invoice.items.length > 3 && (
+            {invoice.items.length > 3 && (
               <div className="text-xs text-slate-400 mt-1 italic pl-5 font-semibold flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 + {invoice.items.length - 3} artículos más
@@ -565,12 +535,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   const renderInvoicesList = () => {
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const folioA = parseFolioNumber(a.folio);
-      const folioB = parseFolioNumber(b.folio);
+      const folioA = a.folio || 0;
+      const folioB = b.folio || 0;
       if (folioA !== folioB) return folioB - folioA;
-      const timeA = new Date(a.date || 0).getTime();
-      const timeB = new Date(b.date || 0).getTime();
-      return timeB - timeA;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 
     if (displayMode === 'seller_cards') {
@@ -626,7 +594,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-mono font-black text-slate-400">{hourStr}</span>
                               <span className={`text-xs font-semibold ${isCancelled ? 'text-red-700 font-bold bg-red-50' : 'text-slate-800'} truncate block max-w-[145px] notranslate`} translate="no">
-                                {inv.client || inv.clientName || (inv as any).customerName || 'Cliente sin nombre'}
+                                {inv.client}
                               </span>
                             </div>
                             <span className="text-[10px] font-mono text-slate-400 block truncate">#{inv.folio || inv.id.slice(0,8)}</span>
@@ -664,7 +632,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     } else if (groupBy === 'client') {
       const grouped: Record<string, Invoice[]> = {};
       sortedInvoices.forEach(inv => {
-        const clientKey = inv.client || inv.clientName || (inv as any).customerName || 'Desconocido';
+        const clientKey = inv.client || 'Desconocido';
         if (!grouped[clientKey]) grouped[clientKey] = [];
         grouped[clientKey].push(inv);
       });
@@ -821,23 +789,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     );
   }
 
-  const handleCheckDailySales = async () => {
-    setIsCheckingSales(true);
-    setSalesCheckResult(null);
-    try {
-      const result = await api.checkDailySales({ sendToWebhook: salesCheckSendWebhook });
-      setSalesCheckResult(result);
-      setShowSalesCheckModal(true);
-    } catch (err: any) {
-      setSalesCheckResult({ error: err.message });
-      setShowSalesCheckModal(true);
-    } finally {
-      setIsCheckingSales(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50/70 relative pb-32 font-manrope">
+    <div className="flex-1 overflow-y-auto bg-slate-50/70 relative pb-[120px] md:pb-8 min-h-screen font-manrope">
       
       {/* Floating Ambient Blobs for Cinematic Depth */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
@@ -885,76 +838,48 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         </motion.div>
       </div>
 
-      {/* Header with Glassmorphism and Persistent Search Input */}
-      <div className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 py-4 md:py-5 relative z-30 sticky top-0 shadow-sm">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="space-y-1">
+      {/* Header with Glassmorphism and Elegant Accents */}
+      <div className="bg-white/90 backdrop-blur-md border-b border-slate-200/50 px-6 py-6 relative z-20 shadow-xs">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 animate-pulse"></span>
               </span>
-              <span className="text-[9px] font-black tracking-widest text-[#0b4d2c] uppercase bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-150 font-mono flex items-center gap-1">
+              <span className="text-[9px] font-black tracking-widest text-[#0b4d2c] uppercase bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-150 font-mono flex items-center gap-1">
                 <Sparkles size={10} className="text-amber-500 animate-spin" />
                 Panel Premium • Tiempo Real
               </span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2.5 font-hanken">
-              <Clock className="text-[#0b4d2c] w-7 h-7 animate-pulse" />
+            <h1 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3 font-hanken">
+              <Clock className="text-[#0b4d2c] w-8 h-8 animate-pulse" />
               Ventas Diarias
             </h1>
-          </div>
-
-          {/* BARRA DE BÚSQUEDA PRINCIPAL SIEMPRE VISIBLE ARRIBA */}
-          <div className="w-full md:w-80 lg:w-96 relative flex items-center shrink-0">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder="Buscar por cliente, folio #1023, vendedor..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-9 py-2.5 bg-slate-100/90 hover:bg-slate-100 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 focus:bg-white outline-none transition text-xs font-bold shadow-inner placeholder-slate-400 text-slate-800"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-200 transition"
-                title="Limpiar búsqueda"
-              >
-                <X size={14} />
-              </button>
-            )}
+            <p className="text-slate-400 text-xs font-semibold">
+              Gestione registros, analice flujos de ingresos y exporte estados contables hoy ({new Date().toLocaleDateString()})
+            </p>
           </div>
           
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => loadData()}
-              disabled={loading}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer border border-slate-200"
-              title="Actualizar datos en vivo"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin text-[#0b4d2c]" : "text-slate-600"} />
-              <span className="hidden sm:inline">Actualizar</span>
-            </button>
-
+          <div className="flex flex-wrap gap-3">
             <motion.div 
-              whileHover={{ scale: 1.03, y: -1 }}
+              whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 25px rgba(11, 77, 44, 0.12)" }}
               onClick={() => setShowSalesModal(true)}
-              className="bg-emerald-50/90 backdrop-blur-sm border border-emerald-100 rounded-2xl px-4 py-2 flex flex-col items-end cursor-pointer hover:bg-emerald-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[120px]"
+              className="bg-emerald-50/90 backdrop-blur-sm border border-emerald-100 rounded-2xl px-5 py-3 flex flex-col items-end cursor-pointer hover:bg-emerald-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[130px]"
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-[#0b4d2c] to-emerald-400 group-hover:w-2 transition-all"></div>
-              <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest font-mono">Total Vendido</span>
-              <span className="text-lg font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">{formatMoney(totalSalesAmount)}</span>
+              <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-1 font-mono">Total Vendido</span>
+              <span className="text-xl font-black text-[#0b4d2c] font-mono group-hover:scale-105 transition-transform">{formatMoney(totalSalesAmount)}</span>
             </motion.div>
             
             <motion.div 
-              whileHover={{ scale: 1.03, y: -1 }}
+              whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 25px rgba(37, 99, 235, 0.12)" }}
               onClick={() => setShowPaymentsModal(true)}
-              className="bg-blue-50/95 backdrop-blur-sm border border-blue-100 rounded-2xl px-4 py-2 flex flex-col items-end cursor-pointer hover:bg-blue-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[120px]"
+              className="bg-blue-50/95 backdrop-blur-sm border border-blue-100 rounded-2xl px-5 py-3 flex flex-col items-end cursor-pointer hover:bg-blue-100/50 transition-all shadow-xs relative overflow-hidden group min-w-[130px]"
             >
               <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-blue-600 to-sky-450 group-hover:w-2 transition-all"></div>
-              <span className="text-[9px] font-black text-blue-800 uppercase tracking-widest font-mono">Cobrado</span>
-              <span className="text-lg font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">{formatMoney(totalPaidAmount)}</span>
+              <span className="text-[9px] font-black text-blue-800 uppercase tracking-widest mb-1 font-mono">Cobrado</span>
+              <span className="text-xl font-black text-blue-700 font-mono group-hover:scale-105 transition-transform">{formatMoney(totalPaidAmount)}</span>
             </motion.div>
           </div>
         </div>
@@ -993,242 +918,6 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             </button>
           </motion.div>
         )}
-
-        {/* Check Daily Sales Button (Admin-Only) */}
-        {user.role === 'admin' && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="bg-gradient-to-r from-indigo-50/70 to-violet-50/40 backdrop-blur-md border border-indigo-200/80 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-indigo-100 text-indigo-800 rounded-2xl flex-shrink-0 border border-indigo-200">
-                <Bell size={20} className={isCheckingSales ? "animate-bounce" : ""} />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-indigo-900 text-xs uppercase tracking-wide">Verificar Ventas por Vendedor</h3>
-                <p className="text-indigo-700 text-[11px] mt-0.5 leading-relaxed font-semibold">
-                  Revise qué vendedores están por debajo de Q8,750 en ventas hoy.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 self-end sm:self-auto">
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={salesCheckSendWebhook}
-                  onChange={(e) => setSalesCheckSendWebhook(e.target.checked)}
-                  className="accent-indigo-600 w-3.5 h-3.5 cursor-pointer"
-                />
-                <span className="text-[9px] font-bold text-indigo-700 uppercase tracking-wider">Enviar a n8n</span>
-              </label>
-              <button
-                onClick={handleCheckDailySales}
-                disabled={isCheckingSales}
-                className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 flex-shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
-              >
-                {isCheckingSales ? (
-                  <><RefreshCw size={12} className="animate-spin" /> Verificando...</>
-                ) : (
-                  <><Bell size={12} /> Verificar Ventas</>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Sales Check Results Modal */}
-        <AnimatePresence>
-          {showSalesCheckModal && salesCheckResult && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[999] flex items-center justify-center p-4"
-              onClick={() => setShowSalesCheckModal(false)}
-            >
-              <motion.div
-                initial={{ scale: 0.92, opacity: 0, y: 15 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.92, opacity: 0, y: 15 }}
-                transition={{ type: "spring", stiffness: 350, damping: 28 }}
-                onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col"
-              >
-                {/* Modal Header */}
-                <div className="bg-gradient-to-r from-[#0c5c35] via-[#14532d] to-[#042f2e] px-6 py-5 flex justify-between items-center relative overflow-hidden shrink-0">
-                  <div className="absolute -right-8 -top-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-2">
-                      <span className="p-1.5 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-400/20">
-                        <Target size={16} />
-                      </span>
-                      <h2 className="text-white font-extrabold text-sm uppercase tracking-wider">
-                        Revisión de Metas Diarias
-                      </h2>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="px-2.5 py-0.5 bg-white/10 backdrop-blur-sm text-emerald-100 text-[10px] font-semibold rounded-full border border-white/10">
-                        📅 {salesCheckResult.fecha}
-                      </span>
-                      <span className="px-2.5 py-0.5 bg-emerald-400/20 text-emerald-200 text-[10px] font-bold rounded-full border border-emerald-400/30">
-                        Meta: Q{(salesCheckResult.umbral || 8750).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowSalesCheckModal(false)}
-                    className="relative z-10 text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-2xl cursor-pointer"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {/* Modal Body */}
-                <div className="overflow-y-auto p-5 space-y-4 flex-1">
-                  {salesCheckResult.error ? (
-                    <div className="bg-rose-50 border border-rose-200/80 rounded-2xl p-4 text-rose-700 text-xs font-bold flex items-center gap-2">
-                      <AlertTriangle size={16} className="shrink-0" />
-                      <span>{salesCheckResult.error}</span>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Summary Stats */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-slate-50/80 rounded-2xl p-3 text-center border border-slate-200/60 shadow-xs">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Facturas</p>
-                          <p className="text-2xl font-black text-slate-800 tracking-tight">{salesCheckResult.totalFacturasHoy || 0}</p>
-                        </div>
-                        <div className="bg-emerald-50/70 rounded-2xl p-3 text-center border border-emerald-200/60 shadow-xs">
-                          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">En Meta</p>
-                          <p className="text-2xl font-black text-emerald-700 tracking-tight">{salesCheckResult.vendedoresSobreUmbral?.length || 0}</p>
-                        </div>
-                        <div className="bg-rose-50/70 rounded-2xl p-3 text-center border border-rose-200/60 shadow-xs">
-                          <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">Bajo Meta</p>
-                          <p className="text-2xl font-black text-rose-600 tracking-tight">{salesCheckResult.vendedoresBajoUmbral?.length || 0}</p>
-                        </div>
-                      </div>
-
-                      {/* Sellers Below Threshold */}
-                      {salesCheckResult.vendedoresBajoUmbral?.length > 0 && (
-                        <div className="space-y-2.5">
-                          <h3 className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5 pt-1">
-                            <TrendingDown size={14} /> Por debajo de la meta (Q{(salesCheckResult.umbral || 8750).toLocaleString()})
-                          </h3>
-                          {salesCheckResult.vendedoresBajoUmbral.map((v: any, i: number) => {
-                            const pct = Math.min(100, Math.max(0, Math.round((v.totalVentas / (salesCheckResult.umbral || 8750)) * 100)));
-                            return (
-                              <div key={i} className="bg-gradient-to-r from-rose-50/80 to-orange-50/40 border border-rose-200/80 rounded-2xl p-4 space-y-2 shadow-xs">
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <p className="font-extrabold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
-                                    <p className="text-[10px] font-medium text-slate-500 mt-0.5">
-                                      {v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''} emitidas hoy
-                                    </p>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="font-extrabold text-rose-700 text-sm tracking-tight">Q{Number(v.totalVentas || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                                    <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 font-extrabold text-[9.5px] rounded-full mt-0.5">
-                                      Faltan Q{Number(v.diferencia || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
-                                  </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="w-full bg-rose-200/60 h-2 rounded-full overflow-hidden">
-                                  <div 
-                                    className="bg-gradient-to-r from-rose-500 to-amber-500 h-full rounded-full transition-all duration-500"
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Sellers Above Threshold */}
-                      {salesCheckResult.vendedoresSobreUmbral?.length > 0 && (
-                        <div className="space-y-2.5">
-                          <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5 pt-1">
-                            <TrendingUp size={14} /> Alcanzaron la meta
-                          </h3>
-                          {salesCheckResult.vendedoresSobreUmbral.map((v: any, i: number) => (
-                            <div key={i} className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 flex justify-between items-center shadow-xs">
-                              <div>
-                                <p className="font-extrabold text-slate-800 text-xs">{v.sellerName || v.sellerId}</p>
-                                <p className="text-[10px] font-medium text-slate-500 mt-0.5">{v.cantidadFacturas} factura{v.cantidadFacturas !== 1 ? 's' : ''} emitidas hoy</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-extrabold text-emerald-700 text-sm tracking-tight">Q{Number(v.totalVentas || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                                <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold text-[9.5px] rounded-full mt-0.5">
-                                  ✓ Meta alcanzada
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {salesCheckResult.totalFacturasHoy === 0 && (
-                        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 text-center">
-                          <p className="text-amber-800 text-xs font-bold flex items-center justify-center gap-1.5">
-                            <AlertTriangle size={14} className="text-amber-600" /> No se encontraron facturas registradas hoy.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Webhook Status Banner */}
-                      {salesCheckResult.webhookEnviado && salesCheckResult.webhookResult && (
-                        <div className={cn(
-                          "rounded-2xl p-3.5 border text-[11px] font-semibold flex items-center gap-2.5 shadow-xs",
-                          salesCheckResult.webhookResult.ok
-                            ? "bg-emerald-50 border-emerald-200/80 text-emerald-800"
-                            : "bg-rose-50 border-rose-200/80 text-rose-800"
-                        )}>
-                          <span className={cn(
-                            "p-1 rounded-lg shrink-0",
-                            salesCheckResult.webhookResult.ok ? "bg-emerald-200/60 text-emerald-800" : "bg-rose-200/60 text-rose-800"
-                          )}>
-                            <Send size={14} />
-                          </span>
-                          <span className="font-medium">
-                            {salesCheckResult.webhookResult.ok
-                              ? `Webhook enviado exitosamente a n8n (HTTP ${salesCheckResult.webhookResult.status})`
-                              : `Error al enviar webhook: ${salesCheckResult.webhookResult.error || `HTTP ${salesCheckResult.webhookResult.status}`}`
-                            }
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Resend to webhook button */}
-                      {salesCheckResult.vendedoresBajoUmbral?.length > 0 && !salesCheckResult.webhookEnviado && (
-                        <button
-                          onClick={async () => {
-                            setIsCheckingSales(true);
-                            try {
-                              const result = await api.checkDailySales({ sendToWebhook: true });
-                              setSalesCheckResult(result);
-                            } catch (err: any) {
-                              setSalesCheckResult({ ...salesCheckResult, webhookResult: { error: err.message, ok: false } });
-                            } finally {
-                              setIsCheckingSales(false);
-                            }
-                          }}
-                          disabled={isCheckingSales}
-                          className="w-full px-5 py-3.5 bg-gradient-to-r from-[#0c5c35] to-emerald-600 hover:from-[#094829] hover:to-emerald-700 text-white text-[11px] font-extrabold uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
-                        >
-                          <Send size={14} />
-                          Enviar Alerta de Ventas a n8n
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* 3-Column Bento-Grid Metrics Section - Magnificent Glass Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -1925,7 +1614,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div>
                 <h2 className="text-lg font-black text-slate-800 tracking-tight">Detalle de Venta</h2>
-                <p className="text-xs text-slate-500 font-medium">#{selectedViewInvoice.folio} • {fechaDDMMYYYY(selectedViewInvoice.date)}</p>
+                <p className="text-xs text-slate-500 font-medium">#{selectedViewInvoice.folio} • {new Date(selectedViewInvoice.date).toLocaleDateString()}</p>
               </div>
               <button onClick={() => setSelectedViewInvoice(null)} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-700 transition">
                 <X size={20} />
@@ -1934,7 +1623,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <div className="p-6 overflow-y-auto space-y-6">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Cliente</p>
-                <p className="font-bold text-slate-700">{selectedViewInvoice.client || selectedViewInvoice.clientName || (selectedViewInvoice as any).customerName || 'Cliente sin nombre'}</p>
+                <p className="font-bold text-slate-700">{selectedViewInvoice.client}</p>
                 <p className="text-xs text-slate-500">NIT o C/F: {selectedViewInvoice.nit || 'C/F'}</p>
               </div>
 
@@ -1944,24 +1633,23 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     <span className="text-slate-400 font-black text-[10px] block uppercase tracking-wider">Folio Manual (Sobrescribir)</span>
                     <div className="flex gap-2 mt-1">
                       <input 
-                        type="text" 
+                        type="number" 
                         value={manualFolio}
                         onChange={(e) => setManualFolio(e.target.value)}
-                        placeholder="Folio # (ej: 880-2)"
+                        placeholder="Folio #"
                         className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold focus:ring-1 focus:ring-emerald-500 outline-none"
                       />
                       <button 
                         onClick={async () => {
                            try {
-                              const val = manualFolio.trim();
                               await api.updateInvoiceStatus(
                                 selectedViewInvoice.id, 
                                 selectedViewInvoice.status, 
                                 undefined,
-                                val || undefined
+                                manualFolio ? parseInt(manualFolio) : undefined
                               );
                               alert("Folio actualizado.");
-                              const nF = val ? (/^\d+$/.test(val) ? parseInt(val, 10) : val) : selectedViewInvoice.folio;
+                              const nF = manualFolio ? parseInt(manualFolio) : selectedViewInvoice.folio;
                               setSelectedViewInvoice(prev => prev ? { ...prev, folio: nF } : null);
                               setInvoices(prev => prev.map(inv => inv.id === selectedViewInvoice.id ? { ...inv, folio: nF } : inv));
                               loadData();
@@ -2097,47 +1785,6 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         trackingNumber={viewingImageConfig?.trackingNumber}
         title="Guía de Envío" 
       />
-
-      {/* FLOATING PERSISTENT SEARCH & ACTION DOCK */}
-      <AnimatePresence>
-        {showScrollTop && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 30 }}
-            className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-xl bg-slate-900/95 backdrop-blur-xl text-white p-2 sm:p-2.5 rounded-2xl md:rounded-3xl shadow-2xl border border-slate-700/80 flex items-center gap-2.5"
-          >
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-teal-400" size={16} />
-              <input
-                type="text"
-                placeholder="🔍 Buscar cliente, folio #1023, vendedor..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-9 py-2.5 bg-slate-800/90 text-white placeholder-slate-400 rounded-xl md:rounded-2xl text-xs font-bold border border-slate-700 focus:border-teal-400 focus:bg-slate-800 outline-none shadow-inner transition-all"
-              />
-              {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white rounded-full hover:bg-slate-700 transition"
-                  title="Limpiar búsqueda"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-
-            <button
-              onClick={scrollToTop}
-              className="px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-xl md:rounded-2xl transition flex items-center gap-1.5 text-xs font-black shrink-0 cursor-pointer shadow-md active:scale-95"
-              title="Volver arriba"
-            >
-              <ArrowRight size={16} className="-rotate-90" />
-              <span className="hidden sm:inline">Inicio</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
