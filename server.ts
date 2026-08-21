@@ -526,7 +526,8 @@ if (!process.env.VERCEL) {
   };
 
   const requireAdmin = (req: any, res: any, next: any) => {
-    if (!req.user || req.user.role !== 'admin') {
+    const role = (req.user?.role || '').toLowerCase().trim();
+    if (!req.user || (role !== 'admin' && role !== 'dueño' && role !== 'dueno' && role !== 'ceo' && role !== 'owner')) {
       return res.status(403).json({ error: "Acceso denegado: Se requieren permisos de administrador" });
     }
     next();
