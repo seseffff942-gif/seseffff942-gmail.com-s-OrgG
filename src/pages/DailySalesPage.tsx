@@ -25,13 +25,14 @@ import {
   DollarSign,
   Award,
   Info,
+  ChevronLeft,
   ChevronRight,
   RefreshCw,
   Printer,
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -130,6 +131,12 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [activeChartTab, setActiveChartTab] = useState<'hourly' | 'sellers' | 'status'>('hourly');
   const [showCharts, setShowCharts] = useState(true);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, pageSize]);
 
   useEffect(() => {
     loadData();
@@ -686,9 +693,85 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       });
     } else {
       // Default: Chronological list of invoice cards
+      const totalInvoices = sortedInvoices.length;
+      const isPaginated = dateViewMode === 'all' || totalInvoices > pageSize;
+      const totalPages = Math.max(1, Math.ceil(totalInvoices / pageSize));
+      const startIndex = isPaginated ? (currentPage - 1) * pageSize : 0;
+      const endIndex = isPaginated ? Math.min(startIndex + pageSize, totalInvoices) : totalInvoices;
+      const displayedInvoices = isPaginated ? sortedInvoices.slice(startIndex, endIndex) : sortedInvoices;
+
       return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sortedInvoices.map(invoice => renderInvoiceCard(invoice))}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {displayedInvoices.map(invoice => renderInvoiceCard(invoice))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl shadow-xs select-none">
+              <div className="flex items-center gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Mostrando <strong className="text-slate-900">{startIndex + 1} - {endIndex}</strong> de <strong className="text-[#0c5c35]">{totalInvoices}</strong> ventas
+                </span>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Ver:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-800 cursor-pointer shadow-2xs"
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Primera página"
+                >
+                  « Primero
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Página anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                <div className="flex items-center gap-1 px-3 text-xs font-black text-slate-800 bg-white border border-slate-200 py-1 rounded-lg">
+                  Pág. {currentPage} de {totalPages}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Página siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Última página"
+                >
+                  Último »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
