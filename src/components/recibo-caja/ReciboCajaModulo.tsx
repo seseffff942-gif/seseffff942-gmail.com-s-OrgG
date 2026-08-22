@@ -964,6 +964,32 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                           placeholder="Ej. Folio 803"
                           className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:outline-none focus:border-emerald-400"
                         />
+                        {/* Indicador de folio encontrado / no encontrado */}
+                        {(() => {
+                          const cleanDigits = (fac.no_factura || '').replace(/\D/g, '');
+                          if (!cleanDigits) return null;
+                          const matchedInv = allInvoices.find(inv =>
+                            String(inv.folio) === cleanDigits ||
+                            String(inv.id) === (fac.no_factura || '').trim() ||
+                            String(inv.id).slice(0, 8) === cleanDigits
+                          );
+                          if (matchedInv) {
+                            const saldo = (matchedInv.totalAmount || 0) - (matchedInv.paidAmount || 0);
+                            return (
+                              <div className="mt-1 px-1.5 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[9px] text-emerald-700 font-bold leading-tight">
+                                ✅ Folio encontrado
+                                <span className="block text-[8px] font-medium text-emerald-600 truncate">
+                                  {matchedInv.clientName || matchedInv.client?.name || ''} — Saldo: Q{saldo.toFixed(2)}
+                                </span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="mt-1 px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-[9px] text-amber-600 font-bold leading-tight">
+                              ⚠️ Folio no encontrado
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="w-36">
                         <label className="block text-[10px] text-slate-400 font-bold uppercase mb-0.5">De Fecha</label>
