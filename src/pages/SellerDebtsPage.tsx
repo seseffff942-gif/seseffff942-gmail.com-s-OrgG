@@ -4,6 +4,7 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { formatDateSafe } from '../utils';
 
 interface SellerDebtsPageProps {
   user: User;
@@ -318,7 +319,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
                                   {invoicePayments[invoice.id].map(payment => (
                                     <tr key={payment.id} className="hover:bg-neutral-50/50 transition-colors">
                                       <td className="px-4 py-3 text-neutral-600 font-medium">
-                                        {payment.date ? format(new Date(payment.date), "dd MMM, HH:mm", { locale: es }) : 'N/A'}
+                                        {formatDateSafe(payment.date, "dd MMM, HH:mm")}
                                         {payment.notes && (
                                           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
                                             📝 {payment.notes}
