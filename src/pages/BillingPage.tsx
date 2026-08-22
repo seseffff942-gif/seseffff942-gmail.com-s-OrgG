@@ -2,15 +2,16 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCw, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala, fechaDDMMYYYY, matchInvoiceSearch, parseFolioNumber } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { FelBadge, FelPanel } from '../components/FelPanel';
 import { FelConfigModal } from '../components/FelConfigModal';
+import { CubesLoadingScreen } from '../components/CubesLoadingScreen';
 
 interface BillingPageProps {
   user: User;
@@ -140,18 +141,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   }, [selectedInvoiceForModal]);
 
-  const loadInvoices = async (silent = false) => {
-    if (!silent) setLoading(true);
+  const loadInvoices = async () => {
+    setLoading(true);
     try {
-      const [data] = await Promise.all([
-        api.getInvoices(user.role === 'admin' ? undefined : user.email),
-        cargarEstadosFel()
-      ]);
+      const data = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
       setInvoices(Array.isArray(data) ? data : []);
+      cargarEstadosFel();
     } catch (err) {
       console.error(err);
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -241,7 +240,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   let cleanPhone = String(seller.phone).replace(/\D/g, "");
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
-                      const message = `Hola ${seller.name}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido anulada o RECHAZADA. Por favor revisa el sistema.`;
+                      const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
                       fetch('/api/whatsapp/send', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
@@ -289,13 +288,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   };
 
   const filteredInvoices = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
     return invoices.filter(i => {
       // Hide cancelled and rejected invoices if the option is false
       if (!showCancelledAndRejected && (i.status === 'cancelled' || i.status === 'rejected')) {
         return false;
       }
 
-      const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
+      const matchSearch = !term || (i.client || '').toLowerCase().includes(term) || 
+        (i.id || '').toLowerCase().includes(term) ||
+        (i.sellerId || '').toLowerCase().includes(term) ||
+        (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term);
       
       let matchDate = true;
       if (dateViewMode === 'day') {
@@ -345,6 +348,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     if (!u && eLower.includes('jerickottoniel')) {
        u = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
     }
+    if (!u && (eLower.includes('gruasytransportesali') || eLower.includes('herbert'))) {
+       u = { name: 'Herbert Argueta', sellerCode: 'H1521' } as any;
+    }
 
     if (u && u.name) {
        const firstLetter = u.name.charAt(0).toUpperCase();
@@ -363,14 +369,12 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
   // Grouping and list rendering
   const renderInvoicesList = () => {
-    // Sort all selected invoices chronologically (newest first, by date and hour)
+    // Sort all selected invoices chronologically (newest first, by hour)
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-      const folioA = parseFolioNumber(a.folio);
-      const folioB = parseFolioNumber(b.folio);
+      const folioA = a.folio || 0;
+      const folioB = b.folio || 0;
       if (folioA !== folioB) return folioB - folioA;
-      const timeA = new Date(a.date || 0).getTime();
-      const timeB = new Date(b.date || 0).getTime();
-      return timeB - timeA;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 
     if (displayMode === 'seller_cards') {
@@ -607,11 +611,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           "font-extrabold text-slate-800 text-sm sm:text-base truncate tracking-tight",
                           isCancelled && "text-red-800 line-through"
                         )}>
-                          {inv.client || inv.clientName || (inv as any).customerName || 'Cliente sin nombre'}
+                          {inv.client}
                         </h3>
-                        <span className="text-[10px] font-mono font-black bg-emerald-50/50 text-[#0b4d2c] border border-emerald-100/50 px-1.5 py-0.5 rounded-md">
-                          FOLIO #{inv.folio || 1}
-                        </span>
+                        {inv.folio && (
+                          <span className="text-[10px] font-mono font-black bg-emerald-50/50 text-[#0b4d2c] border border-emerald-100/50 px-1.5 py-0.5 rounded-md">
+                            FOLIO {inv.folio}
+                          </span>
+                        )}
                         {!isCancelled && (
                           <FelBadge
                             estado={felEstados[inv.id] ?? 'sin_emitir'}
@@ -1044,7 +1050,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                        </button>
                     )}
                     {(() => {
-                        const message = `Hola ${invoice.client}, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
+                        const message = `Hola *${invoice.client}*, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
                         const targetPhone = invoice.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -1095,7 +1101,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     {(() => {
                         const seller = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
                         const sellerName = seller ? seller.name : 'Vendedor';
-                        const message = `Hola ${sellerName}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido RECHAZADA porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
+                        const message = `Hola *${sellerName}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido *RECHAZADA* porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
                         const targetPhone = seller?.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -1288,23 +1294,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <p className="text-slate-400 mt-1 font-medium text-sm">
             {user.role === 'admin' ? 'Gestión avanzada de cuentas por cobrar, abonos y folios' : 'Monitoreo de ventas diarias y créditos'}
           </p>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            {user.role === 'admin' && (
-              <button
-                onClick={() => setShowFelConfig(true)}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
-              >
-                <Settings2 size={12} /> Configuración FEL
-              </button>
-            )}
+          {user.role === 'admin' && (
             <button
-              onClick={() => loadInvoices()}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+              onClick={() => setShowFelConfig(true)}
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
             >
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualizar
+              <Settings2 size={12} /> Configuración FEL
             </button>
-          </div>
+          )}
         </div>
         
         {/* Statistical Bento Deck */}
@@ -1315,9 +1312,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
              className="relative overflow-hidden bg-[#0c5c35]/[0.02] hover:bg-[#0c5c35]/[0.05] border border-emerald-500/15 hover:border-emerald-500/30 rounded-2xl px-5 py-3.5 flex flex-col cursor-pointer transition-all shadow-xs shrink-0"
           >
             <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-              <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa ({dailyStats?.totalSales || 0})
+              <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa
             </span>
-            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalAmount || 0))}</span>
+            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalSales || 0))}</span>
           </motion.div>
           
           <motion.div 
@@ -1328,7 +1325,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <span className="text-[9px] font-black text-teal-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <Receipt size={11} className="text-teal-600" /> Total Cobrado
             </span>
-            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.paidAmount || dailyStats?.totalPayments || 0))}</span>
+            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.totalPayments || 0))}</span>
           </motion.div>
 
           <motion.div 
@@ -1497,7 +1494,11 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         </div>
 
         {loading ? (
-          <div className="text-center py-24 text-slate-400 font-medium italic">Cargando facturas...</div>
+          <CubesLoadingScreen 
+            text="Cargando Módulo de Facturación..." 
+            subtitle="Organizando documentos y estados de cobro"
+            fullScreen={false}
+          />
         ) : (
           <>
             {filteredInvoices.length > 0 && (
@@ -1726,12 +1727,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura</span>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <h3 className="text-xl font-black text-slate-800 leading-none">{selectedInvoiceForModal.client}</h3>
-                    <span className="text-xs font-black font-mono bg-emerald-50 text-[#0b4d2c] border border-emerald-200 px-2 py-0.5 rounded-lg">
-                      FOLIO #{selectedInvoiceForModal.folio || 1}
-                    </span>
-                  </div>
+                  <h3 className="text-xl font-black text-slate-800 leading-none mt-0.5">{selectedInvoiceForModal.client}</h3>
                   <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
                 </div>
               </div>
@@ -1784,24 +1780,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             <p className="text-[9px] text-slate-400 uppercase font-black mb-1">Sobrescribe el correlativo automático</p>
                             <div className="flex gap-2">
                               <input 
-                                type="text" 
+                                type="number" 
                                 value={manualFolio}
                                 onChange={(e) => setManualFolio(e.target.value)}
-                                placeholder={selectedInvoiceForModal.folio ? `Folio #${selectedInvoiceForModal.folio}` : "Folio # (ej: 880-2)"}
+                                placeholder="Folio #"
                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1 text-xs font-bold focus:ring-1 focus:ring-teal-500 outline-none"
                               />
                               <button 
                                 onClick={async () => {
                                    try {
-                                      const val = manualFolio.trim();
                                       await api.updateInvoiceStatus(
                                         selectedInvoiceForModal.id, 
                                         selectedInvoiceForModal.status, 
                                         undefined,
-                                        val || undefined
+                                        manualFolio ? parseInt(manualFolio) : undefined
                                       );
                                       alert("Folio actualizado.");
-                                      await loadInvoices(true);
+                                      loadInvoices();
                                       const refreshed = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
                                       const current = refreshed.find(v => v.id === selectedInvoiceForModal.id);
                                       if (current) setSelectedInvoiceForModal(current);
@@ -2078,7 +2073,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div>
                       <span className="text-slate-400 block font-bold">Fecha de Emisión</span>
                       <span className="font-extrabold text-slate-200">
-                        {selectedInvoiceForModal.date ? fechaDDMMYYYY(selectedInvoiceForModal.date, true) : 'N/A'}
+                        {selectedInvoiceForModal.date ? format(new Date(selectedInvoiceForModal.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
                       </span>
                     </div>
                     <div className="text-right">
@@ -2113,7 +2108,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <div>
                             <p className="font-bold text-slate-700">Abono certificado</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">
-                              {payment.date ? fechaDDMMYYYY(payment.date, true) : 'N/A'}
+                              {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -2188,7 +2183,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {
-                      const message = `Hola ${selectedInvoiceForModal.client}, tu factura ${selectedInvoiceForModal.id} está en estado ${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}. Saldo pendiente: ${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(4)}.`;
+                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: ${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(4)}.`;
                       const targetPhone = selectedInvoiceForModal.phone;
                       let cleanPhone = String(targetPhone).replace(/\D/g, "");
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
