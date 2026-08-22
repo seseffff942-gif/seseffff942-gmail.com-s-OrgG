@@ -4557,7 +4557,7 @@ if (!process.env.VERCEL) {
   // PAYMENTS (Abonos)
   app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
     const { id } = req.params;
-    const { amount } = req.body;
+    const { amount, notes } = req.body;
     const numAmount = parseFloat(amount);
     
     const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
@@ -4626,6 +4626,7 @@ if (!process.env.VERCEL) {
       invoiceId: id,
       amount: numAmount,
       receiptUrl,
+      notes: notes ? String(notes).trim() : null,
       date: new Date().toISOString(),
       recordedBy: req.user.email
     };
