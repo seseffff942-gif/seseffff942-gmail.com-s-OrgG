@@ -621,20 +621,51 @@ export const api = {
     return res.json();
   },
 
-  getInvoices: async (sellerId?: string): Promise<Invoice[]> => {
+  getInvoices: async (sellerId?: string, force: boolean = false): Promise<Invoice[]> => {
+    const cacheKey = `invoices_${sellerId || 'all'}`;
+    if (!force) {
+      const cachedMem = getCachedApi(cacheKey);
+      if (cachedMem) return cachedMem;
+    }
     const url = sellerId ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
-    const res = await fetchWithAuth(url);
-    if (!res.ok) throw new Error('Failed to fetch invoices');
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    try {
+      const res = await fetchWithAuth(url);
+      if (!res.ok) throw new Error('Failed to fetch invoices');
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setCachedApi(cacheKey, list);
+      try {
+        localStorage.setItem(`cached_${cacheKey}`, JSON.stringify(list));
+      } catch (e) {}
+      return list;
+    } catch (err) {
+      const cachedLocal = localStorage.getItem(`cached_${cacheKey}`);
+      if (cachedLocal) {
+        try {
+          return JSON.parse(cachedLocal);
+        } catch (e) {}
+      }
+      throw err;
+    }
   },
 
-  getClientInvoices: async (clientName: string): Promise<Invoice[]> => {
+  getClientInvoices: async (clientName: string, force: boolean = false): Promise<Invoice[]> => {
+    const cacheKey = `invoices_client_${clientName.trim().toLowerCase()}`;
+    if (!force) {
+      const cachedMem = getCachedApi(cacheKey);
+      if (cachedMem) return cachedMem;
+    }
     const url = `/api/invoices?client=${encodeURIComponent(clientName)}`;
-    const res = await fetchWithAuth(url);
-    if (!res.ok) throw new Error('Failed to fetch client invoices');
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    try {
+      const res = await fetchWithAuth(url);
+      if (!res.ok) throw new Error('Failed to fetch client invoices');
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setCachedApi(cacheKey, list);
+      return list;
+    } catch (err) {
+      throw err;
+    }
   },
 
   getInvoicePayments: async (invoiceId: string): Promise<Payment[]> => {
@@ -1252,11 +1283,30 @@ export const api = {
   },
 
   // ======== RECIBOS DE CAJA ========
-  getRecibosCaja: async () => {
-    const res = await fetchWithAuth('/api/recibos-caja');
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar los recibos de caja');
-    return data;
+  getRecibosCaja: async (force: boolean = false) => {
+    if (!force) {
+      const cached = getCachedApi('recibos_caja');
+      if (cached) return cached;
+    }
+    try {
+      const res = await fetchWithAuth('/api/recibos-caja');
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar los recibos de caja');
+      const list = Array.isArray(data) ? data : [];
+      setCachedApi('recibos_caja', list);
+      try {
+        localStorage.setItem('cached_recibos_caja', JSON.stringify(list));
+      } catch (e) {}
+      return list;
+    } catch (err) {
+      const cachedLocal = localStorage.getItem('cached_recibos_caja');
+      if (cachedLocal) {
+        try {
+          return JSON.parse(cachedLocal);
+        } catch (e) {}
+      }
+      throw err;
+    }
   },
 
   createReciboCaja: async (recibo: any) => {
