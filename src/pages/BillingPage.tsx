@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
