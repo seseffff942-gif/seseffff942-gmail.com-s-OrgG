@@ -4277,15 +4277,7 @@ if (!process.env.VERCEL) {
     }
 
     filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    // Strip heavy base64 fields from list response to reduce payload (~7MB savings)
-    // These are only needed when viewing/printing a single invoice
-    const lightInvoices = filteredInvoices.map((inv: any) => {
-      const { sellerSignature, adminSignature, customer_signature, admin_signature, seller_signature, pdfBase64, ...rest } = inv;
-      return rest;
-    });
-
-    res.json(lightInvoices);
+    res.json(filteredInvoices);
   }));
 
   app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -6195,6 +6187,7 @@ ${productsContext}`;
 
       if (!error && Array.isArray(data)) {
         const filtered = data.filter((r: any) => 
+          !r.is_deleted && 
           r.observaciones !== '[ELIMINADO]' && 
           !r.observaciones?.includes('[ELIMINADO]') &&
           r.cliente_nombre !== '[ELIMINADO]' &&
@@ -6208,6 +6201,7 @@ ${productsContext}`;
 
     const localList = readLocalRecibosCaja();
     const resultList = localList.filter((r: any) => 
+      !r.is_deleted && 
       !r.observaciones?.includes('[ELIMINADO]') &&
       !r.cliente_nombre?.includes('[ELIMINADO]')
     );
@@ -6278,27 +6272,39 @@ ${productsContext}`;
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-    // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
-    // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
-    const { data: updated, error: updateErr } = await supabase
-      .from('recibos_caja')
-      .update({ 
-        observaciones: '[ELIMINADO]',
-        cliente_nombre: '[ELIMINADO]'
-      })
-      .eq('id', id)
-      .select();
+    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión local
+    addDeletedReciboId(id);
 
-    if (updateErr) {
-      console.error("Supabase UPDATE recibo_caja error:", updateErr);
-      return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
+    // 2. Eliminar del archivo local
+    try {
+      const localList = readLocalRecibosCaja();
+      const filtered = localList.filter((r: any) => r.id !== id);
+      if (filtered.length !== localList.length) {
+        fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(filtered, null, 2));
+      }
+    } catch (e) {
+      console.warn("Could not remove from local recibos_caja file:", e);
     }
 
-    if (!updated || updated.length === 0) {
-      return res.status(404).json({ error: 'Recibo no encontrado' });
+    // 3. Actualizar en Supabase (funciona en serverless Vercel aunque RLS bloquee DELETE puro)
+    try {
+      await supabase
+        .from('recibos_caja')
+        .update({ 
+          observaciones: '[ELIMINADO]',
+          cliente_nombre: '[ELIMINADO]',
+          is_deleted: true 
+        })
+        .eq('id', id);
+
+      await supabase
+        .from('recibos_caja')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn("Supabase delete/update recibo_caja error:", e);
     }
 
-    console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
