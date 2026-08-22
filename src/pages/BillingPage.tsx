@@ -175,12 +175,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
     setIsPaying(true);
     try {
-      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined);
+      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined, paymentNotes || undefined);
       setInvoicePayments(prev => ({
         ...prev,
         [invoiceId]: [...(prev[invoiceId] || []), result.payment]
       }));
       setPaymentAmount('');
+      setPaymentNotes('');
       setPaymentFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       alert('Abono registrado correctamente');
@@ -199,12 +200,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
     setIsPaying(true);
     try {
-      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined);
+      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined, paymentNotes || undefined);
       setInvoicePayments(prev => ({
         ...prev,
         [invoiceId]: [...(prev[invoiceId] || []), result.payment]
       }));
       setPaymentAmount('');
+      setPaymentNotes('');
       setPaymentFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       alert('Abono registrado correctamente');
@@ -1271,6 +1273,11 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                         <tr key={payment.id} className="hover:bg-neutral-50/50 transition-colors">
                           <td className="px-4 py-3 text-neutral-600 font-medium">
                             {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                            {payment.notes && (
+                              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
+                                📝 {payment.notes}
+                              </p>
+                            )}
                           </td>
                           <td className="px-4 py-3 font-bold text-emerald-600 text-base">
                             {formatMoney(payment.amount)}
@@ -1320,7 +1327,6 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       </div>
     );
   };
-
 
   return (
     <div className={`max-w-7xl mx-auto relative overflow-hidden ${isMobile ? 'p-4' : 'p-8'}`}>
@@ -2166,6 +2172,11 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             <p className="text-[10px] text-slate-400 mt-0.5">
                               {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
                             </p>
+                            {payment.notes && (
+                              <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
+                                📝 {payment.notes}
+                              </p>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-black text-emerald-600 text-sm">{formatMoney(payment.amount)}</span>
@@ -2222,6 +2233,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             accept="image/*"
                             onChange={e => setPaymentFile(e.target.files?.[0] || null)}
                             className="w-full text-[10px] bg-white border border-slate-200 rounded-xl px-2 py-1.5 focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[10px] text-slate-500 font-bold block mb-1">Nota o Referencia (Opcional)</label>
+                          <input 
+                            type="text" 
+                            value={paymentNotes} 
+                            onChange={e => setPaymentNotes(e.target.value)}
+                            placeholder="Ej: Boleta #12345 paga también Folio 890" 
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-teal-500"
                           />
                         </div>
                       </div>
