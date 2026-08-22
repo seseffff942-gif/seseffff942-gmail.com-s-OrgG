@@ -690,7 +690,20 @@ export const api = {
       const err = await res.json();
       throw new Error(err.error || 'Payment failed');
     }
+    clearApiCache('invoices');
     return res.json();
+  },
+
+  deletePayment: async (invoiceId: string, paymentId: string): Promise<{ success: boolean; invoice: Invoice; deletedPaymentId: string }> => {
+    const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}`, {
+      method: 'DELETE'
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Error al eliminar el abono');
+    }
+    clearApiCache('invoices');
+    return data;
   },
 
   updateInvoiceAuth: async (invoiceId: string, status: 'authorized' | 'rejected' | 'pending'): Promise<any> => {
