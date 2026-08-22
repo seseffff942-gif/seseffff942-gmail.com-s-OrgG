@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
-import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -73,6 +73,26 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
       alert(`Error al registrar abono: ${error.message}`);
     } finally {
       setIsPaying(false);
+    }
+  };
+
+  const handleDeletePayment = async (invoiceId: string, paymentId: string, amount: number) => {
+    if (!confirm(`¿Estás seguro de eliminar este abono de Q${amount.toFixed(2)}? Se restaurará el saldo pendiente.`)) {
+      return;
+    }
+
+    try {
+      await api.deletePayment(invoiceId, paymentId);
+      
+      setInvoicePayments(prev => ({
+        ...prev,
+        [invoiceId]: (prev[invoiceId] || []).filter(p => p.id !== paymentId)
+      }));
+
+      loadInvoices();
+      alert(`Abono de Q${amount.toFixed(2)} eliminado correctamente. Saldo restaurado.`);
+    } catch (error: any) {
+      alert(`Error al eliminar abono: ${error.message}`);
     }
   };
 
@@ -277,6 +297,9 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
                                     <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Fecha</th>
                                     <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Abonado</th>
                                     <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Boleta</th>
+                                    {user.role === 'admin' && (
+                                      <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-right">Acción</th>
+                                    )}
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-neutral-100">
@@ -304,6 +327,19 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
                                           <span className="text-neutral-400 text-xs italic">Sin comprobante</span>
                                         )}
                                       </td>
+                                      {user.role === 'admin' && (
+                                        <td className="px-4 py-3 text-right">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeletePayment(invoice.id, payment.id, payment.amount)}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg text-xs font-bold transition-colors border border-rose-200"
+                                            title="Eliminar abono y restaurar saldo"
+                                          >
+                                            <Trash2 size={13} />
+                                            Eliminar
+                                          </button>
+                                        </td>
+                                      )}
                                     </tr>
                                   ))}
                                 </tbody>
