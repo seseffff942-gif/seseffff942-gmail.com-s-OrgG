@@ -674,9 +674,12 @@ export const api = {
     return res.json();
   },
 
-  addPayment: async (invoiceId: string, amount: number, receiptFile?: File): Promise<{ invoice: Invoice; payment: Payment }> => {
+  addPayment: async (invoiceId: string, amount: number, receiptFile?: File, notes?: string): Promise<{ invoice: Invoice; payment: Payment }> => {
     const formData = new FormData();
     formData.append('amount', amount.toString());
+    if (notes) {
+      formData.append('notes', notes.trim());
+    }
     if (receiptFile) {
       const compressedReceipt = await compressImage(receiptFile, 1200, 1200, 0.75);
       formData.append('receipt', compressedReceipt);
