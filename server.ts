@@ -4277,7 +4277,15 @@ if (!process.env.VERCEL) {
     }
 
     filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    res.json(filteredInvoices);
+
+    // Strip heavy base64 fields from list response to reduce payload (~7MB savings)
+    // These are only needed when viewing/printing a single invoice
+    const lightInvoices = filteredInvoices.map((inv: any) => {
+      const { sellerSignature, adminSignature, customer_signature, admin_signature, seller_signature, pdfBase64, ...rest } = inv;
+      return rest;
+    });
+
+    res.json(lightInvoices);
   }));
 
   app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
