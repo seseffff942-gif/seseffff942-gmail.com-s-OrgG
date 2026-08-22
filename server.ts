@@ -6187,7 +6187,6 @@ ${productsContext}`;
 
       if (!error && Array.isArray(data)) {
         const filtered = data.filter((r: any) => 
-          !r.is_deleted && 
           r.observaciones !== '[ELIMINADO]' && 
           !r.observaciones?.includes('[ELIMINADO]') &&
           r.cliente_nombre !== '[ELIMINADO]' &&
@@ -6201,7 +6200,6 @@ ${productsContext}`;
 
     const localList = readLocalRecibosCaja();
     const resultList = localList.filter((r: any) => 
-      !r.is_deleted && 
       !r.observaciones?.includes('[ELIMINADO]') &&
       !r.cliente_nombre?.includes('[ELIMINADO]')
     );
@@ -6272,39 +6270,27 @@ ${productsContext}`;
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión local
-    addDeletedReciboId(id);
+    // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
+    // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
+    const { data: updated, error: updateErr } = await supabase
+      .from('recibos_caja')
+      .update({ 
+        observaciones: '[ELIMINADO]',
+        cliente_nombre: '[ELIMINADO]'
+      })
+      .eq('id', id)
+      .select();
 
-    // 2. Eliminar del archivo local
-    try {
-      const localList = readLocalRecibosCaja();
-      const filtered = localList.filter((r: any) => r.id !== id);
-      if (filtered.length !== localList.length) {
-        fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(filtered, null, 2));
-      }
-    } catch (e) {
-      console.warn("Could not remove from local recibos_caja file:", e);
+    if (updateErr) {
+      console.error("Supabase UPDATE recibo_caja error:", updateErr);
+      return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
     }
 
-    // 3. Actualizar en Supabase (funciona en serverless Vercel aunque RLS bloquee DELETE puro)
-    try {
-      await supabase
-        .from('recibos_caja')
-        .update({ 
-          observaciones: '[ELIMINADO]',
-          cliente_nombre: '[ELIMINADO]',
-          is_deleted: true 
-        })
-        .eq('id', id);
-
-      await supabase
-        .from('recibos_caja')
-        .delete()
-        .eq('id', id);
-    } catch (e) {
-      console.warn("Supabase delete/update recibo_caja error:", e);
+    if (!updated || updated.length === 0) {
+      return res.status(404).json({ error: 'Recibo no encontrado' });
     }
 
+    console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
