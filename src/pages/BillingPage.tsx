@@ -40,6 +40,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [showPaymentsModal, setShowPaymentsModal] = useState(false);
 
   const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [isPaying, setIsPaying] = useState(false);
   const [groupBy, setGroupBy] = useState<'date' | 'seller' | 'client'>('date');

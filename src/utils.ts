@@ -1,4 +1,6 @@
 import { biSealBase64, banruralSealBase64, defaultLogoBase64 } from './sealsBase64';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');

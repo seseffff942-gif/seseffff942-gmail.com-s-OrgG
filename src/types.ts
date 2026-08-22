@@ -11,7 +11,6 @@ export interface Client {
   createdAt?: string;
   clientCode?: string;
   isBlocked?: boolean;
-  isPendingSync?: boolean;
 }
 
 export interface User {
@@ -56,9 +55,7 @@ export interface Product {
   specifications?: { key: string; value: string }[];
   is_external?: boolean;
   costPrice?: number;
-  cost_price?: number;
   hiddenFromSales?: boolean;
-  hidden_from_sales?: boolean;
 }
 
 export interface InvoiceItem {
@@ -80,7 +77,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   sellerId: string;
-  folio?: number | string;
+  folio?: number;
   client: string;
   nit?: string;
   phone?: string;
@@ -115,6 +112,7 @@ export interface Payment {
   amount: number;
   receiptUrl?: string | null;
   date: string;
+  notes?: string;
 }
 
 export interface Offer {
@@ -155,115 +153,3 @@ export interface EstadoFacturaFEL {
   desglose: { montoGravable: number; montoIva: number; granTotal: number };
   advertencias: string[];
 }
-
-export interface QuotationItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-  price: number;
-  originalPrice?: number;
-  suggestedPrice?: number;
-  isOfferApplied?: boolean;
-  total: number;
-  variantId?: string;
-  color?: string;
-  size?: string;
-}
-
-export interface Quotation {
-  id: string;
-  folio: string; // ej: "COT-0001"
-  folioNumber: number;
-  sellerId: string;
-  sellerName?: string;
-  client: string;
-  nit?: string;
-  phone?: string;
-  address?: string;
-  items: QuotationItem[];
-  totalAmount: number;
-  status: 'pendiente' | 'aceptada' | 'convertida' | 'rechazada' | 'vencida';
-  date: string;
-  validityDays: number;
-  validUntil: string;
-  notes?: string;
-  invoiceId?: string;
-  convertedInvoiceFolio?: number | string;
-  createdAt: string;
-}
-
-export type PurchaseInvoiceType = 'factura_normal' | 'factura_cambiaria' | 'recibo_compra' | 'otro';
-export type PurchasePaymentMethod = 'boleta' | 'transferencia' | 'cheque' | 'efectivo' | 'tarjeta' | 'otro';
-
-export interface Supplier {
-  id: string;
-  name: string; // Nombre comercial
-  legalName?: string; // Nombre que aparece en el NIT / Razón Social
-  nit?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  category: string;
-  creditDays: number;
-  bankName?: string;
-  bankAccount?: string;
-  createdAt?: string;
-}
-
-export interface PurchasePaymentReceipt {
-  id: string;
-  debtId?: string;
-  paymentDate: string; // YYYY-MM-DD
-  amount: number;
-  paymentMethod: PurchasePaymentMethod;
-  authNumber: string; // Número de autorización / número de boleta / transacción
-  bankName: string; // Banco (Banrural, Banco Industrial, G&T Continental, BAC, etc.)
-  supplierName?: string; // Nombre comercial
-  supplierLegalName?: string; // Nombre en NIT / Razón Social
-  supplierNit?: string; // NIT del proveedor
-  invoiceNumber?: string; // Número de factura pagada
-  invoiceSeries?: string; // Número de serie de la factura
-  invoiceDte?: string; // Número de DTE / Autorización
-  invoiceTitle?: string;
-  imageUrl?: string;
-  reference?: string; // Compatibilidad con registros previos
-  date?: string; // Compatibilidad con registros previos
-  notes?: string;
-  createdAt?: string;
-}
-
-export interface BusinessDebtItem {
-  name: string;
-  quantity: number;
-  price: number;
-  subtotal?: number;
-}
-
-export interface BusinessDebt {
-  id: string;
-  title: string;
-  invoiceNumber?: string; // Número de factura
-  invoiceSeries?: string; // Número de serie
-  invoiceType?: PurchaseInvoiceType; // 'factura_normal' | 'factura_cambiaria' | 'recibo_compra' | 'otro'
-  dte?: string; // Número de DTE / Autorización SAT
-  supplierId: string | null;
-  supplierNit?: string; // NIT del proveedor
-  supplierNitName?: string; // Nombre que aparece en el NIT ante SAT (Razón Social)
-  supplierCommercialName?: string; // Nombre de la empresa o nombre comercial
-  invoiceDate: string; // YYYY-MM-DD Fecha de emisión
-  creditDays: number; // Tiempo de vigencia / plazo de crédito en días
-  dueDate: string; // YYYY-MM-DD Fecha límite calculada
-  subtotal?: number; // Monto base gravable (sin IVA)
-  iva?: number; // Monto IVA (12%)
-  amount: number; // Total de la factura
-  type: 'ingresa' | 'paga';
-  notes?: string;
-  isPaid: boolean;
-  receipts?: PurchasePaymentReceipt[];
-  createdAt: string;
-  invoiceImageUrl?: string;
-  orderReceivedBy?: string;
-  status?: 'pedido' | 'entregado' | 'pendiente' | 'cancelado';
-  items?: BusinessDebtItem[];
-}
-
