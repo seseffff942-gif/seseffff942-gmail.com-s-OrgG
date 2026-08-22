@@ -294,10 +294,20 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         return false;
       }
 
+      const cleanDigits = term.replace(/\D/g, '');
+      const matchFolio = i.folio && (
+        String(i.folio).includes(term) ||
+        (`f${i.folio}`).toLowerCase().includes(term.replace(/[\s-]/g, '')) ||
+        (`f-${i.folio}`).toLowerCase().includes(term) ||
+        (`folio${i.folio}`).toLowerCase().includes(term.replace(/[\s-]/g, '')) ||
+        (cleanDigits && String(i.folio) === cleanDigits)
+      );
+
       const matchSearch = !term || (i.client || '').toLowerCase().includes(term) || 
         (i.id || '').toLowerCase().includes(term) ||
         (i.sellerId || '').toLowerCase().includes(term) ||
-        (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term);
+        (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term) ||
+        Boolean(matchFolio);
       
       let matchDate = true;
       if (dateViewMode === 'day') {
