@@ -11,7 +11,6 @@ import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { FelBadge, FelPanel } from '../components/FelPanel';
 import { FelConfigModal } from '../components/FelConfigModal';
-import { CubesLoadingScreen } from '../components/CubesLoadingScreen';
 
 interface BillingPageProps {
   user: User;
@@ -1494,11 +1493,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         </div>
 
         {loading ? (
-          <CubesLoadingScreen 
-            text="Cargando Módulo de Facturación..." 
-            subtitle="Organizando documentos y estados de cobro"
-            fullScreen={false}
-          />
+          <div className="text-center py-24 text-slate-400 font-medium italic">Cargando facturas...</div>
         ) : (
           <>
             {filteredInvoices.length > 0 && (
