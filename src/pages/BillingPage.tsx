@@ -483,7 +483,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       const isPaid = inv.status === 'paid';
                       const isRejected = inv.status === 'rejected';
                       const isSent = inv.status === 'sent';
-                      const hourStr = inv.date ? format(new Date(inv.date), "HH:mm") : '--:--';
+                      const hourStr = formatDateSafe(inv.date, "HH:mm");
                       
                       return (
                         <div 
@@ -598,7 +598,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
               const needsAuth = inv.authStatus === 'pending';
               const isEdited = false;
               const pending = inv.totalAmount - (inv.paidAmount || 0);
-              const hourStr = inv.date ? format(new Date(inv.date), "HH:mm") : '--:--';
+              const hourStr = formatDateSafe(inv.date, "HH:mm");
 
               const cardMotionProps = isMobile ? {
                 initial: { opacity: 1, y: 0, scale: 1 },
