@@ -3,26 +3,65 @@ import React, { useState } from 'react';
 import { User } from './types';
 import { Login } from './components/Login';
 import { Navigation } from './components/Navigation';
+import { InventoryPage } from './pages/InventoryPage';
+import { SalesPage } from './pages/SalesPage';
+import { BillingPage } from './pages/BillingPage';
+import { MySalesPage } from './pages/MySalesPage';
+import { TeamPage } from './pages/TeamPage';
+import { ClientsPage } from './pages/ClientsPage';
+import { SellerDebtsPage } from './pages/SellerDebtsPage';
+import { DailySalesPage } from './pages/DailySalesPage';
+import { DispatchPage } from './pages/DispatchPage';
+import { HomePage } from './pages/HomePage';
+import { TermsPage } from './pages/TermsPage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
+import { ReciboCajaModulo } from './components/recibo-caja';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
 
-const InventoryPage = React.lazy(() => import('./pages/InventoryPage').then(m => ({ default: m.InventoryPage })));
-const SalesPage = React.lazy(() => import('./pages/SalesPage').then(m => ({ default: m.SalesPage })));
-const BillingPage = React.lazy(() => import('./pages/BillingPage').then(m => ({ default: m.BillingPage })));
-const MySalesPage = React.lazy(() => import('./pages/MySalesPage').then(m => ({ default: m.MySalesPage })));
-const TeamPage = React.lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })));
-const ClientsPage = React.lazy(() => import('./pages/ClientsPage').then(m => ({ default: m.ClientsPage })));
-const SellerDebtsPage = React.lazy(() => import('./pages/SellerDebtsPage').then(m => ({ default: m.SellerDebtsPage })));
-const DailySalesPage = React.lazy(() => import('./pages/DailySalesPage').then(m => ({ default: m.DailySalesPage })));
-const DispatchPage = React.lazy(() => import('./pages/DispatchPage').then(m => ({ default: m.DispatchPage })));
-const HomePage = React.lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
-const TermsPage = React.lazy(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
-const PrivacyPage = React.lazy(() => import('./pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
-const BusinessDebtsPage = React.lazy(() => import('./pages/BusinessDebtsPage').then(m => ({ default: m.BusinessDebtsPage })));
-const QuotationsPage = React.lazy(() => import('./pages/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
-const ReciboCajaModulo = React.lazy(() => import('./components/recibo-caja').then(m => ({ default: m.ReciboCajaModulo })));
-
 // ... (in App component) ...
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="bg-slate-800 p-8 rounded-3xl max-w-md w-full border border-slate-700 shadow-2xl space-y-4">
+            <h2 className="text-xl font-black text-emerald-400">Agricovet App</h2>
+            <p className="text-xs text-slate-300">
+              Se recuperó la vista tras un evento inesperado.
+            </p>
+            <p className="text-[11px] font-mono text-rose-400 bg-slate-950/60 p-3 rounded-xl break-all">
+              {this.state.error?.message || 'Error de visualización'}
+            </p>
+            <button 
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.hash = '';
+                window.location.reload();
+              }}
+              className="w-full py-3 bg-teal-600 hover:bg-teal-500 font-bold text-white rounded-xl transition text-xs shadow-lg cursor-pointer"
+            >
+              🔄 Recargar Pantalla
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -80,7 +119,7 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'quotations', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -93,7 +132,7 @@ export default function App() {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
-      if (['home', 'inventory', 'sales', 'quotations', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -103,14 +142,6 @@ export default function App() {
 
   React.useEffect(() => {
     if (user?.email === 'limalopez22@gmail.com' && currentTab === 'team') {
-      setCurrentTab('home');
-    }
-    const isQuoteAdmin = user?.role === 'admin' || 
-      ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(user?.email?.toLowerCase() || '') ||
-      (user?.name || '').toLowerCase().includes('susana') ||
-      (user?.name || '').toLowerCase().includes('sergio') ||
-      (user?.name || '').toLowerCase().includes('emanuel');
-    if (user && !isQuoteAdmin && currentTab === 'quotations') {
       setCurrentTab('home');
     }
   }, [user, currentTab]);
@@ -275,28 +306,20 @@ export default function App() {
         }}
       />
       <main className={`flex-1 overflow-auto relative md:ml-[260px] md:pt-16`}>
-        <React.Suspense fallback={
-          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
-            <div className="w-9 h-9 border-3 border-[#0b4d2c] border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Cargando módulo...</p>
-          </div>
-        }>
-          {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
-          {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'quotations' && (activeUser.role === 'admin' || ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(activeUser?.email?.toLowerCase() || '') || (activeUser?.name || '').toLowerCase().includes('susana') || (activeUser?.name || '').toLowerCase().includes('sergio') || (activeUser?.name || '').toLowerCase().includes('emanuel')) && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'daily-sales' && <DailySalesPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
-          {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
-          {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
-          {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
-        </React.Suspense>
+        {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
+        {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'daily-sales' && <DailySalesPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
+        {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
+        {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
         
         {/* Floating Download Button (Android & Desktop Chrome support) */}
         {deferredPrompt && (
@@ -477,6 +500,10 @@ export default function App() {
     </div>
   );
 
-  return appContent;
+  return (
+    <ErrorBoundary>
+      {appContent}
+    </ErrorBoundary>
+  );
 }
 
