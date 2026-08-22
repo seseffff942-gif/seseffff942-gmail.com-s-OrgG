@@ -1320,10 +1320,14 @@ if (!process.env.VERCEL) {
   }
 
   async function fetchPaymentsFromSupabase(invoiceId: string): Promise<any[]> {
+    const filterValid = (list: any[]) => (list || [])
+      .filter((p: any) => p && (parseFloat(p.amount) > 0) && p.notes !== '[ELIMINADO]')
+      .map(normalizePayment);
+
     // Try camelCase first:
     try {
       const { data, error } = await supabase.from("payments").select("*").eq("invoiceId", invoiceId);
-      if (!error && data) return data.map(normalizePayment);
+      if (!error && data) return filterValid(data);
       
       if (error) {
         console.warn("Fetch payments eq('invoiceId') failed, trying fallback columns:", error.message);
@@ -1335,13 +1339,13 @@ if (!process.env.VERCEL) {
     // Try lowercase 'invoiceid'
     try {
       const { data, error } = await supabase.from("payments").select("*").eq("invoiceid", invoiceId);
-      if (!error && data) return data.map(normalizePayment);
+      if (!error && data) return filterValid(data);
     } catch (err) {}
 
     // Try snake_case 'invoice_id'
     try {
       const { data, error } = await supabase.from("payments").select("*").eq("invoice_id", invoiceId);
-      if (!error && data) return data.map(normalizePayment);
+      if (!error && data) return filterValid(data);
     } catch (err) {}
 
     // Fallback: Select all and filter (Super resilient)
@@ -1352,7 +1356,7 @@ if (!process.env.VERCEL) {
           const val = d.invoiceId || d.invoiceid || d.invoice_id;
           return val === invoiceId;
         });
-        return filtered.map(normalizePayment);
+        return filterValid(filtered);
       }
     } catch (err) {}
 
@@ -4277,7 +4281,15 @@ if (!process.env.VERCEL) {
     }
 
     filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    res.json(filteredInvoices);
+
+    // Strip heavy base64 fields from list response to reduce payload (~7MB savings)
+    // These are only needed when viewing/printing a single invoice
+    const lightInvoices = filteredInvoices.map((inv: any) => {
+      const { sellerSignature, adminSignature, customer_signature, admin_signature, seller_signature, pdfBase64, ...rest } = inv;
+      return rest;
+    });
+
+    res.json(lightInvoices);
   }));
 
   app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -4681,6 +4693,70 @@ if (!process.env.VERCEL) {
     });
 
     res.json(Array.from(mergedMap.values()));
+  }));
+
+  app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+    const { id, paymentId } = req.params;
+
+    // 1. Find the payment to get its amount
+    let paymentAmount = 0;
+    try {
+      const { data: pmtData } = await supabase.from("payments").select("*").eq('id', paymentId);
+      if (pmtData && pmtData.length > 0) {
+        paymentAmount = parseFloat(pmtData[0].amount || 0);
+      }
+    } catch (e) {}
+
+    // Fallback if not found in db query
+    if (!paymentAmount) {
+      const localPmts = readLocalPayments();
+      const match = localPmts.find(p => p.id === paymentId);
+      if (match) paymentAmount = parseFloat(match.amount || 0);
+    }
+
+    // 2. Delete payment from Supabase (with RLS fallback)
+    try {
+      const { error: delErr } = await supabase.from("payments").delete().eq('id', paymentId);
+      if (delErr) {
+        console.warn("Hard delete payment failed (RLS), falling back to zeroing:", delErr.message);
+        await supabase.from("payments").update({ amount: 0, notes: '[ELIMINADO]' }).eq('id', paymentId);
+      }
+    } catch (e) {
+      console.warn("Delete payment error in supabase:", e);
+    }
+
+    // Also remove from local storage/backups
+    try {
+      const localPayments = readLocalPayments().filter(p => p.id !== paymentId);
+      fs.writeFileSync(path.join(process.cwd(), 'payments_local.json'), JSON.stringify(localPayments, null, 2), 'utf8');
+    } catch (e) {}
+
+    // 3. Update parent invoice balance
+    const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").eq('id', id);
+    if (invErr || !invoices || invoices.length === 0) {
+      return res.json({ success: true, deletedPaymentId: paymentId });
+    }
+
+    const invoice: any = invoices[0];
+    const currentPaid = parseFloat(invoice.paidAmount || 0);
+    const newPaidAmount = Math.max(0, currentPaid - paymentAmount);
+    let newStatus = invoice.status;
+    if (newPaidAmount < invoice.totalAmount && (newStatus === 'paid' || !newStatus)) {
+      newStatus = 'pending';
+    }
+
+    try {
+      await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+    } catch (e) {
+      console.error("Error updating invoice on payment delete:", e);
+    }
+
+    invoice.paidAmount = newPaidAmount;
+    invoice.status = newStatus;
+
+    await syncInvoiceToPermanentBackup(id, invoice);
+
+    res.json({ success: true, invoice, deletedPaymentId: paymentId, restoredAmount: paymentAmount });
   }));
 
   app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -6187,7 +6263,6 @@ ${productsContext}`;
 
       if (!error && Array.isArray(data)) {
         const filtered = data.filter((r: any) => 
-          !r.is_deleted && 
           r.observaciones !== '[ELIMINADO]' && 
           !r.observaciones?.includes('[ELIMINADO]') &&
           r.cliente_nombre !== '[ELIMINADO]' &&
@@ -6201,7 +6276,6 @@ ${productsContext}`;
 
     const localList = readLocalRecibosCaja();
     const resultList = localList.filter((r: any) => 
-      !r.is_deleted && 
       !r.observaciones?.includes('[ELIMINADO]') &&
       !r.cliente_nombre?.includes('[ELIMINADO]')
     );
@@ -6272,39 +6346,27 @@ ${productsContext}`;
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-    // 1. Marcar como ID eliminado permanentemente en la lista de exclusión local
-    addDeletedReciboId(id);
+    // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
+    // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
+    const { data: updated, error: updateErr } = await supabase
+      .from('recibos_caja')
+      .update({ 
+        observaciones: '[ELIMINADO]',
+        cliente_nombre: '[ELIMINADO]'
+      })
+      .eq('id', id)
+      .select();
 
-    // 2. Eliminar del archivo local
-    try {
-      const localList = readLocalRecibosCaja();
-      const filtered = localList.filter((r: any) => r.id !== id);
-      if (filtered.length !== localList.length) {
-        fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(filtered, null, 2));
-      }
-    } catch (e) {
-      console.warn("Could not remove from local recibos_caja file:", e);
+    if (updateErr) {
+      console.error("Supabase UPDATE recibo_caja error:", updateErr);
+      return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
     }
 
-    // 3. Actualizar en Supabase (funciona en serverless Vercel aunque RLS bloquee DELETE puro)
-    try {
-      await supabase
-        .from('recibos_caja')
-        .update({ 
-          observaciones: '[ELIMINADO]',
-          cliente_nombre: '[ELIMINADO]',
-          is_deleted: true 
-        })
-        .eq('id', id);
-
-      await supabase
-        .from('recibos_caja')
-        .delete()
-        .eq('id', id);
-    } catch (e) {
-      console.warn("Supabase delete/update recibo_caja error:", e);
+    if (!updated || updated.length === 0) {
+      return res.status(404).json({ error: 'Recibo no encontrado' });
     }
 
+    console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
