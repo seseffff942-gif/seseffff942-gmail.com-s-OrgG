@@ -53,6 +53,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
   const [sellerFilter, setSellerFilter] = useState<string>('all');
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
   
   // Folio reset configuration states
   const [showFolioModal, setShowFolioModal] = useState(false);
@@ -140,6 +142,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       setManualFolio('');
     }
   }, [selectedInvoiceForModal]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, showCancelledAndRejected, pageSize]);
 
   const loadInvoices = async () => {
     setLoading(true);
@@ -588,10 +594,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       });
     } else {
       // Default chronological hour-ordered layout
+      const totalInvoices = sortedInvoices.length;
+      const isPaginated = dateViewMode === 'all' || totalInvoices > pageSize;
+      const totalPages = Math.max(1, Math.ceil(totalInvoices / pageSize));
+      const startIndex = isPaginated ? (currentPage - 1) * pageSize : 0;
+      const endIndex = isPaginated ? Math.min(startIndex + pageSize, totalInvoices) : totalInvoices;
+      const displayedInvoices = isPaginated ? sortedInvoices.slice(startIndex, endIndex) : sortedInvoices;
+
       return (
         <div className="space-y-4">
           <div className="space-y-3">
-            {sortedInvoices.map((inv, index) => {
+            {displayedInvoices.map((inv, index) => {
               const isCancelled = inv.status === 'cancelled';
               const isPaid = inv.status === 'paid';
               const isRejected = inv.status === 'rejected';
@@ -733,22 +746,6 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             <a href={inv.deliveryLetterUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[9px] font-mono text-blue-500 font-bold bg-blue-550/10 px-1.5 py-0.5 rounded underline hover:text-blue-700">Carta Entregada</a>
                           )}
                         </div>
-                      ) : isSent ? (
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="inline-flex items-center gap-1 text-blue-700 text-xs font-bold bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-xl">
-                            Enviada
-                          </span>
-                          {inv.trackingNumber && (
-                            inv.shippingGuideUrl ? (
-                              <button onClick={e => { e.stopPropagation(); setViewingImageConfig({ url: inv.shippingGuideUrl!, scanClient: inv.scanClient, scanDate: inv.scanDate, trackingNumber: inv.trackingNumber }); }} className="text-[9px] font-mono text-blue-500 font-bold bg-blue-50 px-1.5 py-0.5 rounded underline hover:text-blue-700">Guía: {inv.trackingNumber}</button>
-                            ) : (
-                              <span className="text-[9px] font-mono text-blue-500 font-bold bg-blue-50 px-1.5 py-0.5 rounded">Guía: {inv.trackingNumber}</span>
-                            )
-                          )}
-                          {inv.deliveryLetterUrl && (
-                            <a href={inv.deliveryLetterUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[9px] font-mono text-blue-500 font-bold bg-blue-550/10 px-1.5 py-0.5 rounded underline hover:text-blue-700">Carta Entregada</a>
-                          )}
-                        </div>
                       ) : needsAuth ? (
                         <span className="text-red-600 text-[10px] uppercase font-bold bg-red-50 border border-red-200 px-2.5 py-1 rounded-xl shadow-xs">
                           Alerta Costo
@@ -756,6 +753,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       ) : (
                         <span className="text-orange-600 text-xs font-bold bg-orange-50 border border-orange-100 px-2.5 py-1 rounded-xl">
                           Pendiente
+                        </span>
+                      )}
+
+                      {!isCancelled && (
+                        <FelBadge
+                          estado={felEstados[inv.id] ?? 'sin_emitir'}
+                          onClick={() => setInvoiceFel(inv)}
+                        />
+                      )}
+
+                      {inv.adminSignature ? (
+                        <span className="text-[9px] font-black px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 tracking-tight inline-flex items-center gap-1">
+                          ✓ Rev.
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 tracking-tight inline-block">
+                          Sin Rev.
                         </span>
                       )}
 
@@ -784,6 +798,73 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
               );
             })}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl mt-6 shadow-xs select-none">
+              <div className="flex items-center gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Mostrando <strong className="text-slate-900">{startIndex + 1} - {endIndex}</strong> de <strong className="text-[#0c5c35]">{totalInvoices}</strong> ventas
+                </span>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Ver:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-800 cursor-pointer shadow-2xs"
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Primera página"
+                >
+                  « Primero
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Página anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                <div className="flex items-center gap-1 px-3 text-xs font-black text-slate-800 bg-white border border-slate-200 py-1 rounded-lg">
+                  Pág. {currentPage} de {totalPages}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Página siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 transition cursor-pointer"
+                  title="Última página"
+                >
+                  Último »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
