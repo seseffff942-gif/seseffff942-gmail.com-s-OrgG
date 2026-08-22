@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
@@ -219,6 +219,41 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       alert(`Error al registrar abono: ${error.message}`);
     } finally {
       setIsPaying(false);
+    }
+  };
+
+  const handleDeletePayment = async (invoiceId: string, paymentId: string, amount: number) => {
+    if (!confirm(`¿Estás seguro de eliminar este abono de Q${amount.toFixed(2)}? Se restaurará el saldo pendiente en la cuenta.`)) {
+      return;
+    }
+
+    try {
+      const res = await api.deletePayment(invoiceId, paymentId);
+      
+      // Update local payments map
+      setInvoicePayments(prev => ({
+        ...prev,
+        [invoiceId]: (prev[invoiceId] || []).filter(p => p.id !== paymentId)
+      }));
+
+      // Update invoices in state
+      if (res.invoice) {
+        setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, ...res.invoice } : inv));
+        if (selectedInvoiceForModal?.id === invoiceId) {
+          setSelectedInvoiceForModal(prev => prev ? { ...prev, ...res.invoice } : null);
+        }
+      } else {
+        const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+        setInvoices(refreshedInvoices);
+        const updated = refreshedInvoices.find(v => v.id === invoiceId);
+        if (updated && selectedInvoiceForModal?.id === invoiceId) {
+          setSelectedInvoiceForModal(updated);
+        }
+      }
+
+      alert(`Abono de Q${amount.toFixed(2)} eliminado correctamente. Saldo restaurado.`);
+    } catch (error: any) {
+      alert(`Error al eliminar abono: ${error.message}`);
     }
   };
 
@@ -1226,6 +1261,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Fecha</th>
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Monto Abonado</th>
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Comprobante</th>
+                        {user.role === 'admin' && (
+                          <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-right">Acción</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-100">
@@ -1253,6 +1291,19 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                               <span className="text-neutral-400 text-xs italic px-3 py-1 bg-neutral-50 rounded-lg border border-neutral-100">Sin comprobante</span>
                             )}
                           </td>
+                          {user.role === 'admin' && (
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePayment(invoice.id, payment.id, payment.amount)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg text-xs font-bold transition-colors border border-rose-200"
+                                title="Eliminar abono y restaurar saldo"
+                              >
+                                <Trash2 size={13} />
+                                Eliminar
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -2124,6 +2175,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                               </a>
                             ) : (
                               <span className="text-slate-400 italic text-[10px] px-2 py-1 bg-slate-100 rounded">Sin archivo</span>
+                            )}
+                            {user.role === 'admin' && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePayment(selectedInvoiceForModal.id, payment.id, payment.amount)}
+                                className="p-1 px-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[10px] font-bold transition-all border border-rose-200 flex items-center gap-1"
+                                title="Eliminar abono y restaurar saldo"
+                              >
+                                <Trash2 size={12} />
+                                Borrar
+                              </button>
                             )}
                           </div>
                         </div>
