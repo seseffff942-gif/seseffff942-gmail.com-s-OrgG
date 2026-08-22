@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -863,7 +863,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {format(new Date(invoice.date), "dd MMM yyyy, HH:mm", { locale: es })}</p>
+              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {formatDateSafe(invoice.date)}</p>
             </div>
           </div>
 
@@ -1272,7 +1272,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       {invoicePayments[invoice.id].map(payment => (
                         <tr key={payment.id} className="hover:bg-neutral-50/50 transition-colors">
                           <td className="px-4 py-3 text-neutral-600 font-medium">
-                            {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                            {formatDateSafe(payment.date)}
                             {payment.notes && (
                               <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
                                 📝 {payment.notes}
@@ -2135,7 +2135,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div>
                       <span className="text-slate-400 block font-bold">Fecha de Emisión</span>
                       <span className="font-extrabold text-slate-200">
-                        {selectedInvoiceForModal.date ? format(new Date(selectedInvoiceForModal.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                        {formatDateSafe(selectedInvoiceForModal.date)}
                       </span>
                     </div>
                     <div className="text-right">
@@ -2170,7 +2170,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <div>
                             <p className="font-bold text-slate-700">Abono certificado</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">
-                              {payment.date ? format(new Date(payment.date), "dd MMM yyyy, HH:mm", { locale: es }) : 'N/A'}
+                              {formatDateSafe(payment.date)}
                             </p>
                             {payment.notes && (
                               <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
