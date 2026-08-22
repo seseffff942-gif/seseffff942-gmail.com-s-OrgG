@@ -4,7 +4,6 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, Download, User as UserIcon, ChevronDown, ChevronUp, PhoneCall, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY, parseFolioNumber } from '../utils';
 
 interface SellerDebtsPageProps {
   user: User;
@@ -78,9 +77,23 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
   };
 
   const pendingInvoices = invoices.filter(inv => inv.status === 'pending');
-  const filteredInvoices = pendingInvoices.filter(inv => 
-    matchInvoiceSearch(inv, searchTerm, getSellerName(inv.sellerId || ''))
-  );
+  const filteredInvoices = pendingInvoices.filter(inv => {
+    const q = searchTerm.toLowerCase().trim();
+    const cleanDigits = q.replace(/\D/g, '');
+    const matchFolio = inv.folio && (
+      String(inv.folio).includes(q) ||
+      (`f${inv.folio}`).toLowerCase().includes(q.replace(/[\s-]/g, '')) ||
+      (`f-${inv.folio}`).toLowerCase().includes(q) ||
+      (`folio${inv.folio}`).toLowerCase().includes(q.replace(/[\s-]/g, '')) ||
+      (cleanDigits && String(inv.folio) === cleanDigits)
+    );
+
+    return !q ||
+      (inv.id || '').toLowerCase().includes(q) || 
+      (inv.client || '').toLowerCase().includes(q) || 
+      (inv.sellerId || '').toLowerCase().includes(q) ||
+      Boolean(matchFolio);
+  });
 
   const totalPending = filteredInvoices.reduce((acc, inv) => acc + (inv.totalAmount - inv.paidAmount), 0);
 
@@ -88,6 +101,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
     if (!email) return 'Sin Vendedor';
     const eLower = email.toLowerCase();
     if (eLower.includes('jerickottoniel')) return 'Erick Juárez';
+    if (eLower.includes('gruasytransportesali') || eLower.includes('herbert')) return 'Herbert Argueta';
     const u = users.find(user => 
       (user.email && user.email.toLowerCase() === eLower) || 
       user.id === email || 
@@ -107,15 +121,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
 
     return (
       <div className="space-y-4">
-        {Object.entries(grouped).map(([seller, rawInvs]) => {
-          const invs = [...rawInvs].sort((a, b) => {
-            const folioA = parseFolioNumber(a.folio);
-            const folioB = parseFolioNumber(b.folio);
-            if (folioA !== folioB) return folioB - folioA;
-            const timeA = new Date(a.date || 0).getTime();
-            const timeB = new Date(b.date || 0).getTime();
-            return timeB - timeA;
-          });
+        {Object.entries(grouped).map(([seller, invs]) => {
           const isSellerExpanded = expandedSeller === seller;
           const totalDebt = invs.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
           
@@ -342,14 +348,14 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
-        <div className="sticky top-2 z-20 mb-6 relative w-full max-w-md bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-neutral-200/80 shadow-md">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+        <div className="mb-6 relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
           <input
             type="text"
             placeholder="Buscar por cliente, vendedor o No. Factura..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-xs font-bold"
+            className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
           />
         </div>
 
@@ -408,7 +414,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
               <button
                 disabled={!suggestEditText.trim()}
                 onClick={() => {
-                  const message = `Hola administradores, quisiera registrar un abono o editar esta venta (Factura: ${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)} / Cliente: ${suggestEditInvoice.client}).\nPor favor, confirmar si es posible. Aquí están los detalles:\n\n${suggestEditText}`;
+                  const message = `Hola administradores, quisiera registrar un abono o editar esta venta (Factura: *${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)}* / Cliente: *${suggestEditInvoice.client}*).\nPor favor, confirmar si es posible. Aquí están los detalles:\n\n${suggestEditText}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                   setSuggestEditInvoice(null);
                   setSuggestEditText('');
