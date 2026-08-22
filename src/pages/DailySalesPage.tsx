@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, diaGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { CubesLoadingScreen } from '../components/CubesLoadingScreen';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { 
@@ -99,6 +100,9 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
     
     if (!u && eLower.includes('jerickottoniel')) {
        u = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
+    }
+    if (!u && (eLower.includes('gruasytransportesali') || eLower.includes('herbert'))) {
+       u = { name: 'Herbert Argueta', sellerCode: 'H1521' } as any;
     }
 
     if (u && u.name) {
@@ -778,14 +782,10 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   if (loading && invoices.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50 relative min-h-screen overflow-hidden">
-        {/* Ambient background particles for loading state too */}
-        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-teal-500/10 to-transparent blur-3xl"></div>
-        <div className="relative flex flex-col items-center gap-4">
-          <div className="w-16 h-16 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-sm font-bold text-slate-500 font-manrope tracking-widest uppercase animate-pulse">Sincronizando Sistema...</p>
-        </div>
-      </div>
+      <CubesLoadingScreen 
+        text="Sincronizando Ventas Diarias..." 
+        subtitle="Consolidando facturación e ingresos del día" 
+      />
     );
   }
 
