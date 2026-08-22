@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 // AGRICOLAS INTEGRATION: Added draft auto-save persistence via localStorage to prevent losing elements upon browser refresh.
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, fechaDDMMYYYY } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -182,7 +182,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isSubmittingRef = useRef(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [sellerSignature, setSellerSignature] = useState<string | null>(() => {
@@ -320,9 +319,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         setAddress(inv.address || '');
         if (inv.notes) {
           setNotes(inv.notes);
-        }
-        if (inv.date) {
-          setCustomDate(diaGuatemala(inv.date));
         }
 
         // Robust parsing of items list
@@ -666,18 +662,18 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const getWhatsAppTextReceipt = (invoice: any) => {
-    const dateStr = invoice.date ? fechaDDMMYYYY(invoice.date) : '';
+    const dateStr = invoice.date ? new Date(invoice.date).toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
     const sellerName = getSellerDisplayName(invoice);
-    let msg = `📋 COMPROBANTE DE COMPRA - Agricovet\n`;
+    let msg = `*📋 COMPROBANTE DE COMPRA - Agricovet*\n`;
     msg += `---------------------------------------\n`;
-    msg += `Cliente: ${invoice.client || 'C/F'}\n`;
-    if (invoice.nit) msg += `NIT: ${invoice.nit}\n`;
-    if (invoice.folio || invoice.id) msg += `Folio: #${invoice.folio || invoice.id}\n`;
-    msg += `Vendedor: ${sellerName}\n`;
-    if (dateStr) msg += `Fecha: ${dateStr}\n`;
-    msg += `Tipo de venta: CRÉDITO\n`;
+    msg += `*Cliente:* ${invoice.client || 'C/F'}\n`;
+    if (invoice.nit) msg += `*NIT:* ${invoice.nit}\n`;
+    if (invoice.folio || invoice.id) msg += `*Folio:* #${invoice.folio || invoice.id}\n`;
+    msg += `*Vendedor:* ${sellerName}\n`;
+    if (dateStr) msg += `*Fecha:* ${dateStr}\n`;
+    msg += `*Tipo de venta:* CRÉDITO\n`;
     msg += `---------------------------------------\n`;
-    msg += `DETALLE DE PRODUCTOS:\n`;
+    msg += `*DETALLE DE PRODUCTOS:*\n`;
     
     const items = invoice.items || [];
     items.forEach((item: any) => {
@@ -685,16 +681,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       const quantity = item.quantity || 0;
       const price = item.price || 0;
       const itemTotal = quantity * price;
-      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = ${formatMoney(itemTotal)}\n`;
+      msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = *${formatMoney(itemTotal)}*\n`;
     });
     
     msg += `---------------------------------------\n`;
     const total = invoice.totalAmount ?? invoice.total ?? 0;
-    msg += `TOTAL COMPRA: ${formatMoney(total)}\n`;
+    msg += `*TOTAL COMPRA:* *${formatMoney(total)}*\n`;
     if (invoice.isOwed !== false) {
       const paid = invoice.paidAmount || 0;
-      msg += `Monto Pagado: ${formatMoney(paid)}\n`;
-      msg += `Saldo Pendiente: ${formatMoney(total - paid)}\n`;
+      msg += `*Monto Pagado:* ${formatMoney(paid)}\n`;
+      msg += `*Saldo Pendiente:* *${formatMoney(total - paid)}*\n`;
     }
     msg += `---------------------------------------\n`;
     msg += `¡Muchas gracias por su preferencia! 🐾🌾\n`;
@@ -740,13 +736,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
-    if (isSubmittingRef.current) return;
-
     const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com');
     if (hiddenItemsForNonAdmin.length > 0) {
       setErrorMsg(`No se puede procesar la venta porque incluye productos ocultos (${hiddenItemsForNonAdmin.map(i => i.product.name).join(', ')}). Únicamente Administradores pueden venderlos.`);
       setIsSubmitting(false);
-      isSubmittingRef.current = false;
       return;
     }
 
@@ -759,7 +752,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
     const finalSignature = signature || sellerSignature || undefined;
     isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
-    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       const items = cart.map(i => {
@@ -815,8 +807,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           debtAlert: debtType !== 'none',
           customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
           transportMethod: transportMethod || undefined,
-          sellerSignature: finalSignature || undefined,
-          idempotencyKey: `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+          sellerSignature: finalSignature || undefined
         };
 
         if (!navigator.onLine) {
@@ -928,14 +919,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     } catch (err: any) {
       alert(`Error procesando venta: ${err.message}`);
     } finally {
-      isSubmittingRef.current = false;
       setIsSubmitting(false);
       setPendingCheckout(null);
     }
   };
 
   const handleSaveSignature = (sig: string) => {
-    if (isSubmitting || isSubmittingRef.current) return;
     setSellerSignature(sig);
     localStorage.setItem('last_seller_signature', sig);
     setShowSignaturePad(false);
@@ -946,7 +935,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
   const handleCheckout = async (isOwed: boolean) => {
     isOwed = true; // Forzar crédito siempre
-    if (isSubmitting || isSubmittingRef.current) return;
+    if (isSubmitting) return;
 
     if (!client.trim()) {
       setErrorMsg('Por favor ingresa el nombre del cliente');
@@ -1021,15 +1010,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const finalizeCheckoutAfterSeller = async () => {
-    if (isSubmitting || isSubmittingRef.current) return;
     setShowNewClientSellerModal(false);
+    setIsSubmitting(true);
     
     if (editingInvoiceId) {
       try {
         await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
       } catch (err: any) {
         setIsSubmitting(false);
-        isSubmittingRef.current = false;
         alert(`Error al actualizar la venta: ${err.message}`);
       }
       return;
@@ -1041,7 +1029,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
          if (type !== 'none' && !isDebtAuthorized) {
            setShowDebtModal(true);
            setIsSubmitting(false);
-           isSubmittingRef.current = false;
            return;
          }
       }
@@ -1049,7 +1036,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       await proceedWithCheckout(checkoutIsOwed, selectedSellerForNewClient);
     } catch (err: any) {
       setIsSubmitting(false);
-      isSubmittingRef.current = false;
       alert(`Error comprobando deuda: ${err.message}`);
     }
   };
@@ -1140,36 +1126,36 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       <section className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#f4f7f5] ${isMobile ? 'pb-32' : ''}`}>
         
         {/* Header / Search & Interactive Branding bar */}
-        <div className="flex flex-col gap-2.5 p-3 sm:p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
+        <div className="flex flex-col gap-4.5 p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
           
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center justify-between sm:justify-start gap-4">
               <div>
-                <h2 className="text-base sm:text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                  <span className="w-2 h-4 sm:w-2.5 sm:h-6 rounded-full bg-[#0b4d2c] block" />
+                <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-6 rounded-full bg-[#0b4d2c] block" />
                   Catálogo de Productos
                 </h2>
-                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 font-bold uppercase tracking-wider">
-                  Selecciona insumos veterinarios y agrícolas
+                <p className="text-xs text-slate-400 mt-1 font-bold uppercase tracking-wider">
+                  Selecciona insumos veterianarios y agrícolas para procesar la venta
                 </p>
               </div>
             </div>
             
             <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
                 type="text"
-                placeholder="Buscar por código SKU, producto..."
+                placeholder="Buscar por código SKU, nombre de producto..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-9 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl focus:bg-white focus:border-[#0b4d2c] focus:ring-2 focus:ring-[#0b4d2c]/10 outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
+                className="w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-2xl focus:bg-white focus:border-[#0b4d2c] focus:ring-2 focus:ring-[#0b4d2c]/10 outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
               />
               {searchTerm && (
                 <button 
                   onClick={() => setSearchTerm('')} 
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all"
                 >
-                  <X size={13} />
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -2750,10 +2736,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                         // Close Modal
                         setShowSearchClientModal(false);
-
-                        if (savedCli.isPendingSync) {
-                          alert("📌 Cliente guardado localmente (modo sin conexión). Puedes continuar con la venta normalmente; el cliente se sincronizará automáticamente cuando haya red.");
-                        }
                       } catch (err: any) {
                         alert(`Error registrando cliente: ${err.message}`);
                       } finally {
@@ -2882,7 +2864,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           >
                              <div className="text-left">
                                 <p className="text-xs font-bold text-slate-800">{inv.id}</p>
-                                <p className="text-[10px] text-slate-500 font-medium">{fechaDDMMYYYY(inv.date)}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">{new Date(inv.date).toLocaleDateString()}</p>
                              </div>
                              <div className="text-right">
                                 <p className="text-sm font-black text-teal-700">{formatMoney(inv.totalAmount - (inv.paidAmount || 0))}</p>

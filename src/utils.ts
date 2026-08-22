@@ -379,7 +379,7 @@ export function diaGuatemala(fecha?: any): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
 }
 
-function fechaDDMMYYYY(fecha: any, conHora = false): string {
+export function fechaDDMMYYYY(fecha: any, conHora = false): string {
   if (!fecha) return '';
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
