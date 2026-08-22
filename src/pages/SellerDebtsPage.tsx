@@ -19,6 +19,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
   const [invoicePayments, setInvoicePayments] = useState<Record<string, Payment[]>>({});
 
   const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [isPaying, setIsPaying] = useState(false);
   const [suggestEditInvoice, setSuggestEditInvoice] = useState<Invoice | null>(null);
@@ -59,12 +60,13 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
 
     setIsPaying(true);
     try {
-      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined);
+      const result = await api.addPayment(invoiceId, amount, paymentFile || undefined, paymentNotes || undefined);
       setInvoicePayments(prev => ({
         ...prev,
         [invoiceId]: [...(prev[invoiceId] || []), result.payment]
       }));
       setPaymentAmount('');
+      setPaymentNotes('');
       setPaymentFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       alert('Abono registrado correctamente');
@@ -265,6 +267,16 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
                                   </label>
                                 </div>
                               </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-neutral-500 mb-1">Nota o Referencia (Opcional)</label>
+                                <input 
+                                  type="text" 
+                                  value={paymentNotes}
+                                  onChange={e => setPaymentNotes(e.target.value)}
+                                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg outline-none focus:border-green-500 text-xs"
+                                  placeholder="Ej: Boleta #4829 paga también Folio 890"
+                                />
+                              </div>
                               <button 
                                 onClick={() => handleAddPayment(invoice.id, pending)}
                                 disabled={isPaying || !paymentAmount}
@@ -307,6 +319,11 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
                                     <tr key={payment.id} className="hover:bg-neutral-50/50 transition-colors">
                                       <td className="px-4 py-3 text-neutral-600 font-medium">
                                         {payment.date ? format(new Date(payment.date), "dd MMM, HH:mm", { locale: es }) : 'N/A'}
+                                        {payment.notes && (
+                                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 font-semibold max-w-xs">
+                                            📝 {payment.notes}
+                                          </p>
+                                        )}
                                       </td>
                                       <td className="px-4 py-3 font-bold text-emerald-600">
                                         Q{payment.amount.toFixed(2)}
