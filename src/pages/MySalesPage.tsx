@@ -4,7 +4,7 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, matchInvoiceSearch, diaGuatemala, fechaDDMMYYYY, parseFolioNumber } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -15,12 +15,13 @@ interface BillingPageProps {
 }
 
 export function MySalesPage({ user, isMobile }: BillingPageProps) {
-  const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
-
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const getLocalDateStr = (d = new Date()) => {
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  };
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [showCancelledAndRejected, setShowCancelledAndRejected] = useState(false);
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
@@ -88,13 +89,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
         sellerId = undefined;
       }
       const data = await api.getInvoices(sellerId);
-      const list = Array.isArray(data) ? data : [];
-      setInvoices(list);
-      const todayStr = getLocalDateStr();
-      const hasTodayInvoices = list.some(i => (i.date || '').startsWith(todayStr));
-      if (!hasTodayInvoices && list.length > 0) {
-        setIsHistoryMode(true);
-      }
+      setInvoices(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -178,7 +173,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   let cleanPhone = String(seller.phone).replace(/\D/g, "");
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
-                      const message = `Hola ${seller.name}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido anulada o RECHAZADA. Por favor revisa el sistema.`;
+                      const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
                       fetch('/api/whatsapp/send', {
                           method: 'POST',
                           headers: { 
@@ -233,13 +228,39 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       return false;
     }
 
-    const matchSearch = matchInvoiceSearch(i, searchTerm, getSellerName(i.sellerId || ''));
+    const term = searchTerm.toLowerCase().trim();
+    const cleanDigits = term.replace(/\D/g, '');
+    const matchFolio = i.folio && (
+      String(i.folio).includes(term) ||
+      (`f${i.folio}`).toLowerCase().includes(term.replace(/[\s-]/g, '')) ||
+      (`f-${i.folio}`).toLowerCase().includes(term) ||
+      (`folio${i.folio}`).toLowerCase().includes(term.replace(/[\s-]/g, '')) ||
+      (cleanDigits && String(i.folio) === cleanDigits)
+    );
+
+    const matchSearch = !term ||
+      (i.client || '').toLowerCase().includes(term) || 
+      (i.sellerId || '').toLowerCase().includes(term) ||
+      (i.id || '').toLowerCase().includes(term) ||
+      Boolean(matchFolio);
     
     let matchDate = true;
     if (isHistoryMode) {
       matchDate = true;
+    } else if (i.date) {
+      if (i.date.startsWith(filterDate)) {
+        matchDate = true;
+      } else {
+        try {
+          const d = new Date(i.date);
+          const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
+          matchDate = adjusted.toISOString().split('T')[0] === filterDate;
+        } catch {
+          matchDate = false;
+        }
+      }
     } else {
-      matchDate = diaGuatemala(i.date) === filterDate;
+      matchDate = false;
     }
 
     return matchSearch && matchDate;
@@ -281,6 +302,9 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
     
     if (!u && eLower.includes('jerickottoniel')) {
        u = { name: 'Erick Juarez', sellerCode: 'E8363' } as any;
+    }
+    if (!u && (eLower.includes('gruasytransportesali') || eLower.includes('herbert'))) {
+       u = { name: 'Herbert Argueta', sellerCode: 'H1521' } as any;
     }
 
     if (u && u.name) {
@@ -349,28 +373,13 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
            i.status === 'pending' || i.status === 'paid'
        );
        
-       // Sort descending by folio
-        activeInvoices.sort((a, b) => {
-          const folioA = parseFolioNumber(a.folio);
-          const folioB = parseFolioNumber(b.folio);
-          if (folioA !== folioB) return folioB - folioA;
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          return timeB - timeA;
-        });
+       // Sort descending by date
+       activeInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
        
        let historyInvoices = filteredInvoices.filter(i => 
            i.status === 'sent' || i.status === 'cancelled' || i.status === 'rejected'
        );
-       
-       historyInvoices.sort((a, b) => {
-          const folioA = parseFolioNumber(a.folio);
-          const folioB = parseFolioNumber(b.folio);
-          if (folioA !== folioB) return folioB - folioA;
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          return timeB - timeA;
-       });
+       historyInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
        return (
          <div className="space-y-10">
@@ -477,7 +486,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
             </div>
             <div>
               <h3 className={`font-bold ${isCancelled ? 'text-red-800 line-through' : 'text-neutral-800'}`}>{invoice.client}</h3>
-              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {fechaDDMMYYYY(invoice.date, true)}</p>
+              <p className="text-xs text-neutral-500 font-mono">{invoice.id} • {format(new Date(invoice.date), "dd MMM yyyy, HH:mm", { locale: es })}</p>
             </div>
           </div>
 
@@ -697,7 +706,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   <p className="text-sm text-red-800 font-medium mb-4">La factura fue rechazada por inventario insuficiente o precio de venta no autorizado.</p>
                   <div className="flex flex-col w-full gap-2">
                     {(() => {
-                        const message = `Hola ${invoice.client}, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
+                        const message = `Hola *${invoice.client}*, lamentablemente tu compra ha sido rechazada debido a falta de existencias en el inventario o diferencias de precio. Nos comunicaremos contigo a la brevedad para ofrecerte una solución.`;
                         const targetPhone = invoice.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -748,7 +757,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                     {(() => {
                         const seller = users.find(u => u.id === invoice.sellerId || u.email === invoice.sellerId);
                         const sellerName = seller ? seller.name : 'Vendedor';
-                        const message = `Hola ${sellerName}, la factura ${invoice.id} a nombre de ${invoice.client} ha sido RECHAZADA porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
+                        const message = `Hola *${sellerName}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido *RECHAZADA* porque contiene precios por debajo del límite permitido o venta sin existencias. Por favor, comunícate con un administrador o ajusta la factura.`;
                         const targetPhone = seller?.phone;
                         let cleanPhone = targetPhone ? String(targetPhone).replace(/\D/g, "") : "";
                         if (cleanPhone.length >= 8) {
@@ -955,15 +964,15 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
-        <div className="sticky top-2 z-20 bg-white/95 backdrop-blur-md p-2.5 rounded-2xl border border-neutral-200/80 shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <div className="relative w-full max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
             <input
               type="text"
               placeholder="Buscar por cliente, vendedor o No. Factura..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-xs font-bold"
+              className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
             />
           </div>
           
@@ -1197,12 +1206,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura (Mis Ventas)</span>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <h3 className="text-xl font-black text-slate-800 leading-none">{selectedInvoiceForModal.client}</h3>
-                    <span className="text-xs font-black font-mono bg-emerald-50 text-[#0b4d2c] border border-emerald-200 px-2 py-0.5 rounded-lg">
-                      FOLIO #{selectedInvoiceForModal.folio || 1}
-                    </span>
-                  </div>
+                  <h3 className="text-xl font-black text-slate-800 leading-none mt-0.5">{selectedInvoiceForModal.client}</h3>
                   <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
                 </div>
               </div>
@@ -1608,7 +1612,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {
-                      const message = `Hola ${selectedInvoiceForModal.client}, tu factura ${selectedInvoiceForModal.id} está en estado ${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}. Saldo pendiente: Q${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}.`;
+                      const message = `Hola *${selectedInvoiceForModal.client}*, tu factura *${selectedInvoiceForModal.id}* está en estado *${selectedInvoiceForModal.status === 'paid' ? 'PAGADA' : 'PENDIENTE'}.* Saldo pendiente: Q${(selectedInvoiceForModal.totalAmount - (selectedInvoiceForModal.paidAmount || 0)).toFixed(2)}.`;
                       const targetPhone = selectedInvoiceForModal.phone;
                       let cleanPhone = String(targetPhone).replace(/\D/g, "");
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
@@ -1839,7 +1843,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
               <button
                 disabled={!suggestEditText.trim()}
                 onClick={() => {
-                  const message = `Hola administradores, quisiera editar esta venta (Factura: ${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)} / Cliente: ${suggestEditInvoice.client}).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
+                  const message = `Hola administradores, quisiera editar esta venta (Factura: *${suggestEditInvoice.folio || suggestEditInvoice.id.slice(0, 8)}* / Cliente: *${suggestEditInvoice.client}*).\nPor favor, confirmar si es posible. Aquí está la lista de lo que hay que editar:\n\n${suggestEditText}`;
                   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                   setSuggestEditInvoice(null);
                   setSuggestEditText('');
