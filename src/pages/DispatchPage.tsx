@@ -19,7 +19,8 @@ import {
   History,
   AlertCircle
 } from 'lucide-react';
-import { cn, pdfBlobDesdeElemento, descargarBlob, matchInvoiceSearch, fechaDDMMYYYY, diaGuatemala, parseFolioNumber } from '../utils';
+// @ts-ignore
+import { cn, pdfBlobDesdeElemento, descargarBlob } from '../utils';
 
 interface DispatchPageProps {
   user: User;
@@ -150,15 +151,10 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       try {
         setLoading(true);
         const data = await api.getInvoices();
-        // Sort by date descending (newest first, with folio as tie-breaker) and filter out unwanted test users
-        const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => {
-          const folioA = parseFolioNumber(a.folio);
-          const folioB = parseFolioNumber(b.folio);
-          if (folioA !== folioB) return folioB - folioA;
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          return timeB - timeA;
-        }).filter((inv: any) => 
+        // Sort by date descending (newest first) and filter out unwanted test users
+        const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => 
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        ).filter((inv: any) => 
           !inv.client?.toLowerCase().includes("francisco zepeda") && 
           !inv.client?.toLowerCase().includes("fernando zamora")
         );
@@ -200,9 +196,24 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
   }, []);
 
   const filteredInvoices = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const cleanDigits = q.replace(/\D/g, '');
     return invoices
       .filter(inv => activeTab === 'despachado' ? inv.status === 'despachado' : inv.status !== 'despachado')
-      .filter(inv => matchInvoiceSearch(inv, searchQuery, getSellerName(inv.sellerId || inv.seller)));
+      .filter(inv => {
+        const matchFolio = inv.folio && (
+          String(inv.folio).includes(q) ||
+          (`f${inv.folio}`).toLowerCase().includes(q.replace(/[\s-]/g, '')) ||
+          (`f-${inv.folio}`).toLowerCase().includes(q) ||
+          (`folio${inv.folio}`).toLowerCase().includes(q.replace(/[\s-]/g, '')) ||
+          (cleanDigits && String(inv.folio) === cleanDigits)
+        );
+
+        return !q ||
+          inv.client?.toLowerCase().includes(q) ||
+          inv.id.toLowerCase().includes(q) ||
+          Boolean(matchFolio);
+      });
   }, [invoices, activeTab, searchQuery]);
 
   const handleScan = React.useCallback((productId: string) => {
@@ -597,9 +608,9 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                           <div className="flex items-center gap-1.5 text-slate-400">
                             <Clock size={14} />
-                             <span className="text-[10px] font-bold">
-                               {fechaDDMMYYYY(inv.date)}
-                             </span>
+                            <span className="text-[10px] font-bold">
+                              {new Date(inv.date).toLocaleDateString()}
+                            </span>
                           </div>
                           <p className="text-xs font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
                             Q {inv.totalAmount?.toLocaleString()}
