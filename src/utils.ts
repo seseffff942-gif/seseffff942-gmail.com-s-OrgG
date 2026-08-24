@@ -2,6 +2,17 @@ import { biSealBase64, banruralSealBase64, defaultLogoBase64 } from './sealsBase
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+export function formatDateSafe(dateStr?: string | Date | null, formatPattern = "dd/MM/yyyy"): string {
+  if (!dateStr) return 'N/A';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'N/A';
+    return format(d, formatPattern, { locale: es });
+  } catch {
+    return 'N/A';
+  }
+}
+
 export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
 }
@@ -263,17 +274,6 @@ export function formatMoney(num: number | undefined | string) {
   });
 }
 
-export function formatDateSafe(dateVal: any, formatStr: string = "dd MMM yyyy, HH:mm"): string {
-  if (!dateVal) return 'N/A';
-  try {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return 'N/A';
-    return format(d, formatStr, { locale: es });
-  } catch (e) {
-    return 'N/A';
-  }
-}
-
 /**
  * Converts an image URL to a Base64 string.
  * This is crucial for html2pdf.js and window.print() to correctly render images
@@ -370,38 +370,57 @@ export function diaGuatemala(fecha?: any): string {
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       return trimmed;
     }
-    if (/^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
-      return trimmed.slice(0, 10);
-    }
   }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
 }
 
+export function parseFolioNumber(folioVal: any): number {
+  if (folioVal === undefined || folioVal === null || folioVal === '') return 0;
+  const str = String(folioVal).trim();
+  const match = str.match(/^(\d+)(?:[-._/\s]([0-9a-zA-Z]+))?$/);
+  if (match) {
+    const base = parseFloat(match[1]);
+    if (match[2]) {
+      const subNum = parseFloat(match[2]);
+      if (!isNaN(subNum)) {
+        return base + (subNum / 100);
+      } else {
+        const charCode = match[2].toLowerCase().charCodeAt(0) - 96;
+        return base + (Math.max(1, charCode) / 100);
+      }
+    }
+    return base;
+  }
+  const val = parseFloat(str.replace(/[^\d.]/g, ''));
+  return isNaN(val) ? 0 : val;
+}
+
 export function fechaDDMMYYYY(fecha: any, conHora = false): string {
   if (!fecha) return '';
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      const [y, m, dStr] = trimmed.split('-');
-      return `${dStr}/${m}/${y}`;
-    }
-    if (!conHora && /^\d{4}-\d{2}-\d{2}T00:00:00/.test(trimmed)) {
-      const [y, m, dStr] = trimmed.slice(0, 10).split('-');
-      return `${dStr}/${m}/${y}`;
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+    if (match) {
+      const [_, y, m, dStr, h, min] = match;
+      const base = `${parseInt(dStr, 10)}/${parseInt(m, 10)}/${y}`;
+      if (conHora && h !== undefined && min !== undefined) {
+        return `${base} ${h}:${min}`;
+      }
+      return base;
     }
   }
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '';
-  const base = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TZ_GUATEMALA, day: '2-digit', month: '2-digit', year: 'numeric',
-  }).format(d);
+  const day = d.getUTCDate();
+  const month = d.getUTCMonth() + 1;
+  const year = d.getUTCFullYear();
+  const base = `${day}/${month}/${year}`;
   if (!conHora) return base;
-  const hora = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TZ_GUATEMALA, hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(d);
-  return `${base} ${hora}`;
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${base} ${h}:${min}`;
 }
 
 /**
@@ -724,7 +743,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         row = row.replace(/\{\{this\.variantInfo\}\}/g, variantInfo);
         row = row.replace(/\{\{variantInfo\}\}/g, variantInfo);
 
-        let finalProductName = String(item.productName || '');
+        let finalProductName = String(item.productName || '').replace(/\*/g, '');
         if (variantInfo && !loopBody.includes('variantInfo')) {
           finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
         }
@@ -747,18 +766,19 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 
     // Nombre del cliente con fallbacks: invoice.client, customerName o name.
     // Sin esto la factura impresa salia con el cliente vacio segun el origen.
-    const clientName = String(invoice.client || invoice.customerName || invoice.name || '');
+    const clientName = String(invoice.client || invoice.customerName || invoice.name || '').replace(/\*/g, '');
 
     // Receptor: si el DTE se certifico con datos ajustados (nombre/NIT distintos
     // a los de la venta), la representacion grafica debe mostrar EXACTAMENTE lo
     // certificado ante SAT, no el cliente original de la factura.
     const felDocRec: any = fel?.documento;
     const felCertRec = !!(felDocRec && felDocRec.estado === 'certificado');
-    const custName = (felCertRec && felDocRec.receptor_nombre) ? felDocRec.receptor_nombre : clientName;
+    const custName = (felCertRec && felDocRec.receptor_nombre) ? String(felDocRec.receptor_nombre).replace(/\*/g, '') : clientName;
     const custNit = (felCertRec && felDocRec.receptor_nit) ? felDocRec.receptor_nit : (invoice.nit || 'CF');
 
     // Base substitutions
-    t = t.replace(/\{\{id\}\}/g, String(invoice.id || ''));
+    t = t.replace(/\{\{id\}\}/g, String(invoice.id || '').replace(/\*/g, ''));
+    t = t.replace(/\{\{folio\}\}/g, String(invoice.folio || '').replace(/\*/g, ''));
     t = t.replace(/\{\{client\}\}/g, String(custName));
     t = t.replace(/\{\{customerName\}\}/g, String(custName));
     t = t.replace(/\{\{customerNit\}\}/g, String(custNit));
@@ -926,6 +946,266 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
     </div>
   `;
 }
+
+export function compileQuotationTemplate(quote: any, sellerName?: string): string {
+  try {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const logoUrl = localStorage.getItem('app_logo_url') || `${origin}/agricovet.png`;
+
+    const formatGT = (num: number | string | undefined) => {
+      const n = Number(num);
+      return isNaN(n) ? '0.00' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const effectiveSeller = (sellerName && sellerName !== 'desconocido' ? sellerName : '') ||
+      quote.sellerName ||
+      quote.seller ||
+      'Asesor Comercial';
+
+    const clientName = quote.client || quote.clientName || 'Cliente Particular';
+    const clientNit = quote.nit || 'CF';
+    const clientPhone = quote.phone || 'N/A';
+    const clientAddress = quote.address || 'Ciudad de Guatemala';
+    const folioStr = quote.folio || `#COT-${String(quote.folioNumber || 1).padStart(4, '0')}`;
+
+    const dateObj = quote.date ? new Date(quote.date) : new Date();
+    const dateFormatted = dateObj.toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const validDays = quote.validityDays || 15;
+    const validUntilObj = quote.validUntil ? new Date(quote.validUntil) : new Date(dateObj.getTime() + validDays * 24 * 60 * 60 * 1000);
+    const validUntilFormatted = validUntilObj.toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const itemsRows = (quote.items || []).map((item: any, idx: number) => {
+      const c = item.color || item.variant?.color;
+      const s = item.size || item.variant?.size;
+      let variantStr = '';
+      if (c || s) {
+        if (s === 'Única' || !s) variantStr = `<br/><small style="color: #64748b; font-weight: 500;">🎨 ${c || ''}</small>`;
+        else if (!c) variantStr = `<br/><small style="color: #64748b; font-weight: 500;">📏 ${s}</small>`;
+        else variantStr = `<br/><small style="color: #64748b; font-weight: 500;">🎨 ${c} &middot; 📏 ${s}</small>`;
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid #f1f5f9; page-break-inside: avoid;">
+          <td style="padding: 8px 10px; font-size: 9pt; color: #64748b; text-align: center; width: 5%;">${idx + 1}</td>
+          <td style="padding: 8px 10px; font-size: 9.5pt; font-weight: 600; color: #1e293b;">
+            ${item.productName || item.name || 'Producto'}
+            ${variantStr}
+          </td>
+          <td style="padding: 8px 10px; font-size: 9.5pt; text-align: center; color: #334155; width: 12%; font-weight: 700;">
+            ${item.quantity || 1}
+          </td>
+          <td style="padding: 8px 10px; font-size: 9.5pt; text-align: right; color: #334155; width: 18%;">
+            Q ${formatGT(item.price || 0)}
+          </td>
+          <td style="padding: 8px 10px; font-size: 9.5pt; text-align: right; font-weight: 700; color: #00696a; width: 20%;">
+            Q ${formatGT(item.total || (item.quantity * item.price) || 0)}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalNum = Number(quote.totalAmount || 0);
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <base href="${origin}/" />
+  <title>Cotización ${folioStr} - ${clientName}</title>
+  <style>
+    @page { size: A4; margin: 12mm 14mm; }
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; }
+    @media print {
+      body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+    body { margin: 0; padding: 0; color: #1e293b; font-size: 9.5pt; line-height: 1.45; background: #fff; }
+    .doc-container { width: 100%; max-width: 800px; margin: 0 auto; }
+    
+    /* Header */
+    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 12px; border-bottom: 2.5px solid #00696a; }
+    .brand-section { display: flex; gap: 14px; align-items: center; }
+    .brand-logo { width: 68px; height: 68px; object-fit: contain; }
+    .company-title { font-size: 15pt; font-weight: 900; color: #00696a; letter-spacing: -0.3px; margin: 0; }
+    .company-tagline { font-size: 8pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 1px; }
+    .company-info { font-size: 8pt; color: #475569; margin-top: 3px; line-height: 1.35; }
+    
+    /* Quote Box */
+    .quote-box { min-width: 230px; border: 2px solid #00696a; border-radius: 8px; padding: 8px 14px; text-align: center; background: #f0fdfa; }
+    .quote-badge { font-size: 11pt; font-weight: 900; color: #00696a; text-transform: uppercase; letter-spacing: 0.05em; }
+    .quote-folio { font-size: 12pt; font-weight: 900; color: #ba1a1a; margin-top: 2px; }
+    .quote-meta-row { font-size: 8.2pt; color: #334155; margin-top: 3px; display: flex; justify-content: space-between; }
+    .quote-meta-row b { color: #0f172a; }
+
+    /* Parties Section */
+    .parties-grid { display: flex; gap: 20px; margin: 14px 0 10px; }
+    .party-col { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
+    .section-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.08em; color: #00696a; font-weight: 800; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-bottom: 6px; }
+    .client-name { font-size: 11pt; font-weight: 800; color: #0f172a; margin-bottom: 3px; }
+    .info-line { font-size: 8.8pt; color: #334155; margin-top: 2px; }
+    .info-line b { color: #475569; font-weight: 600; }
+
+    /* Items Table */
+    table.items-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table.items-table thead th { background: #00696a; color: #ffffff; font-size: 8pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px; border: none; text-align: left; }
+    table.items-table thead th.r { text-align: right; }
+    table.items-table thead th.c { text-align: center; }
+    table.items-table thead tr th:first-child { border-top-left-radius: 6px; }
+    table.items-table thead tr th:last-child { border-top-right-radius: 6px; }
+    table.items-table tbody tr:nth-child(even) { background-color: #f8fafc; }
+
+    /* Totals */
+    .totals-wrapper { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-top: 12px; page-break-inside: avoid; }
+    .terms-box { flex: 1.2; font-size: 7.8pt; color: #475569; line-height: 1.45; background: #fff; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 8px 12px; }
+    .terms-title { font-weight: 800; color: #00696a; text-transform: uppercase; margin-bottom: 3px; }
+    .totals-table { width: 280px; border-collapse: collapse; }
+    .totals-table td { padding: 4px 8px; font-size: 9.5pt; }
+    .totals-table td.r { text-align: right; }
+    .grand-total-row td { border-top: 2px solid #00696a; border-bottom: 2px solid #00696a; font-weight: 900; font-size: 13pt; color: #00696a; padding: 6px 8px; background: #f0fdfa; }
+
+    /* Banks */
+    .banks-table { width: 100%; margin-top: 14px; border-collapse: collapse; page-break-inside: avoid; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; }
+    .banks-table td { width: 48%; text-align: center; vertical-align: middle; padding: 6px 10px; }
+    .banks-table td.gap { width: 4%; }
+    .bank-title { font-size: 8pt; font-weight: 800; color: #00696a; text-transform: uppercase; }
+    .bank-acct { font-size: 10.5pt; font-weight: 900; color: #0f172a; margin: 1px 0; }
+    .bank-owner { font-size: 7.5pt; font-weight: 700; color: #64748b; }
+
+    /* Signatures */
+    .signatures-row { display: flex; justify-content: space-around; margin-top: 28px; padding-top: 12px; page-break-inside: avoid; }
+    .sign-box { width: 220px; text-align: center; font-size: 8pt; color: #475569; }
+    .sign-line { border-bottom: 1.5px solid #94a3b8; height: 35px; margin-bottom: 6px; }
+    .sign-name { font-weight: 700; color: #0f172a; }
+  </style>
+</head>
+<body>
+  <div class="doc-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand-section">
+        <img src="${logoUrl}" alt="Agricovet Logo" class="brand-logo" />
+        <div>
+          <h1 class="company-title">Agricovet de Guatemala</h1>
+          <div class="company-info">
+            Tel / WhatsApp: +(502) 3645-0241<br/>
+            Email: agricovetsa@gmail.com &middot; NIT: 120894769<br/>
+            Guatemala, Centroamérica
+          </div>
+        </div>
+      </div>
+      <div class="quote-box">
+        <div class="quote-badge">Cotización Formal</div>
+        <div class="quote-folio">${folioStr}</div>
+        <div class="quote-meta-row" style="margin-top: 6px;">
+          <span>Emisión:</span>
+          <b>${dateFormatted}</b>
+        </div>
+        <div class="quote-meta-row">
+          <span>Vigencia:</span>
+          <b>${validDays} días (${validUntilFormatted})</b>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parties Grid -->
+    <div class="parties-grid">
+      <div class="party-col">
+        <div class="section-label">Información del Cliente</div>
+        <div class="client-name">${clientName}</div>
+        <div class="info-line"><b>NIT:</b> ${clientNit}</div>
+        <div class="info-line"><b>Teléfono:</b> ${clientPhone}</div>
+        <div class="info-line"><b>Dirección:</b> ${clientAddress}</div>
+      </div>
+      <div class="party-col">
+        <div class="section-label">Detalles Comerciales</div>
+        <div class="info-line"><b>Asesor Comercial:</b> ${effectiveSeller}</div>
+        <div class="info-line"><b>Moneda:</b> Quetzales (GTQ)</div>
+        <div class="info-line"><b>Estado:</b> Presupuesto Activo</div>
+        <div class="info-line"><b>Condiciones:</b> Precios especiales de cotización</div>
+      </div>
+    </div>
+
+    <!-- Items Table -->
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th class="c" style="width: 5%;">#</th>
+          <th>Descripción del Producto</th>
+          <th class="c" style="width: 12%;">Cant.</th>
+          <th class="r" style="width: 18%;">Precio Unit.</th>
+          <th class="r" style="width: 20%;">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsRows}
+      </tbody>
+    </table>
+
+    <!-- Totals & Terms -->
+    <div class="totals-wrapper">
+      <div class="terms-box">
+        <div class="terms-title">Términos y Condiciones</div>
+        &bull; Los precios cotizados están expresados en Quetzales e incluyen el Impuesto al Valor Agregado (IVA).<br/>
+        &bull; Oferta válida hasta el <strong>${validUntilFormatted}</strong>. Posterior a esta fecha los precios y disponibilidad quedan sujetos a confirmación.<br/>
+        &bull; Esta cotización formal no reserva existencias en bodega hasta que se convierta o confirme como venta formal.<br/>
+        ${quote.notes ? `&bull; <strong>Observaciones:</strong> ${quote.notes}` : ''}
+      </div>
+
+      <table class="totals-table">
+        <tr>
+          <td style="color: #64748b;">Subtotal</td>
+          <td class="r" style="font-weight: 600;">Q ${formatGT(totalNum)}</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b;">Descuentos Aplicados</td>
+          <td class="r" style="font-weight: 600; color: #16a34a;">Q 0.00</td>
+        </tr>
+        <tr class="grand-total-row">
+          <td>TOTAL</td>
+          <td class="r">Q ${formatGT(totalNum)}</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Bank Accounts -->
+    <table class="banks-table">
+      <tr>
+        <td>
+          <div class="bank-title">Depositar a: BANCO INDUSTRIAL</div>
+          <div class="bank-acct">035-015252-6</div>
+          <div class="bank-owner">Agricovet de Guatemala (Monetaria)</div>
+        </td>
+        <td class="gap">&nbsp;</td>
+        <td>
+          <div class="bank-title">Depositar a: BANRURAL</div>
+          <div class="bank-acct">3580029532</div>
+          <div class="bank-owner">Agricovet de Guatemala (Monetaria)</div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Signatures -->
+    <div class="signatures-row">
+      <div class="sign-box">
+        <div class="sign-line"></div>
+        <div class="sign-name">${effectiveSeller}</div>
+        <div>Asesor Comercial / Agricovet</div>
+      </div>
+      <div class="sign-box">
+        <div class="sign-line"></div>
+        <div class="sign-name">${clientName}</div>
+        <div>Aceptación del Cliente</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  } catch (e) {
+    console.error('Error compiling quotation template:', e);
+    return `<h1>Error al generar cotización</h1><p>${String(e)}</p>`;
+  }
+}
+
 
 export async function printHtml(html: string) {
   // Remove any existing print iframe
@@ -1283,4 +1563,84 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
       activePdfDownloads.delete(lockKey);
     }, 1200);
   }
+}
+
+/**
+ * Búsqueda inteligente y precisa para facturas y folios.
+ * - Si se busca un folio explícito ('f984', 'F984', '#984', 'folio 984', '984'):
+ *   Coincide ÚNICAMENTE con el número de folio correspondiente, evitando falsos positivos con UUIDs.
+ * - Si se busca texto: Coincide con Cliente, Vendedor, Productos, Serie o Notas.
+ */
+export function matchInvoiceSearch(
+  invoice: any,
+  searchTerm: string,
+  sellerName?: string
+): boolean {
+  if (!searchTerm || !searchTerm.trim()) return true;
+  if (!invoice) return false;
+
+  const rawTerm = searchTerm.trim().toLowerCase();
+
+  // 1. Detección de Búsqueda Explícita de Folio (ej. 'f984', 'F984', '#984', 'f-984', 'fac984', 'folio 984', 'folio984')
+  const explicitFolioMatch = rawTerm.match(/^(?:f|fac|folio|#)[\s\-_]*(\d+)$/i);
+  if (explicitFolioMatch) {
+    const targetFolio = explicitFolioMatch[1]; // ej. '984'
+    const invFolio = invoice.folio !== undefined && invoice.folio !== null ? String(invoice.folio).trim() : '';
+    return invFolio === targetFolio || invFolio.startsWith(targetFolio);
+  }
+
+  // 2. Si el término es puramente numérico (ej. '984' o '1013')
+  if (/^\d+$/.test(rawTerm)) {
+    const invFolio = invoice.folio !== undefined && invoice.folio !== null ? String(invoice.folio).trim() : '';
+    if (invFolio === rawTerm || invFolio.startsWith(rawTerm)) {
+      return true;
+    }
+    // Verificar teléfono o NIT del cliente si coinciden
+    const phoneClean = String(invoice.phone || invoice.customerPhone || '').replace(/\D/g, '');
+    if (phoneClean && phoneClean.includes(rawTerm)) return true;
+
+    const nitClean = String(invoice.nit || invoice.customerNit || invoice.supplierNit || '').replace(/\D/g, '');
+    if (nitClean && nitClean.includes(rawTerm)) return true;
+
+    const invNum = String(invoice.invoiceNumber || invoice.correlative || '').trim();
+    if (invNum && (invNum === rawTerm || invNum.startsWith(rawTerm))) return true;
+
+    return false;
+  }
+
+  // 3. Búsqueda general de texto (por Cliente, Vendedor, Producto, Serie, Notas)
+  const clientStr = String(invoice.client || invoice.clientName || invoice.customerName || '').toLowerCase();
+  if (clientStr.includes(rawTerm)) return true;
+
+  const nitStr = String(invoice.nit || invoice.customerNit || invoice.supplierNit || '').toLowerCase();
+  if (nitStr.includes(rawTerm)) return true;
+
+  const sellerIdStr = String(invoice.sellerId || '').toLowerCase();
+  if (sellerIdStr.includes(rawTerm)) return true;
+
+  if (sellerName && sellerName.toLowerCase().includes(rawTerm)) return true;
+
+  // Productos en el pedido
+  if (Array.isArray(invoice.items)) {
+    const hasProductMatch = invoice.items.some((item: any) =>
+      (item.productName || item.name || '').toLowerCase().includes(rawTerm)
+    );
+    if (hasProductMatch) return true;
+  }
+
+  // Serie / correlativo de documento
+  const seriesStr = String(invoice.invoiceSeries || invoice.series || '').toLowerCase();
+  const invoiceNumStr = String(invoice.invoiceNumber || invoice.correlative || '').toLowerCase();
+  if (seriesStr && seriesStr.includes(rawTerm)) return true;
+  if (invoiceNumStr && invoiceNumStr.includes(rawTerm)) return true;
+  if (seriesStr && invoiceNumStr && `${seriesStr}-${invoiceNumStr}`.includes(rawTerm)) return true;
+
+  // DTE / UUID solo si la búsqueda empieza por inv- o tiene formato DTE
+  const dteStr = String(invoice.dte || invoice.uuid || invoice.felUuid || '').toLowerCase();
+  if (dteStr && dteStr.includes(rawTerm) && rawTerm.length >= 6) return true;
+
+  const idStr = String(invoice.id || '').toLowerCase();
+  if (rawTerm.startsWith('inv-') && idStr.includes(rawTerm)) return true;
+
+  return false;
 }

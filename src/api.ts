@@ -1,4 +1,127 @@
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL } from './types';
+import { Capacitor } from '@capacitor/core';
+import { createClient } from '@supabase/supabase-js';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation } from './types';
+import preloadedData from './data/preloadedData.json';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+export const SUPABASE_REST_BASE = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1`;
+
+export const fetchSupabaseRest = async (table: string, queryParams: string = 'select=*') => {
+  const cleanParams = queryParams.startsWith('?') ? queryParams.substring(1) : queryParams;
+  const url = `${SUPABASE_REST_BASE}/${table}?${cleanParams}`;
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  if (!res.ok) throw new Error(`Supabase REST fetch error (${res.status}): ${res.statusText}`);
+  return res.json();
+};
+
+export const CUSTOM_FOLIO_OVERRIDES: Record<string, number> = {
+  'INV-1783096985871': 881, // Felipe Contreras - Agropecuaria Mardoqueo -> Folio 881
+  'INV-1783391385068': 887  // Eliel Betancourt - Agroveterinaria La cumbre -> Folio 887
+};
+
+export const parseInvoiceFlags = (inv: any): Invoice => {
+  const mappedInv = { ...inv };
+  mappedInv.client = inv.client || inv.clientName || inv.customerName || inv.name || 'Cliente sin nombre';
+  mappedInv.clientName = mappedInv.client;
+  mappedInv.phone = inv.phone || inv.customerPhone || '';
+  mappedInv.address = inv.address || inv.deliveryAddress || '';
+  const rawNotes = mappedInv.notes || "";
+
+  // 1. Lectura directa desde columnas dedicadas de la base de datos
+  if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
+    const strVal = String(inv.folio).trim();
+    mappedInv.folio = /^\d+$/.test(strVal) ? parseInt(strVal, 10) : strVal;
+  }
+  if (inv.invoice_type) mappedInv.invoiceType = inv.invoice_type;
+  if (inv.credit_days !== undefined && inv.credit_days !== null) mappedInv.creditDays = inv.credit_days;
+  if (inv.transport_method) mappedInv.transportMethod = inv.transport_method;
+  if (inv.seller_pays_shipping !== undefined) mappedInv.sellerPaysShipping = Boolean(inv.seller_pays_shipping);
+  if (inv.auth_status) mappedInv.authStatus = inv.auth_status;
+  if (inv.guide_number) mappedInv.trackingNumber = inv.guide_number;
+  if (inv.observations) mappedInv.notes = inv.observations;
+  if (inv.delivery_letter_url) mappedInv.deliveryLetterUrl = inv.delivery_letter_url;
+  if (inv.shipping_guide_url) mappedInv.shippingGuideUrl = inv.shipping_guide_url;
+  if (inv.scan_client) mappedInv.scanClient = inv.scan_client;
+  if (inv.scan_date) mappedInv.scanDate = inv.scan_date;
+  if (inv.reviewed_by) mappedInv.reviewedBy = inv.reviewed_by;
+
+  // 2. Retrocompatibilidad para campos empaquetados en notes
+  if (rawNotes.includes("|||")) {
+    const flags = rawNotes.split("|||");
+    let potentialNit = flags[0].trim();
+    if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
+      if (!mappedInv.notes) mappedInv.notes = potentialNit;
+      mappedInv.nit = mappedInv.nit || "";
+    } else {
+      mappedInv.nit = mappedInv.nit || potentialNit;
+      if (!mappedInv.notes) mappedInv.notes = "";
+    }
+    flags.slice(1).forEach((flag: string) => {
+      const idx = flag.indexOf(':');
+      if (idx !== -1) {
+        const key = flag.substring(0, idx);
+        const value = flag.substring(idx + 1);
+        if (key === "AUTH" && !mappedInv.authStatus) {
+          mappedInv.authStatus = value;
+        } else if (key === "DEBT") {
+          mappedInv.hasDebtAlert = value === "true";
+        } else if (key === "CREDIT" && mappedInv.creditDays === undefined) {
+          const val = parseInt(value, 10);
+          if (!isNaN(val)) mappedInv.creditDays = val;
+        } else if (key === "TYPE" && !mappedInv.invoiceType) {
+          mappedInv.invoiceType = value;
+        } else if (key === "TRACKING" && !mappedInv.trackingNumber) {
+          mappedInv.trackingNumber = value;
+        } else if (key === "DELIVERY_LETTER" && !mappedInv.deliveryLetterUrl) {
+          mappedInv.deliveryLetterUrl = value;
+        } else if (key === "SHIPPING_GUIDE" && !mappedInv.shippingGuideUrl) {
+          mappedInv.shippingGuideUrl = value;
+        } else if (key === "SCAN_CLIENT" && !mappedInv.scanClient) {
+          mappedInv.scanClient = value;
+        } else if (key === "SCAN_DATE" && !mappedInv.scanDate) {
+          mappedInv.scanDate = value;
+        } else if (key === "OBS" && !mappedInv.notes) {
+          mappedInv.notes = value;
+        } else if (key === "EDITED") {
+          mappedInv.isEdited = value === "true";
+        } else if (key === "FOLIO" && mappedInv.folio === undefined) {
+          const val = value.trim();
+          mappedInv.folio = /^\d+$/.test(val) ? parseInt(val, 10) : val;
+        }
+      }
+    });
+  }
+  return mappedInv as Invoice;
+};
+
+const getApiUrl = (endpoint: string): string => {
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  const customUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('app_custom_api_url') : null;
+  if (customUrl && customUrl.trim() !== '') {
+    const baseUrl = customUrl.trim().replace(/\/$/, '');
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${baseUrl}${cleanEndpoint}`;
+  }
+  const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+  if (isNative) {
+    const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.agricovet.lat').replace(/\/$/, '');
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${baseUrl}${cleanEndpoint}`;
+  }
+  return endpoint;
+};
 
 // Safe JSON parser to handle non-JSON responses from proxy or rate limters
 const safeJson = async (res: Response) => {
@@ -189,15 +312,27 @@ const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 
 };
 
 // Simple api wrapper
-const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1): Promise<Response> => {
   const token = localStorage.getItem('app_token');
   const headers: any = { ...options.headers };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-    headers['x-authorization'] = `Bearer ${token}`;
-    headers['x-access-token'] = token;
   }
-  const response = await fetch(url, { ...options, headers });
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (err: any) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      return fetchWithAuth(url, options, retries - 1);
+    }
+    const errText = String(err?.message || err || '');
+    if (errText.includes('Failed to fetch') || err?.name === 'TypeError') {
+      throw new Error('Sin conexión con el servidor (www.agricovet.lat). Revisa tu conexión a internet o intenta de nuevo.');
+    }
+    throw err;
+  }
   
   // If mutating and successful, notify standard notification listener to poll
   const isMutating = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method || '');
@@ -255,33 +390,84 @@ export const api = {
       const cached = getCachedApi('clients');
       if (cached) return cached;
     }
-    const res = await fetchWithAuth('/api/clients');
-    if (!res.ok) {
-      const err = await safeJson(res);
-      throw new Error(err.error || 'Failed to fetch clients');
+    try {
+      const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        setCachedApi('clients', data);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('offline_clients', JSON.stringify(data));
+        }
+        return data as Client[];
+      }
+    } catch (e) {
+      console.warn('Direct Supabase clients fetch fallback:', e);
     }
-    const data = await safeJson(res);
-    setCachedApi('clients', data);
-    return data;
+    try {
+      const res = await fetchWithAuth('/api/clients');
+      if (!res.ok) throw new Error('Failed to fetch clients');
+      const data = await safeJson(res);
+      setCachedApi('clients', data);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('offline_clients', JSON.stringify(data));
+      }
+      return data;
+    } catch (err) {
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('offline_clients');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          } catch (e) {}
+        }
+      }
+      return (preloadedData.clients || []) as any[];
+    }
   },
 
   addClient: async (clientData: any): Promise<Client> => {
     clearApiCache('clients');
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('offline_clients');
+    try {
+      const res = await fetchWithAuth('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clientData)
+      });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data.error || 'Failed to add client');
+      clearApiCache('clients');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('offline_clients');
+      }
+      return data.client;
+    } catch (err: any) {
+      const isConnError = err.message?.includes('Sin conexión') || err.message?.includes('Failed to fetch') || err.name === 'TypeError';
+      if (isConnError && typeof localStorage !== 'undefined') {
+        const localClient: Client = {
+          id: `local-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: clientData.name || '',
+          companyName: clientData.companyName || '',
+          nit: clientData.nit || 'C/F',
+          phone: clientData.phone || '',
+          address: clientData.address || '',
+          sellerId: clientData.sellerId || '',
+          createdAt: new Date().toISOString(),
+          isPendingSync: true
+        };
+        const rawCached = localStorage.getItem('offline_clients');
+        const cachedClients: Client[] = rawCached ? JSON.parse(rawCached) : [];
+        cachedClients.unshift(localClient);
+        localStorage.setItem('offline_clients', JSON.stringify(cachedClients));
+
+        const rawQueue = localStorage.getItem('offline_clients_queue');
+        const queue: any[] = rawQueue ? JSON.parse(rawQueue) : [];
+        queue.push(clientData);
+        localStorage.setItem('offline_clients_queue', JSON.stringify(queue));
+
+        return localClient;
+      }
+      throw err;
     }
-    const res = await fetchWithAuth('/api/clients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(clientData)
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || 'Failed to add client');
-    clearApiCache('clients');
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('offline_clients');
-    }
-    return data.client;
   },
 
   updateClient: async (id: string, clientData: any, oldData?: any): Promise<Client> => {
@@ -411,22 +597,61 @@ export const api = {
 
   createProduct: async (product: Omit<Product, 'id' | 'image'>): Promise<Product> => {
     clearApiCache('products');
+    const finalCost = product.costPrice !== undefined ? product.costPrice : (product as any).cost_price;
+    const finalHidden = product.hiddenFromSales !== undefined ? product.hiddenFromSales : (product as any).hidden_from_sales;
+    const payload = {
+      ...product,
+      ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
+      ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
+    };
     const res = await fetchWithAuth('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(product)
+      body: JSON.stringify(payload)
     });
     const resData = await safeJson(res);
     if (!res.ok) {
       throw new Error(resData.error || 'Error al crear producto');
     }
-    return resData;
+    const normalized: Product = {
+      ...resData,
+      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+    };
+    return normalized;
   },
 
   getProducts: async (force: boolean = false): Promise<Product[]> => {
+    const mapProduct = (p: any): Product => ({
+      ...p,
+      costPrice: p.costPrice !== undefined ? Number(p.costPrice) : (p.cost_price !== undefined ? Number(p.cost_price) : 0),
+      cost_price: p.cost_price !== undefined ? Number(p.cost_price) : (p.costPrice !== undefined ? Number(p.costPrice) : 0),
+      hiddenFromSales: p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : (p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : false),
+      hidden_from_sales: p.hidden_from_sales !== undefined ? Boolean(p.hidden_from_sales) : (p.hiddenFromSales !== undefined ? Boolean(p.hiddenFromSales) : false),
+      variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : p.variants,
+      specifications: typeof p.specifications === 'string' ? JSON.parse(p.specifications) : p.specifications,
+    });
+
     if (!force) {
       const cachedMem = getCachedApi('products');
-      if (cachedMem) return cachedMem;
+      if (cachedMem && Array.isArray(cachedMem)) return cachedMem.map(mapProduct);
+    }
+    try {
+      const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        const normalized = data.map(mapProduct);
+        setCachedApi('products', normalized);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_products', JSON.stringify(normalized));
+        }
+        return normalized;
+      }
+    } catch (e) {
+      console.warn('Direct Supabase products fetch fallback:', e);
     }
     try {
       const res = await fetchWithAuth('/api/products');
@@ -435,31 +660,50 @@ export const api = {
         throw new Error(err.error || 'Failed to fetch products');
       }
       const data = await safeJson(res);
-      setCachedApi('products', data);
-      localStorage.setItem('cached_products', JSON.stringify(data));
-      return data;
+      const normalized = (Array.isArray(data) ? data : []).map(mapProduct);
+      setCachedApi('products', normalized);
+      localStorage.setItem('cached_products', JSON.stringify(normalized));
+      return normalized;
     } catch (err) {
-      const cached = localStorage.getItem('cached_products');
+      const cached = localStorage.getItem('cached_products') || localStorage.getItem('offline_products');
       if (cached) {
         try {
-          return JSON.parse(cached);
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(mapProduct);
         } catch (e) {}
       }
-      throw err;
+      return ((preloadedData.products || []) as any[]).map(mapProduct);
     }
   },
 
   updateProduct: async (id: string, updates: Partial<Product>): Promise<Product> => {
+    clearApiCache('products');
+    const finalCost = updates.costPrice !== undefined ? updates.costPrice : (updates as any).cost_price;
+    const finalHidden = updates.hiddenFromSales !== undefined ? updates.hiddenFromSales : (updates as any).hidden_from_sales;
+    const payload = {
+      ...updates,
+      ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
+      ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
+    };
     const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to update product');
     }
-    return res.json();
+    const resData = await res.json();
+    return {
+      ...resData,
+      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+    };
   },
 
   deleteProduct: async (id: string): Promise<{ success: boolean }> => {
@@ -513,7 +757,7 @@ export const api = {
     return res.json();
   },
 
-  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string }): Promise<Invoice> => {
+  createInvoice: async (data: { sellerId: string; client: string; nit?: string; phone?: string; address?: string; notes?: string; items: any[]; isOwed: boolean; invoiceType: 'agricola' | 'veterinaria'; creditDays: number; customDate?: string; sellerSignature?: string; idempotencyKey?: string }): Promise<Invoice> => {
     const res = await fetchWithAuth('/api/invoices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -550,7 +794,7 @@ export const api = {
     return res.json();
   },
 
-  updateInvoiceStatus: async (id: string, status: string, guideNumber?: string, folio?: number, deliveryLetterUrl?: string, shippingGuideUrl?: string, clientName?: string, shippingDate?: string): Promise<void> => {
+  updateInvoiceStatus: async (id: string, status: string, guideNumber?: string, folio?: number | string, deliveryLetterUrl?: string, shippingGuideUrl?: string, clientName?: string, shippingDate?: string): Promise<void> => {
     const res = await fetchWithAuth(`/api/invoices/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -621,51 +865,70 @@ export const api = {
     return res.json();
   },
 
-  getInvoices: async (sellerId?: string, force: boolean = false): Promise<Invoice[]> => {
-    const cacheKey = `invoices_${sellerId || 'all'}`;
-    if (!force) {
-      const cachedMem = getCachedApi(cacheKey);
-      if (cachedMem) return cachedMem;
-    }
-    const url = sellerId ? `/api/invoices?sellerId=${encodeURIComponent(sellerId)}` : '/api/invoices';
+  getInvoices: async (sellerId?: string, options?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<Invoice[]> => {
     try {
-      const res = await fetchWithAuth(url);
-      if (!res.ok) throw new Error('Failed to fetch invoices');
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      setCachedApi(cacheKey, list);
-      try {
-        localStorage.setItem(`cached_${cacheKey}`, JSON.stringify(list));
-      } catch (e) {}
-      return list;
-    } catch (err) {
-      const cachedLocal = localStorage.getItem(`cached_${cacheKey}`);
-      if (cachedLocal) {
+      const params = new URLSearchParams();
+      if (sellerId && sellerId !== 'global' && sellerId !== 'all') params.append('sellerId', sellerId);
+      if (options?.limit) params.append('limit', String(options.limit));
+      if (options?.offset) params.append('offset', String(options.offset));
+      if (options?.search) params.append('search', options.search);
+      if (options?.status && options.status !== 'all') params.append('status', options.status);
+      params.append('_t', String(Date.now()));
+
+      const url = `/api/invoices${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetchWithAuth(url, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        if (typeof localStorage !== 'undefined' && !options?.offset) {
+          localStorage.setItem('cached_invoices', JSON.stringify(list));
+        }
+        return list;
+      }
+    } catch (e) {
+      console.warn('Backend invoices fetch fallback:', e);
+    }
+    try {
+      let query = supabase.from('invoices').select('*').order('date', { ascending: false });
+      if (sellerId && sellerId !== 'global' && sellerId !== 'all') {
+        query = query.eq('sellerId', sellerId);
+      }
+      if (options?.status && options.status !== 'all') {
+        query = query.eq('status', options.status);
+      }
+      if (options?.limit) {
+        const offset = options.offset || 0;
+        query = query.range(offset, offset + options.limit - 1);
+      }
+      const { data, error } = await query;
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        const parsedList = data.map(inv => parseInvoiceFlags(inv));
+        if (typeof localStorage !== 'undefined' && !options?.offset) {
+          localStorage.setItem('cached_invoices', JSON.stringify(parsedList));
+        }
+        return parsedList;
+      }
+    } catch (e) {
+      console.warn('Direct Supabase invoices fetch fallback:', e);
+    }
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
+      if (cached) {
         try {
-          return JSON.parse(cachedLocal);
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch (e) {}
       }
-      throw err;
     }
+    return (preloadedData.invoices || []).map(inv => parseInvoiceFlags(inv)) as any[];
   },
 
-  getClientInvoices: async (clientName: string, force: boolean = false): Promise<Invoice[]> => {
-    const cacheKey = `invoices_client_${clientName.trim().toLowerCase()}`;
-    if (!force) {
-      const cachedMem = getCachedApi(cacheKey);
-      if (cachedMem) return cachedMem;
-    }
+  getClientInvoices: async (clientName: string): Promise<Invoice[]> => {
     const url = `/api/invoices?client=${encodeURIComponent(clientName)}`;
-    try {
-      const res = await fetchWithAuth(url);
-      if (!res.ok) throw new Error('Failed to fetch client invoices');
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      setCachedApi(cacheKey, list);
-      return list;
-    } catch (err) {
-      throw err;
-    }
+    const res = await fetchWithAuth(url);
+    if (!res.ok) throw new Error('Failed to fetch client invoices');
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
   getInvoicePayments: async (invoiceId: string): Promise<Payment[]> => {
@@ -677,9 +940,7 @@ export const api = {
   addPayment: async (invoiceId: string, amount: number, receiptFile?: File, notes?: string): Promise<{ invoice: Invoice; payment: Payment }> => {
     const formData = new FormData();
     formData.append('amount', amount.toString());
-    if (notes) {
-      formData.append('notes', notes.trim());
-    }
+    if (notes) formData.append('notes', notes);
     if (receiptFile) {
       const compressedReceipt = await compressImage(receiptFile, 1200, 1200, 0.75);
       formData.append('receipt', compressedReceipt);
@@ -693,20 +954,18 @@ export const api = {
       const err = await res.json();
       throw new Error(err.error || 'Payment failed');
     }
-    clearApiCache('invoices');
     return res.json();
   },
 
-  deletePayment: async (invoiceId: string, paymentId: string): Promise<{ success: boolean; invoice: Invoice; deletedPaymentId: string }> => {
+  deletePayment: async (invoiceId: string, paymentId: string): Promise<{ success: boolean; invoice?: Invoice; deletedPaymentId: string; restoredAmount?: number }> => {
     const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}`, {
       method: 'DELETE'
     });
-    const data = await safeJson(res);
     if (!res.ok) {
-      throw new Error(data.error || 'Error al eliminar el abono');
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al eliminar abono');
     }
-    clearApiCache('invoices');
-    return data;
+    return res.json();
   },
 
   updateInvoiceAuth: async (invoiceId: string, status: 'authorized' | 'rejected' | 'pending'): Promise<any> => {
@@ -754,6 +1013,17 @@ export const api = {
 
   getUsers: async (): Promise<User[]> => {
     try {
+      const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('cached_users', JSON.stringify(data));
+        }
+        return data as User[];
+      }
+    } catch (e) {
+      console.warn('Direct Supabase users fetch fallback:', e);
+    }
+    try {
       const res = await fetchWithAuth('/api/users');
       if (!res.ok) throw new Error('Failed to fetch users');
       const data = await res.json();
@@ -795,6 +1065,17 @@ export const api = {
     }
     const data = await res.json();
     return data.user;
+  },
+
+  deleteUser: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    const res = await fetchWithAuth(`/api/users/${userId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al eliminar usuario');
+    }
+    return res.json();
   },
 
   updateUserPhoto: async (userId: string, file: File): Promise<{ success: boolean; photo: string }> => {
@@ -1044,6 +1325,38 @@ export const api = {
       body: formData
     });
     if (!res.ok) throw new Error('Error al escanear la factura por OCR');
+    return res.json();
+  },
+
+  getBusinessDebts: async (): Promise<any[]> => {
+    const res = await fetchWithAuth('/api/business-debts');
+    if (!res.ok) throw new Error('Error al obtener compras');
+    return res.json();
+  },
+
+  createBusinessDebt: async (data: any): Promise<any> => {
+    const res = await fetchWithAuth('/api/business-debts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al guardar factura de compra');
+    }
+    return res.json();
+  },
+
+  updateBusinessDebt: async (id: string, data: any): Promise<any> => {
+    const res = await fetchWithAuth(`/api/business-debts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al actualizar compra');
+    }
     return res.json();
   },
 
@@ -1299,30 +1612,11 @@ export const api = {
   },
 
   // ======== RECIBOS DE CAJA ========
-  getRecibosCaja: async (force: boolean = false) => {
-    if (!force) {
-      const cached = getCachedApi('recibos_caja');
-      if (cached) return cached;
-    }
-    try {
-      const res = await fetchWithAuth('/api/recibos-caja');
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar los recibos de caja');
-      const list = Array.isArray(data) ? data : [];
-      setCachedApi('recibos_caja', list);
-      try {
-        localStorage.setItem('cached_recibos_caja', JSON.stringify(list));
-      } catch (e) {}
-      return list;
-    } catch (err) {
-      const cachedLocal = localStorage.getItem('cached_recibos_caja');
-      if (cachedLocal) {
-        try {
-          return JSON.parse(cachedLocal);
-        } catch (e) {}
-      }
-      throw err;
-    }
+  getRecibosCaja: async () => {
+    const res = await fetchWithAuth('/api/recibos-caja');
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar los recibos de caja');
+    return data;
   },
 
   createReciboCaja: async (recibo: any) => {
@@ -1345,4 +1639,111 @@ export const api = {
     return data;
   },
 
+  checkDailySales: async (options?: { sendToWebhook?: boolean; threshold?: number }) => {
+    const res = await fetchWithAuth('/api/admin/check-daily-sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sendToWebhook: options?.sendToWebhook ?? false,
+        threshold: options?.threshold ?? 8750,
+      }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
+    return data;
+  },
+
+  // ======== COTIZACIONES (QUOTATIONS) ========
+  getQuotations: async (sellerId?: string) => {
+    const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
+    const res = await fetchWithAuth(url);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar las cotizaciones');
+    return data;
+  },
+
+  getQuotationById: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo obtener la cotización');
+    return data;
+  },
+
+  createQuotation: async (quotation: {
+    client: string;
+    nit?: string;
+    phone?: string;
+    address?: string;
+    items: any[];
+    notes?: string;
+    validityDays?: number;
+    date?: string;
+    sellerId?: string;
+  }) => {
+    const res = await fetchWithAuth('/api/quotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotation),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo crear la cotización');
+    return data;
+  },
+
+  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar la cotización');
+    return data;
+  },
+
+  deleteQuotation: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar la cotización');
+    return data;
+  },
+
+  convertQuotationToSale: async (id: string, options?: {
+    customDate?: string;
+    invoiceType?: 'agricola' | 'veterinaria';
+    creditDays?: number;
+    transportMethod?: string;
+    sellerPaysShipping?: boolean;
+    sellerSignature?: string;
+  }) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo convertir la cotización a venta');
+    return data;
+  },
+
+  getCustomServerUrl: (): string => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('app_custom_api_url') || '';
+    }
+    return '';
+  },
+
+  setCustomServerUrl: (url: string): void => {
+    if (typeof localStorage !== 'undefined') {
+      if (!url || url.trim() === '') {
+        localStorage.removeItem('app_custom_api_url');
+      } else {
+        localStorage.setItem('app_custom_api_url', url.trim());
+      }
+    }
+  },
+
 };
+

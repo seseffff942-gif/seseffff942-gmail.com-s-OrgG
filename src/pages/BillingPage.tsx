@@ -426,7 +426,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     const sortedInvoices = [...filteredInvoices].sort((a, b) => {
       const folioA = a.folio || 0;
       const folioB = b.folio || 0;
-      if (folioA !== folioB) return folioB - folioA;
+      if (folioA !== folioB) return Number(folioB) - Number(folioA);
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 

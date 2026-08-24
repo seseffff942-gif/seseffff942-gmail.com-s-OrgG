@@ -6,6 +6,7 @@ interface SignaturePadProps {
   onSave: (signature: string) => void;
   onClose: () => void;
   title?: string;
+  isSubmitting?: boolean;
 }
 
 /**
@@ -57,14 +58,16 @@ function recortarCanvas(origen: HTMLCanvasElement): HTMLCanvasElement {
   return recorte;
 }
 
-const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "Firma Requerida" }) => {
+const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "Firma Requerida", isSubmitting = false }) => {
   const sigPad = useRef<SignatureCanvas>(null);
 
   const clear = () => {
+    if (isSubmitting) return;
     sigPad.current?.clear();
   };
 
   const save = () => {
+    if (isSubmitting) return;
     if (!sigPad.current || sigPad.current.isEmpty()) {
       alert("Por favor, firma antes de guardar.");
       return;
@@ -92,7 +95,8 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "F
           <h3 className="text-lg font-bold text-gray-900">{title}</h3>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+            disabled={isSubmitting}
+            className="p-2 hover:bg-gray-200 rounded-full transition-colors disabled:opacity-50"
           >
             <X size={20} className="text-gray-500" />
           </button>
@@ -117,17 +121,28 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose, title = "F
           <div className="flex gap-3">
             <button
               onClick={clear}
-              className="flex-1 py-3 px-4 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+              disabled={isSubmitting}
+              className="flex-1 py-3 px-4 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <Eraser size={18} />
               Limpiar
             </button>
             <button
               onClick={save}
-              className="flex-1 py-3 px-4 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-200"
+              disabled={isSubmitting}
+              className="flex-1 py-3 px-4 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Check size={18} />
-              Guardar Firma
+              {isSubmitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Check size={18} />
+                  <span>Guardar Firma</span>
+                </>
+              )}
             </button>
           </div>
         </div>

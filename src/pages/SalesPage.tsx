@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 // AGRICOLAS INTEGRATION: Added draft auto-save persistence via localStorage to prevent losing elements upon browser refresh.
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
-import SignaturePad from '../components/SignaturePad';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
 import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
@@ -183,10 +182,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
-  const [sellerSignature, setSellerSignature] = useState<string | null>(() => {
-    return localStorage.getItem('last_seller_signature');
-  });
   const [pendingCheckout, setPendingCheckout] = useState<{ isOwed: boolean; sellerId: string } | null>(null);
   const [lastSavedClientPhone, setLastSavedClientPhone] = useState<string>('');
   const [lastCreatedInvoice, setLastCreatedInvoice] = useState<any | null>(null);
@@ -735,7 +730,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   };
 
-  const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string, signature?: string) => {
+  const proceedWithCheckout = async (isOwed: boolean, sellerIdToUse: string) => {
     const hiddenItemsForNonAdmin = cart.filter(item => item.product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com');
     if (hiddenItemsForNonAdmin.length > 0) {
       setErrorMsg(`No se puede procesar la venta porque incluye productos ocultos (${hiddenItemsForNonAdmin.map(i => i.product.name).join(', ')}). Únicamente Administradores pueden venderlos.`);
@@ -743,14 +738,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       return;
     }
 
-    const isSpecialUser = user?.email === 'seseffff942@gmail.com';
-    if (!isSpecialUser && !signature && !sellerSignature && !editingInvoiceId) {
-      setPendingCheckout({ isOwed, sellerId: sellerIdToUse });
-      setShowSignaturePad(true);
-      return;
-    }
-
-    const finalSignature = signature || sellerSignature || undefined;
     isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
     setIsSubmitting(true);
     try {
@@ -806,8 +793,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           creditDays: invoiceType === 'agricola' ? 60 : 30,
           debtAlert: debtType !== 'none',
           customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
-          transportMethod: transportMethod || undefined,
-          sellerSignature: finalSignature || undefined
+          transportMethod: transportMethod || undefined
         };
 
         if (!navigator.onLine) {
@@ -921,15 +907,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     } finally {
       setIsSubmitting(false);
       setPendingCheckout(null);
-    }
-  };
-
-  const handleSaveSignature = (sig: string) => {
-    setSellerSignature(sig);
-    localStorage.setItem('last_seller_signature', sig);
-    setShowSignaturePad(false);
-    if (pendingCheckout) {
-      proceedWithCheckout(pendingCheckout.isOwed, pendingCheckout.sellerId, sig);
     }
   };
 
@@ -1822,10 +1799,19 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             <button 
               disabled={isSubmitting || cart.length === 0}
               onClick={() => handleCheckout(true)}
-              className="w-full bg-gradient-to-r from-[#0b4d2c] to-[#07361e] text-white py-4 rounded-2xl font-black hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-emerald-950/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100 text-xs sm:text-sm uppercase tracking-wider cursor-pointer"
+              className="w-full bg-gradient-to-r from-[#0b4d2c] to-[#07361e] text-white py-4 rounded-2xl font-black hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-emerald-950/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100 disabled:pointer-events-none text-xs sm:text-sm uppercase tracking-wider cursor-pointer"
             >
-              <CheckCircle size={16} />
-              {editingInvoiceId ? 'ACTUALIZAR PEDIDO S/CRÉDITO' : (navigator.onLine ? 'REGISTRAR AL CRÉDITO Y FIRMAR' : 'REGISTRAR AL CRÉDITO OFFLINE Y FIRMAR')}
+              {isSubmitting ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>PROCESANDO VENTA...</span>
+                </div>
+              ) : (
+                <>
+                  <CheckCircle size={16} />
+                  {editingInvoiceId ? 'ACTUALIZAR PEDIDO S/CRÉDITO' : (navigator.onLine ? 'REGISTRAR VENTA AL CRÉDITO' : 'REGISTRAR VENTA AL CRÉDITO OFFLINE')}
+                </>
+              )}
             </button>
             {isMobile && (
               <button 
@@ -3020,15 +3006,6 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
           </div>
         </div>
-      )}
-
-      {/* Final closing area for modals */}
-      {showSignaturePad && (
-        <SignaturePad 
-          onSave={handleSaveSignature}
-          onClose={() => setShowSignaturePad(false)}
-          title="Firma del Vendedor"
-        />
       )}
     </div>
   );

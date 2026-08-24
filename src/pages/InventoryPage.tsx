@@ -360,9 +360,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         if (!value || value.trim() === '') return;
         updatePayload.name = value.trim();
       } else if (field === 'stock') {
-        const stockInt = parseInt(value, 10);
-        if (isNaN(stockInt)) return;
-        updatePayload.stock = stockInt;
+        const stockNum = parseFloat(value);
+        if (isNaN(stockNum) || stockNum < 0) return;
+        updatePayload.stock = stockNum;
       } else if (field === 'price') {
         const priceFloat = parseFloat(value);
         if (isNaN(priceFloat) || priceFloat < 0) return;

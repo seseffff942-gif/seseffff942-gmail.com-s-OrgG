@@ -594,6 +594,35 @@ if (!process.env.VERCEL) {
     return stock <= threshold;
   };
 
+  // Mutex de concurrencia para operaciones de stock en memoria
+  const stockLockMap = new Map<string, Promise<void>>();
+
+  async function acquireStockLocks(productIds: (string | undefined)[]): Promise<() => void> {
+    const validIds = Array.from(new Set(productIds.filter((id): id is string => Boolean(id)))).sort();
+    if (validIds.length === 0) return () => {};
+
+    const previousLocks = validIds.map(id => stockLockMap.get(id) || Promise.resolve());
+    await Promise.all(previousLocks);
+
+    let releaseCallback: () => void = () => {};
+    const newLock = new Promise<void>(resolve => {
+      releaseCallback = resolve;
+    });
+
+    for (const id of validIds) {
+      stockLockMap.set(id, newLock);
+    }
+
+    return () => {
+      releaseCallback();
+      for (const id of validIds) {
+        if (stockLockMap.get(id) === newLock) {
+          stockLockMap.delete(id);
+        }
+      }
+    };
+  }
+
   // Devuelve al inventario las cantidades de una factura (al anularla o
   // rechazarla). Respeta variantes y omite productos externos. Se usa tanto
   // al cambiar el estado de la factura como al anular su DTE ante SAT.
@@ -3360,10 +3389,17 @@ if (!process.env.VERCEL) {
     }
 
     let total = 0;
-    const processedItems = [];
+    const processedItems: any[] = [];
     let requiresAuth = debtAlert === true;
+    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    let invoice: any = null;
 
-    for (const item of items) {
+    // Mutex de concurrencia: bloquea los productos de esta venta para evitar condiciones de carrera
+    const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
+    const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
+
+    try {
+      for (const item of items) {
       let product;
       if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
         product = {
@@ -3448,6 +3484,10 @@ if (!process.env.VERCEL) {
         } else {
            const { error: sErr } = await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
            if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+        }
+
+        if (!isExemptFromStock) {
+           deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
         }
       }
       
@@ -3557,11 +3597,41 @@ if (!process.env.VERCEL) {
       }
     }
 
-    const invoice = { ...invoiceDataRaw, client, phone, address };
+    invoice = { ...invoiceDataRaw, client, phone, address };
     await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
 
     invalidateCache("products");
     invalidateCache("folio_map");
+    } catch (err: any) {
+      // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
+      if (deductedStockRecords.length > 0) {
+        console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
+        for (const ded of deductedStockRecords) {
+          try {
+            const { data: pList } = await supabase.from("products").select("stock, variants").eq('id', ded.productId);
+            const p = pList?.[0];
+            if (p) {
+              if (ded.variantId && p.variants) {
+                const vars = [...p.variants];
+                const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
+                if (vIdx !== -1) {
+                  vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
+                  await supabase.from("products").update({ variants: vars }).eq('id', ded.productId);
+                }
+              } else {
+                await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
+              }
+            }
+          } catch (rbErr: any) {
+            console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+          }
+        }
+        invalidateCache("products");
+      }
+      throw err;
+    } finally {
+      releaseStockLocks();
+    }
 
     try {
       const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
@@ -3763,23 +3833,28 @@ if (!process.env.VERCEL) {
        }
     }
 
-    for (const [prodId, changes] of Object.entries(netStockChanges)) {
-       const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq('id', prodId);
-       const p = pData?.[0];
-       if (!p || p.is_external) continue;
-       let varsToUpdate = p.variants ? [...p.variants] : [];
-       for (const [varId, netDiff] of Object.entries(changes.variants)) {
-          if (netDiff === 0) continue;
-          const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
-          if (vIdx !== -1) {
-             varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
-          }
-       }
-       if (Object.keys(changes.variants).length > 0) {
-          await supabase.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
-       } else if (changes.total !== 0) {
-          await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
-       }
+    const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
+    try {
+      for (const [prodId, changes] of Object.entries(netStockChanges)) {
+         const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq('id', prodId);
+         const p = pData?.[0];
+         if (!p || p.is_external) continue;
+         let varsToUpdate = p.variants ? [...p.variants] : [];
+         for (const [varId, netDiff] of Object.entries(changes.variants)) {
+            if (netDiff === 0) continue;
+            const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
+            if (vIdx !== -1) {
+               varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
+            }
+         }
+         if (Object.keys(changes.variants).length > 0) {
+            await supabase.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
+         } else if (changes.total !== 0) {
+            await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
+         }
+      }
+    } finally {
+      releaseEditStockLocks();
     }
 
     let baseNotesParts = (oldInvoice.notes || '').split("|||");
