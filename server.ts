@@ -2240,17 +2240,15 @@ if (!process.env.VERCEL) {
         // Fallback if sellerCode column is missing
         if (error.message.includes('sellerCode')) {
           const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
-          if (!errFallback && usersFallback) {
-            return res.json(usersFallback.filter((u: any) => u.role !== 'system'));
-          }
+          if (errFallback) throw new Error(errFallback.message);
+          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
         }
-        console.warn("Supabase users query warning:", error.message);
-        return res.json(initialDb.users.filter((u: any) => u.role !== 'system'));
+        throw new Error(error.message);
       }
       res.json((users || []).filter((u: any) => u.role !== 'system'));
     } catch (err: any) {
       console.error("Error fetching users:", err);
-      res.json(initialDb.users.filter((u: any) => u.role !== 'system'));
+      res.status(500).json({ error: err.message });
     }
   }));
 
@@ -2452,15 +2450,12 @@ if (!process.env.VERCEL) {
        // If specifications or is_external fails, retry with fewer columns as a fallback
        if (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
           const { data: fallback, error: err2 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-          if (!err2 && fallback) {
-            const fallbackData = fallback.map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-            setCachedData("products", fallbackData);
-            return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-          }
+          if (err2) throw new Error(err2.message);
+          const fallbackData = (fallback || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
+          setCachedData("products", fallbackData);
+          return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
        }
-       console.warn("Supabase products query fallback:", error.message);
-       const fallbackInit = initialDb.products.map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-       return res.json(isOwner ? fallbackInit : fallbackInit.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+       throw new Error(error.message);
     }
 
     // Normalize: map DB snake_case to camelCase aliases for frontend
@@ -4260,8 +4255,10 @@ if (!process.env.VERCEL) {
     
     const { data: invoices, error } = await fetchInvoices();
     if (error) {
-      console.warn("Fetch invoices Supabase warning/timeout:", error.message);
-      return res.json([]);
+      if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist') || error.code === '42703') {
+        return res.json([]);
+      }
+      throw new Error(error.message);
     }
     
     const folioMap = await getFolioMap();
@@ -5404,122 +5401,6 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
         }
       });
     }
-  }));
-
-  // ==========================================
-  // COTIZACIONES (QUOTATIONS) ENDPOINTS
-  // ==========================================
-  app.get("/api/quotations", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { sellerId } = req.query;
-    try {
-      let query = supabase.from("quotations").select("*").order("created_at", { ascending: false });
-      if (sellerId && req.user.role !== 'admin') {
-        query = query.eq("seller_id", sellerId);
-      }
-      const { data, error } = await query;
-      if (error) {
-        return res.json([]);
-      }
-      const mapped = (data || []).map((q: any) => ({
-        ...q,
-        folio: q.folio || `COT-${String(q.folio_number || 1).padStart(4, '0')}`,
-        folioNumber: q.folio_number || 1,
-        sellerId: q.seller_id,
-        sellerName: q.seller_name,
-        totalAmount: Number(q.total_amount || 0),
-        validityDays: q.validity_days || 15,
-        validUntil: q.valid_until,
-        invoiceId: q.invoice_id,
-        convertedInvoiceFolio: q.converted_invoice_folio,
-        createdAt: q.created_at,
-        items: Array.isArray(q.items) ? q.items : (typeof q.items === 'string' ? JSON.parse(q.items) : [])
-      }));
-      res.json(mapped);
-    } catch (e: any) {
-      res.json([]);
-    }
-  }));
-
-  app.post("/api/quotations", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
-    let nextNum = 1;
-    try {
-      const { data: maxQ } = await supabase.from("quotations").select("folio_number").order("folio_number", { ascending: false }).limit(1);
-      if (maxQ && maxQ.length > 0 && maxQ[0].folio_number) {
-        nextNum = Number(maxQ[0].folio_number) + 1;
-      }
-    } catch (e) {}
-
-    const folio = `COT-${String(nextNum).padStart(4, '0')}`;
-    const totalAmount = (items || []).reduce((acc: number, it: any) => acc + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
-    const validDays = validityDays || 15;
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + validDays);
-
-    const quoteId = `quote-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const quotePayload = {
-      id: quoteId,
-      folio,
-      folio_number: nextNum,
-      seller_id: sellerId || req.user.id,
-      seller_name: sellerName || req.user.name,
-      client: client || 'Cliente sin nombre',
-      nit: nit || 'CF',
-      phone: phone || '',
-      address: address || '',
-      items: items || [],
-      total_amount: totalAmount,
-      status: 'pendiente',
-      date: date || new Date().toISOString(),
-      validity_days: validDays,
-      valid_until: validUntil.toISOString(),
-      notes: notes || '',
-      created_at: new Date().toISOString()
-    };
-
-    try {
-      await supabase.from("quotations").insert([quotePayload]);
-    } catch (e) {}
-
-    res.json({
-      ...quotePayload,
-      folioNumber: nextNum,
-      sellerId: quotePayload.seller_id,
-      sellerName: quotePayload.seller_name,
-      totalAmount: quotePayload.total_amount,
-      validityDays: quotePayload.validity_days,
-      validUntil: quotePayload.valid_until,
-      createdAt: quotePayload.created_at
-    });
-  }));
-
-  app.put("/api/quotations/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const updates = req.body;
-    const payload: any = {};
-    if (updates.client !== undefined) payload.client = updates.client;
-    if (updates.nit !== undefined) payload.nit = updates.nit;
-    if (updates.phone !== undefined) payload.phone = updates.phone;
-    if (updates.address !== undefined) payload.address = updates.address;
-    if (updates.notes !== undefined) payload.notes = updates.notes;
-    if (updates.validityDays !== undefined) payload.validity_days = updates.validityDays;
-    if (updates.sellerId !== undefined) payload.seller_id = updates.sellerId;
-    if (updates.sellerName !== undefined) payload.seller_name = updates.sellerName;
-    if (updates.status !== undefined) payload.status = updates.status;
-
-    try {
-      await supabase.from("quotations").update(payload).eq("id", id);
-    } catch (e) {}
-
-    res.json({ id, ...updates });
-  }));
-
-  app.delete("/api/quotations/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    try {
-      await supabase.from("quotations").delete().eq("id", id);
-    } catch (e) {}
-    res.json({ success: true });
   }));
 
   app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any) => {

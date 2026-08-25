@@ -167,6 +167,38 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
     }
   }, [receiptHtml]);
 
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  const handleSaveToSupabase = async () => {
+    if (!selectedInvoice) return;
+    setIsSaving(true);
+    setSaveStatus(null);
+    try {
+      await api.createReciboConforme({
+        invoice_id: String(selectedInvoice.id),
+        folio: String(selectedInvoice.folio || selectedInvoice.id.slice(0, 6)),
+        receiver_name: receiverName.trim() || undefined,
+        receiver_dpi: receiverDpi.trim() || undefined,
+        receiver_phone: receiverPhone.trim() || undefined,
+        receiver_relationship: receiverRelationship.trim() || undefined,
+        delivery_location: selectedInvoice.address || undefined,
+        delivery_notes: deliveryNotes.trim() || undefined,
+        delivered_by: effectiveDeliveredBy,
+        include_prices: includePrices,
+        signature_data: signatureImage || undefined,
+        created_by: user.name || user.email
+      });
+      setSaveStatus('¡Recibo Conforme guardado en Supabase!');
+      setTimeout(() => setSaveStatus(null), 4000);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Error al guardar en Supabase');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handlePrint = () => {
     if (receiptHtml) {
       printHtml(receiptHtml);
@@ -195,6 +227,12 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
           <p className="text-slate-500 text-xs sm:text-sm font-medium mt-0.5">
             Genera la constancia de entrega con selector de folios, asignación de piloto y firma física/digital para <strong className="text-emerald-900">AGRICOVET DE GUATEMALA</strong>
           </p>
+          {saveStatus && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-300 animate-in fade-in">
+              <Check size={14} />
+              <span>{saveStatus}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -206,6 +244,14 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
           >
             <RefreshCw size={14} className={loading ? "animate-spin text-emerald-700" : ""} />
             <span>Actualizar</span>
+          </button>
+          <button
+            onClick={handleSaveToSupabase}
+            disabled={!selectedInvoice || isSaving}
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Check size={14} />
+            <span>{isSaving ? 'Guardando...' : 'Guardar en Supabase'}</span>
           </button>
           <button
             onClick={handlePrint}

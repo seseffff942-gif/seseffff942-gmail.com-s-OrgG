@@ -17,7 +17,6 @@ import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
 import { ReciboConformePage } from './pages/ReciboConformePage';
-import { QuotationsPage } from './pages/QuotationsPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
@@ -134,7 +133,7 @@ export default function App() {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
-      if (['home', 'inventory', 'sales', 'quotations', 'dispatch', 'billing', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -312,7 +311,6 @@ export default function App() {
         {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'quotations' && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'recibo-conforme' && activeUser.role === 'admin' && <ReciboConformePage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}

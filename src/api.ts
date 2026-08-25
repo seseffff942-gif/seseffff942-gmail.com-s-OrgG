@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation } from './types';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme } from './types';
 import preloadedData from './data/preloadedData.json';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
@@ -1654,53 +1654,19 @@ export const api = {
   },
 
   // ======== COTIZACIONES (QUOTATIONS) ========
-  getQuotations: async (sellerId?: string): Promise<Quotation[]> => {
-    try {
-      const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
-      const res = await fetchWithAuth(url);
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (Array.isArray(data)) {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('offline_quotations', JSON.stringify(data));
-          }
-          return data;
-        }
-      }
-    } catch (e) {
-      console.warn('API getQuotations fallback:', e);
-    }
-    if (typeof localStorage !== 'undefined') {
-      const cached = localStorage.getItem('offline_quotations');
-      if (cached) {
-        try {
-          const list: Quotation[] = JSON.parse(cached);
-          if (Array.isArray(list)) {
-            return sellerId ? list.filter(q => q.sellerId === sellerId) : list;
-          }
-        } catch (err) {}
-      }
-    }
-    return [];
+  getQuotations: async (sellerId?: string) => {
+    const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
+    const res = await fetchWithAuth(url);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar las cotizaciones');
+    return data;
   },
 
-  getQuotationById: async (id: string): Promise<Quotation | null> => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
-      if (res.ok) {
-        return await safeJson(res);
-      }
-    } catch (e) {}
-    if (typeof localStorage !== 'undefined') {
-      const cached = localStorage.getItem('offline_quotations');
-      if (cached) {
-        try {
-          const list: Quotation[] = JSON.parse(cached);
-          return list.find(q => q.id === id) || null;
-        } catch (err) {}
-      }
-    }
-    return null;
+  getQuotationById: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo obtener la cotización');
+    return data;
   },
 
   createQuotation: async (quotation: {
@@ -1713,125 +1679,35 @@ export const api = {
     validityDays?: number;
     date?: string;
     sellerId?: string;
-    sellerName?: string;
-  }): Promise<Quotation> => {
-    try {
-      const res = await fetchWithAuth('/api/quotations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(quotation),
-      });
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (data && data.id) {
-          if (typeof localStorage !== 'undefined') {
-            const raw = localStorage.getItem('offline_quotations');
-            const list: Quotation[] = raw ? JSON.parse(raw) : [];
-            list.unshift(data);
-            localStorage.setItem('offline_quotations', JSON.stringify(list));
-          }
-          return data;
-        }
-      }
-    } catch (e) {
-      console.warn('API createQuotation fallback:', e);
-    }
-
-    // Local fallback
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('offline_quotations') : null;
-    const list: Quotation[] = raw ? JSON.parse(raw) : [];
-    const nextNumber = list.length > 0 ? Math.max(...list.map(q => q.folioNumber || 0)) + 1 : 1;
-    const folioStr = `COT-${String(nextNumber).padStart(4, '0')}`;
-    const total = (quotation.items || []).reduce((sum, it) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
-    const validDays = quotation.validityDays || 15;
-    const validUntilDate = new Date();
-    validUntilDate.setDate(validUntilDate.getDate() + validDays);
-
-    const localQuote: Quotation = {
-      id: `quote-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      folio: folioStr,
-      folioNumber: nextNumber,
-      sellerId: quotation.sellerId || '',
-      sellerName: quotation.sellerName || '',
-      client: quotation.client || 'Cliente sin nombre',
-      nit: quotation.nit || 'CF',
-      phone: quotation.phone || '',
-      address: quotation.address || '',
-      items: quotation.items || [],
-      totalAmount: total,
-      status: 'pendiente',
-      date: quotation.date || new Date().toISOString(),
-      validityDays: validDays,
-      validUntil: validUntilDate.toISOString(),
-      notes: quotation.notes || '',
-      createdAt: new Date().toISOString()
-    };
-
-    if (typeof localStorage !== 'undefined') {
-      list.unshift(localQuote);
-      localStorage.setItem('offline_quotations', JSON.stringify(list));
-    }
-    return localQuote;
+  }) => {
+    const res = await fetchWithAuth('/api/quotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotation),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo crear la cotización');
+    return data;
   },
 
-  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }): Promise<Quotation> => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (typeof localStorage !== 'undefined') {
-          const raw = localStorage.getItem('offline_quotations');
-          if (raw) {
-            const list: Quotation[] = JSON.parse(raw);
-            const idx = list.findIndex(q => q.id === id);
-            if (idx >= 0) {
-              list[idx] = { ...list[idx], ...updates, ...data };
-              localStorage.setItem('offline_quotations', JSON.stringify(list));
-            }
-          }
-        }
-        return data;
-      }
-    } catch (e) {}
-
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem('offline_quotations');
-      if (raw) {
-        try {
-          const list: Quotation[] = JSON.parse(raw);
-          const idx = list.findIndex(q => q.id === id);
-          if (idx >= 0) {
-            list[idx] = { ...list[idx], ...updates };
-            localStorage.setItem('offline_quotations', JSON.stringify(list));
-            return list[idx];
-          }
-        } catch (err) {}
-      }
-    }
-    return { id, ...updates } as Quotation;
+  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar la cotización');
+    return data;
   },
 
-  deleteQuotation: async (id: string): Promise<void> => {
-    try {
-      await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-    } catch (e) {}
-
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem('offline_quotations');
-      if (raw) {
-        try {
-          const list: Quotation[] = JSON.parse(raw);
-          const filtered = list.filter(q => q.id !== id);
-          localStorage.setItem('offline_quotations', JSON.stringify(filtered));
-        } catch (err) {}
-      }
-    }
+  deleteQuotation: async (id: string) => {
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar la cotización');
+    return data;
   },
 
   convertQuotationToSale: async (id: string, options?: {
@@ -1842,54 +1718,14 @@ export const api = {
     sellerPaysShipping?: boolean;
     sellerSignature?: string;
   }) => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options || {}),
-      });
-      if (res.ok) {
-        return await safeJson(res);
-      }
-    } catch (e) {}
-
-    // Fallback: convert directly using createInvoice and updateQuotation
-    const quote = await api.getQuotationById(id);
-    if (!quote) throw new Error('Cotización no encontrada');
-
-    const invoicePayload: any = {
-      client: quote.client,
-      clientName: quote.client,
-      nit: quote.nit || 'CF',
-      phone: quote.phone || '',
-      address: quote.address || '',
-      items: quote.items.map(it => ({
-        id: it.productId,
-        productId: it.productId,
-        name: it.productName,
-        quantity: it.quantity,
-        price: it.price,
-        total: it.total,
-        variant: it.variantId ? { id: it.variantId, color: it.color, size: it.size } : undefined
-      })),
-      total: quote.totalAmount,
-      totalAmount: quote.totalAmount,
-      sellerId: quote.sellerId,
-      seller: quote.sellerName,
-      sellerName: quote.sellerName,
-      invoiceType: options?.invoiceType || 'agricola',
-      creditDays: options?.creditDays || 30,
-      notes: `Convertida desde Cotización ${quote.folio}. ${quote.notes || ''}`.trim()
-    };
-
-    const newInvoice = await api.createInvoice(invoicePayload);
-    await api.updateQuotation(id, {
-      status: 'convertida',
-      invoiceId: newInvoice.id,
-      convertedInvoiceFolio: newInvoice.folio || newInvoice.id
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
     });
-
-    return { invoice: newInvoice };
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'No se pudo convertir la cotización a venta');
+    return data;
   },
 
   getCustomServerUrl: (): string => {
@@ -1899,14 +1735,104 @@ export const api = {
     return '';
   },
 
-  setCustomServerUrl: (url: string): void => {
-    if (typeof localStorage !== 'undefined') {
-      if (!url || url.trim() === '') {
-        localStorage.removeItem('app_custom_api_url');
-      } else {
-        localStorage.setItem('app_custom_api_url', url.trim());
+  // ==========================================
+  // RECIBOS CONFORMES (SUPABASE)
+  // ==========================================
+  getRecibosConformes: async (): Promise<ReciboConforme[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('recibos_conformes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && Array.isArray(data)) {
+        return data;
       }
+    } catch (e) {
+      console.warn('Supabase client error for recibos_conformes, trying REST...', e);
     }
+
+    try {
+      const data = await fetchSupabaseRest('recibos_conformes', 'order=created_at.desc');
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.warn('Error fetching recibos_conformes from REST:', err);
+      return [];
+    }
+  },
+
+  createReciboConforme: async (recibo: Partial<ReciboConforme>): Promise<ReciboConforme> => {
+    const payload = {
+      invoice_id: String(recibo.invoice_id || ''),
+      folio: String(recibo.folio || ''),
+      receiver_name: recibo.receiver_name || null,
+      receiver_dpi: recibo.receiver_dpi || null,
+      receiver_phone: recibo.receiver_phone || null,
+      receiver_relationship: recibo.receiver_relationship || null,
+      delivery_location: recibo.delivery_location || null,
+      delivery_notes: recibo.delivery_notes || null,
+      delivered_by: recibo.delivered_by || 'Piloto / Asesor',
+      delivery_date: recibo.delivery_date || new Date().toISOString(),
+      include_prices: recibo.include_prices !== false,
+      signature_data: recibo.signature_data || null,
+      pdf_url: recibo.pdf_url || null,
+      created_by: recibo.created_by || null,
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from('recibos_conformes')
+        .insert([payload])
+        .select()
+        .single();
+      
+      if (!error && data) {
+        return data;
+      }
+      if (error) {
+        console.warn('Supabase JS insert error, attempting REST...', error);
+      }
+    } catch (e) {
+      console.warn('Supabase JS error inserting recibo_conforme, trying REST...', e);
+    }
+
+    // Direct REST fallback
+    const res = await fetch(`${SUPABASE_REST_BASE}/recibos_conformes`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Error al guardar Recibo Conforme en Supabase (${res.status}): ${errText}`);
+    }
+
+    const resData = await res.json();
+    return Array.isArray(resData) ? resData[0] : resData;
+  },
+
+  getReciboConformeByInvoice: async (invoiceId: string): Promise<ReciboConforme | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('recibos_conformes')
+        .select('*')
+        .eq('invoice_id', String(invoiceId))
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data[0];
+      }
+    } catch (e) {
+      console.warn('Error fetching recibo by invoice id:', e);
+    }
+    return null;
   },
 
 };

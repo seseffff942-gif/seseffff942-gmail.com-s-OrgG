@@ -268,3 +268,23 @@ export interface BusinessDebt {
   items?: BusinessDebtItem[];
 }
 
+export interface ReciboConforme {
+  id?: string;
+  invoice_id: string;
+  folio: string;
+  receiver_name?: string;
+  receiver_dpi?: string;
+  receiver_phone?: string;
+  receiver_relationship?: string;
+  delivery_location?: string;
+  delivery_notes?: string;
+  delivered_by: string;
+  delivery_date: string;
+  include_prices: boolean;
+  signature_data?: string;
+  pdf_url?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
