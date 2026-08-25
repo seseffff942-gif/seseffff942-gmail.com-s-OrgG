@@ -314,16 +314,29 @@ export function TeamPage({ user, isMobile }: TeamPageProps) {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-2 animate-in fade-in slide-in-from-top-2">
-                      <div className="flex-1 text-center font-mono font-black text-emerald-700 text-lg tracking-[0.2em]">
-                        {generatedTokens[u.id]}
+                    <div className="flex flex-col gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl p-2 animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 text-center font-mono font-black text-emerald-800 text-lg tracking-[0.25em] bg-white py-1 rounded-lg border border-emerald-100 shadow-inner">
+                          {generatedTokens[u.id]}
+                        </div>
+                        <button 
+                          onClick={() => copyToClipboard(generatedTokens[u.id])}
+                          className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+                          title="Copiar token"
+                        >
+                          {copiedToken === generatedTokens[u.id] ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => copyToClipboard(generatedTokens[u.id])}
-                        className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                      >
-                        {copiedToken === generatedTokens[u.id] ? <Check size={14} /> : <Copy size={14} />}
-                      </button>
+                      <div className="flex items-center justify-between text-[10px] text-emerald-700 px-1 font-bold">
+                        <span>Válido por {expiryHours}h</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleGenerateToken(u.id)}
+                          className="underline hover:text-emerald-950 cursor-pointer"
+                        >
+                          Generar nuevo
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

@@ -644,15 +644,47 @@ export const api = {
       throw new Error('Código de Vendedor / Administrador no encontrado');
     }
 
-    // Verify token / password (supports master password '123' or user password)
-    const isValidPass = 
+    // Verify token / password:
+    let isValidToken = 
       tokenProvided === '123' || 
       tokenProvided === '1521' || 
-      tokenProvided === String(foundUser.password) ||
-      tokenProvided === String(foundUser.sellerCode);
+      (foundUser.password && tokenProvided === String(foundUser.password)) ||
+      (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode));
 
-    if (!isValidPass) {
-      throw new Error('Token de Acceso inválido o incorrecto');
+    // Check dynamic login token in Supabase
+    if (!isValidToken && foundUser.id) {
+      try {
+        const cleanToken = tokenProvided.trim().toUpperCase();
+        const { data: tokens, error: tErr } = await supabase
+          .from('login_tokens')
+          .select('*')
+          .eq('userId', foundUser.id)
+          .eq('token', cleanToken)
+          .is('usedAt', null);
+
+        if (!tErr && tokens && tokens.length > 0) {
+          const matchedToken = tokens[0];
+          const expiresAt = matchedToken.expiresAt ? new Date(matchedToken.expiresAt) : null;
+          if (!expiresAt || expiresAt > new Date()) {
+            isValidToken = true;
+            // Mark token as used
+            try {
+              await supabase
+                .from('login_tokens')
+                .update({ usedAt: new Date().toISOString() })
+                .eq('id', matchedToken.id);
+            } catch (updateErr) {
+              console.warn('Could not update usedAt for token:', updateErr);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error checking login_tokens table in Supabase:', err);
+      }
+    }
+
+    if (!isValidToken) {
+      throw new Error('Token de Acceso inválido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador.');
     }
 
     const userObj: User = {
