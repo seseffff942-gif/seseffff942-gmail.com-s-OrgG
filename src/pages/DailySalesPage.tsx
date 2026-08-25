@@ -154,14 +154,20 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   const loadData = async () => {
     try {
-      const [invData, statsData] = await Promise.all([
-        api.getInvoices(),
-        api.getDailyStats(filterDate)
-      ]);
-      setInvoices(invData || []);
-      setDailyStats(statsData);
+      const invData = await api.getInvoices();
+      if (invData && Array.isArray(invData)) {
+        setInvoices(invData);
+      }
     } catch (err) {
-      console.error(err);
+      console.warn('Error al cargar facturas en Ventas Diarias:', err);
+    }
+    try {
+      const statsData = await api.getDailyStats(filterDate);
+      if (statsData) {
+        setDailyStats(statsData);
+      }
+    } catch (err) {
+      console.warn('Error al cargar estadísticas diarias:', err);
     } finally {
       setLoading(false);
     }

@@ -987,10 +987,15 @@ export const api = {
   },
 
   getDailyStats: async (date?: string): Promise<any> => {
-    const url = date ? `/api/daily-stats?today=${date}` : '/api/daily-stats';
-    const res = await fetchWithAuth(url);
-    if (!res.ok) throw new Error('Failed to fetch daily stats');
-    return res.json();
+    try {
+      const url = date ? `/api/daily-stats?today=${date}` : '/api/daily-stats';
+      const res = await fetchWithAuth(url);
+      const data = await safeJson(res);
+      if (res.ok && data) return data;
+    } catch (e) {
+      console.warn('getDailyStats fallback:', e);
+    }
+    return null;
   },
 
   getAllPayments: async (): Promise<any[]> => {
