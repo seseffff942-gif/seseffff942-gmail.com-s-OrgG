@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign } from 'lucide-react';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
@@ -653,6 +653,22 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     });
   }, [products, searchTerm, selectedCategory, filterZeroMarginOnly]);
 
+  // Pagination State & Optimization
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(24);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory, filterZeroMarginOnly]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
+
+  const paginatedProducts = useMemo(() => {
+    if (itemsPerPage >= filteredProducts.length) return filteredProducts;
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredProducts.slice(start, start + itemsPerPage);
+  }, [filteredProducts, currentPage, itemsPerPage]);
+
   return (
     <div className={`max-w-6xl mx-auto flex flex-col ${isMobile ? 'p-4 h-full space-y-6' : 'p-8 space-y-8'}`}>
       
@@ -732,47 +748,6 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             </div>
           </button>
         </div>
-      )}
-
-      {/* Alert Banner for 0% Margin Products (Price <= Cost) */}
-      {isOwner && zeroMarginProducts.length > 0 && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-amber-50 border-2 border-amber-300/80 p-4 sm:p-5 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 bg-amber-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-              <AlertTriangle size={22} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-amber-950 uppercase tracking-wider">
-                  Alerta de Precios: {zeroMarginProducts.length} productos sin margen de ganancia
-                </span>
-                <span className="bg-amber-200 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full">
-                  Margen 0% o menor
-                </span>
-              </div>
-              <p className="text-xs text-amber-800/90 font-medium mt-0.5">
-                Estos productos tienen el mismo precio de venta que el precio de costo registrado.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFilterZeroMarginOnly(prev => !prev)}
-            className={cn(
-              "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 shadow-sm flex items-center gap-2",
-              filterZeroMarginOnly 
-                ? "bg-amber-900 text-white hover:bg-black" 
-                : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20"
-            )}
-          >
-            <Filter size={13} />
-            <span>{filterZeroMarginOnly ? 'Mostrar Todo el Catálogo' : `Ver los ${zeroMarginProducts.length} Productos`}</span>
-          </button>
-        </motion.div>
       )}
 
       {/* Flotante Gemini IA Trigger */}
@@ -1633,8 +1608,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             </p>
           </div>
         ) : inventoryViewMode === 'grid' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
-            {filteredProducts.map((product) => {
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+            {paginatedProducts.map((product) => {
               const isExempt = doesNotNeedStock(product);
               const isTecun = isTecunProduct(product);
               let gridDisplayStock = product.stock;
@@ -1905,8 +1881,102 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               );
             })}
           </div>
+
+          {/* Pagination Controls Bar (Grid) */}
+          {totalPages > 1 && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 select-none mb-12">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                <span className="font-bold text-slate-800">
+                  Mostrando {Math.min((currentPage - 1) * itemsPerPage + 1, filteredProducts.length)} - {Math.min(currentPage * itemsPerPage, filteredProducts.length)} de <span className="font-extrabold text-emerald-900">{filteredProducts.length}</span> productos
+                </span>
+                <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-500">Por página:</span>
+                  {[24, 48, 96].map(num => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => {
+                        setItemsPerPage(num);
+                        setCurrentPage(1);
+                      }}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer",
+                        itemsPerPage === num 
+                          ? "bg-emerald-700 text-white shadow-xs" 
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      )}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItemsPerPage(99999);
+                      setCurrentPage(1);
+                    }}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer",
+                      itemsPerPage >= 99999 
+                        ? "bg-emerald-700 text-white shadow-xs" 
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    )}
+                  >
+                    Todos
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  title="Primera Página"
+                >
+                  <ChevronsLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                >
+                  <ChevronLeft size={14} />
+                  <span>Anterior</span>
+                </button>
+
+                <div className="flex items-center gap-1 px-1">
+                  <span className="text-xs font-black text-slate-800 bg-slate-100 px-3 py-1.5 rounded-xl">
+                    {currentPage} / {totalPages}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                >
+                  <span>Siguiente</span>
+                  <ChevronRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  title="Última Página"
+                >
+                  <ChevronsRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
         ) : inventoryViewMode === 'list' ? (
-          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm mb-16">
+          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm mb-6">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-separate border-spacing-0">
                 <thead>
@@ -1919,7 +1989,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map((product) => {
+                  {paginatedProducts.map((product) => {
                     const isExempt = doesNotNeedStock(product);
                     const isTecun = isTecunProduct(product);
                     let listDisplayStock = product.stock;
@@ -1939,108 +2009,50 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center p-1 shrink-0 overflow-hidden relative">
                               <ProductImage 
-                                src={product.image} category={product.category} 
-                                alt="" 
-                                className="w-full h-full object-contain"
+                                src={product.image} category={product.category}
+                                alt={product.name} 
+                                className="max-h-full max-w-full object-contain"
                               />
-                              {isOutOfStock && <div className="absolute inset-0 bg-red-500/20" />}
                             </div>
-                            <div className="min-w-0">
-                              <h4 className="text-sm font-black text-slate-800 line-clamp-1 notranslate leading-snug" translate="no">{product.name}</h4>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-800 group-hover:text-[#0b4d2c] transition-colors">{product.name}</span>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-tighter bg-slate-100 px-1 rounded">
-                                  #{product.id.split('-')[0]}
-                                </span>
-
-                                {product.hiddenFromSales && (
-                                  <span 
-                                    onClick={(e) => {
-                                      if (isAdmin) {
-                                        e.stopPropagation();
-                                        handleToggleHiddenFromSales(product);
-                                      }
-                                    }}
-                                    className={cn(
-                                      "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 bg-purple-100 text-purple-900 border border-purple-200",
-                                      isAdmin ? "cursor-pointer hover:bg-purple-200" : ""
-                                    )}
-                                    title="Producto de solo inventario (oculto en ventas)"
-                                  >
-                                    <EyeOff size={10} />
-                                    <span>Solo Inv</span>
+                                {product.is_external ? (
+                                  <span className="text-[10px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">EXTERNO</span>
+                                ) : isTecun ? (
+                                  <span className="text-[10px] font-black text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">TECÚN</span>
+                                ) : isExempt ? (
+                                  <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">EXENTO</span>
+                                ) : (
+                                  <span className={cn(
+                                    "text-[10px] font-black px-1.5 py-0.2 rounded",
+                                    isOutOfStock ? "bg-rose-100 text-rose-800" : isCriticalStockVal ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"
+                                  )}>
+                                    STOCK: {listDisplayStock}
                                   </span>
                                 )}
-                                
-                                <span className={cn(
-                                  "text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1",
-                                  product.is_external || isExempt 
-                                    ? "text-emerald-700 bg-emerald-50" 
-                                    : (isTecun && listDisplayStock <= 0)
-                                      ? "text-purple-700 bg-purple-50 border border-purple-200/60"
-                                      : isOutOfStock 
-                                        ? "text-red-700 bg-red-50" 
-                                        : isCriticalStockVal 
-                                          ? "text-amber-700 bg-amber-50" 
-                                          : "text-slate-500 bg-slate-100"
-                                )}>
-                                  {product.is_external ? (
-                                    <>
-                                      <Globe size={10} />
-                                      <span>EXT</span>
-                                    </>
-                                  ) : isExempt ? (
-                                    <>
-                                      <CheckCircle size={10} />
-                                      <span>EXEN</span>
-                                    </>
-                                  ) : (isTecun && listDisplayStock <= 0) ? (
-                                    <>
-                                      <Shield size={10} />
-                                      <span>0 (TECUN)</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Package size={10} className={cn(isOutOfStock && "animate-pulse")} />
-                                      <span>{listDisplayStock} <span className="opacity-60">UDS</span></span>
-                                    </>
-                                  )}
-                                </span>
+                                {product.variants && product.variants.length > 0 && (
+                                  <span className="text-[10px] text-slate-400 font-bold">{product.variants.length} var.</span>
+                                )}
                               </div>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                            {product.category}
-                          </span>
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">{product.category}</span>
                         </td>
                         {isOwner && (
                           <td className="px-4 py-3 text-right">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleEditCostPrice(product); }}
-                              className="inline-flex items-center gap-1.5 text-xs font-black text-purple-900 bg-purple-50 hover:bg-purple-100 hover:scale-105 active:scale-95 px-2.5 py-1 rounded-xl border border-purple-200 font-mono transition-all cursor-pointer shadow-xs"
-                              title="Haga clic para editar Precio de Compra / Costo"
-                            >
-                              <Shield size={11} className="text-purple-700" />
-                              <span>Q{(Number(product.costPrice ?? (product as any).cost_price) || 0).toFixed(2)}</span>
-                              <Edit2 size={9} className="text-purple-600 opacity-60" />
-                            </button>
+                            <span className="text-xs font-mono font-bold text-purple-900">
+                              {Number(product.costPrice ?? (product as any).cost_price) > 0 
+                                ? `Q${Number(product.costPrice ?? (product as any).cost_price).toFixed(2)}` 
+                                : <span className="text-slate-400 italic">No asignado</span>}
+                            </span>
                           </td>
                         )}
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-col items-end gap-0.5">
                             <span className="text-sm font-black text-[#0b4d2c] font-mono">Q{product.price.toFixed(2)}</span>
-                            {isOwner && Number(product.costPrice ?? (product as any).cost_price) > 0 && (Number(product.price) || 0) <= Number(product.costPrice ?? (product as any).cost_price) && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); handleUpdatePrice(product); }}
-                                className="inline-flex items-center gap-1 text-[9px] font-black text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-1.5 py-0.5 rounded-md cursor-pointer transition-all shadow-2xs"
-                                title="Haga clic para corregir el precio de venta"
-                              >
-                                <AlertTriangle size={9} className="text-amber-700" />
-                                <span>{Number(product.price) === Number(product.costPrice ?? (product as any).cost_price) ? 'Margen 0%' : 'Bajo costo'}</span>
-                              </button>
-                            )}
                           </div>
                         </td>
                         <td className="px-6 py-3 text-right">
@@ -2065,6 +2077,16 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 </tbody>
               </table>
             </div>
+            {/* Pagination Controls Bar */}
+            {totalPages > 1 && (
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Página {currentPage} de {totalPages}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-bold disabled:opacity-50">Anterior</button>
+                  <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-bold disabled:opacity-50">Siguiente</button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-6 mb-16">
