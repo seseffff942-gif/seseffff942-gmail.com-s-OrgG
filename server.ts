@@ -2240,15 +2240,17 @@ if (!process.env.VERCEL) {
         // Fallback if sellerCode column is missing
         if (error.message.includes('sellerCode')) {
           const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
-          if (errFallback) throw new Error(errFallback.message);
-          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
+          if (!errFallback && usersFallback) {
+            return res.json(usersFallback.filter((u: any) => u.role !== 'system'));
+          }
         }
-        throw new Error(error.message);
+        console.warn("Supabase users query warning:", error.message);
+        return res.json(initialDb.users.filter((u: any) => u.role !== 'system'));
       }
       res.json((users || []).filter((u: any) => u.role !== 'system'));
     } catch (err: any) {
       console.error("Error fetching users:", err);
-      res.status(500).json({ error: err.message });
+      res.json(initialDb.users.filter((u: any) => u.role !== 'system'));
     }
   }));
 
@@ -2450,12 +2452,15 @@ if (!process.env.VERCEL) {
        // If specifications or is_external fails, retry with fewer columns as a fallback
        if (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
           const { data: fallback, error: err2 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-          if (err2) throw new Error(err2.message);
-          const fallbackData = (fallback || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-          setCachedData("products", fallbackData);
-          return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+          if (!err2 && fallback) {
+            const fallbackData = fallback.map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
+            setCachedData("products", fallbackData);
+            return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+          }
        }
-       throw new Error(error.message);
+       console.warn("Supabase products query fallback:", error.message);
+       const fallbackInit = initialDb.products.map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
+       return res.json(isOwner ? fallbackInit : fallbackInit.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
     }
 
     // Normalize: map DB snake_case to camelCase aliases for frontend
@@ -4255,10 +4260,8 @@ if (!process.env.VERCEL) {
     
     const { data: invoices, error } = await fetchInvoices();
     if (error) {
-      if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist') || error.code === '42703') {
-        return res.json([]);
-      }
-      throw new Error(error.message);
+      console.warn("Fetch invoices Supabase warning/timeout:", error.message);
+      return res.json([]);
     }
     
     const folioMap = await getFolioMap();
