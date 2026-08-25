@@ -11,6 +11,7 @@ import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { FelBadge, FelPanel } from '../components/FelPanel';
 import { FelConfigModal } from '../components/FelConfigModal';
+import { ReciboConformeModal } from '../components/ReciboConformeModal';
 
 interface BillingPageProps {
   user: User;
@@ -26,6 +27,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
+  const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
   // Estado FEL por factura. Se carga una sola vez por lote, sin polling: el
   // estado solo cambia cuando alguien certifica un documento.
   const [felEstados, setFelEstados] = useState<Record<string, EstadoFEL>>({});
@@ -1442,14 +1445,25 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           <p className="text-slate-400 mt-1 font-medium text-sm">
             {user.role === 'admin' ? 'Gestión avanzada de cuentas por cobrar, abonos y folios' : 'Monitoreo de ventas diarias y créditos'}
           </p>
-          {user.role === 'admin' && (
+          <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
-              onClick={() => setShowFelConfig(true)}
-              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+              onClick={() => {
+                setSelectedReciboInvoice(null);
+                setShowReciboModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-teal-800 hover:bg-teal-900 border border-teal-700 px-3.5 py-1.5 rounded-full cursor-pointer transition-all shadow-xs"
             >
-              <Settings2 size={12} /> Configuración FEL
+              <FileText size={12} /> Recibo Conforme
             </button>
-          )}
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setShowFelConfig(true)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00696a] bg-teal-50 hover:bg-teal-100 border border-teal-100 px-3 py-1.5 rounded-full cursor-pointer transition-colors"
+              >
+                <Settings2 size={12} /> Configuración FEL
+              </button>
+            )}
+          </div>
         </div>
         
         {/* Statistical Bento Deck */}
@@ -2345,8 +2359,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
               <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
                 <button
+                  onClick={() => {
+                    setSelectedReciboInvoice(selectedInvoiceForModal);
+                    setShowReciboModal(true);
+                  }}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-teal-800 hover:bg-teal-900 text-white px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+                >
+                  <FileText size={14} /> <span>Recibo Conforme</span>
+                </button>
+                <button
                   onClick={() => downloadInvoicePdf(selectedInvoiceForModal)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   <Download size={14} /> <span>Descargar PDF</span>
                 </button>
@@ -2500,6 +2523,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
           }}
         />
       )}
+      <ReciboConformeModal
+        isOpen={showReciboModal}
+        onClose={() => {
+          setShowReciboModal(false);
+          setSelectedReciboInvoice(null);
+        }}
+        initialInvoice={selectedReciboInvoice}
+        invoicesList={invoices}
+        currentUser={user}
+      />
     </div>
   );
 }

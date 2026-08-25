@@ -947,6 +947,463 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
   `;
 }
 
+export interface ReciboConformeOptions {
+  receiverName?: string;
+  receiverDpi?: string;
+  receiverPhone?: string;
+  receiverRelationship?: string;
+  deliveryNotes?: string;
+  includePrices?: boolean;
+  signatureImage?: string;
+  deliveredBy?: string;
+  companyName?: string;
+  deliveryDate?: string;
+}
+
+export function generateReciboConformeHtml(invoice: any, options: ReciboConformeOptions = {}): string {
+  if (!invoice) return '<h1>No hay datos de venta para generar el recibo</h1>';
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const logoUrl = localStorage.getItem('app_logo_url') || `${origin}/agricovet.png`;
+  const companyName = options.companyName || 'AGRICOVET DE GUATEMALA';
+
+  const formatGT = (num: number | string | undefined) => {
+    const n = Number(num);
+    return isNaN(n) ? '0.00' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const invoiceDate = invoice.date ? formatDateSafe(invoice.date) : 'N/A';
+  const currentDateStr = options.deliveryDate || new Date().toLocaleDateString('es-GT', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+
+  const effectiveSeller =
+    options.deliveredBy ||
+    (invoice.sellerName && invoice.sellerName !== 'desconocido' ? invoice.sellerName : '') ||
+    invoice.seller ||
+    invoice.createdByName ||
+    invoice.userName ||
+    'Piloto / Asesor de Entrega';
+
+  const billedClient = invoice.client || invoice.clientName || invoice.customerName || invoice.name || 'Cliente sin nombre';
+  const clientNit = invoice.nit || 'C/F';
+  const clientPhone = invoice.phone || invoice.customerPhone || 'N/A';
+  const clientAddress = invoice.address || invoice.deliveryAddress || 'Ciudad';
+
+  // Receptor should NOT automatically be the billed client unless explicitly set
+  const receiverName = options.receiverName ? options.receiverName : '________________________________';
+  const receiverDpi = options.receiverDpi ? options.receiverDpi : '___________________________';
+  const receiverPhone = options.receiverPhone ? options.receiverPhone : '___________________________';
+  const receiverRel = options.receiverRelationship ? options.receiverRelationship : '___________________________';
+  const deliveryNotes = options.deliveryNotes || cleanObservations(invoice.notes || invoice.observations || '');
+
+  const folioStr = invoice.folio ? String(invoice.folio) : (invoice.id ? String(invoice.id).substring(0, 8) : 'S/N');
+  
+  const calcTotal = Number(invoice.total || 0) > 0 
+    ? Number(invoice.total) 
+    : (invoice.items || []).reduce((acc: number, it: any) => acc + (Number(it.total) || (Number(it.price || 0) * Number(it.quantity || 0))), 0);
+  
+  const totalFormatted = formatGT(calcTotal);
+  const includePrices = options.includePrices !== false;
+
+  const itemsRows = (invoice.items || []).map((item: any, idx: number) => {
+    const c = item.color || item.variant?.color;
+    const s = item.size || item.variant?.size;
+    let varStr = '';
+    if (c || s) {
+      if (s === 'Única' || !s) varStr = `<div style="font-size:10px; color:#555; margin-top:2px;">🎨 ${c || ''}</div>`;
+      else if (!c) varStr = `<div style="font-size:10px; color:#555; margin-top:2px;">🎨 ${s}</div>`;
+      else varStr = `<div style="font-size:10px; color:#555; margin-top:2px;">🎨 ${c} &middot; ${s}</div>`;
+    }
+    const q = Number(item.quantity || 0);
+    const p = Number(item.price || 0);
+    const tot = Number(item.total || (q * p));
+
+    return `
+      <tr style="border-bottom: 1px solid #e2e8f0; ${idx % 2 === 1 ? 'background-color: #fafbfc;' : ''}">
+        <td style="padding: 9px 12px; font-weight: bold; text-align: center; color: #1e293b; font-size: 12px; width: 65px;">${q}</td>
+        <td style="padding: 9px 12px; color: #1e293b; font-size: 12px;">
+          <div style="font-weight: 700; color: #0f172a;">${item.productName || 'Producto'}</div>
+          ${varStr}
+        </td>
+        ${includePrices ? `
+          <td style="padding: 9px 12px; text-align: right; color: #475569; font-size: 12px; width: 100px;">Q ${formatGT(p)}</td>
+          <td style="padding: 9px 12px; text-align: right; font-weight: 700; color: #15803d; font-size: 12px; width: 110px;">Q ${formatGT(tot)}</td>
+        ` : ''}
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <title>Recibo Conforme - Folio #${folioStr}</title>
+      <style>
+        @page {
+          size: letter;
+          margin: 14mm 16mm;
+        }
+        * {
+          box-sizing: border-box;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          color: #1e293b;
+          margin: 0;
+          padding: 0;
+          background: #fff;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+        .container {
+          max-width: 780px;
+          margin: 0 auto;
+          padding: 10px 0;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          border-bottom: 2.5px solid #1A4D2E;
+          padding-bottom: 14px;
+          margin-bottom: 16px;
+        }
+        .logo-box {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .logo-img {
+          max-width: 140px;
+          max-height: 65px;
+          object-fit: contain;
+        }
+        .doc-title {
+          font-size: 17px;
+          font-weight: 900;
+          color: #1A4D2E;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          margin: 0 0 3px 0;
+        }
+        .doc-subtitle {
+          font-size: 11px;
+          color: #64748b;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin: 0;
+        }
+        .meta-card {
+          text-align: right;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 8px 14px;
+        }
+        .folio-badge {
+          display: inline-block;
+          background: #1A4D2E;
+          color: #ffffff;
+          font-weight: 800;
+          font-size: 13px;
+          padding: 3px 10px;
+          border-radius: 6px;
+          margin-bottom: 5px;
+          letter-spacing: 0.03em;
+        }
+        .meta-line {
+          font-size: 10.5px;
+          color: #475569;
+          margin: 2px 0;
+        }
+        .two-cols {
+          display: flex;
+          gap: 14px;
+          margin-bottom: 16px;
+        }
+        .info-card {
+          flex: 1;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          overflow: hidden;
+          background: #ffffff;
+        }
+        .card-header {
+          background: #f1f5f9;
+          color: #1A4D2E;
+          font-weight: 800;
+          font-size: 10.5px;
+          padding: 5px 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          border-bottom: 1px solid #cbd5e1;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .card-body {
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+        .kv-row {
+          display: flex;
+          margin-bottom: 4px;
+        }
+        .kv-label {
+          width: 100px;
+          color: #64748b;
+          font-weight: 700;
+          flex-shrink: 0;
+        }
+        .kv-val {
+          color: #0f172a;
+          font-weight: 600;
+          flex: 1;
+        }
+        .table-items {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 16px;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .table-items thead tr {
+          background: #1A4D2E;
+          color: #ffffff;
+        }
+        .table-items th {
+          padding: 8px 12px;
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .totals-box {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 16px;
+        }
+        .totals-table {
+          width: 280px;
+          border-collapse: collapse;
+        }
+        .totals-table td {
+          padding: 5px 10px;
+          font-size: 12px;
+        }
+        .totals-total {
+          background: #f1f5f9;
+          font-weight: 900;
+          font-size: 14px;
+          color: #1A4D2E;
+          border-top: 2px solid #1A4D2E;
+        }
+        .disclaimer-box {
+          border: 1.5px solid #1A4D2E;
+          background: #fdfefe;
+          border-radius: 8px;
+          padding: 10px 14px;
+          margin-bottom: 22px;
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+        .disclaimer-title {
+          font-weight: 900;
+          color: #1A4D2E;
+          font-size: 11px;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .disclaimer-text {
+          font-size: 9.5pt;
+          color: #1e293b;
+          text-align: justify;
+          line-height: 1.45;
+          margin: 0;
+        }
+        .signatures {
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+          margin-top: 20px;
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+        .sig-col {
+          flex: 1;
+          border: 1px dashed #94a3b8;
+          border-radius: 8px;
+          padding: 12px 14px;
+          background: #fafafa;
+          text-align: center;
+          min-height: 125px;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+        }
+        .sig-line {
+          border-bottom: 1.5px solid #334155;
+          margin-bottom: 8px;
+          width: 85%;
+          margin-left: auto;
+          margin-right: auto;
+        }
+        .sig-title {
+          font-weight: 800;
+          color: #0f172a;
+          font-size: 11.5px;
+          text-transform: uppercase;
+          margin: 0 0 3px 0;
+        }
+        .sig-meta {
+          font-size: 10px;
+          color: #475569;
+          margin: 2px 0;
+        }
+        .sig-img {
+          max-height: 60px;
+          max-width: 190px;
+          object-fit: contain;
+          margin: 0 auto 5px auto;
+          display: block;
+        }
+        .obs-box {
+          margin-bottom: 14px;
+          padding: 7px 12px;
+          background: #fffbeb;
+          border: 1px solid #fef08a;
+          border-radius: 6px;
+          font-size: 10.5px;
+          color: #854d0e;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+          <div class="logo-box">
+            <img src="${logoUrl}" alt="Agricovet de Guatemala" class="logo-img" />
+            <div>
+              <div style="font-size: 11px; font-weight: 800; color: #1A4D2E; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">AGRICOVET DE GUATEMALA</div>
+              <h1 class="doc-title">Recibo Conforme de Entrega</h1>
+              <p class="doc-subtitle">Constancia de Recepción a Entera Satisfacción</p>
+            </div>
+          </div>
+          <div class="meta-card">
+            <div class="folio-badge">FOLIO #${folioStr}</div>
+            <div class="meta-line"><strong>Fecha Venta:</strong> ${invoiceDate}</div>
+            <div class="meta-line"><strong>Fecha Entrega:</strong> ${currentDateStr}</div>
+            <div class="meta-line"><strong>Despachó:</strong> ${effectiveSeller}</div>
+          </div>
+        </div>
+
+        <!-- FULL WIDTH RECEPTOR DE LA MERCADERIA -->
+        <div class="info-card" style="border: 1.5px solid #1A4D2E; margin-bottom: 16px; border-radius: 8px; overflow: hidden;">
+          <div class="card-header" style="background: #1A4D2E; color: #ffffff; padding: 6px 12px; font-size: 11px;">
+            <span>✍️ Datos de Quien Recibe la Mercadería</span>
+          </div>
+          <div class="card-body" style="padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px;">
+            <div class="kv-row"><span class="kv-label">Nombre Receptor:</span><span class="kv-val" style="color:#1A4D2E; font-weight:800;">${receiverName}</span></div>
+            <div class="kv-row"><span class="kv-label">No. DPI / CUI:</span><span class="kv-val">${receiverDpi}</span></div>
+            <div class="kv-row"><span class="kv-label">Teléfono Receptor:</span><span class="kv-val">${receiverPhone}</span></div>
+            <div class="kv-row"><span class="kv-label">Relación / Cargo:</span><span class="kv-val">${receiverRel}</span></div>
+            ${clientAddress && clientAddress !== 'Ciudad' ? `
+              <div class="kv-row" style="grid-column: span 2;"><span class="kv-label">Lugar de Entrega:</span><span class="kv-val">${clientAddress}</span></div>
+            ` : ''}
+          </div>
+        </div>
+
+        ${deliveryNotes ? `
+          <div class="obs-box">
+            <strong>Observaciones de Entrega:</strong> ${deliveryNotes}
+          </div>
+        ` : ''}
+
+        <!-- ITEMS TABLE -->
+        <table class="table-items">
+          <thead>
+            <tr>
+              <th style="text-align: center; width: 65px;">Cant.</th>
+              <th style="text-align: left;">Descripción del Producto / Variantes</th>
+              ${includePrices ? `
+                <th style="text-align: right; width: 100px;">Precio Unit.</th>
+                <th style="text-align: right; width: 110px;">Subtotal</th>
+              ` : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsRows || '<tr><td colspan="4" style="text-align:center; padding:15px; color:#666;">No se registraron productos en esta venta</td></tr>'}
+          </tbody>
+        </table>
+
+        <!-- TOTALS (IF PRICES INCLUDED) -->
+        ${includePrices ? `
+          <div class="totals-box">
+            <table class="totals-table">
+              <tr>
+                <td style="text-align: right; color: #475569; font-weight: 600;">Total Venta:</td>
+                <td style="text-align: right; font-weight: 800; font-size: 13px; color: #0f172a;">Q ${totalFormatted}</td>
+              </tr>
+              <tr class="totals-total">
+                <td style="text-align: right; padding-top:6px; padding-bottom:6px;">VALOR TOTAL:</td>
+                <td style="text-align: right; padding-top:6px; padding-bottom:6px; font-size:14px;">Q ${totalFormatted}</td>
+              </tr>
+            </table>
+          </div>
+        ` : ''}
+
+        <!-- ADAPTED DISCLAIMER SECTION -->
+        <div class="disclaimer-box">
+          <div class="disclaimer-title">
+            <span>🛡️ Declaración de Recepción y Conformidad</span>
+          </div>
+          <p class="disclaimer-text">
+            Por medio del presente <strong>RECIBO CONFORME</strong>, la persona que recibe la mercadería declara haber revisado y recibido a su <strong>entera satisfacción y conformidad</strong> todos los productos y cantidades detallados en este documento, correspondientes a la venta bajo el <strong>Folio #${folioStr}</strong>${includePrices ? ` por un valor total de <strong>Q ${totalFormatted}</strong>` : ''} despachada por <strong>AGRICOVET DE GUATEMALA</strong>. Quien recibe confirma que los productos fueron entregados completos, en perfecto estado y con empaque cerrado.
+          </p>
+        </div>
+
+        <!-- SIGNATURES -->
+        <div class="signatures">
+          <div class="sig-col">
+            ${options.signatureImage ? `
+              <img src="${options.signatureImage}" alt="Firma Receptor" class="sig-img" />
+            ` : `
+              <div style="height: 45px;"></div>
+            `}
+            <div class="sig-line"></div>
+            <div class="sig-title">Firma de Recibido Conforme</div>
+            <div class="sig-meta"><strong>Nombre:</strong> ${receiverName}</div>
+            <div class="sig-meta"><strong>DPI:</strong> ${receiverDpi}</div>
+          </div>
+
+          <div class="sig-col">
+            <div style="height: 45px;"></div>
+            <div class="sig-line"></div>
+            <div class="sig-title">Entregado Por</div>
+            <div class="sig-meta"><strong>Asesor / Piloto:</strong> ${effectiveSeller}</div>
+            <div class="sig-meta"><strong>Empresa:</strong> AGRICOVET DE GUATEMALA</div>
+          </div>
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 export function compileQuotationTemplate(quote: any, sellerName?: string): string {
   try {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';

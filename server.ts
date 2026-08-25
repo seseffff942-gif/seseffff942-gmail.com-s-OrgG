@@ -16,6 +16,7 @@ import webpush from "web-push";
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
+import { createServer as createViteServer } from "vite";
 import * as felServicio from "./fel/servicio.js";
 import * as infileApi from "./fel/infile.js";
 
@@ -5402,6 +5403,122 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     }
   }));
 
+  // ==========================================
+  // COTIZACIONES (QUOTATIONS) ENDPOINTS
+  // ==========================================
+  app.get("/api/quotations", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { sellerId } = req.query;
+    try {
+      let query = supabase.from("quotations").select("*").order("created_at", { ascending: false });
+      if (sellerId && req.user.role !== 'admin') {
+        query = query.eq("seller_id", sellerId);
+      }
+      const { data, error } = await query;
+      if (error) {
+        return res.json([]);
+      }
+      const mapped = (data || []).map((q: any) => ({
+        ...q,
+        folio: q.folio || `COT-${String(q.folio_number || 1).padStart(4, '0')}`,
+        folioNumber: q.folio_number || 1,
+        sellerId: q.seller_id,
+        sellerName: q.seller_name,
+        totalAmount: Number(q.total_amount || 0),
+        validityDays: q.validity_days || 15,
+        validUntil: q.valid_until,
+        invoiceId: q.invoice_id,
+        convertedInvoiceFolio: q.converted_invoice_folio,
+        createdAt: q.created_at,
+        items: Array.isArray(q.items) ? q.items : (typeof q.items === 'string' ? JSON.parse(q.items) : [])
+      }));
+      res.json(mapped);
+    } catch (e: any) {
+      res.json([]);
+    }
+  }));
+
+  app.post("/api/quotations", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
+    let nextNum = 1;
+    try {
+      const { data: maxQ } = await supabase.from("quotations").select("folio_number").order("folio_number", { ascending: false }).limit(1);
+      if (maxQ && maxQ.length > 0 && maxQ[0].folio_number) {
+        nextNum = Number(maxQ[0].folio_number) + 1;
+      }
+    } catch (e) {}
+
+    const folio = `COT-${String(nextNum).padStart(4, '0')}`;
+    const totalAmount = (items || []).reduce((acc: number, it: any) => acc + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
+    const validDays = validityDays || 15;
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + validDays);
+
+    const quoteId = `quote-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const quotePayload = {
+      id: quoteId,
+      folio,
+      folio_number: nextNum,
+      seller_id: sellerId || req.user.id,
+      seller_name: sellerName || req.user.name,
+      client: client || 'Cliente sin nombre',
+      nit: nit || 'CF',
+      phone: phone || '',
+      address: address || '',
+      items: items || [],
+      total_amount: totalAmount,
+      status: 'pendiente',
+      date: date || new Date().toISOString(),
+      validity_days: validDays,
+      valid_until: validUntil.toISOString(),
+      notes: notes || '',
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await supabase.from("quotations").insert([quotePayload]);
+    } catch (e) {}
+
+    res.json({
+      ...quotePayload,
+      folioNumber: nextNum,
+      sellerId: quotePayload.seller_id,
+      sellerName: quotePayload.seller_name,
+      totalAmount: quotePayload.total_amount,
+      validityDays: quotePayload.validity_days,
+      validUntil: quotePayload.valid_until,
+      createdAt: quotePayload.created_at
+    });
+  }));
+
+  app.put("/api/quotations/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const updates = req.body;
+    const payload: any = {};
+    if (updates.client !== undefined) payload.client = updates.client;
+    if (updates.nit !== undefined) payload.nit = updates.nit;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.address !== undefined) payload.address = updates.address;
+    if (updates.notes !== undefined) payload.notes = updates.notes;
+    if (updates.validityDays !== undefined) payload.validity_days = updates.validityDays;
+    if (updates.sellerId !== undefined) payload.seller_id = updates.sellerId;
+    if (updates.sellerName !== undefined) payload.seller_name = updates.sellerName;
+    if (updates.status !== undefined) payload.status = updates.status;
+
+    try {
+      await supabase.from("quotations").update(payload).eq("id", id);
+    } catch (e) {}
+
+    res.json({ id, ...updates });
+  }));
+
+  app.delete("/api/quotations/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    try {
+      await supabase.from("quotations").delete().eq("id", id);
+    } catch (e) {}
+    res.json({ success: true });
+  }));
+
   app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any) => {
     // Determine "today" - prefer query param from client to match their timezone
     const clientDate = req.query.today;
@@ -6471,11 +6588,12 @@ async function startServer() {
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   // ======== VITE MIDDLEWARE / SPA ========
   if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
+    console.log("Initializing Vite middleware server...");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
+    console.log("Vite server created, attaching middlewares...");
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');

@@ -1654,19 +1654,53 @@ export const api = {
   },
 
   // ======== COTIZACIONES (QUOTATIONS) ========
-  getQuotations: async (sellerId?: string) => {
-    const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
-    const res = await fetchWithAuth(url);
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar las cotizaciones');
-    return data;
+  getQuotations: async (sellerId?: string): Promise<Quotation[]> => {
+    try {
+      const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
+      const res = await fetchWithAuth(url);
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (Array.isArray(data)) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('offline_quotations', JSON.stringify(data));
+          }
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('API getQuotations fallback:', e);
+    }
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem('offline_quotations');
+      if (cached) {
+        try {
+          const list: Quotation[] = JSON.parse(cached);
+          if (Array.isArray(list)) {
+            return sellerId ? list.filter(q => q.sellerId === sellerId) : list;
+          }
+        } catch (err) {}
+      }
+    }
+    return [];
   },
 
-  getQuotationById: async (id: string) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo obtener la cotización');
-    return data;
+  getQuotationById: async (id: string): Promise<Quotation | null> => {
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+      if (res.ok) {
+        return await safeJson(res);
+      }
+    } catch (e) {}
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem('offline_quotations');
+      if (cached) {
+        try {
+          const list: Quotation[] = JSON.parse(cached);
+          return list.find(q => q.id === id) || null;
+        } catch (err) {}
+      }
+    }
+    return null;
   },
 
   createQuotation: async (quotation: {
@@ -1679,35 +1713,125 @@ export const api = {
     validityDays?: number;
     date?: string;
     sellerId?: string;
-  }) => {
-    const res = await fetchWithAuth('/api/quotations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(quotation),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo crear la cotización');
-    return data;
+    sellerName?: string;
+  }): Promise<Quotation> => {
+    try {
+      const res = await fetchWithAuth('/api/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(quotation),
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && data.id) {
+          if (typeof localStorage !== 'undefined') {
+            const raw = localStorage.getItem('offline_quotations');
+            const list: Quotation[] = raw ? JSON.parse(raw) : [];
+            list.unshift(data);
+            localStorage.setItem('offline_quotations', JSON.stringify(list));
+          }
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('API createQuotation fallback:', e);
+    }
+
+    // Local fallback
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('offline_quotations') : null;
+    const list: Quotation[] = raw ? JSON.parse(raw) : [];
+    const nextNumber = list.length > 0 ? Math.max(...list.map(q => q.folioNumber || 0)) + 1 : 1;
+    const folioStr = `COT-${String(nextNumber).padStart(4, '0')}`;
+    const total = (quotation.items || []).reduce((sum, it) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
+    const validDays = quotation.validityDays || 15;
+    const validUntilDate = new Date();
+    validUntilDate.setDate(validUntilDate.getDate() + validDays);
+
+    const localQuote: Quotation = {
+      id: `quote-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      folio: folioStr,
+      folioNumber: nextNumber,
+      sellerId: quotation.sellerId || '',
+      sellerName: quotation.sellerName || '',
+      client: quotation.client || 'Cliente sin nombre',
+      nit: quotation.nit || 'CF',
+      phone: quotation.phone || '',
+      address: quotation.address || '',
+      items: quotation.items || [],
+      totalAmount: total,
+      status: 'pendiente',
+      date: quotation.date || new Date().toISOString(),
+      validityDays: validDays,
+      validUntil: validUntilDate.toISOString(),
+      notes: quotation.notes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    if (typeof localStorage !== 'undefined') {
+      list.unshift(localQuote);
+      localStorage.setItem('offline_quotations', JSON.stringify(list));
+    }
+    return localQuote;
   },
 
-  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar la cotización');
-    return data;
+  updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }): Promise<Quotation> => {
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (typeof localStorage !== 'undefined') {
+          const raw = localStorage.getItem('offline_quotations');
+          if (raw) {
+            const list: Quotation[] = JSON.parse(raw);
+            const idx = list.findIndex(q => q.id === id);
+            if (idx >= 0) {
+              list[idx] = { ...list[idx], ...updates, ...data };
+              localStorage.setItem('offline_quotations', JSON.stringify(list));
+            }
+          }
+        }
+        return data;
+      }
+    } catch (e) {}
+
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('offline_quotations');
+      if (raw) {
+        try {
+          const list: Quotation[] = JSON.parse(raw);
+          const idx = list.findIndex(q => q.id === id);
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], ...updates };
+            localStorage.setItem('offline_quotations', JSON.stringify(list));
+            return list[idx];
+          }
+        } catch (err) {}
+      }
+    }
+    return { id, ...updates } as Quotation;
   },
 
-  deleteQuotation: async (id: string) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar la cotización');
-    return data;
+  deleteQuotation: async (id: string): Promise<void> => {
+    try {
+      await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    } catch (e) {}
+
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('offline_quotations');
+      if (raw) {
+        try {
+          const list: Quotation[] = JSON.parse(raw);
+          const filtered = list.filter(q => q.id !== id);
+          localStorage.setItem('offline_quotations', JSON.stringify(filtered));
+        } catch (err) {}
+      }
+    }
   },
 
   convertQuotationToSale: async (id: string, options?: {
@@ -1718,14 +1842,54 @@ export const api = {
     sellerPaysShipping?: boolean;
     sellerSignature?: string;
   }) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options || {}),
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options || {}),
+      });
+      if (res.ok) {
+        return await safeJson(res);
+      }
+    } catch (e) {}
+
+    // Fallback: convert directly using createInvoice and updateQuotation
+    const quote = await api.getQuotationById(id);
+    if (!quote) throw new Error('Cotización no encontrada');
+
+    const invoicePayload: any = {
+      client: quote.client,
+      clientName: quote.client,
+      nit: quote.nit || 'CF',
+      phone: quote.phone || '',
+      address: quote.address || '',
+      items: quote.items.map(it => ({
+        id: it.productId,
+        productId: it.productId,
+        name: it.productName,
+        quantity: it.quantity,
+        price: it.price,
+        total: it.total,
+        variant: it.variantId ? { id: it.variantId, color: it.color, size: it.size } : undefined
+      })),
+      total: quote.totalAmount,
+      totalAmount: quote.totalAmount,
+      sellerId: quote.sellerId,
+      seller: quote.sellerName,
+      sellerName: quote.sellerName,
+      invoiceType: options?.invoiceType || 'agricola',
+      creditDays: options?.creditDays || 30,
+      notes: `Convertida desde Cotización ${quote.folio}. ${quote.notes || ''}`.trim()
+    };
+
+    const newInvoice = await api.createInvoice(invoicePayload);
+    await api.updateQuotation(id, {
+      status: 'convertida',
+      invoiceId: newInvoice.id,
+      convertedInvoiceFolio: newInvoice.folio || newInvoice.id
     });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo convertir la cotización a venta');
-    return data;
+
+    return { invoice: newInvoice };
   },
 
   getCustomServerUrl: (): string => {

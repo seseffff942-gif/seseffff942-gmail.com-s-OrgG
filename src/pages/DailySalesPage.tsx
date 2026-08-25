@@ -36,6 +36,7 @@ import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePr
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
+import { ReciboConformeModal } from '../components/ReciboConformeModal';
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -77,6 +78,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [clearPasswordInput, setClearPasswordInput] = useState('');
   const [isClearingLoading, setIsClearingLoading] = useState(false);
   const [selectedViewInvoice, setSelectedViewInvoice] = useState<Invoice | null>(null);
+  const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
+  const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
   const [users, setUsers] = useState<User[]>([]);
   const [printTemplate, setPrintTemplate] = useState<string>(DEFAULT_PRINT_TEMPLATE);
@@ -372,6 +375,18 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               <span className="text-[10px] font-extrabold text-slate-400 font-mono tracking-wider bg-slate-100/80 px-2 py-0.5 rounded-lg border border-slate-200/50 uppercase group-hover/card:bg-emerald-50 group-hover/card:text-emerald-800 transition-colors">
                 #{invoice.folio}
               </span>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReciboInvoice(invoice);
+                  setShowReciboModal(true);
+                }} 
+                className="text-emerald-700 hover:text-white hover:bg-emerald-700 bg-emerald-50 transition-all px-2 py-1 rounded-lg border border-emerald-200 cursor-pointer active:scale-90 flex items-center gap-1 text-[10px] font-bold"
+                title="Generar Recibo Conforme"
+              >
+                <FileText size={11} />
+                <span>Recibo Conforme</span>
+              </button>
               { user.role === 'admin' && invoice.status !== 'sent' && (
                  <button 
                    onClick={(e) => {
@@ -959,7 +974,25 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             </p>
           </div>
           
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <motion.button 
+              whileHover={{ scale: 1.03, y: -2 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                setSelectedReciboInvoice(null);
+                setShowReciboModal(true);
+              }}
+              className="bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-900 hover:to-teal-900 text-white border border-emerald-600/40 rounded-2xl px-4 py-3 flex items-center gap-2.5 cursor-pointer shadow-sm hover:shadow-md transition-all group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-emerald-300 group-hover:scale-110 transition-transform">
+                <FileText size={17} />
+              </div>
+              <div className="text-left">
+                <span className="text-[10px] font-black uppercase tracking-wider block text-emerald-200">Hoja de Firma</span>
+                <span className="text-xs font-black block text-white">Recibo Conforme</span>
+              </div>
+            </motion.button>
+
             <motion.div 
               whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 25px rgba(11, 77, 44, 0.12)" }}
               onClick={() => setShowSalesModal(true)}
@@ -1823,8 +1856,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               </div>
 
             </div>
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center gap-2">
-              <div>
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-between items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {(user.role === 'admin' || user.email === selectedViewInvoice.sellerId) && (
                   <button
                     onClick={async () => {
@@ -1845,6 +1878,16 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                     <span>Eliminar Factura</span>
                   </button>
                 )}
+                <button
+                  onClick={() => {
+                    const inv = selectedViewInvoice;
+                    setSelectedReciboInvoice(inv);
+                    setShowReciboModal(true);
+                  }}
+                  className="px-4 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <FileText size={14} /> 📋 Recibo Conforme
+                </button>
                 <button
                   onClick={() => {
                     const sellerName = getSellerName(selectedViewInvoice.sellerId || '');
@@ -1882,6 +1925,16 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         scanDate={viewingImageConfig?.scanDate}
         trackingNumber={viewingImageConfig?.trackingNumber}
         title="Guía de Envío" 
+      />
+      <ReciboConformeModal
+        isOpen={showReciboModal}
+        onClose={() => {
+          setShowReciboModal(false);
+          setSelectedReciboInvoice(null);
+        }}
+        initialInvoice={selectedReciboInvoice}
+        invoicesList={invoices}
+        currentUser={user}
       />
     </div>
   );

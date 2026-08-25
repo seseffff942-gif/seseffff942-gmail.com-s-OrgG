@@ -19,6 +19,8 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
+  const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
   const getLocalDateStr = (d = new Date()) => {
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
   };
@@ -600,10 +602,20 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-sm font-bold text-neutral-800 uppercase tracking-wide">Detalle Cliente & Productos</h4>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedReciboInvoice(invoice);
+                      setShowReciboModal(true);
+                    }}
+                    className="flex items-center gap-1 text-xs font-bold bg-teal-800 text-white px-2.5 py-1.5 rounded-lg hover:bg-teal-700 transition cursor-pointer"
+                    title="Generar Recibo Conforme de Entrega"
+                  >
+                    <FileText size={14} /> Recibo Conforme
+                  </button>
                   <button
                     onClick={() => downloadInvoicePdf(invoice)}
-                    className="flex items-center gap-1 text-xs font-bold bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg hover:bg-emerald-600 transition"
+                    className="flex items-center gap-1 text-xs font-bold bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg hover:bg-emerald-600 transition cursor-pointer"
                   >
                     <Download size={14} /> PDF
                   </button>

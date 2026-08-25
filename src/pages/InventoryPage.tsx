@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert } from 'lucide-react';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign } from 'lucide-react';
 import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
@@ -58,9 +58,18 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [newProductCostPrice, setNewProductCostPrice] = useState('');
   const [newProductHiddenFromSales, setNewProductHiddenFromSales] = useState(false);
   const [valuationFilterMode, setValuationFilterMode] = useState<'all' | 'investment' | 'sales' | 'stock'>('all');
+  const [filterZeroMarginOnly, setFilterZeroMarginOnly] = useState(false);
 
   const isAdmin = user.role === 'admin' || user.email === 'seseffff942@gmail.com' || user.email === 'limalopez22@gmail.com';
   const isOwner = user.email === 'seseffff942@gmail.com' || user.email === 'limalopez22@gmail.com' || user.role === 'admin';
+
+  const zeroMarginProducts = useMemo(() => {
+    return products.filter(p => {
+      const cost = Number(p.costPrice ?? (p as any).cost_price) || 0;
+      const price = Number(p.price) || 0;
+      return cost > 0 && price <= cost;
+    });
+  }, [products]);
 
   const handleToggleHiddenFromSales = async (product: Product) => {
     if (!isAdmin) return;
@@ -353,6 +362,35 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const handleSaveFieldEdit = async () => {
     if (!editProductField) return;
     const { product, field, value } = editProductField;
+    
+    if (field === 'price') {
+      const priceFloat = parseFloat(value);
+      if (isNaN(priceFloat) || priceFloat < 0) return;
+      const currentCost = Number(product.costPrice ?? (product as any).cost_price) || 0;
+      if (currentCost > 0 && priceFloat <= currentCost) {
+        const isExact = Math.abs(priceFloat - currentCost) < 0.001;
+        const msg = isExact 
+          ? `⚠️ ADVERTENCIA DE MARGEN 0%:\n\nEl precio de venta (Q${priceFloat.toFixed(2)}) es EXACTAMENTE IGUAL al precio de costo (Q${currentCost.toFixed(2)}).\nNo tendrás margen de ganancia.\n\n¿Estás seguro de que deseas guardar este precio de venta?`
+          : `🚨 ALERTA DE PÉRDIDA:\n\nEl precio de venta (Q${priceFloat.toFixed(2)}) es MENOR al precio de costo (Q${currentCost.toFixed(2)}).\nSe registrará una pérdida de Q${(currentCost - priceFloat).toFixed(2)} por unidad.\n\n¿Estás seguro de que deseas guardar este precio?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
+    } else if (field === 'costPrice') {
+      const costFloat = parseFloat(value);
+      if (isNaN(costFloat) || costFloat < 0) return;
+      const currentPrice = Number(product.price) || 0;
+      if (currentPrice > 0 && costFloat >= currentPrice) {
+        const isExact = Math.abs(costFloat - currentPrice) < 0.001;
+        const msg = isExact
+          ? `⚠️ ADVERTENCIA DE MARGEN 0%:\n\nEl costo de compra (Q${costFloat.toFixed(2)}) es IGUAL al precio de venta actual (Q${currentPrice.toFixed(2)}).\nEl margen de ganancia será 0%.\n\n¿Estás seguro de que deseas guardar este costo?`
+          : `🚨 ALERTA DE MARGEN NEGATIVO:\n\nEl costo de compra (Q${costFloat.toFixed(2)}) es MAYOR al precio de venta actual (Q${currentPrice.toFixed(2)}).\n\n¿Deseas guardarlo de todos modos?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
+    }
+
     setIsUpdating(true);
     try {
       let updatePayload: any = {};
@@ -554,15 +592,29 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductName || !newProductCategory || !newProductPrice || !newProductStock) return;
+    
+    const priceNum = parseFloat(newProductPrice);
+    const costNum = isOwner && newProductCostPrice ? parseFloat(newProductCostPrice) : 0;
+    
+    if (costNum > 0 && priceNum <= costNum) {
+      const isExact = Math.abs(priceNum - costNum) < 0.001;
+      const confirmMsg = isExact
+        ? `⚠️ ADVERTENCIA DE MARGEN 0%:\n\nEl Precio de Venta (Q${priceNum.toFixed(2)}) es EXACTAMENTE IGUAL al Precio de Costo (Q${costNum.toFixed(2)}).\nNo tendrás margen de ganancia.\n\n¿Estás seguro de que deseas registrarlo con margen 0%, o prefieres cancelarlo para colocar el precio de venta correcto al público?`
+        : `🚨 ALERTA DE PÉRDIDA:\n\nEl Precio de Venta (Q${priceNum.toFixed(2)}) es MENOR al Precio de Costo (Q${costNum.toFixed(2)}).\nSe registrará una pérdida de Q${(costNum - priceNum).toFixed(2)} por unidad.\n\n¿Deseas guardarlo de todos modos?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+    
     setIsAdding(true);
     try {
       const product = await api.createProduct({
         name: newProductName,
         category: newProductCategory,
-        price: parseFloat(newProductPrice),
+        price: priceNum,
         stock: parseInt(newProductStock, 10),
         is_external: newProductIsExternal,
-        costPrice: isOwner && newProductCostPrice ? parseFloat(newProductCostPrice) : undefined,
+        costPrice: isOwner && newProductCostPrice ? costNum : undefined,
         hiddenFromSales: isAdmin ? newProductHiddenFromSales : undefined,
         variants: newProductVariants.length > 0 ? newProductVariants : undefined,
         specifications: newProductSpecs.length > 0 ? newProductSpecs : undefined
@@ -590,11 +642,16 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     }
   };
 
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.category || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.category || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+      const cost = Number(p.costPrice ?? (p as any).cost_price) || 0;
+      const price = Number(p.price) || 0;
+      const matchesZeroMargin = !filterZeroMarginOnly || (cost > 0 && price <= cost);
+      return matchesSearch && matchesCategory && matchesZeroMargin;
+    });
+  }, [products, searchTerm, selectedCategory, filterZeroMarginOnly]);
 
   return (
     <div className={`max-w-6xl mx-auto flex flex-col ${isMobile ? 'p-4 h-full space-y-6' : 'p-8 space-y-8'}`}>
@@ -675,6 +732,47 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             </div>
           </button>
         </div>
+      )}
+
+      {/* Alert Banner for 0% Margin Products (Price <= Cost) */}
+      {isOwner && zeroMarginProducts.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-amber-50 border-2 border-amber-300/80 p-4 sm:p-5 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 bg-amber-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
+              <AlertTriangle size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                  Alerta de Precios: {zeroMarginProducts.length} productos sin margen de ganancia
+                </span>
+                <span className="bg-amber-200 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full">
+                  Margen 0% o menor
+                </span>
+              </div>
+              <p className="text-xs text-amber-800/90 font-medium mt-0.5">
+                Estos productos tienen el mismo precio de venta que el precio de costo registrado.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterZeroMarginOnly(prev => !prev)}
+            className={cn(
+              "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 shadow-sm flex items-center gap-2",
+              filterZeroMarginOnly 
+                ? "bg-amber-900 text-white hover:bg-black" 
+                : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20"
+            )}
+          >
+            <Filter size={13} />
+            <span>{filterZeroMarginOnly ? 'Mostrar Todo el Catálogo' : `Ver los ${zeroMarginProducts.length} Productos`}</span>
+          </button>
+        </motion.div>
       )}
 
       {/* Flotante Gemini IA Trigger */}
@@ -987,41 +1085,150 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       ))}
                     </datalist>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Precio Venta (Q)</label>
-                      <input required type="number" step="0.01" min="0" value={newProductPrice} onChange={e => setNewProductPrice(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 bg-slate-50/50 shadow-sm outline-none transition-all font-medium text-slate-800" placeholder="0.00" />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Stock Inicial</label>
-                      <input required type="number" min="0" value={newProductStock} onChange={e => setNewProductStock(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 bg-slate-50/50 shadow-sm outline-none transition-all font-medium text-slate-800" placeholder="0" />
-                    </div>
-                  </div>
-
-                  {isAdmin && (
-                    <div className="p-3.5 bg-purple-50/60 border border-purple-200/80 rounded-2xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 flex items-center gap-1.5">
-                          <Shield size={12} className="text-purple-700" />
-                          <span>Control de Visibilidad e Inventario</span>
+                  {/* Precios y Margen de Ganancia */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <DollarSign size={14} className="text-[#0b4d2c]" />
+                        <span>Precios y Margen de Ganancia</span>
+                      </span>
+                      {isOwner && (
+                        <span className="text-[9px] font-black bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md">
+                          Dueño / Admin
                         </span>
-                        <span className="text-[9px] font-black bg-purple-200/60 text-purple-800 px-2 py-0.5 rounded-md">Admin</span>
-                      </div>
+                      )}
+                    </div>
 
+                    <div className={cn("grid gap-3", isOwner ? "grid-cols-2" : "grid-cols-1")}>
                       {isOwner && (
                         <div>
-                          <label className="block text-[11px] font-extrabold text-purple-950 mb-1 ml-0.5">Precio de Compra / Costo (Q)</label>
+                          <label className="block text-[10px] font-black text-purple-950 uppercase tracking-wider mb-1">
+                            1. Precio Costo / Compra (Q)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400 font-black text-sm">Q</span>
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              min="0" 
+                              value={newProductCostPrice} 
+                              onChange={e => setNewProductCostPrice(e.target.value)} 
+                              className="w-full pl-8 pr-3 py-2.5 bg-white border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-xs font-black text-purple-950" 
+                              placeholder="Costo factura (0.00)" 
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-[10px] font-black text-[#0b4d2c] uppercase tracking-wider mb-1">
+                          {isOwner ? "2. Precio Venta Público (Q)" : "Precio Venta al Público (Q)"}
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 font-black text-sm">Q</span>
                           <input 
+                            required 
                             type="number" 
                             step="0.01" 
                             min="0" 
-                            value={newProductCostPrice} 
-                            onChange={e => setNewProductCostPrice(e.target.value)} 
-                            className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-xs font-extrabold text-purple-950" 
-                            placeholder="Costo al que lo compraste (Q0.00)" 
+                            value={newProductPrice} 
+                            onChange={e => setNewProductPrice(e.target.value)} 
+                            className="w-full pl-8 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-xs font-black text-slate-800" 
+                            placeholder="PVP al cliente (0.00)" 
                           />
                         </div>
-                      )}
+                      </div>
+                    </div>
+
+                    {/* Quick Markup Helpers if Cost entered */}
+                    {isOwner && parseFloat(newProductCostPrice) > 0 && (
+                      <div className="space-y-1.5 pt-2 border-t border-slate-200/70">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <TrendingUp size={11} className="text-emerald-600" />
+                            <span>Aplicar margen rápido sobre costo:</span>
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[15, 20, 25, 30, 40, 50, 100].map(pct => (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => {
+                                const c = parseFloat(newProductCostPrice);
+                                if (!isNaN(c) && c > 0) {
+                                  setNewProductPrice((c * (1 + pct / 100)).toFixed(2));
+                                }
+                              }}
+                              className="px-2 py-1 bg-white hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 transition-all shadow-2xs cursor-pointer"
+                            >
+                              +{pct}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Live Margin Calculation Indicator */}
+                    {isOwner && parseFloat(newProductCostPrice) > 0 && parseFloat(newProductPrice) > 0 && (() => {
+                      const c = parseFloat(newProductCostPrice);
+                      const p = parseFloat(newProductPrice);
+                      const diff = p - c;
+                      const marginPct = ((diff / c) * 100).toFixed(1);
+                      if (diff > 0.001) {
+                        return (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                            <span className="font-bold text-emerald-800 flex items-center gap-1">
+                              <CheckCircle size={13} />
+                              <span>Margen de Ganancia:</span>
+                            </span>
+                            <span className="font-black text-emerald-900 font-mono">
+                              +Q{diff.toFixed(2)} ({marginPct}%)
+                            </span>
+                          </div>
+                        );
+                      } else if (Math.abs(diff) < 0.001) {
+                        return (
+                          <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between text-xs">
+                            <span className="font-black text-amber-900 flex items-center gap-1">
+                              <AlertTriangle size={13} className="text-amber-700" />
+                              <span>⚠️ Margen 0% (Precio Venta = Costo)</span>
+                            </span>
+                            <span className="text-[10px] font-black bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">
+                              Sin Ganancia
+                            </span>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="p-2.5 bg-red-50 border border-red-300 rounded-xl flex items-center justify-between text-xs">
+                            <span className="font-black text-red-900 flex items-center gap-1">
+                              <AlertTriangle size={13} className="text-red-700" />
+                              <span>🚨 Pérdida de Q{Math.abs(diff).toFixed(2)}</span>
+                            </span>
+                            <span className="text-[10px] font-black bg-red-200 text-red-900 px-1.5 py-0.5 rounded">
+                              Venta bajo costo
+                            </span>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Stock Inicial</label>
+                    <input required type="number" min="0" value={newProductStock} onChange={e => setNewProductStock(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 bg-slate-50/50 shadow-sm outline-none transition-all font-medium text-slate-800" placeholder="0" />
+                  </div>
+
+                  {isAdmin && (
+                    <div className="p-3.5 bg-purple-50/60 border border-purple-200/80 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 flex items-center gap-1.5">
+                          <Shield size={12} className="text-purple-700" />
+                          <span>Control de Visibilidad</span>
+                        </span>
+                        <span className="text-[9px] font-black bg-purple-200/60 text-purple-800 px-2 py-0.5 rounded-md">Admin</span>
+                      </div>
 
                       <label className="flex items-center gap-2.5 cursor-pointer pt-1">
                         <input 
@@ -1531,6 +1738,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           <span className="text-sm font-black text-[#0b4d2c] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150 block" title="Precio de Venta al Público">
                             <span className="notranslate" translate="no">Q{(Number(product.price) || 0).toFixed(2)}</span>
                           </span>
+                          {isOwner && Number(product.costPrice ?? (product as any).cost_price) > 0 && (Number(product.price) || 0) <= Number(product.costPrice ?? (product as any).cost_price) && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleUpdatePrice(product); }}
+                              className="inline-flex items-center gap-1 text-[9px] font-black text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-1.5 py-0.5 rounded-md cursor-pointer transition-all shadow-2xs"
+                              title="Haga clic para corregir el precio de venta"
+                            >
+                              <AlertTriangle size={10} className="text-amber-700" />
+                              <span>{Number(product.price) === Number(product.costPrice ?? (product as any).cost_price) ? 'Margen 0%' : 'Bajo costo'}</span>
+                            </button>
+                          )}
                           {isOwner && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleEditCostPrice(product); }}
@@ -1810,7 +2028,20 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           </td>
                         )}
                         <td className="px-4 py-3 text-right">
-                          <span className="text-sm font-black text-[#0b4d2c] font-mono">Q{product.price.toFixed(2)}</span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-sm font-black text-[#0b4d2c] font-mono">Q{product.price.toFixed(2)}</span>
+                            {isOwner && Number(product.costPrice ?? (product as any).cost_price) > 0 && (Number(product.price) || 0) <= Number(product.costPrice ?? (product as any).cost_price) && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleUpdatePrice(product); }}
+                                className="inline-flex items-center gap-1 text-[9px] font-black text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-1.5 py-0.5 rounded-md cursor-pointer transition-all shadow-2xs"
+                                title="Haga clic para corregir el precio de venta"
+                              >
+                                <AlertTriangle size={9} className="text-amber-700" />
+                                <span>{Number(product.price) === Number(product.costPrice ?? (product as any).cost_price) ? 'Margen 0%' : 'Bajo costo'}</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2787,24 +3018,131 @@ const aVal = (a.stock || 0) * aCost;
                 </label>
                 
                 {editProductField.field === 'stock' || editProductField.field === 'price' || editProductField.field === 'costPrice' ? (
-                  <div className="relative">
-                    {(editProductField.field === 'price' || editProductField.field === 'costPrice') && (
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">Q</span>
-                    )}
-                    <input 
-                      type="number"
-                      step={editProductField.field === 'stock' ? "1" : "0.01"}
-                      min="0"
-                      autoFocus
-                      required
-                      value={editProductField.value}
-                      onChange={(e) => setEditProductField({ ...editProductField, value: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFieldEdit(); }}
-                      className={cn(
-                        "w-full py-3.5 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#0b4d2c] bg-slate-50 shadow-sm outline-none transition-all font-black text-slate-800 text-lg",
-                        (editProductField.field === 'price' || editProductField.field === 'costPrice') ? "pl-10 pr-4" : "px-4"
+                  <div className="space-y-3">
+                    <div className="relative">
+                      {(editProductField.field === 'price' || editProductField.field === 'costPrice') && (
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">Q</span>
                       )}
-                    />
+                      <input 
+                        type="number"
+                        step={editProductField.field === 'stock' ? "1" : "0.01"}
+                        min="0"
+                        autoFocus
+                        required
+                        value={editProductField.value}
+                        onChange={(e) => setEditProductField({ ...editProductField, value: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFieldEdit(); }}
+                        className={cn(
+                          "w-full py-3.5 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#0b4d2c] bg-slate-50 shadow-sm outline-none transition-all font-black text-slate-800 text-lg",
+                          (editProductField.field === 'price' || editProductField.field === 'costPrice') ? "pl-10 pr-4" : "px-4"
+                        )}
+                      />
+                    </div>
+
+                    {/* If editing Price, show cost and quick markup buttons */}
+                    {editProductField.field === 'price' && isOwner && (() => {
+                      const cost = Number(editProductField.product.costPrice ?? (editProductField.product as any).cost_price) || 0;
+                      const valPrice = parseFloat(editProductField.value) || 0;
+                      return (
+                        <div className="space-y-2 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500 font-bold">Costo de compra registrado:</span>
+                            <span className="font-black text-purple-950 font-mono">Q{cost.toFixed(2)}</span>
+                          </div>
+
+                          {cost > 0 && (
+                            <div className="space-y-1.5 pt-1.5 border-t border-slate-200">
+                              <span className="text-[10px] font-bold text-slate-500 block">Sugerir margen sobre costo:</span>
+                              <div className="flex flex-wrap gap-1">
+                                {[15, 20, 25, 30, 40, 50, 100].map(pct => (
+                                  <button
+                                    key={pct}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditProductField({
+                                        ...editProductField,
+                                        value: (cost * (1 + pct / 100)).toFixed(2)
+                                      });
+                                    }}
+                                    className="px-2 py-0.5 bg-white hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 transition-all cursor-pointer"
+                                  >
+                                    +{pct}%
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {cost > 0 && valPrice > 0 && (() => {
+                            const diff = valPrice - cost;
+                            const marginPct = ((diff / cost) * 100).toFixed(1);
+                            if (diff > 0.001) {
+                              return (
+                                <div className="text-[11px] font-bold text-emerald-800 bg-emerald-50 p-2 rounded-xl flex items-center justify-between">
+                                  <span>Margen resultante:</span>
+                                  <span className="font-black font-mono">+Q{diff.toFixed(2)} ({marginPct}%)</span>
+                                </div>
+                              );
+                            } else if (Math.abs(diff) < 0.001) {
+                              return (
+                                <div className="text-[11px] font-black text-amber-900 bg-amber-100 p-2 rounded-xl flex items-center justify-between">
+                                  <span>⚠️ Margen 0%</span>
+                                  <span>Precio = Costo</span>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <div className="text-[11px] font-black text-red-900 bg-red-100 p-2 rounded-xl flex items-center justify-between">
+                                  <span>🚨 Pérdida:</span>
+                                  <span>-Q{Math.abs(diff).toFixed(2)} por unidad</span>
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+                      );
+                    })()}
+
+                    {/* If editing Cost Price, show sale price and calculated margin */}
+                    {editProductField.field === 'costPrice' && isOwner && (() => {
+                      const curPrice = Number(editProductField.product.price) || 0;
+                      const valCost = parseFloat(editProductField.value) || 0;
+                      return (
+                        <div className="space-y-2 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500 font-bold">Precio de venta actual:</span>
+                            <span className="font-black text-[#0b4d2c] font-mono">Q{curPrice.toFixed(2)}</span>
+                          </div>
+
+                          {curPrice > 0 && valCost > 0 && (() => {
+                            const diff = curPrice - valCost;
+                            const marginPct = ((diff / valCost) * 100).toFixed(1);
+                            if (diff > 0.001) {
+                              return (
+                                <div className="text-[11px] font-bold text-emerald-800 bg-emerald-50 p-2 rounded-xl flex items-center justify-between">
+                                  <span>Margen con este costo:</span>
+                                  <span className="font-black font-mono">+Q{diff.toFixed(2)} ({marginPct}%)</span>
+                                </div>
+                              );
+                            } else if (Math.abs(diff) < 0.001) {
+                              return (
+                                <div className="text-[11px] font-black text-amber-900 bg-amber-100 p-2 rounded-xl flex items-center justify-between">
+                                  <span>⚠️ Margen 0%</span>
+                                  <span>Costo = Precio Venta</span>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <div className="text-[11px] font-black text-red-900 bg-red-100 p-2 rounded-xl flex items-center justify-between">
+                                  <span>🚨 Costo superior al precio de venta</span>
+                                  <span>-Q{Math.abs(diff).toFixed(2)}</span>
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div>
