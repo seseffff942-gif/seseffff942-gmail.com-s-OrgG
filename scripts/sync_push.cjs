@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: correccion de lectura y paginacion de folios en produccion y optimizacion serverless';
+  const commitMsg = 'fix: montar componente QuotationsPage y registrar ruta #quotations en App.tsx';
   const sha = await git.commit({
     fs,
     dir,
