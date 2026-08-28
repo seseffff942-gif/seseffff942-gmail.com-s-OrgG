@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: corregir busqueda, endpoints de estadisticas y visualizacion de ventas del dia en movil';
+  const commitMsg = 'fix: correccion de lectura y paginacion de folios en produccion y optimizacion serverless';
   const sha = await git.commit({
     fs,
     dir,

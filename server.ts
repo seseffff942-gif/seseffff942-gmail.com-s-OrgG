@@ -406,39 +406,81 @@ if (!process.env.VERCEL) {
     }
 
     let startFrom = 1;
-    let resetDate = null;
-    const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+    let resetDate: string | null = null;
+
+    // 1. Try reading from Supabase sys-folio-config first (production dynamic config)
     try {
-      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-        const config = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+      if (sysRow && sysRow.photo) {
+        const config = JSON.parse(sysRow.photo);
         startFrom = config.startFrom || 1;
         resetDate = config.resetDate || null;
-      } else {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
-        if (sysRow && sysRow.photo) {
-          const config = JSON.parse(sysRow.photo);
-          startFrom = config.startFrom || 1;
-          resetDate = config.resetDate || null;
-        }
       }
     } catch (e) {}
 
-    let query = supabase
-      .from("invoices")
-      .select("id, date")
-      .eq("is_archived", false);
-    
-    if (resetDate) {
-      query = query.gte("date", resetDate);
+    // 2. Fallback to local folio_config.json if not configured in DB
+    if (startFrom === 1 && !resetDate) {
+      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+      try {
+        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+          const config = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+          startFrom = config.startFrom || 1;
+          resetDate = config.resetDate || null;
+        }
+      } catch (e) {}
     }
 
-    const { data: invoices, error } = await query
-      .select("id, date, status, notes")
-      .order("date", { ascending: true, nullsFirst: false })
-      .order("id", { ascending: true });
+    // 3. Paginate to fetch all invoices (avoid Supabase 1000 rows cut)
+    let invoices: any[] = [];
+    let page = 0;
+    const PAGE_SIZE = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error("Error fetching for folio map:", error.message);
+    while (hasMore) {
+      let query = supabase
+        .from("invoices")
+        .select("id, date, status, notes, folio")
+        .eq("is_archived", false);
+      
+      if (resetDate) {
+        query = query.gte("date", resetDate);
+      }
+
+      const { data: pageData, error } = await query
+        .order("date", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (error) {
+        if (error.code === '42703' || error.message?.includes('folio') || error.message?.includes('is_archived')) {
+          let retryQ = supabase.from("invoices").select("id, date, status, notes");
+          if (resetDate) retryQ = retryQ.gte("date", resetDate);
+          const retryRes = await retryQ
+            .order("date", { ascending: true, nullsFirst: false })
+            .order("id", { ascending: true })
+            .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+          if (retryRes.data && retryRes.data.length > 0) {
+            invoices = invoices.concat(retryRes.data);
+            if (retryRes.data.length < PAGE_SIZE) hasMore = false;
+            else page++;
+          } else {
+            hasMore = false;
+          }
+        } else {
+          console.error("Error fetching for folio map:", error.message);
+          hasMore = false;
+        }
+      } else if (pageData && pageData.length > 0) {
+        invoices = invoices.concat(pageData);
+        if (pageData.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
     const map: Record<string, number> = {};
@@ -447,9 +489,17 @@ if (!process.env.VERCEL) {
     if (invoices && invoices.length > 0) {
       console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
       
-      // Pass 1: Collect explicit locked folios in notes (e.g. |||FOLIO:123)
+      // Pass 1: Collect explicit locked folios in database column or notes (e.g. |||FOLIO:123)
       invoices.forEach((inv) => {
         if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+        if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
+          const num = parseInt(String(inv.folio).trim(), 10);
+          if (!isNaN(num) && num > 0) {
+            map[String(inv.id)] = num;
+            usedFolios.add(num);
+            return;
+          }
+        }
         if (inv.notes && inv.notes.includes("|||FOLIO:")) {
           const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
           if (match && match[1]) {
@@ -4238,19 +4288,44 @@ if (!process.env.VERCEL) {
     }
     
     const fetchInvoices = async () => {
-      let query = supabase.from("invoices").select("*").eq('is_archived', false);
-      if (sellerId) {
-        query = query.eq('sellerId', sellerId);
-      }
-      const res = await query;
-      if (res.error && (res.error.code === '42703' || res.error.message.includes('is_archived'))) {
-        let fallbackQuery = supabase.from("invoices").select("*");
-        if (sellerId) {
-          fallbackQuery = fallbackQuery.eq('sellerId', sellerId);
+      let allInvoices: any[] = [];
+      let page = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      let useFallback = false;
+
+      while (hasMore) {
+        let query = supabase.from("invoices").select("*");
+        if (!useFallback) {
+          query = query.eq('is_archived', false);
         }
-        return fallbackQuery;
+        if (sellerId) {
+          query = query.eq('sellerId', sellerId);
+        }
+        const res = await query
+          .order("date", { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+        if (res.error) {
+          if (!useFallback && (res.error.code === '42703' || res.error.message?.includes('is_archived'))) {
+            useFallback = true;
+            page = 0;
+            allInvoices = [];
+            continue;
+          }
+          return res;
+        }
+
+        const data = res.data || [];
+        allInvoices = allInvoices.concat(data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          page++;
+        }
       }
-      return res;
+
+      return { data: allInvoices, error: null };
     };
     
     const { data: invoices, error } = await fetchInvoices();
@@ -4261,7 +4336,14 @@ if (!process.env.VERCEL) {
       throw new Error(error.message);
     }
     
-    const folioMap = await getFolioMap();
+    // Only query getFolioMap if at least one invoice in this batch lacks an explicit folio
+    const needsFolioMap = invoices.some((inv: any) => {
+      const hasDirectFolio = inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '';
+      const hasNoteFolio = inv.notes && inv.notes.includes("|||FOLIO:");
+      return !hasDirectFolio && !hasNoteFolio;
+    });
+
+    const folioMap = needsFolioMap ? await getFolioMap() : {};
 
     const parsedInvoices = invoices.map((inv: any) => {
        const mappedInv = { ...inv };
@@ -4333,8 +4415,13 @@ if (!process.env.VERCEL) {
        return {
          ...mappedInv,
          folio: (function() {
+             if (mappedInv.folio !== undefined && mappedInv.folio !== null && String(mappedInv.folio).trim() !== '') {
+               const strVal = String(mappedInv.folio).trim();
+               const num = parseInt(strVal, 10);
+               return !isNaN(num) && num > 0 ? num : strVal;
+             }
              const m = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
-             return m ? parseInt(m[1]) : (folioMap[String(mappedInv.id)] || 1);
+             return m ? parseInt(m[1], 10) : (folioMap[String(mappedInv.id)] || 1);
          })(),
          client: mappedInv.client || mappedInv.clientName || '',
          nit: mappedInv.nit || '',

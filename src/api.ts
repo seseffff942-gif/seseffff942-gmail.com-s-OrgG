@@ -101,6 +101,9 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
       }
     });
   }
+  if (mappedInv.folio === undefined && mappedInv.id && CUSTOM_FOLIO_OVERRIDES[mappedInv.id]) {
+    mappedInv.folio = CUSTOM_FOLIO_OVERRIDES[mappedInv.id];
+  }
   return mappedInv as Invoice;
 };
 
@@ -1038,6 +1041,8 @@ export const api = {
       if (options?.limit) {
         const offset = options.offset || 0;
         query = query.range(offset, offset + options.limit - 1);
+      } else {
+        query = query.range(0, 4999);
       }
       const { data, error } = await query;
       if (!error && data && Array.isArray(data) && data.length > 0) {
