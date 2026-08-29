@@ -19,6 +19,7 @@ import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
 import { ReciboConformePage } from './pages/ReciboConformePage';
 import { QuotationsPage } from './pages/QuotationsPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
+import { MaintenancePage } from './components/MaintenancePage';
 import { api } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
 
@@ -69,6 +70,16 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('agricovet_maintenance_mode');
+    return saved === null ? true : saved !== 'false';
+  });
+
+  const toggleMaintenanceMode = () => {
+    const nextVal = !isMaintenanceMode;
+    setIsMaintenanceMode(nextVal);
+    localStorage.setItem('agricovet_maintenance_mode', nextVal ? 'true' : 'false');
+  };
 
   React.useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -119,6 +130,10 @@ export default function App() {
     });
   }, []);
 
+  const [showLoginDirectly, setShowLoginDirectly] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && window.location.hash === '#login';
+  });
+
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
     return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
@@ -127,13 +142,18 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   React.useEffect(() => {
-    window.location.hash = currentTab;
-  }, [currentTab]);
+    if (!showLoginDirectly) {
+      window.location.hash = currentTab;
+    }
+  }, [currentTab, showLoginDirectly]);
 
   React.useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
+      if (cleanHash === 'login') {
+        setShowLoginDirectly(true);
+      }
       if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
@@ -245,7 +265,23 @@ export default function App() {
   };
 
   if (authLoading) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-teal-600">Verificando sesión...</div>;
+    return <div className="min-h-screen bg-[#040907] flex items-center justify-center font-bold text-teal-400">Verificando sesión...</div>;
+  }
+
+  const isSuperAdmin = user?.email?.toLowerCase() === 'seseffff942@gmail.com';
+
+  // Si el modo mantenimiento está activo y NO es seseffff942@gmail.com
+  if (isMaintenanceMode && !isSuperAdmin) {
+    if (!user && showLoginDirectly) {
+      return <Login onLogin={handleLogin} />;
+    }
+    return (
+      <MaintenancePage 
+        currentUser={user} 
+        onGoToLogin={() => setShowLoginDirectly(true)} 
+        onLogout={handleLogout} 
+      />
+    );
   }
 
   if (!isOffline && !user) {
@@ -264,6 +300,42 @@ export default function App() {
 
   const appContent = (
     <div className={`flex flex-col min-h-screen bg-surface font-sans h-screen overflow-hidden`}>
+      {/* Banner de Mantenimiento Activo para SuperAdmin */}
+      {isMaintenanceMode && isSuperAdmin && (
+        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white font-semibold text-[11px] md:text-xs px-4 py-2 flex items-center justify-between shadow-lg z-[70] sticky top-0 border-b border-amber-500/40">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2.5 w-2.5 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-300"></span>
+            </span>
+            <span>
+              🛠️ <strong>MODO MANTENIMIENTO ACTIVO</strong> — Acceso maestro habilitado para <strong>{user?.email}</strong>. La web muestra mensaje de mantenimiento a los demás usuarios.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-3">
+            <button 
+              onClick={toggleMaintenanceMode}
+              className="bg-white/20 hover:bg-white/30 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1 rounded-full transition-all cursor-pointer border border-white/20 hover:scale-105 active:scale-95"
+            >
+              Desactivar Mantenimiento
+            </button>
+          </div>
+        </div>
+      )}
+      {!isMaintenanceMode && isSuperAdmin && (
+        <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-emerald-100 font-medium text-[11px] px-4 py-1.5 flex items-center justify-between z-[55] sticky top-0 border-b border-emerald-700/50">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span>🟢 Mantenimiento desactivado (Web visible y abierta para todos los usuarios)</span>
+          </span>
+          <button
+            onClick={toggleMaintenanceMode}
+            className="bg-emerald-500/30 hover:bg-emerald-500/50 text-white font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md transition cursor-pointer border border-emerald-400/30"
+          >
+            Poner en Mantenimiento
+          </button>
+        </div>
+      )}
       {isOffline && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white font-medium text-xs md:text-sm px-4 py-2.5 flex items-center justify-between shadow-md z-50">
           <span className="flex items-center gap-2">

@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: montar componente QuotationsPage y registrar ruta #quotations en App.tsx';
+  const commitMsg = 'feat: pantalla de modo mantenimiento técnico y acceso maestro para seseffff942@gmail.com';
   const sha = await git.commit({
     fs,
     dir,

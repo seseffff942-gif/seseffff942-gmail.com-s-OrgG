@@ -38,6 +38,13 @@ export function Login({ onLogin }: LoginProps) {
     setLoading(true);
     try {
       const user = await api.login(sellerCode, token);
+      const isMaintenanceActive = localStorage.getItem('agricovet_maintenance_mode') !== 'false';
+      if (isMaintenanceActive && user.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+        localStorage.removeItem('app_token');
+        localStorage.removeItem('app_user');
+        setError('⛔ Acceso denegado: El sistema se encuentra en mantenimiento técnico. Solo el administrador principal (seseffff942@gmail.com) puede ingresar.');
+        return;
+      }
       onLogin(user, device);
     } catch (err: any) {
       setError(err.message || 'Error de autenticación. Verifica tus credenciales.');
