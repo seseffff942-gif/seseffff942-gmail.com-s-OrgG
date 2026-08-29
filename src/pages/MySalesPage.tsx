@@ -45,7 +45,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [isViewModeModalOpen, setIsViewModeModalOpen] = useState(false);
   const [suggestEditInvoice, setSuggestEditInvoice] = useState<Invoice | null>(null);
   const [suggestEditText, setSuggestEditText] = useState('');
-  const [isHistoryMode, setIsHistoryMode] = useState(false);
+  const [isHistoryMode, setIsHistoryMode] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -283,7 +283,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       Boolean(matchFolio);
     
     let matchDate = true;
-    if (isHistoryMode) {
+    if (term || isHistoryMode) {
       matchDate = true;
     } else if (i.date) {
       if (i.date.startsWith(filterDate)) {

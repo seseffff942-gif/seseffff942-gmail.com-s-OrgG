@@ -126,7 +126,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const getLocalDateStr = (d = new Date()) => diaGuatemala(d);
 
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
-  const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('day');
+  const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('all');
   const [sellerFilter, setSellerFilter] = useState<string>(user.role === 'seller' ? user.email : 'all');
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
@@ -261,21 +261,23 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       Boolean(matchFolio);
     
     let matchDate = true;
-    if (dateViewMode === 'day') {
-      if (!i.date) return false;
-      // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
-      matchDate = diaGuatemala(i.date) === filterDate;
-    } else {
-      const invDate = new Date(i.date);
-      const now = new Date();
-      if (dateFilter === 'today') {
-        matchDate = diaGuatemala(invDate) === diaGuatemala(now);
-      } else if (dateFilter === 'week') {
-        const startOfWeek = getStartOfCurrentWeek();
-        matchDate = invDate >= startOfWeek;
-      } else if (dateFilter === 'month') {
-        const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-        matchDate = invDate >= oneMonthAgo;
+    if (!term) {
+      if (dateViewMode === 'day') {
+        if (!i.date) return false;
+        // Comparacion por dia de Guatemala: robusta ante el desfase UTC.
+        matchDate = diaGuatemala(i.date) === filterDate;
+      } else {
+        const invDate = new Date(i.date);
+        const now = new Date();
+        if (dateFilter === 'today') {
+          matchDate = diaGuatemala(invDate) === diaGuatemala(now);
+        } else if (dateFilter === 'week') {
+          const startOfWeek = getStartOfCurrentWeek();
+          matchDate = invDate >= startOfWeek;
+        } else if (dateFilter === 'month') {
+          const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+          matchDate = invDate >= oneMonthAgo;
+        }
       }
     }
 

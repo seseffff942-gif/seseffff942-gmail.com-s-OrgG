@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: sincronizar facturas precargadas hasta folio 1103 y corregir orden de hooks en App';
+  const commitMsg = 'fix: mostrar historial completo por defecto y permitir busqueda global de folios hasta 1103';
   const sha = await git.commit({
     fs,
     dir,
