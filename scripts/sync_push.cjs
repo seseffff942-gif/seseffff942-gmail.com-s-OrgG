@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'test: auditoria exhaustiva y blindaje de modulo de visitas con busqueda insensitiva a acentos y persistencia dual local/supabase';
+  const commitMsg = 'chore: limpiar base de datos de checkpoints de prueba dejando estado inicial impecable para produccion';
   const sha = await git.commit({
     fs,
     dir,
