@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Client, ClientVisit, User, VisitStats, VisitType, Product, Invoice } from '../types';
+import { Client, ClientVisit, User, VisitStats, VisitType } from '../types';
 import { api } from '../api';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
@@ -10,9 +10,9 @@ import {
   Search, Filter, ExternalLink, Phone, Building2, 
   DollarSign, ShoppingCart, UserPlus, Package, 
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
-  Download, FileSpreadsheet, Check, Flame, Box, ShieldAlert, ArrowDownRight, Tag, Share2
+  Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, calculateSlowMovingProducts, SlowMovingProduct } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -24,8 +24,6 @@ interface ClientVisitsPageProps {
 export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [visits, setVisits] = useState<ClientVisit[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<VisitStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,7 +39,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [selectedClientForVisit, setSelectedClientForVisit] = useState<Client | null>(null);
 
   // Active View Tabs & Filters
-  const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'frequency' | 'slow_products' | 'sellers'>('my_portfolio');
+  const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'frequency' | 'sellers'>('my_portfolio');
   const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>(user.role === 'seller' ? user.email || user.id : 'all');
   const [selectedVisitTypeFilter, setSelectedVisitTypeFilter] = useState<string>('all');
   const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month'>('all');
@@ -94,19 +92,15 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     else setRefreshing(true);
 
     try {
-      const [clientsData, visitsData, statsData, productsData, invoicesData] = await Promise.all([
+      const [clientsData, visitsData, statsData] = await Promise.all([
         api.getClients(),
         api.getVisits(),
-        api.getVisitStats(),
-        api.getProducts(),
-        api.getInvoices()
+        api.getVisitStats()
       ]);
 
       setClients(clientsData || []);
       setVisits(visitsData || []);
       setStats(statsData || null);
-      setProducts(productsData || []);
-      setInvoices(invoicesData || []);
     } catch (e) {
       console.error('Error loading visits data:', e);
     } finally {
@@ -153,11 +147,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     setSelectedClientForVisit(client);
     setIsRegisterModalOpen(true);
   };
-
-  // Calculate Slow Moving Products
-  const slowMovingProductsList = useMemo(() => {
-    return calculateSlowMovingProducts(products, invoices, 15);
-  }, [products, invoices]);
 
   // Frequency and Client Portfolio Analysis
   const clientPortfolioWithStatus = useMemo(() => {
@@ -336,19 +325,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     const wsPortfolio = XLSX.utils.json_to_sheet(portfolioData);
     XLSX.utils.book_append_sheet(wb, wsPortfolio, 'Cartera_Clientes_Frecuencia');
 
-    // Sheet 3: Productos Sin Rotación
-    const slowData = slowMovingProductsList.map(p => ({
-      'Producto': p.name,
-      'Categoría': p.category || 'General',
-      'Stock Disponible': p.stock,
-      'Precio Unitario': `Q${p.price}`,
-      'Días Sin Venta': p.neverSold || p.daysWithoutSale === null ? 'Sin ventas registradas' : p.daysWithoutSale,
-      'Motivo': p.recommendationReason,
-      'Acción Comercial Sugerida': p.suggestedAction
-    }));
-    const wsSlow = XLSX.utils.json_to_sheet(slowData);
-    XLSX.utils.book_append_sheet(wb, wsSlow, 'Productos_Sin_Rotacion');
-
     // Download File
     const todayStr = getGuatemalaTodayIso();
     XLSX.writeFile(wb, `Reporte_Visitas_Y_Cartera_Agricovet_${todayStr}.xlsx`);
@@ -487,7 +463,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       </div>
 
       {/* METRICS ROW */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">
         {/* Card 1 */}
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
@@ -546,26 +522,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             Requieren atención prioritaria
           </p>
         </motion.div>
-
-        {/* Card 4: Slow Moving Products */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.15 }}
-          onClick={() => setActiveTab('slow_products')}
-          className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 p-5 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col justify-between cursor-pointer hover:border-amber-400 transition-colors"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-amber-900">Productos Detenidos</span>
-            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
-              <Flame size={16} />
-            </div>
-          </div>
-          <h4 className="text-2xl font-black text-amber-950">{slowMovingProductsList.length}</h4>
-          <p className="text-xs text-amber-800 mt-1 font-semibold flex items-center gap-1">
-            <ArrowRight size={12} /> Para recomendar en ruta
-          </p>
-        </motion.div>
       </div>
 
       {/* MAP SECTION */}
@@ -609,17 +565,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               )}
             >
               👥 Cartera & Frecuencia ({clientPortfolioWithStatus.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('slow_products')}
-              className={cn(
-                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0",
-                activeTab === 'slow_products' ? "bg-amber-500 text-white shadow-xs" : "text-amber-900 hover:bg-amber-100/60"
-              )}
-            >
-              <Flame size={13} />
-              <span>Sin Rotación ({slowMovingProductsList.length})</span>
             </button>
             <button
               type="button"
@@ -854,70 +799,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </div>
         )}
 
-        {/* TAB 2: SLOW-MOVING / UNMOVING PRODUCTS TO RECOMMEND */}
-        {activeTab === 'slow_products' && (
-          <div className="p-4 md:p-6 space-y-4">
-            <div className="bg-amber-50 border border-amber-200/80 p-4 rounded-2xl flex items-start space-x-3">
-              <Flame className="text-amber-600 shrink-0 mt-0.5" size={20} />
-              <div>
-                <h4 className="font-bold text-sm text-amber-950">Catálogo de Productos Detenidos / Baja Rotación</h4>
-                <p className="text-xs text-amber-800 mt-0.5">
-                  Estos productos cuentan con inventario disponible en bodega pero no han tenido ventas en los últimos 15 a 45 días. 
-                  Recomiéndalos activamente a tus clientes en cada visita para acelerar el flujo de inventario.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {slowMovingProductsList.map((product) => (
-                <div key={product.id} className="p-4 rounded-2xl border border-slate-200/80 bg-white hover:border-amber-300 transition-all shadow-2xs space-y-3 flex flex-col justify-between">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                        {product.category || 'General'}
-                      </span>
-                      <span className={cn(
-                        "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                        product.neverSold || product.daysWithoutSale === null
-                          ? "bg-purple-50 text-purple-700 border-purple-200" 
-                          : (product.daysWithoutSale || 0) > 45 
-                            ? "bg-rose-50 text-rose-700 border-rose-200" 
-                            : "bg-amber-50 text-amber-700 border-amber-200"
-                      )}>
-                        {product.neverSold || product.daysWithoutSale === null ? 'Sin ventas registradas' : `${product.daysWithoutSale} días sin venta`}
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-sm text-slate-900 leading-snug">{product.name}</h4>
-                    <p className="text-xs text-slate-500">
-                      Precio de lista: <span className="font-bold text-slate-900">Q{product.price}</span> • Stock en bodega: <span className="font-bold text-emerald-700">{product.stock} un.</span>
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                    <div className="p-2 bg-slate-50 rounded-xl text-[11px] text-slate-600">
-                      <span className="font-bold text-slate-800">💡 Argumento comercial:</span> {product.suggestedAction}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedClientForVisit(null);
-                        setIsRegisterModalOpen(true);
-                      }}
-                      className="w-full py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                    >
-                      <Plus size={14} />
-                      <span>Ofrecer en Checkpoint</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: LIVE CHECKPOINTS FEED */}
+        {/* TAB 2: LIVE CHECKPOINTS FEED */}
         {activeTab === 'timeline' && (
           <div>
             {/* Visit Type Filter Pills */}
@@ -1098,8 +980,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         currentUser={user}
         onVisitRegistered={handleVisitRegistered}
         preselectedClient={selectedClientForVisit}
-        products={products}
-        invoices={invoices}
       />
     </div>
   );

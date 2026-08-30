@@ -1,14 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Client, User, VisitType, ClientVisit, Product, Invoice } from '../types';
+import { Client, User, VisitType, ClientVisit } from '../types';
 import { api } from '../api';
 import { 
   Search, MapPin, X, Check, Building2, Phone, 
   ShoppingCart, DollarSign, UserPlus, Package, 
   ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation,
-  Tag, Image as ImageIcon, Trash2, Box, Flame, ArrowRight
+  Tag, Image as ImageIcon, Trash2, Box
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn, normalizeSearchText, calculateSlowMovingProducts, SlowMovingProduct } from '../utils';
+import { cn, normalizeSearchText } from '../utils';
 
 interface RegisterVisitModalProps {
   isOpen: boolean;
@@ -18,8 +18,6 @@ interface RegisterVisitModalProps {
   currentUser: User;
   onVisitRegistered: (visit: ClientVisit) => void;
   preselectedClient?: Client | null;
-  products?: Product[];
-  invoices?: Invoice[];
 }
 
 const VISIT_TYPES: { id: VisitType; label: string; icon: any; color: string; bg: string; border: string }[] = [
@@ -60,9 +58,7 @@ export function RegisterVisitModal({
   currentLocation,
   currentUser,
   onVisitRegistered,
-  preselectedClient,
-  products = [],
-  invoices = []
+  preselectedClient
 }: RegisterVisitModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(preselectedClient || null);
@@ -78,12 +74,6 @@ export function RegisterVisitModal({
       setSelectedClient(preselectedClient);
     }
   }, [preselectedClient, isOpen]);
-
-  // Slow-moving products to recommend to this client
-  const recommendedSlowProducts = useMemo(() => {
-    if (!products || products.length === 0) return [];
-    return calculateSlowMovingProducts(products, invoices, 15).slice(0, 4);
-  }, [products, invoices]);
 
   const nearbyClients = useMemo(() => {
     if (!currentLocation) return [];
@@ -159,11 +149,6 @@ export function RegisterVisitModal({
       if (prev.includes(chipText)) return prev;
       return `${prev}. ${chipText}`;
     });
-  };
-
-  const handleAddProductRecommendationToNotes = (product: SlowMovingProduct) => {
-    const text = `Se recomendó producto en promoción: ${product.name} (Stock: ${product.stock} un. a Q${product.price})`;
-    handleAddChipToNotes(text);
   };
 
   const handleSaveVisit = async () => {
@@ -458,50 +443,11 @@ export function RegisterVisitModal({
             </div>
           </div>
 
-          {/* 4. PRODUCTOS SIN ROTACIÓN / RECOMENDACIONES EN ESTA VISITA */}
-          {recommendedSlowProducts.length > 0 && (
-            <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1">
-                  <Flame size={14} className="text-amber-600" />
-                  Productos Detenidos para Ofrecer en esta Visita
-                </span>
-                <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                  Stock Disponible
-                </span>
-              </div>
-              <p className="text-[10px] text-amber-800/80">
-                Aprovecha tu visita para mover estos productos con baja rotación:
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
-                {recommendedSlowProducts.map(p => (
-                  <div key={p.id} className="p-2 bg-white rounded-xl border border-amber-200 flex items-center justify-between text-xs shadow-2xs">
-                    <div className="space-y-0.5 pr-2">
-                      <p className="font-bold text-slate-900 leading-snug line-clamp-1">{p.name}</p>
-                      <p className="text-[10px] text-slate-500">
-                        Stock: <span className="font-bold text-amber-700">{p.stock} un.</span> • Q{p.price}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleAddProductRecommendationToNotes(p)}
-                      className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[10px] font-bold shrink-0 transition-colors cursor-pointer"
-                      title="Agregar como producto ofrecido en notas"
-                    >
-                      + Ofrecer
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 5. Quick Chips & Notes */}
+          {/* 4. Quick Chips & Notes */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                5. Notas / Observaciones
+                4. Notas / Observaciones
               </label>
               <span className="text-[10px] text-slate-400 font-medium">Toca para agregar rápido:</span>
             </div>

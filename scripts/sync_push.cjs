@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: corregir badge de rotacion a Sin ventas registradas en lugar de 999 dias';
+  const commitMsg = 'refactor: remover productos sin rotacion de visitas dejandolo exclusivo de inventario';
   const sha = await git.commit({
     fs,
     dir,
