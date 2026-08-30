@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  RefreshCcw,
   Printer,
   ScanLine,
   Download

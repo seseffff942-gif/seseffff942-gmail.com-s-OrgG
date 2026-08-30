@@ -20,3 +20,9 @@ notifications_local.json
 offers_extra.json
 push_subscriptions.json
 excluded_critical.json
+
+# Android y Gradle cache
+android/.gradle/
+android/app/build/
+android/build/
+*.bak

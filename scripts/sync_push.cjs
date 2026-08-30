@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: resolver cache de produccion e import de servidor en serverless';
+  const commitMsg = 'docs: agregar informe tecnico de auditoria y mantenimiento integral';
   const sha = await git.commit({
     fs,
     dir,
