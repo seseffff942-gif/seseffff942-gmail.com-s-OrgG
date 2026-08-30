@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'chore: limpiar base de datos de checkpoints de prueba dejando estado inicial impecable para produccion';
+  const commitMsg = 'feat: pulir modulo de visitas con exportacion excel, accesos directos por departamentos de guatemala, busqueda en mapa y chips rapidos de campo';
   const sha = await git.commit({
     fs,
     dir,

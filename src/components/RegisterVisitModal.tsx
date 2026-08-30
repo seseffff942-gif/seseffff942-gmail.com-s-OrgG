@@ -4,7 +4,8 @@ import { api } from '../api';
 import { 
   Search, MapPin, X, Check, Building2, Phone, 
   ShoppingCart, DollarSign, UserPlus, Package, 
-  ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation 
+  ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation,
+  Tag, Image as ImageIcon, Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn, normalizeSearchText } from '../utils';
@@ -25,6 +26,16 @@ const VISIT_TYPES: { id: VisitType; label: string; icon: any; color: string; bg:
   { id: 'rutina', label: 'Visita de Rutina', icon: ClipboardCheck, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200/80' },
   { id: 'prospeccion', label: 'Prospección', icon: UserPlus, color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200/80' },
   { id: 'entrega', label: 'Entrega Producto', icon: Package, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200/80' },
+];
+
+const QUICK_OBSERVATION_CHIPS = [
+  "🛒 Pedido tomado y confirmado",
+  "💰 Cobro recibido en efectivo",
+  "💰 Cheque recibido para depósito",
+  "📋 Stock verificado y en orden",
+  "🤝 Muestras de producto entregadas",
+  "⚠️ Cliente solicita visita técnica",
+  "🏬 Local cerrado temporalmente"
 ];
 
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -92,13 +103,15 @@ export function RegisterVisitModal({
       const company = normalizeSearchText(c.companyName);
       const phone = normalizeSearchText(c.phone);
       const nit = normalizeSearchText(c.nit);
+      const address = normalizeSearchText(c.address);
 
       return (
         name.includes(term) ||
         code.includes(term) ||
         company.includes(term) ||
         phone.includes(term) ||
-        nit.includes(term)
+        nit.includes(term) ||
+        address.includes(term)
       );
     }).slice(0, 25);
   }, [clients, searchTerm]);
@@ -124,13 +137,21 @@ export function RegisterVisitModal({
     }
   };
 
+  const handleAddChipToNotes = (chipText: string) => {
+    setNotes(prev => {
+      if (!prev.trim()) return chipText;
+      if (prev.includes(chipText)) return prev;
+      return `${prev}. ${chipText}`;
+    });
+  };
+
   const handleSaveVisit = async () => {
     if (!selectedClient) {
       setErrorMsg('Selecciona el cliente que estás visitando.');
       return;
     }
     if (!currentLocation) {
-      setErrorMsg('No se ha podido obtener tu ubicación GPS.');
+      setErrorMsg('No se ha podido obtener tu ubicación GPS. Asegúrate de tener permisos activos.');
       return;
     }
 
@@ -176,15 +197,15 @@ export function RegisterVisitModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
       <motion.div 
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 10 }}
-        className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-xl border border-slate-100 flex flex-col max-h-[90vh]"
+        className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/60">
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/70">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-teal-50 text-teal-600 rounded-xl border border-teal-100">
               <ClipboardCheck size={20} />
@@ -205,24 +226,26 @@ export function RegisterVisitModal({
         {/* GPS Live Header Badge */}
         <div className="bg-slate-900 text-slate-200 px-5 py-2.5 flex items-center justify-between text-xs border-b border-slate-800">
           <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse ring-4 ring-emerald-400/20" />
             <span className="font-medium text-slate-300">GPS Vendedor:</span>
             {currentLocation ? (
-              <span className="font-mono text-[11px] text-emerald-400 font-semibold">
+              <span className="font-mono text-[11px] text-emerald-400 font-bold">
                 {currentLocation.latitude.toFixed(5)}, {currentLocation.longitude.toFixed(5)}
               </span>
             ) : (
-              <span className="text-amber-400">Buscando satélites...</span>
+              <span className="text-amber-400 font-medium animate-pulse">Buscando satélites...</span>
             )}
           </div>
           {distanceToSelected !== null && (
             <span className={cn(
-              "px-2 py-0.5 rounded-full text-[10px] font-bold",
+              "px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
               distanceToSelected <= 150 
-                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" 
-                : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" 
+                : distanceToSelected <= 1500
+                  ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                  : "bg-slate-700 text-slate-300 border-slate-600"
             )}>
-              📍 A {distanceToSelected}m del local
+              {distanceToSelected <= 150 ? '🎯 En sitio' : '📍 A'} {distanceToSelected > 1000 ? `${(distanceToSelected / 1000).toFixed(1)} km` : `${distanceToSelected} m`}
             </span>
           )}
         </div>
@@ -236,18 +259,21 @@ export function RegisterVisitModal({
             </label>
 
             {selectedClient ? (
-              <div className="p-3 bg-teal-50/70 border border-teal-300 rounded-xl flex items-center justify-between shadow-2xs">
+              <div className="p-3.5 bg-teal-50/80 border border-teal-300 rounded-xl flex items-center justify-between shadow-2xs">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-xs text-teal-950">{selectedClient.name}</span>
                     {selectedClient.clientCode && (
-                      <span className="text-[10px] font-bold bg-teal-200/60 text-teal-900 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-bold bg-teal-200/70 text-teal-900 px-1.5 py-0.5 rounded">
                         #{selectedClient.clientCode}
                       </span>
                     )}
                   </div>
                   {selectedClient.companyName && (
                     <p className="text-[11px] text-teal-700 font-medium">{selectedClient.companyName}</p>
+                  )}
+                  {selectedClient.address && (
+                    <p className="text-[10px] text-slate-500 truncate max-w-xs">{selectedClient.address}</p>
                   )}
                 </div>
                 <button 
@@ -260,10 +286,10 @@ export function RegisterVisitModal({
             ) : (
               <div className="space-y-2">
                 {nearbyClients.length > 0 && !searchTerm && (
-                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl space-y-1.5">
+                  <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
                     <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
-                      <Sparkles size={12} className="text-amber-600" />
-                      Clientes cercanos a tu ubicación:
+                      <Sparkles size={13} className="text-amber-600" />
+                      Clientes detectados cerca de ti (&lt;1.5km):
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {nearbyClients.slice(0, 4).map(c => (
@@ -284,14 +310,14 @@ export function RegisterVisitModal({
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <input 
                     type="text"
-                    placeholder="Buscar cliente por nombre o código..."
+                    placeholder="Buscar por Nombre, Código (ej: 1234), Empresa..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600"
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
                   />
                 </div>
 
-                <div className="max-h-32 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-white shadow-2xs">
+                <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-white shadow-2xs">
                   {filteredClients.map(c => (
                     <div 
                       key={c.id}
@@ -303,7 +329,7 @@ export function RegisterVisitModal({
                         {c.companyName && <span className="text-slate-400 ml-1.5">({c.companyName})</span>}
                       </div>
                       {c.clientCode && (
-                        <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                        <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold">
                           #{c.clientCode}
                         </span>
                       )}
@@ -347,24 +373,42 @@ export function RegisterVisitModal({
             </div>
           </div>
 
-          {/* 3. Notes & Observations */}
+          {/* 3. Quick Chips & Notes */}
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              3. Notas / Observaciones (Opcional)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                3. Notas / Observaciones
+              </label>
+              <span className="text-[10px] text-slate-400 font-medium">Toca para agregar rápido:</span>
+            </div>
+
+            {/* Tap-to-add common observation chips */}
+            <div className="flex flex-wrap gap-1 mb-1">
+              {QUICK_OBSERVATION_CHIPS.map(chip => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => handleAddChipToNotes(chip)}
+                  className="px-2 py-0.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-900 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer"
+                >
+                  + {chip}
+                </button>
+              ))}
+            </div>
+
             <textarea 
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej: Se entregó cotización, prometió pago para el martes..."
+              placeholder="Ej: Se entregó catálogo, prometió pago para el martes..."
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
             />
           </div>
 
-          {/* 4. Optional Photo Capture */}
+          {/* 4. Photo Capture with Preview */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              4. Foto en Sitio (Opcional)
+              4. Foto de Comprobante / Fachada (Opcional)
             </label>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-colors cursor-pointer active:scale-95">
@@ -380,13 +424,15 @@ export function RegisterVisitModal({
               </label>
 
               {photoUrl && (
-                <div className="relative group w-10 h-10 rounded-xl overflow-hidden border border-slate-200 shadow-2xs">
+                <div className="relative group w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shadow-2xs">
                   <img src={photoUrl} alt="Comprobante" className="w-full h-full object-cover" />
                   <button 
+                    type="button"
                     onClick={() => setPhotoUrl('')}
-                    className="absolute inset-0 bg-red-600/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute inset-0 bg-rose-600/85 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    title="Eliminar foto"
                   >
-                    <X size={12} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               )}
@@ -403,8 +449,9 @@ export function RegisterVisitModal({
         )}
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3">
+        <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3">
           <button 
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
           >
@@ -412,6 +459,7 @@ export function RegisterVisitModal({
           </button>
 
           <button
+            type="button"
             onClick={handleSaveVisit}
             disabled={!selectedClient || !currentLocation || isSubmitting}
             className={cn(

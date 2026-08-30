@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Client, User } from '../types';
 import { api } from '../api';
-import { Search, MapPin, X, Check, Building2, Phone, Hash, AlertCircle, Navigation } from 'lucide-react';
+import { Search, MapPin, X, Check, Building2, Phone, Hash, AlertCircle, Navigation, ShieldCheck, Wifi } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn, normalizeSearchText } from '../utils';
 
@@ -97,18 +97,28 @@ export function MarkClientModal({
     }
   };
 
+  const getGpsQuality = () => {
+    if (!currentLocation?.accuracy) return { label: 'Detectando', color: 'text-slate-500', bg: 'bg-slate-100' };
+    const acc = currentLocation.accuracy;
+    if (acc <= 10) return { label: `Excelente (±${Math.round(acc)}m)`, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' };
+    if (acc <= 30) return { label: `Buena (±${Math.round(acc)}m)`, color: 'text-teal-700', bg: 'bg-teal-50 border-teal-200' };
+    return { label: `Aproximada (±${Math.round(acc)}m)`, color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' };
+  };
+
+  const gpsQuality = getGpsQuality();
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
       <motion.div 
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 10 }}
-        className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-xl border border-slate-100 flex flex-col max-h-[88vh]"
+        className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[88vh]"
       >
         {/* Clean Header */}
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/60">
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/70">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-teal-50 text-teal-600 rounded-xl border border-teal-100">
               <MapPin size={20} />
@@ -119,6 +129,7 @@ export function MarkClientModal({
             </div>
           </div>
           <button 
+            type="button"
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
           >
@@ -127,21 +138,21 @@ export function MarkClientModal({
         </div>
 
         {/* GPS Coordinates Ribbon */}
-        <div className="bg-teal-50/60 border-b border-teal-100/60 px-5 py-2.5 flex items-center justify-between text-xs text-teal-900">
+        <div className="bg-teal-50/70 border-b border-teal-100/80 px-5 py-2.5 flex items-center justify-between text-xs text-teal-900">
           <div className="flex items-center space-x-2">
-            <Navigation size={13} className="text-teal-600" />
+            <Navigation size={13} className="text-teal-600 shrink-0" />
             <span className="font-semibold text-slate-700">GPS Actual:</span>
             {currentLocation ? (
-              <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded-md border border-teal-200 text-teal-800 font-medium">
+              <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded-md border border-teal-200 text-teal-800 font-bold">
                 {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
-                {currentLocation.accuracy && ` (±${Math.round(currentLocation.accuracy)}m)`}
               </span>
             ) : (
               <span className="text-amber-600 font-medium animate-pulse">Obteniendo coordenadas...</span>
             )}
           </div>
-          <span className="text-[10px] uppercase tracking-wider font-bold text-teal-700 bg-teal-100/60 px-2 py-0.5 rounded-full">
-            Guatemala
+
+          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", gpsQuality.bg, gpsQuality.color)}>
+            {gpsQuality.label}
           </span>
         </div>
 
@@ -151,16 +162,17 @@ export function MarkClientModal({
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text"
-              placeholder="Buscar por Nombre, Código (ej: 1234), Empresa..."
+              placeholder="Buscar por Nombre, Código (ej: 1234), Empresa, Teléfono..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               autoFocus
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 shadow-2xs transition-all placeholder:text-slate-400 font-medium"
+              className="w-full pl-10 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 shadow-2xs transition-all placeholder:text-slate-400 font-medium"
             />
             {searchTerm && (
               <button 
+                type="button"
                 onClick={() => setSearchTerm('')} 
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X size={15} />
               </button>
@@ -222,6 +234,9 @@ export function MarkClientModal({
                           {client.phone}
                         </span>
                       )}
+                      {client.address && (
+                        <span className="text-slate-400 truncate max-w-xs">{client.address}</span>
+                      )}
                     </div>
                   </div>
 
@@ -248,8 +263,9 @@ export function MarkClientModal({
         )}
 
         {/* Action Buttons */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3">
+        <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3">
           <button 
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
           >
@@ -257,6 +273,7 @@ export function MarkClientModal({
           </button>
 
           <button
+            type="button"
             onClick={handleConfirmMark}
             disabled={!selectedClient || !currentLocation || isSaving}
             className={cn(

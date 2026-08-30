@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Client, ClientVisit, User, VisitStats } from '../types';
+import { Client, ClientVisit, User, VisitStats, VisitType } from '../types';
 import { api } from '../api';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
@@ -9,10 +9,12 @@ import {
   Users, CheckCircle2, AlertTriangle, RefreshCw, 
   Search, Filter, ExternalLink, Phone, Building2, 
   DollarSign, ShoppingCart, UserPlus, Package, 
-  ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, TrendingUp, AlertCircle, Plus, Layers, Activity
+  ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
+  Download, FileSpreadsheet, Check
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
+import * as XLSX from 'xlsx';
 
 interface ClientVisitsPageProps {
   user: User;
@@ -39,6 +41,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   // Active View Tabs & Filters
   const [activeTab, setActiveTab] = useState<'timeline' | 'frequency' | 'sellers'>('timeline');
   const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>('all');
+  const [selectedVisitTypeFilter, setSelectedVisitTypeFilter] = useState<string>('all');
+  const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState<'all' | 'urgent' | 'regular' | 'never'>('all');
 
@@ -146,11 +150,35 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   // Filtered Visits
   const filteredVisits = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
+    const now = new Date().getTime();
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const todayIso = getGuatemalaTodayIso();
+    const monthPrefix = todayIso.substring(0, 7);
+
     return visits.filter(v => {
       if (selectedSellerFilter !== 'all') {
         const matchesSeller = v.sellerId === selectedSellerFilter || v.sellerEmail === selectedSellerFilter || v.sellerName === selectedSellerFilter;
         if (!matchesSeller) return false;
       }
+
+      if (selectedVisitTypeFilter !== 'all' && v.visitType !== selectedVisitTypeFilter) {
+        return false;
+      }
+
+      if (selectedDateRangeFilter === 'today' && !isTodayGuatemala(v.createdAt)) {
+        return false;
+      }
+
+      if (selectedDateRangeFilter === '7days') {
+        const vTime = new Date(v.createdAt).getTime();
+        if (now - vTime > SEVEN_DAYS_MS) return false;
+      }
+
+      if (selectedDateRangeFilter === 'month') {
+        const vDate = (v.createdAt || '').split('T')[0];
+        if (!vDate.startsWith(monthPrefix)) return false;
+      }
+
       if (term) {
         const matchesTerm = normalizeSearchText(v.clientName || '').includes(term) ||
                             normalizeSearchText(v.clientCode || '').includes(term) ||
@@ -160,7 +188,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       }
       return true;
     });
-  }, [visits, selectedSellerFilter, searchTerm]);
+  }, [visits, selectedSellerFilter, selectedVisitTypeFilter, selectedDateRangeFilter, searchTerm]);
 
   // Frequency Analysis
   const clientFrequencyList = useMemo(() => {
@@ -222,6 +250,51 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     return Array.from(set.entries()).map(([id, name]) => ({ id, name }));
   }, [visits]);
 
+  // Export to Excel handler
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Checkpoints
+    const visitsData = filteredVisits.map(v => ({
+      'ID Visita': v.id,
+      'Cliente': v.clientName,
+      'Código Cliente': v.clientCode || 'N/A',
+      'Empresa': v.companyName || 'N/A',
+      'Vendedor': v.sellerName,
+      'Tipo de Visita': v.visitType ? v.visitType.toUpperCase() : 'RUTINA',
+      'Distancia al Local': v.distanceMeters !== undefined ? `${v.distanceMeters} metros` : 'No registrada',
+      'Fecha': fechaDDMMYYYY(v.createdAt),
+      'Hora': new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      'Notas / Observaciones': v.notes || '',
+      'Latitud': v.latitude,
+      'Longitud': v.longitude,
+      'Enlace Google Maps': `https://www.google.com/maps/search/?api=1&query=${v.latitude},${v.longitude}`
+    }));
+    const wsVisits = XLSX.utils.json_to_sheet(visitsData);
+    XLSX.utils.book_append_sheet(wb, wsVisits, 'Checkpoints_Visitas');
+
+    // Sheet 2: Radar Frecuencia
+    const frequencyData = clientFrequencyList.map(c => ({
+      'Cliente': c.name,
+      'Código': c.clientCode || 'N/A',
+      'Empresa': c.companyName || 'N/A',
+      'Teléfono': c.phone || 'N/A',
+      'Dirección': c.address || 'N/A',
+      'Estado Comercial': c.status === 'today' ? 'Visitado Hoy' : c.status === 'recent' ? 'Al día (<7d)' : c.status === 'attention' ? 'Atención (8-15d)' : c.status === 'urgent' ? 'Urgente (>15d)' : 'Nunca Visitado',
+      'Días sin Visita': c.daysElapsed !== null ? c.daysElapsed : 'Sin Visitas',
+      'Última Visita': c.lastVisit ? fechaDDMMYYYY(c.lastVisit.createdAt) : 'Nunca',
+      'Tiene GPS': (c.latitude && c.longitude) ? 'SÍ' : 'NO',
+      'Latitud': c.latitude || '',
+      'Longitud': c.longitude || ''
+    }));
+    const wsFreq = XLSX.utils.json_to_sheet(frequencyData);
+    XLSX.utils.book_append_sheet(wb, wsFreq, 'Radar_Frecuencia');
+
+    // Download File
+    const todayStr = getGuatemalaTodayIso();
+    XLSX.writeFile(wb, `Reporte_Visitas_Agricovet_${todayStr}.xlsx`);
+  };
+
   const renderVisitBadge = (type: string) => {
     switch (type) {
       case 'cobro':
@@ -239,12 +312,12 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
   const geotaggedCount = clients.filter(c => c.latitude && c.longitude).length;
   const geotaggedPercentage = clients.length > 0 ? Math.round((geotaggedCount / clients.length) * 100) : 0;
-  const todayVisitsCount = stats?.totalVisitsToday ?? visits.filter(v => (v.createdAt || '').startsWith(new Date().toISOString().split('T')[0])).length;
+  const todayVisitsCount = stats?.totalVisitsToday ?? visits.filter(v => isTodayGuatemala(v.createdAt)).length;
   const urgentClientsCount = clientFrequencyList.filter(c => c.status === 'urgent' || c.status === 'never').length;
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 min-h-[450px] bg-slate-50">
+      <div className="flex flex-col items-center justify-center p-12 min-h-[450px] bg-slate-50 font-sans">
         <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-500 font-manrope">Cargando rutas y mapa de visitas...</p>
       </div>
@@ -252,9 +325,9 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col space-y-6 bg-slate-50/70 min-h-screen pb-24">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col space-y-6 bg-slate-50/70 min-h-screen pb-24 font-sans">
       
-      {/* HEADER SECTION (Matching ClientsPage & DailySalesPage style) */}
+      {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -273,6 +346,17 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
         <div className="flex flex-wrap items-center gap-2">
           <button 
+            type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 active:scale-95 px-3.5 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
+            title="Exportar reporte de visitas a Excel"
+          >
+            <FileSpreadsheet size={16} className="text-emerald-600" />
+            <span>Excel</span>
+          </button>
+
+          <button 
+            type="button"
             onClick={() => setIsMarkModalOpen(true)}
             className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 active:scale-95 px-4 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
             title="Marcar coordenadas GPS del cliente donde estás parado"
@@ -282,6 +366,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </button>
 
           <button 
+            type="button"
             onClick={() => {
               setSelectedClientForVisit(null);
               setIsRegisterModalOpen(true);
@@ -293,6 +378,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </button>
 
           <button
+            type="button"
             onClick={() => loadData(true)}
             disabled={refreshing}
             className="p-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer shadow-xs active:scale-95"
@@ -331,6 +417,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         </div>
 
         <button
+          type="button"
           onClick={requestLocation}
           disabled={isGpsLoading}
           className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
@@ -340,7 +427,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         </button>
       </div>
 
-      {/* METRICS ROW (Matching Portfolio Cards) */}
+      {/* METRICS ROW */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1 */}
         <motion.div 
@@ -456,6 +543,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           {/* Segmented Tab Buttons */}
           <div className="flex items-center bg-slate-200/70 p-1 rounded-xl">
             <button
+              type="button"
               onClick={() => setActiveTab('timeline')}
               className={cn(
                 "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
@@ -465,6 +553,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               🕒 Checkpoints en Vivo ({filteredVisits.length})
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('frequency')}
               className={cn(
                 "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
@@ -475,6 +564,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             </button>
             {user.role === 'admin' && (
               <button
+                type="button"
                 onClick={() => setActiveTab('sellers')}
                 className={cn(
                   "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
@@ -498,6 +588,20 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                 className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
               />
             </div>
+
+            {/* Date Range Filter */}
+            {activeTab === 'timeline' && (
+              <select
+                value={selectedDateRangeFilter}
+                onChange={(e) => setSelectedDateRangeFilter(e.target.value as any)}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+              >
+                <option value="all">Todas las Fechas</option>
+                <option value="today">Solo Hoy</option>
+                <option value="7days">Últimos 7 Días</option>
+                <option value="month">Este Mes</option>
+              </select>
+            )}
 
             {user.role === 'admin' && availableSellers.length > 0 && (
               <select
@@ -529,82 +633,112 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
         {/* Tab 1: Live Timeline Feed */}
         {activeTab === 'timeline' && (
-          <div className="p-4 md:p-5 divide-y divide-slate-100">
-            {filteredVisits.length === 0 ? (
-              <div className="py-16 text-center text-slate-400 space-y-2">
-                <Clock className="mx-auto text-slate-300" size={36} />
-                <p className="font-bold text-slate-700 text-sm">No hay checkpoints registrados</p>
-                <p className="text-xs text-slate-400">Registra el primer checkpoint de visita tocando "Registrar Checkpoint"</p>
-              </div>
-            ) : (
-              filteredVisits.map((visit) => {
-                const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${visit.latitude},${visit.longitude}`;
-                return (
-                  <div key={visit.id} className="py-3.5 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-xl transition-colors">
-                    <div className="flex items-start space-x-3">
-                      <div className="p-2 bg-teal-50 text-teal-700 rounded-xl shrink-0 mt-0.5">
-                        <MapPin size={17} />
+          <div>
+            {/* Visit Type Filter Pills */}
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/30 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Tipo:</span>
+              {[
+                { id: 'all', label: 'Todos' },
+                { id: 'cobro', label: '💰 Cobros' },
+                { id: 'pedido', label: '🛒 Pedidos' },
+                { id: 'rutina', label: '📋 Rutina' },
+                { id: 'prospeccion', label: '🤝 Prospección' },
+                { id: 'entrega', label: '📦 Entregas' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSelectedVisitTypeFilter(f.id)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                    selectedVisitTypeFilter === f.id
+                      ? "bg-teal-600 text-white shadow-2xs"
+                      : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Timeline List */}
+            <div className="p-4 md:p-5 divide-y divide-slate-100">
+              {filteredVisits.length === 0 ? (
+                <div className="py-16 text-center text-slate-400 space-y-2">
+                  <Clock className="mx-auto text-slate-300" size={36} />
+                  <p className="font-bold text-slate-700 text-sm">No hay checkpoints registrados con los filtros seleccionados</p>
+                  <p className="text-xs text-slate-400">Registra el primer checkpoint de visita tocando "Registrar Checkpoint"</p>
+                </div>
+              ) : (
+                filteredVisits.map((visit) => {
+                  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${visit.latitude},${visit.longitude}`;
+                  return (
+                    <div key={visit.id} className="py-3.5 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-xl transition-colors">
+                      <div className="flex items-start space-x-3">
+                        <div className="p-2 bg-teal-50 text-teal-700 rounded-xl shrink-0 mt-0.5">
+                          <MapPin size={17} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-sm text-slate-900">{visit.clientName}</span>
+                            {visit.clientCode && (
+                              <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                                #{visit.clientCode}
+                              </span>
+                            )}
+                            {renderVisitBadge(visit.visitType)}
+                            {visit.distanceMeters !== undefined && (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                                📍 a {visit.distanceMeters}m del local
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                            <span className="font-medium text-slate-700">👤 {visit.sellerName}</span>
+                            <span className="flex items-center gap-1 text-slate-400">
+                              <Clock size={12} />
+                              {fechaDDMMYYYY(visit.createdAt)} {new Date(visit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-400">
+                              {visit.latitude.toFixed(5)}, {visit.longitude.toFixed(5)}
+                            </span>
+                          </div>
+
+                          {visit.notes && (
+                            <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-xl mt-1 border border-slate-100 font-medium">
+                              📝 {visit.notes}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-sm text-slate-900">{visit.clientName}</span>
-                          {visit.clientCode && (
-                            <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                              #{visit.clientCode}
-                            </span>
-                          )}
-                          {renderVisitBadge(visit.visitType)}
-                          {visit.distanceMeters !== undefined && (
-                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
-                              📍 a {visit.distanceMeters}m del local
-                            </span>
-                          )}
-                        </div>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span className="font-medium text-slate-700">👤 {visit.sellerName}</span>
-                          <span className="flex items-center gap-1 text-slate-400">
-                            <Clock size={12} />
-                            {fechaDDMMYYYY(visit.createdAt)} {new Date(visit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          <span className="font-mono text-[11px] text-slate-400">
-                            {visit.latitude.toFixed(5)}, {visit.longitude.toFixed(5)}
-                          </span>
-                        </div>
-
-                        {visit.notes && (
-                          <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-xl mt-1 border border-slate-100 font-medium">
-                            📝 {visit.notes}
-                          </p>
+                      <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                        {visit.photoUrl && (
+                          <a 
+                            href={visit.photoUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 hover:scale-105 transition-transform"
+                          >
+                            <img src={visit.photoUrl} alt="Foto" className="w-full h-full object-cover" />
+                          </a>
                         )}
+                        <a
+                          href={googleMapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200 transition-colors"
+                        >
+                          <ExternalLink size={13} />
+                          <span>Ver en Maps</span>
+                        </a>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-                      {visit.photoUrl && (
-                        <a 
-                          href={visit.photoUrl} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 hover:scale-105 transition-transform"
-                        >
-                          <img src={visit.photoUrl} alt="Foto" className="w-full h-full object-cover" />
-                        </a>
-                      )}
-                      <a
-                        href={googleMapsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200 transition-colors"
-                      >
-                        <ExternalLink size={13} />
-                        <span>Ver en Maps</span>
-                      </a>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
 
@@ -683,8 +817,9 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                       </div>
 
                       <button
+                        type="button"
                         onClick={() => handleSelectClientForVisit(client)}
-                        className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                        className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
                       >
                         📌 Visitar
                       </button>
