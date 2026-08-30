@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Client, ClientVisit, User, VisitStats, VisitType } from '../types';
+import { Client, ClientVisit, User, VisitStats, VisitType, Product, Invoice } from '../types';
 import { api } from '../api';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
@@ -9,10 +9,10 @@ import {
   Users, CheckCircle2, AlertTriangle, RefreshCw, 
   Search, Filter, ExternalLink, Phone, Building2, 
   DollarSign, ShoppingCart, UserPlus, Package, 
-  ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
-  Download, FileSpreadsheet, Check
+  ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
+  Download, FileSpreadsheet, Check, Flame, Box, ShieldAlert, ArrowDownRight, Tag, Share2
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, calculateSlowMovingProducts, SlowMovingProduct } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -24,6 +24,8 @@ interface ClientVisitsPageProps {
 export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [visits, setVisits] = useState<ClientVisit[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<VisitStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,12 +41,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [selectedClientForVisit, setSelectedClientForVisit] = useState<Client | null>(null);
 
   // Active View Tabs & Filters
-  const [activeTab, setActiveTab] = useState<'timeline' | 'frequency' | 'sellers'>('timeline');
-  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'frequency' | 'slow_products' | 'sellers'>('my_portfolio');
+  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>(user.role === 'seller' ? user.email || user.id : 'all');
   const [selectedVisitTypeFilter, setSelectedVisitTypeFilter] = useState<string>('all');
   const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState<'all' | 'urgent' | 'regular' | 'never'>('all');
+  const [portfolioScope, setPortfolioScope] = useState<'mine' | 'all'>(user.role === 'seller' ? 'mine' : 'all');
 
   // Request & Watch GPS Location
   const requestLocation = () => {
@@ -91,15 +94,19 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     else setRefreshing(true);
 
     try {
-      const [clientsData, visitsData, statsData] = await Promise.all([
+      const [clientsData, visitsData, statsData, productsData, invoicesData] = await Promise.all([
         api.getClients(),
         api.getVisits(),
-        api.getVisitStats()
+        api.getVisitStats(),
+        api.getProducts(),
+        api.getInvoices()
       ]);
 
       setClients(clientsData || []);
       setVisits(visitsData || []);
       setStats(statsData || null);
+      setProducts(productsData || []);
+      setInvoices(invoicesData || []);
     } catch (e) {
       console.error('Error loading visits data:', e);
     } finally {
@@ -147,6 +154,95 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     setIsRegisterModalOpen(true);
   };
 
+  // Calculate Slow Moving Products
+  const slowMovingProductsList = useMemo(() => {
+    return calculateSlowMovingProducts(products, invoices, 15);
+  }, [products, invoices]);
+
+  // Frequency and Client Portfolio Analysis
+  const clientPortfolioWithStatus = useMemo(() => {
+    const now = new Date().getTime();
+    const map = new Map<string, ClientVisit>();
+
+    visits.forEach(v => {
+      if (v.clientId && !map.has(v.clientId)) {
+        map.set(v.clientId, v);
+      }
+    });
+
+    const term = normalizeSearchText(searchTerm);
+
+    return clients.map(client => {
+      const lastVisit = map.get(client.id);
+      const daysElapsed = lastVisit 
+        ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
+        : null;
+
+      let status: 'today' | 'recent' | 'attention' | 'urgent' | 'never' = 'never';
+      if (daysElapsed === null) status = 'never';
+      else if (daysElapsed === 0 || (lastVisit && isTodayGuatemala(lastVisit.createdAt))) status = 'today';
+      else if (daysElapsed <= 7) status = 'recent';
+      else if (daysElapsed <= 15) status = 'attention';
+      else status = 'urgent';
+
+      // Distance calculation to current GPS
+      let distanceKm: number | null = null;
+      if (currentLocation && client.latitude && client.longitude) {
+        const R = 6371; // km
+        const dLat = ((client.latitude - currentLocation.latitude) * Math.PI) / 180;
+        const dLon = ((client.longitude - currentLocation.longitude) * Math.PI) / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos((currentLocation.latitude * Math.PI) / 180) * 
+                  Math.cos((client.latitude * Math.PI) / 180) * 
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distanceKm = Math.round(R * c * 10) / 10;
+      }
+
+      // Check if assigned to current user
+      const isAssignedToUser = 
+        client.sellerId === user.id || 
+        client.sellerId === user.email || 
+        (client as any).sellerEmail === user.email ||
+        (user.role === 'admin');
+
+      return {
+        ...client,
+        lastVisit,
+        daysElapsed,
+        status,
+        distanceKm,
+        isAssignedToUser
+      };
+    }).filter(c => {
+      // Filter by portfolio scope (mine vs all)
+      if (portfolioScope === 'mine' && user.role === 'seller' && !c.isAssignedToUser) {
+        return false;
+      }
+
+      if (term) {
+        const matches = normalizeSearchText(c.name || '').includes(term) ||
+                        normalizeSearchText(c.clientCode || '').includes(term) ||
+                        normalizeSearchText(c.phone || '').includes(term) ||
+                        normalizeSearchText(c.address || '').includes(term) ||
+                        normalizeSearchText(c.companyName || '').includes(term);
+        if (!matches) return false;
+      }
+
+      if (frequencyFilter === 'urgent') return c.status === 'urgent';
+      if (frequencyFilter === 'regular') return c.status === 'today' || c.status === 'recent';
+      if (frequencyFilter === 'never') return c.status === 'never';
+
+      return true;
+    }).sort((a, b) => {
+      // Urgent and unvisited clients first
+      if (a.daysElapsed === null && b.daysElapsed === null) return 0;
+      if (a.daysElapsed === null) return -1;
+      if (b.daysElapsed === null) return 1;
+      return b.daysElapsed - a.daysElapsed;
+    });
+  }, [clients, visits, searchTerm, frequencyFilter, portfolioScope, currentLocation, user]);
+
   // Filtered Visits
   const filteredVisits = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
@@ -190,58 +286,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     });
   }, [visits, selectedSellerFilter, selectedVisitTypeFilter, selectedDateRangeFilter, searchTerm]);
 
-  // Frequency Analysis
-  const clientFrequencyList = useMemo(() => {
-    const now = new Date().getTime();
-    const map = new Map<string, ClientVisit>();
-
-    visits.forEach(v => {
-      if (v.clientId && !map.has(v.clientId)) {
-        map.set(v.clientId, v);
-      }
-    });
-
-    const term = normalizeSearchText(searchTerm);
-
-    return clients.map(client => {
-      const lastVisit = map.get(client.id);
-      const daysElapsed = lastVisit 
-        ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
-        : null;
-
-      let status: 'today' | 'recent' | 'attention' | 'urgent' | 'never' = 'never';
-      if (daysElapsed === null) status = 'never';
-      else if (daysElapsed === 0 || (lastVisit && isTodayGuatemala(lastVisit.createdAt))) status = 'today';
-      else if (daysElapsed <= 7) status = 'recent';
-      else if (daysElapsed <= 15) status = 'attention';
-      else status = 'urgent';
-
-      return {
-        ...client,
-        lastVisit,
-        daysElapsed,
-        status
-      };
-    }).filter(c => {
-      if (term) {
-        const matches = normalizeSearchText(c.name || '').includes(term) ||
-                        normalizeSearchText(c.clientCode || '').includes(term) ||
-                        normalizeSearchText(c.phone || '').includes(term) ||
-                        normalizeSearchText(c.companyName || '').includes(term);
-        if (!matches) return false;
-      }
-      if (frequencyFilter === 'urgent') return c.status === 'urgent';
-      if (frequencyFilter === 'regular') return c.status === 'today' || c.status === 'recent';
-      if (frequencyFilter === 'never') return c.status === 'never';
-      return true;
-    }).sort((a, b) => {
-      if (a.daysElapsed === null && b.daysElapsed === null) return 0;
-      if (a.daysElapsed === null) return -1;
-      if (b.daysElapsed === null) return 1;
-      return b.daysElapsed - a.daysElapsed;
-    });
-  }, [clients, visits, searchTerm, frequencyFilter]);
-
   const availableSellers = useMemo(() => {
     const set = new Map<string, string>();
     visits.forEach(v => {
@@ -265,6 +309,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       'Distancia al Local': v.distanceMeters !== undefined ? `${v.distanceMeters} metros` : 'No registrada',
       'Fecha': fechaDDMMYYYY(v.createdAt),
       'Hora': new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      'Foto Comprobante': v.photoUrl ? 'SÍ' : 'NO',
       'Notas / Observaciones': v.notes || '',
       'Latitud': v.latitude,
       'Longitud': v.longitude,
@@ -273,26 +318,40 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     const wsVisits = XLSX.utils.json_to_sheet(visitsData);
     XLSX.utils.book_append_sheet(wb, wsVisits, 'Checkpoints_Visitas');
 
-    // Sheet 2: Radar Frecuencia
-    const frequencyData = clientFrequencyList.map(c => ({
+    // Sheet 2: Cartera de Clientes & Frecuencia
+    const portfolioData = clientPortfolioWithStatus.map(c => ({
       'Cliente': c.name,
       'Código': c.clientCode || 'N/A',
       'Empresa': c.companyName || 'N/A',
       'Teléfono': c.phone || 'N/A',
-      'Dirección': c.address || 'N/A',
-      'Estado Comercial': c.status === 'today' ? 'Visitado Hoy' : c.status === 'recent' ? 'Al día (<7d)' : c.status === 'attention' ? 'Atención (8-15d)' : c.status === 'urgent' ? 'Urgente (>15d)' : 'Nunca Visitado',
-      'Días sin Visita': c.daysElapsed !== null ? c.daysElapsed : 'Sin Visitas',
-      'Última Visita': c.lastVisit ? fechaDDMMYYYY(c.lastVisit.createdAt) : 'Nunca',
-      'Tiene GPS': (c.latitude && c.longitude) ? 'SÍ' : 'NO',
+      'Ubicación / Dirección': c.address || 'N/A',
+      'Estado de Visita': c.status === 'today' ? 'Visitado Hoy' : c.status === 'recent' ? 'Al día (<7d)' : c.status === 'attention' ? 'Atención (8-15d)' : c.status === 'urgent' ? 'Urgente (>15d)' : 'Nunca Visitado',
+      'Días sin Visita': c.daysElapsed !== null ? c.daysElapsed : 'Nunca Visitado',
+      'Fecha Última Visita': c.lastVisit ? fechaDDMMYYYY(c.lastVisit.createdAt) : 'Sin registro',
+      'Tiene Coordenadas GPS': (c.latitude && c.longitude) ? 'SÍ' : 'NO',
       'Latitud': c.latitude || '',
-      'Longitud': c.longitude || ''
+      'Longitud': c.longitude || '',
+      'Distancia a mi Posición (km)': c.distanceKm !== null ? `${c.distanceKm} km` : 'Sin GPS'
     }));
-    const wsFreq = XLSX.utils.json_to_sheet(frequencyData);
-    XLSX.utils.book_append_sheet(wb, wsFreq, 'Radar_Frecuencia');
+    const wsPortfolio = XLSX.utils.json_to_sheet(portfolioData);
+    XLSX.utils.book_append_sheet(wb, wsPortfolio, 'Cartera_Clientes_Frecuencia');
+
+    // Sheet 3: Productos Sin Rotación
+    const slowData = slowMovingProductsList.map(p => ({
+      'Producto': p.name,
+      'Categoría': p.category || 'General',
+      'Stock Disponible': p.stock,
+      'Precio Unitario': `Q${p.price}`,
+      'Días Sin Venta': p.daysWithoutSale === 999 ? 'Sin ventas registradas' : p.daysWithoutSale,
+      'Motivo': p.recommendationReason,
+      'Acción Comercial Sugerida': p.suggestedAction
+    }));
+    const wsSlow = XLSX.utils.json_to_sheet(slowData);
+    XLSX.utils.book_append_sheet(wb, wsSlow, 'Productos_Sin_Rotacion');
 
     // Download File
     const todayStr = getGuatemalaTodayIso();
-    XLSX.writeFile(wb, `Reporte_Visitas_Agricovet_${todayStr}.xlsx`);
+    XLSX.writeFile(wb, `Reporte_Visitas_Y_Cartera_Agricovet_${todayStr}.xlsx`);
   };
 
   const renderVisitBadge = (type: string) => {
@@ -313,13 +372,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const geotaggedCount = clients.filter(c => c.latitude && c.longitude).length;
   const geotaggedPercentage = clients.length > 0 ? Math.round((geotaggedCount / clients.length) * 100) : 0;
   const todayVisitsCount = stats?.totalVisitsToday ?? visits.filter(v => isTodayGuatemala(v.createdAt)).length;
-  const urgentClientsCount = clientFrequencyList.filter(c => c.status === 'urgent' || c.status === 'never').length;
+  const urgentClientsCount = clientPortfolioWithStatus.filter(c => c.status === 'urgent' || c.status === 'never').length;
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center p-12 min-h-[450px] bg-slate-50 font-sans">
         <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-500 font-manrope">Cargando rutas y mapa de visitas...</p>
+        <p className="text-sm font-semibold text-slate-500 font-manrope">Cargando rutas, cartera y productos...</p>
       </div>
     );
   }
@@ -340,7 +399,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             Visitas a Clientes & Checkpoints
           </h1>
           <p className="text-sm text-slate-500 font-medium">
-            Seguimiento de visitas en tiempo real, geolocalización satelital y supervisión de frecuencia.
+            Seguimiento de visitas en tiempo real, cartera de clientes con ubicación, supervisión de frecuencia y recomendación de productos.
           </p>
         </div>
 
@@ -349,7 +408,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             type="button"
             onClick={handleExportExcel}
             className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 active:scale-95 px-3.5 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
-            title="Exportar reporte de visitas a Excel"
+            title="Exportar reporte de visitas y cartera a Excel"
           >
             <FileSpreadsheet size={16} className="text-emerald-600" />
             <span>Excel</span>
@@ -477,27 +536,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Visitas del Mes</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <TrendingUp size={16} />
-            </div>
-          </div>
-          <h4 className="text-2xl font-black text-slate-950">
-            {stats?.totalVisitsMonth ?? visits.length}
-          </h4>
-          <p className="text-xs text-blue-600 mt-1 font-semibold">
-            {stats?.activeSellersCount ?? availableSellers.length} vendedores en ruta
-          </p>
-        </motion.div>
-
-        {/* Card 4 */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.15 }}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Radar &gt;15 Días</span>
             <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
               <AlertTriangle size={16} />
@@ -506,6 +544,26 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           <h4 className="text-2xl font-black text-rose-600">{urgentClientsCount}</h4>
           <p className="text-xs text-rose-500 mt-1 font-semibold">
             Requieren atención prioritaria
+          </p>
+        </motion.div>
+
+        {/* Card 4: Slow Moving Products */}
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.15 }}
+          onClick={() => setActiveTab('slow_products')}
+          className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 p-5 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col justify-between cursor-pointer hover:border-amber-400 transition-colors"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-amber-900">Productos Detenidos</span>
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+              <Flame size={16} />
+            </div>
+          </div>
+          <h4 className="text-2xl font-black text-amber-950">{slowMovingProductsList.length}</h4>
+          <p className="text-xs text-amber-800 mt-1 font-semibold flex items-center gap-1">
+            <ArrowRight size={12} /> Para recomendar en ruta
           </p>
         </motion.div>
       </div>
@@ -541,33 +599,44 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         {/* Navigation Tabs Bar */}
         <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
           {/* Segmented Tab Buttons */}
-          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl">
+          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl flex-wrap gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('my_portfolio')}
+              className={cn(
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                activeTab === 'my_portfolio' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              👥 Cartera & Frecuencia ({clientPortfolioWithStatus.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('slow_products')}
+              className={cn(
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1",
+                activeTab === 'slow_products' ? "bg-amber-500 text-white shadow-xs" : "text-amber-900 hover:bg-amber-100/60"
+              )}
+            >
+              <Flame size={13} />
+              <span>Sin Rotación ({slowMovingProductsList.length})</span>
+            </button>
             <button
               type="button"
               onClick={() => setActiveTab('timeline')}
               className={cn(
-                "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
                 activeTab === 'timeline' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
-              🕒 Checkpoints en Vivo ({filteredVisits.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('frequency')}
-              className={cn(
-                "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                activeTab === 'frequency' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              🎯 Radar de Frecuencia ({clientFrequencyList.length})
+              🕒 Checkpoints ({filteredVisits.length})
             </button>
             {user.role === 'admin' && (
               <button
                 type="button"
                 onClick={() => setActiveTab('sellers')}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
                   activeTab === 'sellers' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
                 )}
               >
@@ -582,12 +651,38 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
               <input
                 type="text"
-                placeholder="Buscar cliente o vendedor..."
+                placeholder="Buscar cliente, código, dirección..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
               />
             </div>
+
+            {/* Scope Filter for Sellers (My Clients vs All) */}
+            {activeTab === 'my_portfolio' && user.role === 'seller' && (
+              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPortfolioScope('mine')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg transition-colors cursor-pointer",
+                    portfolioScope === 'mine' ? "bg-teal-600 text-white" : "text-slate-600"
+                  )}
+                >
+                  Mis Asignados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPortfolioScope('all')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg transition-colors cursor-pointer",
+                    portfolioScope === 'all' ? "bg-teal-600 text-white" : "text-slate-600"
+                  )}
+                >
+                  Toda la Cartera
+                </button>
+              </div>
+            )}
 
             {/* Date Range Filter */}
             {activeTab === 'timeline' && (
@@ -616,22 +711,213 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               </select>
             )}
 
-            {activeTab === 'frequency' && (
+            {activeTab === 'my_portfolio' && (
               <select
                 value={frequencyFilter}
                 onChange={(e) => setFrequencyFilter(e.target.value as any)}
                 className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
               >
-                <option value="all">Toda la Cartera</option>
+                <option value="all">Todo el Estado</option>
                 <option value="urgent">🔴 Urgentes (&gt;15 días)</option>
                 <option value="regular">🟢 Al día (&lt;7 días)</option>
-                <option value="never">⚪ Sin visitas</option>
+                <option value="never">⚪ Sin visitas registradas</option>
               </select>
             )}
           </div>
         </div>
 
-        {/* Tab 1: Live Timeline Feed */}
+        {/* TAB 1: MY PORTFOLIO WITH LOCATION & TIME SINCE LAST VISIT */}
+        {activeTab === 'my_portfolio' && (
+          <div className="p-4 md:p-5 divide-y divide-slate-100">
+            {clientPortfolioWithStatus.length === 0 ? (
+              <div className="py-16 text-center text-slate-400">
+                <Users className="mx-auto text-slate-300 mb-2" size={36} />
+                <p className="font-bold text-slate-700 text-sm">No se encontraron clientes coincidentes</p>
+                <p className="text-xs text-slate-400 mt-0.5">Ajusta los filtros de búsqueda</p>
+              </div>
+            ) : (
+              clientPortfolioWithStatus.map((client) => {
+                const hasGps = client.latitude && client.longitude;
+                const mapsLink = hasGps 
+                  ? `https://www.google.com/maps/dir/?api=1&destination=${client.latitude},${client.longitude}`
+                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address || client.name)}`;
+                const wazeLink = hasGps
+                  ? `https://waze.com/ul?ll=${client.latitude},${client.longitude}&navigate=yes`
+                  : null;
+
+                return (
+                  <div key={client.id} className="py-4 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 px-2 rounded-xl transition-colors">
+                    {/* Client Main Info & Location */}
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">{client.name}</span>
+                        {client.clientCode && (
+                          <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                            #{client.clientCode}
+                          </span>
+                        )}
+                        {hasGps ? (
+                          <span className="text-[9px] font-bold bg-teal-50 text-teal-700 border border-teal-200/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <MapPin size={10} /> Con GPS Fijado
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">
+                            Sin GPS
+                          </span>
+                        )}
+                        {client.distanceKm !== null && (
+                          <span className="text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+                            📍 a {client.distanceKm} km de ti
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Physical Address & Location */}
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        {client.companyName && (
+                          <p className="font-medium text-slate-700 flex items-center gap-1.5">
+                            <Building2 size={12} className="text-slate-400" />
+                            {client.companyName}
+                          </p>
+                        )}
+                        {client.address && (
+                          <p className="text-slate-500 flex items-center gap-1.5">
+                            <MapPin size={12} className="text-teal-600 shrink-0" />
+                            <span className="font-medium text-slate-700">{client.address}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Phone Dialer */}
+                      {client.phone && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <Phone size={12} className="text-slate-400" />
+                          <a href={`tel:${client.phone}`} className="text-teal-700 font-bold hover:underline">
+                            {client.phone}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Time Since Last Visit Status & Direct Actions */}
+                    <div className="flex flex-wrap items-center gap-3 self-start md:self-center shrink-0">
+                      {/* Urgency Badge */}
+                      <div className="text-right">
+                        {client.daysElapsed === null ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                            ⚪ Nunca visitado
+                          </span>
+                        ) : client.daysElapsed === 0 ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            🟢 Visitado hoy
+                          </span>
+                        ) : client.daysElapsed <= 7 ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                            🟢 Hace {client.daysElapsed} días
+                          </span>
+                        ) : client.daysElapsed <= 15 ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            🟡 Hace {client.daysElapsed} días
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black bg-rose-50 text-rose-800 border border-rose-200 animate-pulse">
+                            🔴 ¡Hace {client.daysElapsed} días!
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Action: Register Visit */}
+                      <button
+                        type="button"
+                        onClick={() => handleSelectClientForVisit(client)}
+                        className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 flex items-center gap-1"
+                      >
+                        <ClipboardCheck size={14} />
+                        <span>Visitar</span>
+                      </button>
+
+                      {/* Action: Open in Maps */}
+                      <a
+                        href={mapsLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs transition-colors"
+                        title="Abrir ruta en Google Maps"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: SLOW-MOVING / UNMOVING PRODUCTS TO RECOMMEND */}
+        {activeTab === 'slow_products' && (
+          <div className="p-4 md:p-6 space-y-4">
+            <div className="bg-amber-50 border border-amber-200/80 p-4 rounded-2xl flex items-start space-x-3">
+              <Flame className="text-amber-600 shrink-0 mt-0.5" size={20} />
+              <div>
+                <h4 className="font-bold text-sm text-amber-950">Catálogo de Productos Detenidos / Baja Rotación</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Estos productos cuentan con inventario disponible en bodega pero no han tenido ventas en los últimos 15 a 45 días. 
+                  Recomiéndalos activamente a tus clientes en cada visita para acelerar el flujo de inventario.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {slowMovingProductsList.map((product) => (
+                <div key={product.id} className="p-4 rounded-2xl border border-slate-200/80 bg-white hover:border-amber-300 transition-all shadow-2xs space-y-3 flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                        {product.category || 'General'}
+                      </span>
+                      <span className={cn(
+                        "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                        product.daysWithoutSale === 999 
+                          ? "bg-purple-50 text-purple-700 border-purple-200" 
+                          : product.daysWithoutSale > 45 
+                            ? "bg-rose-50 text-rose-700 border-rose-200" 
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                      )}>
+                        {product.daysWithoutSale === 999 ? 'Sin ventas recientes' : `${product.daysWithoutSale} días sin venta`}
+                      </span>
+                    </div>
+
+                    <h4 className="font-bold text-sm text-slate-900 leading-snug">{product.name}</h4>
+                    <p className="text-xs text-slate-500">
+                      Precio de lista: <span className="font-bold text-slate-900">Q{product.price}</span> • Stock en bodega: <span className="font-bold text-emerald-700">{product.stock} un.</span>
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <div className="p-2 bg-slate-50 rounded-xl text-[11px] text-slate-600">
+                      <span className="font-bold text-slate-800">💡 Argumento comercial:</span> {product.suggestedAction}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedClientForVisit(null);
+                        setIsRegisterModalOpen(true);
+                      }}
+                      className="w-full py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Plus size={14} />
+                      <span>Ofrecer en Checkpoint</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: LIVE CHECKPOINTS FEED */}
         {activeTab === 'timeline' && (
           <div>
             {/* Visit Type Filter Pills */}
@@ -719,7 +1005,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                             href={visit.photoUrl} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 hover:scale-105 transition-transform"
+                            className="w-10 h-10 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-2xs hover:scale-105 transition-transform"
+                            title="Ver foto de comprobante"
                           >
                             <img src={visit.photoUrl} alt="Foto" className="w-full h-full object-cover" />
                           </a>
@@ -742,106 +1029,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </div>
         )}
 
-        {/* Tab 2: Frequency Radar */}
-        {activeTab === 'frequency' && (
-          <div className="p-4 md:p-5 divide-y divide-slate-100">
-            {clientFrequencyList.length === 0 ? (
-              <div className="py-16 text-center text-slate-400">
-                <Users className="mx-auto text-slate-300 mb-2" size={36} />
-                <p className="font-bold text-slate-700 text-sm">No hay clientes coincidentes</p>
-              </div>
-            ) : (
-              clientFrequencyList.map((client) => {
-                const hasGps = client.latitude && client.longitude;
-                const mapsLink = hasGps 
-                  ? `https://www.google.com/maps/dir/?api=1&destination=${client.latitude},${client.longitude}`
-                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address || client.name)}`;
-
-                return (
-                  <div key={client.id} className="py-3.5 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-xl transition-colors">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900">{client.name}</span>
-                        {client.clientCode && (
-                          <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                            #{client.clientCode}
-                          </span>
-                        )}
-                        {hasGps ? (
-                          <span className="text-[9px] font-bold bg-teal-50 text-teal-700 border border-teal-200/60 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                            <MapPin size={9} /> GPS Listo
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-bold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">
-                            Sin GPS
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                        {client.companyName && (
-                          <span className="font-medium text-slate-700">🏢 {client.companyName}</span>
-                        )}
-                        {client.phone && (
-                          <span>📞 {client.phone}</span>
-                        )}
-                        {client.address && (
-                          <span className="text-slate-400 truncate max-w-xs">{client.address}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="text-right">
-                        {client.daysElapsed === null ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                            ⚪ Nunca visitado
-                          </span>
-                        ) : client.daysElapsed === 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            🟢 Visitado hoy
-                          </span>
-                        ) : client.daysElapsed <= 7 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                            🟢 Hace {client.daysElapsed} días
-                          </span>
-                        ) : client.daysElapsed <= 15 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            🟡 Hace {client.daysElapsed} días
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                            🔴 ¡{client.daysElapsed} días sin visita!
-                          </span>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectClientForVisit(client)}
-                        className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
-                      >
-                        📌 Visitar
-                      </button>
-
-                      <a
-                        href={mapsLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs transition-colors"
-                        title="Abrir en Google Maps"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {/* Tab 3: Sellers Ranking */}
+        {/* TAB 4: SELLERS RANKING */}
         {activeTab === 'sellers' && user.role === 'admin' && (
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {stats?.sellerRankings && stats.sellerRankings.length > 0 ? (
@@ -910,6 +1098,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         currentUser={user}
         onVisitRegistered={handleVisitRegistered}
         preselectedClient={selectedClientForVisit}
+        products={products}
+        invoices={invoices}
       />
     </div>
   );

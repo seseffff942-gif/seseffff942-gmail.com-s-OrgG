@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'chore: purga total de datos de prueba en base local y supabase dejando estado limpio e impecable';
+  const commitMsg = 'feat: cartera de clientes con ubicacion y tiempo sin visita, foto obligatoria en checkpoints y modulo de productos sin rotacion';
   const sha = await git.commit({
     fs,
     dir,

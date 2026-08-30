@@ -1,14 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Client, User, VisitType, ClientVisit } from '../types';
+import { Client, User, VisitType, ClientVisit, Product, Invoice } from '../types';
 import { api } from '../api';
 import { 
   Search, MapPin, X, Check, Building2, Phone, 
   ShoppingCart, DollarSign, UserPlus, Package, 
   ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation,
-  Tag, Image as ImageIcon, Trash2
+  Tag, Image as ImageIcon, Trash2, Box, Flame, ArrowRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn, normalizeSearchText } from '../utils';
+import { cn, normalizeSearchText, calculateSlowMovingProducts, SlowMovingProduct } from '../utils';
 
 interface RegisterVisitModalProps {
   isOpen: boolean;
@@ -18,6 +18,8 @@ interface RegisterVisitModalProps {
   currentUser: User;
   onVisitRegistered: (visit: ClientVisit) => void;
   preselectedClient?: Client | null;
+  products?: Product[];
+  invoices?: Invoice[];
 }
 
 const VISIT_TYPES: { id: VisitType; label: string; icon: any; color: string; bg: string; border: string }[] = [
@@ -58,7 +60,9 @@ export function RegisterVisitModal({
   currentLocation,
   currentUser,
   onVisitRegistered,
-  preselectedClient
+  preselectedClient,
+  products = [],
+  invoices = []
 }: RegisterVisitModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(preselectedClient || null);
@@ -74,6 +78,12 @@ export function RegisterVisitModal({
       setSelectedClient(preselectedClient);
     }
   }, [preselectedClient, isOpen]);
+
+  // Slow-moving products to recommend to this client
+  const recommendedSlowProducts = useMemo(() => {
+    if (!products || products.length === 0) return [];
+    return calculateSlowMovingProducts(products, invoices, 15).slice(0, 4);
+  }, [products, invoices]);
 
   const nearbyClients = useMemo(() => {
     if (!currentLocation) return [];
@@ -129,9 +139,15 @@ export function RegisterVisitModal({
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setErrorMsg('La imagen es demasiado pesada. El tamaño máximo es 5MB.');
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         setPhotoUrl(reader.result as string);
+        setErrorMsg('');
       };
       reader.readAsDataURL(file);
     }
@@ -145,6 +161,11 @@ export function RegisterVisitModal({
     });
   };
 
+  const handleAddProductRecommendationToNotes = (product: SlowMovingProduct) => {
+    const text = `Se recomendó producto en promoción: ${product.name} (Stock: ${product.stock} un. a Q${product.price})`;
+    handleAddChipToNotes(text);
+  };
+
   const handleSaveVisit = async () => {
     if (!selectedClient) {
       setErrorMsg('Selecciona el cliente que estás visitando.');
@@ -152,6 +173,11 @@ export function RegisterVisitModal({
     }
     if (!currentLocation) {
       setErrorMsg('No se ha podido obtener tu ubicación GPS. Asegúrate de tener permisos activos.');
+      return;
+    }
+    // FOTO OBLIGATORIA
+    if (!photoUrl) {
+      setErrorMsg('⚠️ La foto de comprobante o fachada es OBLIGATORIA para validar y registrar el checkpoint.');
       return;
     }
 
@@ -255,7 +281,7 @@ export function RegisterVisitModal({
           {/* 1. Client Selection */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              1. Cliente que estás visitando
+              1. Cliente que estás visitando *
             </label>
 
             {selectedClient ? (
@@ -343,7 +369,7 @@ export function RegisterVisitModal({
           {/* 2. Visit Type Selection */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              2. Motivo o Tipo de Visita
+              2. Motivo o Tipo de Visita *
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {VISIT_TYPES.map(type => {
@@ -373,11 +399,109 @@ export function RegisterVisitModal({
             </div>
           </div>
 
-          {/* 3. Quick Chips & Notes */}
+          {/* 3. FOTO DE PRUEBA (OBLIGATORIA) */}
+          <div className="space-y-1.5 p-3.5 bg-rose-50/50 border border-rose-200/70 rounded-2xl">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-rose-900 flex items-center gap-1.5">
+                <Camera size={14} className="text-rose-600" />
+                <span>3. Foto de Comprobante / Fachada</span>
+                <span className="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
+                  Obligatoria
+                </span>
+              </label>
+              {photoUrl ? (
+                <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                  <Check size={12} strokeWidth={3} /> Foto Cargada
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-rose-600 animate-pulse">
+                  * Requerida para guardar
+                </span>
+              )}
+            </div>
+
+            <p className="text-[10px] text-slate-500">
+              Toma una foto de la fachada del negocio, mostrador o cliente para validar la visita.
+            </p>
+
+            <div className="flex items-center gap-3 pt-1">
+              <label className={cn(
+                "flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 border",
+                photoUrl
+                  ? "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  : "bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-sm shadow-rose-600/20"
+              )}>
+                <Camera size={16} />
+                <span>{photoUrl ? "Cambiar Foto" : "📸 Tomar Foto Ahora"}</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  onChange={handlePhotoUpload} 
+                  className="hidden" 
+                />
+              </label>
+
+              {photoUrl && (
+                <div className="relative group w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-2xs">
+                  <img src={photoUrl} alt="Comprobante" className="w-full h-full object-cover" />
+                  <button 
+                    type="button"
+                    onClick={() => setPhotoUrl('')}
+                    className="absolute inset-0 bg-rose-600/85 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    title="Eliminar foto"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. PRODUCTOS SIN ROTACIÓN / RECOMENDACIONES EN ESTA VISITA */}
+          {recommendedSlowProducts.length > 0 && (
+            <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1">
+                  <Flame size={14} className="text-amber-600" />
+                  Productos Detenidos para Ofrecer en esta Visita
+                </span>
+                <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                  Stock Disponible
+                </span>
+              </div>
+              <p className="text-[10px] text-amber-800/80">
+                Aprovecha tu visita para mover estos productos con baja rotación:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                {recommendedSlowProducts.map(p => (
+                  <div key={p.id} className="p-2 bg-white rounded-xl border border-amber-200 flex items-center justify-between text-xs shadow-2xs">
+                    <div className="space-y-0.5 pr-2">
+                      <p className="font-bold text-slate-900 leading-snug line-clamp-1">{p.name}</p>
+                      <p className="text-[10px] text-slate-500">
+                        Stock: <span className="font-bold text-amber-700">{p.stock} un.</span> • Q{p.price}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddProductRecommendationToNotes(p)}
+                      className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[10px] font-bold shrink-0 transition-colors cursor-pointer"
+                      title="Agregar como producto ofrecido en notas"
+                    >
+                      + Ofrecer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. Quick Chips & Notes */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                3. Notas / Observaciones
+                5. Notas / Observaciones
               </label>
               <span className="text-[10px] text-slate-400 font-medium">Toca para agregar rápido:</span>
             </div>
@@ -404,40 +528,6 @@ export function RegisterVisitModal({
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
             />
           </div>
-
-          {/* 4. Photo Capture with Preview */}
-          <div className="space-y-1.5">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              4. Foto de Comprobante / Fachada (Opcional)
-            </label>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-colors cursor-pointer active:scale-95">
-                <Camera size={15} className="text-slate-600" />
-                <span>Tomar / Subir Foto</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="environment" 
-                  onChange={handlePhotoUpload} 
-                  className="hidden" 
-                />
-              </label>
-
-              {photoUrl && (
-                <div className="relative group w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shadow-2xs">
-                  <img src={photoUrl} alt="Comprobante" className="w-full h-full object-cover" />
-                  <button 
-                    type="button"
-                    onClick={() => setPhotoUrl('')}
-                    className="absolute inset-0 bg-rose-600/85 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                    title="Eliminar foto"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Error Alert */}
@@ -461,12 +551,12 @@ export function RegisterVisitModal({
           <button
             type="button"
             onClick={handleSaveVisit}
-            disabled={!selectedClient || !currentLocation || isSubmitting}
+            disabled={!selectedClient || !currentLocation || !photoUrl || isSubmitting}
             className={cn(
               "px-5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer",
               successSaved
                 ? "bg-emerald-600 text-white"
-                : selectedClient && currentLocation && !isSubmitting
+                : selectedClient && currentLocation && photoUrl && !isSubmitting
                   ? "bg-teal-600 hover:bg-teal-700 text-white active:scale-95 shadow-teal-600/10"
                   : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
             )}
@@ -484,7 +574,7 @@ export function RegisterVisitModal({
             ) : (
               <>
                 <ClipboardCheck size={15} />
-                <span>Guardar Checkpoint</span>
+                <span>Guardar Checkpoint con Foto</span>
               </>
             )}
           </button>

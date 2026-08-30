@@ -43,6 +43,112 @@ export function isTodayGuatemala(dateStr?: string | Date | null): boolean {
   }
 }
 
+export interface SlowMovingProduct {
+  id: string;
+  name: string;
+  category?: string;
+  stock: number;
+  price: number;
+  image?: string;
+  daysWithoutSale: number;
+  lastSaleDate?: string;
+  totalSoldLast30Days: number;
+  recommendationReason: string;
+  suggestedAction: string;
+}
+
+export function calculateSlowMovingProducts(products: any[], invoices: any[], daysThreshold = 15): SlowMovingProduct[] {
+  if (!products || products.length === 0) return [];
+  const now = new Date().getTime();
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+  // Map each product to its sales history
+  const salesMap = new Map<string, { lastSaleDate?: string; totalSold30d: number }>();
+
+  (invoices || []).forEach(inv => {
+    if (inv.isCancelled || inv.status === 'anulada') return;
+    const invDate = inv.date || inv.createdAt;
+    if (!invDate) return;
+    const invTime = new Date(invDate).getTime();
+    const isWithin30d = now - invTime <= THIRTY_DAYS_MS;
+
+    (inv.items || []).forEach((item: any) => {
+      const pId = item.productId || item.id;
+      const pName = item.productName || item.name;
+      const key = pId || pName;
+      if (!key) return;
+
+      const current = salesMap.get(key) || { lastSaleDate: undefined, totalSold30d: 0 };
+      if (!current.lastSaleDate || invTime > new Date(current.lastSaleDate).getTime()) {
+        current.lastSaleDate = invDate;
+      }
+      if (isWithin30d) {
+        current.totalSold30d += (Number(item.quantity) || 1);
+      }
+      salesMap.set(key, current);
+
+      if (pName) {
+        salesMap.set(pName.toLowerCase().trim(), current);
+      }
+    });
+  });
+
+  const slowProducts: SlowMovingProduct[] = [];
+
+  products.forEach(p => {
+    if (!p || (p.stock !== undefined && p.stock <= 0)) return; // Only products with available stock
+    const pNameKey = (p.name || '').toLowerCase().trim();
+    const sales = salesMap.get(p.id) || salesMap.get(pNameKey);
+
+    let daysWithoutSale = 999;
+    let lastSaleDate: string | undefined = undefined;
+    let totalSoldLast30Days = 0;
+
+    if (sales && sales.lastSaleDate) {
+      lastSaleDate = sales.lastSaleDate;
+      totalSoldLast30Days = sales.totalSold30d;
+      const lastTime = new Date(sales.lastSaleDate).getTime();
+      daysWithoutSale = Math.max(0, Math.floor((now - lastTime) / (1000 * 60 * 60 * 24)));
+    }
+
+    if (daysWithoutSale >= daysThreshold || totalSoldLast30Days === 0) {
+      let reason = "Sin ventas en los últimos 30 días";
+      let action = "Ofrecer promoción o descuento por volumen";
+      if (daysWithoutSale === 999) {
+        reason = "Sin ventas recientes (Stock listo en bodega)";
+        action = "Presentar al cliente como producto recomendado";
+      } else if (daysWithoutSale > 45) {
+        reason = `Lleva ${daysWithoutSale} días sin movimiento`;
+        action = "Priorizar para rotación rápida en esta visita";
+      } else if (daysWithoutSale >= 15) {
+        reason = `Baja rotación (${daysWithoutSale} días sin venta)`;
+        action = "Sugerir como compra complementaria";
+      }
+
+      slowProducts.push({
+        id: p.id,
+        name: p.name || 'Producto',
+        category: p.category,
+        stock: p.stock ?? 0,
+        price: p.price ?? 0,
+        image: p.image || p.imageUrl,
+        daysWithoutSale,
+        lastSaleDate,
+        totalSoldLast30Days,
+        recommendationReason: reason,
+        suggestedAction: action
+      });
+    }
+  });
+
+  return slowProducts.sort((a, b) => {
+    if (b.daysWithoutSale !== a.daysWithoutSale) {
+      return b.daysWithoutSale - a.daysWithoutSale;
+    }
+    return b.stock - a.stock;
+  });
+}
+
 export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
 }
