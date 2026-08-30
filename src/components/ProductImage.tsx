@@ -2,60 +2,29 @@ import React, { useState, useEffect } from 'react';
 
 /**
  * Imagen de producto con respaldo a prueba de fallos.
- *
- * PROBLEMA QUE RESUELVE
- * ---------------------
- * El patron anterior era:
- *
- *   <img src={product.image || getFallbackImage(cat)}
- *        onError={(e) => { e.currentTarget.src = getFallbackImage(cat); }} />
- *
- * Eso mutaba el DOM directamente, pero `src` es una prop controlada por React.
- * En cuanto la pagina se re-renderizaba (Ventas refresca cada 10s e Inventario
- * cada 15s), React devolvia `src` a la URL rota -> fallaba -> onError volvia a
- * poner el respaldo -> y asi indefinidamente.
- *
- * Encima, los archivos de respaldo (/box.png y /bottle.png) estaban corruptos y
- * pesaban ~850 KB cada uno, asi que cada vuelta del bucle descargaba casi un
- * megabyte. Se midio mas de 1 GB transferido en una sola sesion.
- *
- * SOLUCION
- * --------
- * 1. El fallo se guarda en estado de React, no mutando el DOM. React entonces
- *    renderiza el respaldo y deja de intentar la URL rota.
- * 2. Las URLs que fallaron se recuerdan a nivel de modulo, de modo que al
- *    re-renderizar o al remontar el componente no se vuelven a pedir.
- * 3. El respaldo es un SVG embebido (data URI): no hace peticion de red, no
- *    puede dar 404 y por lo tanto no puede reiniciar el ciclo.
+ * Muestra la imagen real del producto o un bote blanco genérico profesional
+ * para insumos veterinarios y agrícolas que aún no tienen fotografía.
  */
+
+export const BOTE_BLANCO_FALLBACK = "/placeholder-bottle.webp";
 
 const svgADataUri = (svg: string) =>
   `data:image/svg+xml,${encodeURIComponent(svg.replace(/\s+/g, ' ').trim())}`;
 
-const PLACEHOLDER_BOTELLA = svgADataUri(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <rect width="64" height="64" fill="#f1f5f4"/>
-    <rect x="27" y="7" width="10" height="5" rx="1.5" fill="#00696a"/>
-    <path d="M27 12h10v5l4 6v29a4 4 0 0 1-4 4H27a4 4 0 0 1-4-4V23l4-6v-5Z"
-          fill="#ffffff" stroke="#00696a" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M23 34h18" stroke="#00696a" stroke-width="2.5"/>
+export const PLACEHOLDER_BOTELLA_SVG = svgADataUri(`
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <rect width="100" height="100" fill="#f8fafc" rx="8"/>
+    <rect x="42" y="10" width="16" height="8" rx="2" fill="#047857"/>
+    <rect x="44" y="18" width="12" height="7" fill="#e2e8f0"/>
+    <path d="M34 32 C34 25, 44 25, 44 25 L56 25 C56 25, 66 25, 66 32 L70 80 C70 86, 64 90, 58 90 L42 90 C36 90, 30 86, 30 80 Z" 
+          fill="#ffffff" stroke="#cbd5e1" stroke-width="1.8" stroke-linejoin="round"/>
+    <rect x="36" y="42" width="28" height="34" rx="2" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+    <circle cx="50" cy="56" r="6" fill="#ecfdf5"/>
+    <path d="M50 52 v8 M46 56 h8" stroke="#10b981" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="50" y="86" font-family="sans-serif" font-size="5" font-weight="bold" fill="#94a3b8" text-anchor="middle">AGRICOVET</text>
   </svg>
 `);
 
-const PLACEHOLDER_CAJA = svgADataUri(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <rect width="64" height="64" fill="#f1f5f4"/>
-    <path d="M32 11 54 19v26L32 53 10 45V19L32 11Z"
-          fill="#ffffff" stroke="#00696a" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M10 19l22 8 22-8M32 27v26" stroke="#00696a" stroke-width="2.5" stroke-linejoin="round"/>
-  </svg>
-`);
-
-/**
- * Respaldo del logo. Sustituye a via.placeholder.com, que era un servicio
- * externo: si no respondia, el onError volvia a dispararse en bucle y ademas
- * exponia la app a una dependencia de terceros fuera de nuestro control.
- */
 export const LOGO_PLACEHOLDER = svgADataUri(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
     <rect width="64" height="64" rx="14" fill="#00696a"/>
@@ -69,8 +38,7 @@ export const LOGO_PLACEHOLDER = svgADataUri(`
 const urlsFallidas = new Set<string>();
 
 export function getFallbackImage(category?: string | null): string {
-  if (category && category.toLowerCase().includes('agro')) return PLACEHOLDER_BOTELLA;
-  return PLACEHOLDER_CAJA;
+  return BOTE_BLANCO_FALLBACK;
 }
 
 interface ProductImageProps
@@ -85,16 +53,23 @@ export function ProductImage({
   alt = '',
   ...rest
 }: ProductImageProps) {
-  const respaldo = getFallbackImage(category);
   const [fallo, setFallo] = useState(false);
+  const [falloSecundario, setFalloSecundario] = useState(false);
 
   // Si cambia el producto, volver a permitir el intento con su imagen.
   useEffect(() => {
     setFallo(false);
+    setFalloSecundario(false);
   }, [src]);
 
-  const utilizable = !!src && !urlsFallidas.has(src);
-  const fuente = !utilizable || fallo ? respaldo : (src as string);
+  const tieneSrc = !!src && src.trim() !== '' && !urlsFallidas.has(src);
+  
+  let fuente = BOTE_BLANCO_FALLBACK;
+  if (tieneSrc && !fallo) {
+    fuente = src as string;
+  } else if (falloSecundario) {
+    fuente = PLACEHOLDER_BOTELLA_SVG;
+  }
 
   return (
     <img
@@ -103,8 +78,12 @@ export function ProductImage({
       alt={alt}
       referrerPolicy="no-referrer"
       onError={() => {
-        if (src) urlsFallidas.add(src);
-        if (!fallo) setFallo(true);
+        if (tieneSrc && !fallo) {
+          if (src) urlsFallidas.add(src);
+          setFallo(true);
+        } else {
+          setFalloSecundario(true);
+        }
       }}
     />
   );

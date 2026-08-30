@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: mostrar historial completo por defecto y permitir busqueda global de folios hasta 1103';
+  const commitMsg = 'fix: agregar boton de actualizar y forzado de sincronizacion en vistas de facturas';
   const sha = await git.commit({
     fs,
     dir,

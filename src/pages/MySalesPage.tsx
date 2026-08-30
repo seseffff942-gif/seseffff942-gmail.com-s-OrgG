@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2, RefreshCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, formatDateSafe, formatMoney } from '../utils';
@@ -1045,6 +1045,19 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
           </div>
           
           <div className="flex flex-wrap gap-2 shrink-0 items-center">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof localStorage !== 'undefined') localStorage.removeItem('cached_invoices');
+                loadInvoices();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition shadow-xs cursor-pointer active:scale-95"
+              title="Recargar facturas desde el servidor"
+            >
+              <RefreshCcw size={13} className={loading ? "animate-spin text-emerald-600" : "text-slate-500"} />
+              <span>Actualizar</span>
+            </button>
+
             {/* Botón de Historial Completo */}
             <button
               onClick={() => setIsHistoryMode(!isHistoryMode)}

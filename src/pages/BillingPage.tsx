@@ -1521,6 +1521,19 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
           {/* Controls Shelf */}
           <div className="flex flex-wrap items-center gap-3 w-full lg:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof localStorage !== 'undefined') localStorage.removeItem('cached_invoices');
+                loadInvoices();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition shadow-xs cursor-pointer active:scale-95"
+              title="Recargar facturas desde el servidor"
+            >
+              <RefreshCcw size={13} className={loading ? "animate-spin text-emerald-600" : "text-slate-500"} />
+              <span>Actualizar</span>
+            </button>
+
             <label className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 bg-slate-50/50 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors text-xs font-bold text-slate-600 select-none">
               <input
                 type="checkbox"

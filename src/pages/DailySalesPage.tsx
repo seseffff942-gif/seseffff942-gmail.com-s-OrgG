@@ -1349,6 +1349,18 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full lg:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof localStorage !== 'undefined') localStorage.removeItem('cached_invoices');
+                  loadData();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition shadow-xs cursor-pointer active:scale-95"
+                title="Recargar facturas desde el servidor"
+              >
+                <RefreshCcw size={13} className={loading ? "animate-spin text-emerald-600" : "text-slate-500"} />
+                <span>Actualizar</span>
+              </button>
               
               <div className="flex border border-slate-200 bg-slate-50/50 p-1 rounded-xl shadow-xs">
                 <button 
