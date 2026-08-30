@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: pulir modulo de visitas con exportacion excel, accesos directos por departamentos de guatemala, busqueda en mapa y chips rapidos de campo';
+  const commitMsg = 'chore: purga total de datos de prueba en base local y supabase dejando estado limpio e impecable';
   const sha = await git.commit({
     fs,
     dir,
