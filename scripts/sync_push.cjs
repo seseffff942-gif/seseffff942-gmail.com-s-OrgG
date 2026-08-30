@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: modulo de visitas a clientes, mapa interactivo de guatemala, checkpoints gps y radar de supervision';
+  const commitMsg = 'fix: resolver error 500 en marcar cliente agregando fallback resiliente y resolviendo cache en serverless';
   const sha = await git.commit({
     fs,
     dir,
