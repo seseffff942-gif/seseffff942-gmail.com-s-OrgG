@@ -11,7 +11,7 @@ import {
   DollarSign, ShoppingCart, UserPlus, Package, 
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, TrendingUp, AlertCircle, Plus, Layers, Activity
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ClientVisitsPageProps {
@@ -145,17 +145,17 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
   // Filtered Visits
   const filteredVisits = useMemo(() => {
+    const term = normalizeSearchText(searchTerm);
     return visits.filter(v => {
       if (selectedSellerFilter !== 'all') {
         const matchesSeller = v.sellerId === selectedSellerFilter || v.sellerEmail === selectedSellerFilter || v.sellerName === selectedSellerFilter;
         if (!matchesSeller) return false;
       }
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        const matchesTerm = (v.clientName || '').toLowerCase().includes(term) ||
-                            (v.clientCode || '').toLowerCase().includes(term) ||
-                            (v.sellerName || '').toLowerCase().includes(term) ||
-                            (v.notes || '').toLowerCase().includes(term);
+      if (term) {
+        const matchesTerm = normalizeSearchText(v.clientName || '').includes(term) ||
+                            normalizeSearchText(v.clientCode || '').includes(term) ||
+                            normalizeSearchText(v.sellerName || '').includes(term) ||
+                            normalizeSearchText(v.notes || '').includes(term);
         if (!matchesTerm) return false;
       }
       return true;
@@ -173,15 +173,17 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       }
     });
 
+    const term = normalizeSearchText(searchTerm);
+
     return clients.map(client => {
       const lastVisit = map.get(client.id);
       const daysElapsed = lastVisit 
-        ? Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+        ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
         : null;
 
       let status: 'today' | 'recent' | 'attention' | 'urgent' | 'never' = 'never';
       if (daysElapsed === null) status = 'never';
-      else if (daysElapsed === 0) status = 'today';
+      else if (daysElapsed === 0 || (lastVisit && isTodayGuatemala(lastVisit.createdAt))) status = 'today';
       else if (daysElapsed <= 7) status = 'recent';
       else if (daysElapsed <= 15) status = 'attention';
       else status = 'urgent';
@@ -193,12 +195,11 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         status
       };
     }).filter(c => {
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        const matches = (c.name || '').toLowerCase().includes(term) ||
-                        (c.clientCode || '').toLowerCase().includes(term) ||
-                        (c.phone || '').toLowerCase().includes(term) ||
-                        (c.companyName || '').toLowerCase().includes(term);
+      if (term) {
+        const matches = normalizeSearchText(c.name || '').includes(term) ||
+                        normalizeSearchText(c.clientCode || '').includes(term) ||
+                        normalizeSearchText(c.phone || '').includes(term) ||
+                        normalizeSearchText(c.companyName || '').includes(term);
         if (!matches) return false;
       }
       if (frequencyFilter === 'urgent') return c.status === 'urgent';

@@ -68,7 +68,20 @@ export function ClientVisitsMap({
     markersLayerRef.current = markersGroup;
     mapInstanceRef.current = map;
 
+    // Trigger invalidateSize after container mounts
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    if (mapContainerRef.current) {
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
     };

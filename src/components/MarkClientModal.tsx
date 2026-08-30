@@ -3,7 +3,7 @@ import { Client, User } from '../types';
 import { api } from '../api';
 import { Search, MapPin, X, Check, Building2, Phone, Hash, AlertCircle, Navigation } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn } from '../utils';
+import { cn, normalizeSearchText } from '../utils';
 
 interface MarkClientModalProps {
   isOpen: boolean;
@@ -28,19 +28,19 @@ export function MarkClientModal({
   const [errorMsg, setErrorMsg] = useState('');
   const [successSaved, setSuccessSaved] = useState(false);
 
-  // Filter clients with multi-attribute fuzzy search
+  // Filter clients with multi-attribute accent-insensitive fuzzy search
   const filteredClients = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return clients.slice(0, 20);
+    const term = normalizeSearchText(searchTerm);
+    if (!term) return clients.slice(0, 25);
 
     return clients.filter(c => {
       if (!c) return false;
-      const name = (c.name || '').toLowerCase();
-      const code = (c.clientCode || '').toLowerCase();
-      const company = (c.companyName || '').toLowerCase();
-      const phone = (c.phone || '').toLowerCase();
-      const nit = (c.nit || '').toLowerCase();
-      const address = (c.address || '').toLowerCase();
+      const name = normalizeSearchText(c.name);
+      const code = normalizeSearchText(c.clientCode);
+      const company = normalizeSearchText(c.companyName);
+      const phone = normalizeSearchText(c.phone);
+      const nit = normalizeSearchText(c.nit);
+      const address = normalizeSearchText(c.address);
 
       return (
         name.includes(term) ||
@@ -50,7 +50,7 @@ export function MarkClientModal({
         nit.includes(term) ||
         address.includes(term)
       );
-    }).slice(0, 30);
+    }).slice(0, 35);
   }, [clients, searchTerm]);
 
   const handleConfirmMark = async () => {

@@ -2076,6 +2076,7 @@ if (!process.env.VERCEL) {
   }
 
   function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 0;
     const R = 6371e3; // Earth radius in meters
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
@@ -2085,9 +2086,10 @@ if (!process.env.VERCEL) {
     const a =
       Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
       Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const c = 2 * Math.atan2(Math.sqrt(Math.max(0, Math.min(1, a))), Math.sqrt(Math.max(0, 1 - a)));
 
-    return Math.round(R * c);
+    const dist = Math.round(R * c);
+    return isNaN(dist) ? 0 : Math.max(0, dist);
   }
 
   // Update client GPS location
@@ -2101,6 +2103,10 @@ if (!process.env.VERCEL) {
 
     const latNum = parseFloat(latitude);
     const lngNum = parseFloat(longitude);
+    if (isNaN(latNum) || isNaN(lngNum)) {
+      return res.status(400).json({ error: "Coordenadas inválidas." });
+    }
+
     const nowIso = new Date().toISOString();
     const updaterName = req.user?.name || req.user?.email || 'Usuario';
 
@@ -2119,9 +2125,9 @@ if (!process.env.VERCEL) {
       console.warn("Could not update local client location:", e);
     }
 
-    // Update in Supabase
+    // Update in Supabase (handle both string id and numeric id)
     try {
-      await supabase.from("clients").update({
+      const sbUpdate = {
         latitude: latNum,
         longitude: lngNum,
         location_address: locationAddress || '',
@@ -2130,7 +2136,11 @@ if (!process.env.VERCEL) {
         geotaggedAt: nowIso,
         geotagged_by: updaterName,
         geotaggedBy: updaterName
-      }).eq("id", id);
+      };
+      const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+      if (resStr.error && !isNaN(Number(id))) {
+        await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      }
     } catch (err: any) {
       console.warn("Supabase update client location error:", err?.message || err);
     }

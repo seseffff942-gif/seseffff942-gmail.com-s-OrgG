@@ -7,7 +7,7 @@ import {
   ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation 
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn } from '../utils';
+import { cn, normalizeSearchText } from '../utils';
 
 interface RegisterVisitModalProps {
   isOpen: boolean;
@@ -28,13 +28,16 @@ const VISIT_TYPES: { id: VisitType; label: string; icon: any; color: string; bg:
 ];
 
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 0;
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
   const Δλ = ((lon2 - lon1) * Math.PI) / 180;
   const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  const c = 2 * Math.atan2(Math.sqrt(Math.max(0, Math.min(1, a))), Math.sqrt(Math.max(0, 1 - a)));
+  const dist = Math.round(R * c);
+  return isNaN(dist) ? 0 : Math.max(0, dist);
 }
 
 export function RegisterVisitModal({
@@ -64,7 +67,7 @@ export function RegisterVisitModal({
   const nearbyClients = useMemo(() => {
     if (!currentLocation) return [];
     return clients
-      .filter(c => c.latitude && c.longitude)
+      .filter(c => c.latitude && c.longitude && !isNaN(c.latitude) && !isNaN(c.longitude))
       .map(c => {
         const dist = calculateDistanceMeters(
           currentLocation.latitude,
@@ -79,16 +82,16 @@ export function RegisterVisitModal({
   }, [clients, currentLocation]);
 
   const filteredClients = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return clients.slice(0, 15);
+    const term = normalizeSearchText(searchTerm);
+    if (!term) return clients.slice(0, 20);
 
     return clients.filter(c => {
       if (!c) return false;
-      const name = (c.name || '').toLowerCase();
-      const code = (c.clientCode || '').toLowerCase();
-      const company = (c.companyName || '').toLowerCase();
-      const phone = (c.phone || '').toLowerCase();
-      const nit = (c.nit || '').toLowerCase();
+      const name = normalizeSearchText(c.name);
+      const code = normalizeSearchText(c.clientCode);
+      const company = normalizeSearchText(c.companyName);
+      const phone = normalizeSearchText(c.phone);
+      const nit = normalizeSearchText(c.nit);
 
       return (
         name.includes(term) ||
@@ -97,7 +100,7 @@ export function RegisterVisitModal({
         phone.includes(term) ||
         nit.includes(term)
       );
-    }).slice(0, 20);
+    }).slice(0, 25);
   }, [clients, searchTerm]);
 
   const distanceToSelected = useMemo(() => {

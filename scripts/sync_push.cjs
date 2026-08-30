@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: resolver error 500 en marcar cliente agregando fallback resiliente y resolviendo cache en serverless';
+  const commitMsg = 'test: auditoria exhaustiva y blindaje de modulo de visitas con busqueda insensitiva a acentos y persistencia dual local/supabase';
   const sha = await git.commit({
     fs,
     dir,

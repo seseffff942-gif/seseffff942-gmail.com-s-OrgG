@@ -13,6 +13,36 @@ export function formatDateSafe(dateStr?: string | Date | null, formatPattern = "
   }
 }
 
+export function normalizeSearchText(str: string | undefined | null): string {
+  if (!str) return '';
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export function getGuatemalaTodayIso(): string {
+  // Guatemala is UTC-6
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const gtDate = new Date(utc - (6 * 3600000));
+  return gtDate.toISOString().split('T')[0];
+}
+
+export function isTodayGuatemala(dateStr?: string | Date | null): boolean {
+  if (!dateStr) return false;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const gtD = new Date(utc - (6 * 3600000)).toISOString().split('T')[0];
+    return gtD === getGuatemalaTodayIso();
+  } catch {
+    return false;
+  }
+}
+
 export function cn(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ');
 }
