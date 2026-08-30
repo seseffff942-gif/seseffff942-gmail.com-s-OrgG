@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User } from '../types';
+import { User, Product } from '../types';
 import { Leaf, User as UserIcon, CheckCircle, ArrowRight, MapPin, Lock, Unlock, Edit, Save, X, Share2, MessageCircle, Search, TrendingUp, TrendingDown, BarChart2, Calendar, Activity, DollarSign, Heart, Award, ShieldCheck, Sparkles, Layers, Volume2, VolumeX, Play, Pause, Wheat, Stethoscope, Sprout, ShoppingBag, Clock, Phone, Eye, Upload } from 'lucide-react';
 import { api } from '../api';
 import { cn, getStartOfCurrentWeek } from '../utils';
@@ -17,6 +17,7 @@ import {
   LineChart,
   Line
 } from 'recharts';
+import { CommercialAnalyticsDashboard } from '../components/CommercialAnalyticsDashboard';
 
 interface HomePageProps {
   user: User;
@@ -149,6 +150,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
   const [waUrl, setWaUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [isChartsLoading, setIsChartsLoading] = useState(true);
   const [dashboardViewMode, setDashboardViewMode] = useState<'global' | 'mine'>('global');
   const [isViewModeModalOpen, setIsViewModeModalOpen] = useState(false);
@@ -370,8 +372,14 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
       } else {
         sellerId = user.role === 'admin' ? undefined : 'global';
       }
-      const data = await api.getInvoices(sellerId);
+      const [data, prodsData] = await Promise.all([
+        api.getInvoices(sellerId),
+        api.getProducts().catch(() => [])
+      ]);
       setInvoices(data || []);
+      if (prodsData && Array.isArray(prodsData)) {
+        setProducts(prodsData);
+      }
     } catch (e) {
       console.error("Error fetching invoices for dashboard:", e);
     } finally {
@@ -1020,6 +1028,11 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
                 </div>
               </div>
               
+              {/* Executive Commercial Analytics & Stagnant Inventory Radar */}
+              <div className="mb-8">
+                <CommercialAnalyticsDashboard invoices={invoices} products={products} user={user} />
+              </div>
+
               {/* Pattern analysis note */}
               <div className="bg-[#0b4d2c]/5 border border-[#0b4d2c]/10 rounded-2xl p-5 flex items-start gap-3.5 mb-2">
                 <div className="p-2 bg-white rounded-xl text-[#0b4d2c] shadow-sm shrink-0">

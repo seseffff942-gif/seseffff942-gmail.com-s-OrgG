@@ -2053,6 +2053,327 @@ if (!process.env.VERCEL) {
     res.json({ success: true, updatedCount });
   }));
 
+  // ======== CLIENT VISITS & CHECKPOINTS ========
+  const VISITS_FILE = path.join(process.cwd(), "client_visits_local.json");
+
+  function readLocalVisits(): any[] {
+    try {
+      if (fs.existsSync(VISITS_FILE)) {
+        return JSON.parse(fs.readFileSync(VISITS_FILE, "utf8"));
+      }
+    } catch (err) {
+      console.error("Error reading local client visits:", err);
+    }
+    return [];
+  }
+
+  function saveLocalVisits(visits: any[]) {
+    try {
+      fs.writeFileSync(VISITS_FILE, JSON.stringify(visits, null, 2), "utf8");
+    } catch (err) {
+      console.error("Error saving local client visits:", err);
+    }
+  }
+
+  function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3; // Earth radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Math.round(R * c);
+  }
+
+  // Update client GPS location
+  app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { latitude, longitude, locationAddress } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: "Coordenadas de latitud y longitud requeridas." });
+    }
+
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+    const nowIso = new Date().toISOString();
+    const updaterName = req.user?.name || req.user?.email || 'Usuario';
+
+    const locationUpdates = {
+      latitude: latNum,
+      longitude: lngNum,
+      locationAddress: locationAddress || '',
+      geotaggedAt: nowIso,
+      geotaggedBy: updaterName
+    };
+
+    // Update in local client store
+    try {
+      updateLocalClient(id, locationUpdates);
+    } catch (e) {
+      console.warn("Could not update local client location:", e);
+    }
+
+    // Update in Supabase
+    try {
+      await supabase.from("clients").update({
+        latitude: latNum,
+        longitude: lngNum,
+        location_address: locationAddress || '',
+        locationAddress: locationAddress || '',
+        geotagged_at: nowIso,
+        geotaggedAt: nowIso,
+        geotagged_by: updaterName,
+        geotaggedBy: updaterName
+      }).eq("id", id);
+    } catch (err: any) {
+      console.warn("Supabase update client location error:", err?.message || err);
+    }
+
+    invalidateCache("clients");
+    res.json({ success: true, client: { id, ...locationUpdates } });
+  }));
+
+  // Fetch visit checkpoints
+  app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { sellerId, clientId, date, startDate, endDate } = req.query;
+
+    let visits: any[] = [];
+    try {
+      let query = supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
+      if (sellerId) query = query.eq("sellerId", sellerId);
+      if (clientId) query = query.eq("clientId", clientId);
+      
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        visits = data;
+      }
+    } catch (e) {}
+
+    // Fallback to local visits if empty or table does not exist
+    if (visits.length === 0) {
+      visits = readLocalVisits();
+    }
+
+    // Apply filtering
+    let filtered = visits;
+    if (sellerId) {
+      filtered = filtered.filter(v => v.sellerId === sellerId || v.sellerEmail === sellerId);
+    }
+    if (clientId) {
+      filtered = filtered.filter(v => v.clientId === clientId);
+    }
+    if (date) {
+      filtered = filtered.filter(v => (v.createdAt || '').startsWith(String(date)));
+    }
+    if (startDate && endDate) {
+      filtered = filtered.filter(v => {
+        const vDate = (v.createdAt || '').split('T')[0];
+        return vDate >= String(startDate) && vDate <= String(endDate);
+      });
+    }
+
+    // Sort newest first
+    filtered.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    res.json(filtered);
+  }));
+
+  // Create a new visit checkpoint
+  app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const {
+      clientId,
+      clientName,
+      clientCode,
+      companyName,
+      latitude,
+      longitude,
+      accuracy,
+      visitType,
+      notes,
+      photoUrl
+    } = req.body;
+
+    if (!clientId && !clientName) {
+      return res.status(400).json({ error: "Identificación de cliente requerida." });
+    }
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: "Coordenadas GPS requeridas para el checkpoint." });
+    }
+
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+    const nowIso = new Date().toISOString();
+
+    // Check if client has registered location to calculate distance
+    let calculatedDistance: number | undefined = undefined;
+    try {
+      const localClients = readLocalClients();
+      const targetClient = localClients.find((c: any) => c.id === clientId || c.name === clientName);
+      if (targetClient && targetClient.latitude && targetClient.longitude) {
+        calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
+      } else {
+        // If client had no GPS yet, auto-geotag them on first visit!
+        if (clientId) {
+          updateLocalClient(clientId, {
+            latitude: latNum,
+            longitude: lngNum,
+            geotaggedAt: nowIso,
+            geotaggedBy: req.user?.name || req.user?.email
+          });
+        }
+      }
+
+      // Update client lastVisitAt
+      if (clientId) {
+        updateLocalClient(clientId, { lastVisitAt: nowIso });
+        try {
+          await supabase.from("clients").update({
+            last_visit_at: nowIso,
+            lastVisitAt: nowIso
+          }).eq("id", clientId);
+        } catch (e) {}
+      }
+    } catch (e) {}
+
+    const newVisit = {
+      id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      clientId: clientId || '',
+      clientName: clientName || '',
+      clientCode: clientCode || '',
+      companyName: companyName || '',
+      sellerId: req.user?.id || '',
+      sellerName: req.user?.name || 'Vendedor',
+      sellerEmail: req.user?.email || '',
+      latitude: latNum,
+      longitude: lngNum,
+      accuracy: accuracy ? parseFloat(accuracy) : undefined,
+      distanceMeters: calculatedDistance,
+      visitType: visitType || 'rutina',
+      notes: notes || '',
+      photoUrl: photoUrl || '',
+      createdAt: nowIso
+    };
+
+    // Save locally
+    const currentVisits = readLocalVisits();
+    currentVisits.unshift(newVisit);
+    saveLocalVisits(currentVisits);
+
+    // Save in Supabase
+    try {
+      const { error } = await supabase.from("client_visits").insert([newVisit]);
+      if (error) {
+        // Fallback with snake_case if schema is different
+        await supabase.from("client_visits").insert([{
+          id: newVisit.id,
+          client_id: newVisit.clientId,
+          client_name: newVisit.clientName,
+          client_code: newVisit.clientCode,
+          seller_id: newVisit.sellerId,
+          seller_name: newVisit.sellerName,
+          latitude: newVisit.latitude,
+          longitude: newVisit.longitude,
+          accuracy: newVisit.accuracy,
+          visit_type: newVisit.visitType,
+          notes: newVisit.notes,
+          photo_url: newVisit.photoUrl,
+          created_at: newVisit.createdAt
+        }]);
+      }
+    } catch (err: any) {
+      console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
+    }
+
+    res.json({ success: true, visit: newVisit });
+  }));
+
+  // Visit frequency & stats endpoint
+  app.get("/api/visits/stats", requireAuth, asyncHandler(async (_req: any, res: any) => {
+    let allVisits = readLocalVisits();
+    try {
+      const { data } = await supabase.from("client_visits").select("*");
+      if (data && data.length > 0) {
+        // Merge with local visits
+        const map = new Map<string, any>();
+        allVisits.forEach((v: any) => map.set(v.id, v));
+        data.forEach((v: any) => map.set(v.id, {
+          id: v.id,
+          clientId: v.clientId || v.client_id,
+          clientName: v.clientName || v.client_name,
+          clientCode: v.clientCode || v.client_code,
+          sellerId: v.sellerId || v.seller_id,
+          sellerName: v.sellerName || v.seller_name,
+          latitude: v.latitude,
+          longitude: v.longitude,
+          visitType: v.visitType || v.visit_type || 'rutina',
+          notes: v.notes,
+          createdAt: v.createdAt || v.created_at
+        }));
+        allVisits = Array.from(map.values());
+      }
+    } catch (e) {}
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentMonthPrefix = todayStr.substring(0, 7);
+
+    const todayVisits = allVisits.filter(v => (v.createdAt || '').startsWith(todayStr));
+    const monthVisits = allVisits.filter(v => (v.createdAt || '').startsWith(currentMonthPrefix));
+
+    const activeSellerIds = new Set(monthVisits.map(v => v.sellerId).filter(Boolean));
+    const visitedClientIds = new Set(monthVisits.map(v => v.clientId).filter(Boolean));
+
+    const localClients = readLocalClients();
+    const validClients = localClients.filter(c => c && c.name && !c.isDeleted);
+    const unvisitedClientsCount = Math.max(0, validClients.length - visitedClientIds.size);
+
+    // Group rankings by seller
+    const sellerMap = new Map<string, { sellerId: string; sellerName: string; todayVisits: number; monthVisits: number; lastVisitAt?: string }>();
+
+    allVisits.forEach((v: any) => {
+      const sId = v.sellerId || 'desconocido';
+      const sName = v.sellerName || 'Vendedor';
+      if (!sellerMap.has(sId)) {
+        sellerMap.set(sId, {
+          sellerId: sId,
+          sellerName: sName,
+          todayVisits: 0,
+          monthVisits: 0,
+          lastVisitAt: v.createdAt
+        });
+      }
+
+      const item = sellerMap.get(sId)!;
+      if ((v.createdAt || '').startsWith(todayStr)) item.todayVisits++;
+      if ((v.createdAt || '').startsWith(currentMonthPrefix)) item.monthVisits++;
+      if (!item.lastVisitAt || new Date(v.createdAt).getTime() > new Date(item.lastVisitAt).getTime()) {
+        item.lastVisitAt = v.createdAt;
+      }
+    });
+
+    const sellerRankings = Array.from(sellerMap.values()).sort((a, b) => b.monthVisits - a.monthVisits);
+
+    // Sort recent visits newest first
+    const recentVisits = [...allVisits]
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 25);
+
+    res.json({
+      totalVisitsToday: todayVisits.length,
+      totalVisitsMonth: monthVisits.length,
+      activeSellersCount: activeSellerIds.size,
+      clientsVisitedCount: visitedClientIds.size,
+      unvisitedClientsCount,
+      sellerRankings,
+      recentVisits
+    });
+  }));
+
   // AUTH
   app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
     const { email: identifierInput, password: tokenProvided } = req.body;

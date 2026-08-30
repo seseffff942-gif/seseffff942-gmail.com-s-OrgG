@@ -18,6 +18,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
 import { ReciboConformePage } from './pages/ReciboConformePage';
 import { QuotationsPage } from './pages/QuotationsPage';
+import { ClientVisitsPage } from './pages/ClientVisitsPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
 import { api } from './api';
@@ -136,7 +137,7 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -154,7 +155,7 @@ export default function App() {
       if (cleanHash === 'login') {
         setShowLoginDirectly(true);
       }
-      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -393,6 +394,7 @@ export default function App() {
         {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
         {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
         {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}

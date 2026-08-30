@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn, fechaDDMMYYYY } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { ClientAccountStatementModal } from '../components/ClientAccountStatementModal';
 
 interface ClientsPageProps {
   user: User;
@@ -24,6 +25,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
   
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [showStatementModal, setShowStatementModal] = useState(false);
   
   const [showAddForm, setShowAddForm] = useState(false);
   const [newClient, setNewClient] = useState({ 
@@ -387,7 +389,16 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Directorio Premium de Clientes</h1>
           <p className="text-sm text-slate-500 font-medium">Información comercial, asignación de asesores y gestión de facturación en tiempo real.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button 
+            onClick={() => { window.location.hash = 'visits'; }}
+            className="flex items-center gap-2 bg-white hover:bg-teal-50 border border-slate-200 text-teal-800 active:scale-95 px-4 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
+            title="Ver mapa satelital y rutas de visitas"
+          >
+            <MapPin size={16} className="text-teal-600" />
+            <span>Mapa & Visitas</span>
+          </button>
+
           <button 
             onClick={handleGenerateAllCodes}
             disabled={generatingCodes}
@@ -748,7 +759,15 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button 
+                      onClick={() => setShowStatementModal(true)}
+                      className="px-3 py-2 bg-gradient-to-r from-[#0b4d2c] to-[#07361e] text-white hover:brightness-110 rounded-xl transition-all shadow-xs flex items-center gap-1.5 text-xs font-black cursor-pointer active:scale-95"
+                      title="Generar y compartir Estado de Cuenta Oficial"
+                    >
+                      <FileText size={13} className="text-emerald-300" />
+                      <span>Estado de Cuenta</span>
+                    </button>
                     <button 
                       onClick={() => {
                         if (user.role === 'admin') {
@@ -1393,6 +1412,16 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL: ESTADO DE CUENTA */}
+      {showStatementModal && selectedClient && (
+        <ClientAccountStatementModal
+          client={selectedClient}
+          invoices={invoices}
+          user={user}
+          onClose={() => setShowStatementModal(false)}
+        />
       )}
 
     </div>

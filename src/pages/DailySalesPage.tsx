@@ -33,7 +33,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -137,6 +137,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [showCharts, setShowCharts] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
+  const [products, setProducts] = useState<any[]>([]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -145,6 +146,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   useEffect(() => {
     loadData();
     api.getUsers().then(setUsers).catch(console.error);
+    api.getProducts().then(setProducts).catch(console.error);
     api.getPrintTemplate().then(data => setPrintTemplate(data.template || DEFAULT_PRINT_TEMPLATE)).catch(() => {});
     const interval = setInterval(() => {
       if (document.hidden) return; // No recargar si nadie esta mirando
@@ -1823,17 +1825,60 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-3">Artículos</p>
                 <div className="space-y-3">
                   {selectedViewInvoice.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                      <div>
-                        <p className="text-sm font-bold text-slate-700 notranslate leading-tight" translate="no">{item.productName}</p>
-                        {(item.color || item.size) && (
-                          <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-50 text-yellow-850 border border-yellow-250 text-[10px] font-extrabold uppercase rounded-lg">
-                            🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
-                          </span>
-                        )}
-                        <p className="text-xs text-slate-500 font-medium mt-0.5">{item.quantity} x {formatMoney(item.price)}</p>
+                    <div key={idx} className="flex flex-col bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 shadow-xs space-y-2">
+                      <div className="flex justify-between items-start gap-3">
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-slate-800 notranslate leading-tight" translate="no">{item.productName}</p>
+                          {(item.color || item.size) && (
+                            <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-50 text-yellow-850 border border-yellow-250 text-[10px] font-extrabold uppercase rounded-lg">
+                              🎨 {item.color && item.size && item.size !== 'Única' ? `${item.color} - ${item.size}` : (item.color || item.size)}
+                            </span>
+                          )}
+                          <p className="text-xs text-slate-500 font-medium mt-0.5">{item.quantity} x {formatMoney(item.price)}</p>
+                        </div>
+                        <span className="font-black text-slate-900 text-sm whitespace-nowrap">{formatMoney(item.total)}</span>
                       </div>
-                      <span className="font-black text-slate-800 text-sm">{formatMoney(item.total)}</span>
+
+                      {((item as any).tecunToOrder !== undefined || isTecunProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name })) && (() => {
+                        const productObj = products.find(p => p.id === item.productId || (p.name || '').toLowerCase().trim() === (item.productName || (item as any).name || '').toLowerCase().trim());
+                        const rawStock = (item as any).tecunWarehouseStock !== undefined 
+                          ? Number((item as any).tecunWarehouseStock) 
+                          : Math.max(0, Number(productObj?.stock) || 0);
+                        const toOrder = (item as any).tecunToOrder !== undefined
+                          ? Number((item as any).tecunToOrder)
+                          : Math.max(0, (Number(item.quantity) || 0) - rawStock);
+                        const hasShortage = toOrder > 0;
+
+                        return (
+                          <div className={cn(
+                            "p-2.5 rounded-xl text-[10px] font-bold border transition-all",
+                            hasShortage 
+                              ? "bg-purple-50/90 border-purple-200 text-purple-950 shadow-xs" 
+                              : "bg-emerald-50/70 border-emerald-200 text-emerald-950"
+                          )}>
+                            <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
+                              <span>🏢 Control Proveedor Tecún</span>
+                              {hasShortage ? (
+                                <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px] font-black">Requiere Pedido</span>
+                              ) : (
+                                <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px] font-black">Stock Bodega</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span>📦 Stock en Bodega: <strong className="font-extrabold text-slate-900">{rawStock}</strong> uds</span>
+                              {hasShortage ? (
+                                <span className="text-purple-700 font-black bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
+                                  👉 Pedir a Empresa: {toOrder} uds
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700 font-extrabold bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200">
+                                  ✓ Cubierto con stock bodega ({item.quantity} uds)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

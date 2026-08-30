@@ -1,0 +1,19 @@
+[
+  {
+    "id": "VISIT-1788072607053-cxb79",
+    "clientId": "CLI-1784386897471",
+    "clientName": "ABNER GUERRA",
+    "clientCode": "4869",
+    "companyName": "Detailing la bendición",
+    "sellerId": "u1b",
+    "sellerName": "Emanuel Lima",
+    "sellerEmail": "seseffff942@gmail.com",
+    "latitude": 16.914757498636643,
+    "longitude": -89.90171713800686,
+    "accuracy": 187,
+    "visitType": "pedido",
+    "notes": "",
+    "photoUrl": "",
+    "createdAt": "2026-08-30T06:50:06.849Z"
+  }
+]

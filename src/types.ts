@@ -12,6 +12,12 @@ export interface Client {
   clientCode?: string;
   isBlocked?: boolean;
   isPendingSync?: boolean;
+  latitude?: number;
+  longitude?: number;
+  locationAddress?: string;
+  geotaggedAt?: string;
+  geotaggedBy?: string;
+  lastVisitAt?: string;
 }
 
 export interface User {
@@ -75,6 +81,8 @@ export interface InvoiceItem {
   size?: string;
   requiresAuth?: boolean;
   isAuthorized?: boolean;
+  tecunWarehouseStock?: number;
+  tecunToOrder?: number;
 }
 
 export interface Invoice {
@@ -286,5 +294,42 @@ export interface ReciboConforme {
   created_by?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export type VisitType = 'pedido' | 'cobro' | 'prospeccion' | 'entrega' | 'rutina';
+
+export interface ClientVisit {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientCode?: string;
+  companyName?: string;
+  sellerId: string;
+  sellerName: string;
+  sellerEmail?: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  distanceMeters?: number;
+  visitType: VisitType;
+  notes?: string;
+  photoUrl?: string;
+  createdAt: string;
+}
+
+export interface VisitStats {
+  totalVisitsToday: number;
+  totalVisitsMonth: number;
+  activeSellersCount: number;
+  clientsVisitedCount: number;
+  unvisitedClientsCount: number;
+  sellerRankings: {
+    sellerId: string;
+    sellerName: string;
+    todayVisits: number;
+    monthVisits: number;
+    lastVisitAt?: string;
+  }[];
+  recentVisits: ClientVisit[];
 }
 

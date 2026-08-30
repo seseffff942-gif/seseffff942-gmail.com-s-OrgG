@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'docs: agregar informe tecnico de auditoria y mantenimiento integral';
+  const commitMsg = 'feat: modulo de visitas a clientes, mapa interactivo de guatemala, checkpoints gps y radar de supervision';
   const sha = await git.commit({
     fs,
     dir,

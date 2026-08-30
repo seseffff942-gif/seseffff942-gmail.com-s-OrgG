@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme } from './types';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats } from './types';
 import preloadedData from './data/preloadedData.json';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
@@ -540,6 +540,87 @@ export const api = {
       localStorage.removeItem('offline_clients');
     }
     return data;
+  },
+
+  updateClientLocation: async (id: string, latitude: number, longitude: number, locationAddress?: string): Promise<{ success: boolean; client: any }> => {
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
+    const res = await fetchWithAuth(`/api/clients/${encodeURIComponent(id)}/location`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude, longitude, locationAddress })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar ubicación del cliente');
+    clearApiCache('clients');
+    return data;
+  },
+
+  getVisits: async (params?: { sellerId?: string; clientId?: string; date?: string; startDate?: string; endDate?: string }): Promise<ClientVisit[]> => {
+    const query = new URLSearchParams();
+    if (params?.sellerId) query.append('sellerId', params.sellerId);
+    if (params?.clientId) query.append('clientId', params.clientId);
+    if (params?.date) query.append('date', params.date);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+
+    const url = `/api/visits${query.toString() ? `?${query.toString()}` : ''}`;
+    try {
+      const res = await fetchWithAuth(url);
+      if (!res.ok) throw new Error('Error al obtener visitas');
+      const data = await safeJson(res);
+      if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
+        localStorage.setItem('cached_client_visits', JSON.stringify(data));
+      }
+      return data;
+    } catch (err) {
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('cached_client_visits');
+        if (cached) {
+          try {
+            return JSON.parse(cached);
+          } catch (e) {}
+        }
+      }
+      return [];
+    }
+  },
+
+  createVisit: async (visitData: Partial<ClientVisit>): Promise<{ success: boolean; visit: ClientVisit }> => {
+    const res = await fetchWithAuth('/api/visits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(visitData)
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Error al registrar visita');
+    
+    // Invalidate caches
+    clearApiCache('clients');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('offline_clients');
+    }
+    return data;
+  },
+
+  getVisitStats: async (): Promise<VisitStats> => {
+    try {
+      const res = await fetchWithAuth('/api/visits/stats');
+      if (!res.ok) throw new Error('Error al obtener estadísticas de visitas');
+      return await safeJson(res);
+    } catch (e) {
+      return {
+        totalVisitsToday: 0,
+        totalVisitsMonth: 0,
+        activeSellersCount: 0,
+        clientsVisitedCount: 0,
+        unvisitedClientsCount: 0,
+        sellerRankings: [],
+        recentVisits: []
+      };
+    }
   },
 
   getMe: async (): Promise<User | null> => {

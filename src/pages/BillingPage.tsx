@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -2135,6 +2135,27 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                                <span className="block text-[10px] text-rose-600 font-bold uppercase tracking-tight">
                                   ⚠️ Precio bajo costo base: {formatMoney(item.price)} (Base: {formatMoney(item.originalPrice)})
                                 </span>
+                            )}
+
+                            {((item as any).tecunToOrder !== undefined || isTecunProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name })) && (
+                              <div className="mt-1.5 p-2 bg-purple-50/90 border border-purple-200 rounded-xl text-[10px] text-purple-950 font-bold">
+                                <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
+                                  <span>🏢 Detalle Proveedor Tecún</span>
+                                  {((item as any).tecunToOrder || 0) > 0 ? (
+                                    <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px]">Falta en Bodega</span>
+                                  ) : (
+                                    <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">En Bodega</span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <span>📦 Stock en Bodega: <strong className="font-extrabold text-slate-900">{(item as any).tecunWarehouseStock ?? 0}</strong> uds</span>
+                                  {((item as any).tecunToOrder || 0) > 0 && (
+                                    <span className="text-purple-700 font-extrabold bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
+                                      👉 Pedir a Empresa: {(item as any).tecunToOrder} uds
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             )}
                             
                             {(item as any).requiresAuth && !(item as any).isAuthorized && (

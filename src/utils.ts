@@ -35,14 +35,58 @@ export function cleanObservations(notes: string | undefined | null): string {
   return obsPart ? obsPart.replace('OBS:', '').trim() : '';
 }
 
-export function isTecunProduct(product: { name?: string; category?: string } | null | undefined): boolean {
+export function isTecunProduct(product: { id?: string; productId?: string; name?: string; productName?: string; category?: string } | null | undefined): boolean {
   if (!product) return false;
-  const nameL = (product.name || '').toLowerCase();
-  const catL = (product.category || '').toLowerCase();
-  return (
-    catL.includes('tecun') || nameL.includes('tecun') ||
-    catL.includes('tecún') || nameL.includes('tecún')
-  );
+  const nameL = (product.name || product.productName || '').toLowerCase().trim();
+  const catL = (product.category || '').toLowerCase().trim();
+  
+  if (catL.includes('tecun') || catL.includes('tecún') || nameL.includes('tecun') || nameL.includes('tecún')) {
+    return true;
+  }
+
+  // Lista de marcas y productos exclusivos de la línea TECÚN
+  const tecunKeywords = [
+    'paraquat',
+    'yerbatron',
+    '2,4d',
+    '2.4d',
+    '2 4d',
+    '24d',
+    'killer 36',
+    'nocaut',
+    'poter 90',
+    'glufosin',
+    'cpf 48',
+    'cpf 2dp',
+    'titan 80',
+    'semevin',
+    'vereta',
+    'certero',
+    'cipermetrina 25',
+    'vayego',
+    'blindage'
+  ];
+
+  return tecunKeywords.some(keyword => nameL.includes(keyword));
+}
+
+export function calculateTecunStockBreakdown(product: { name?: string; category?: string; stock?: number } | null | undefined, requestedQty: number) {
+  const isTecun = isTecunProduct(product);
+  const rawStock = Number(product?.stock) || 0;
+  const physicalStock = Math.max(0, rawStock);
+  const requested = Math.max(0, Number(requestedQty) || 0);
+  const fromWarehouse = Math.min(physicalStock, requested);
+  const toOrderFromCompany = isTecun ? Math.max(0, requested - physicalStock) : 0;
+  const hasShortage = isTecun && toOrderFromCompany > 0;
+  return {
+    isTecun,
+    rawStock,
+    physicalStock,
+    requested,
+    fromWarehouse,
+    toOrderFromCompany,
+    hasShortage
+  };
 }
 
 export function is100gProduct(product: { name?: string; category?: string } | null | undefined): boolean {

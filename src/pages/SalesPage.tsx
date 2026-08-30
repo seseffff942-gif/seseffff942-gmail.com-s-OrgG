@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 // AGRICOLAS INTEGRATION: Added draft auto-save persistence via localStorage to prevent losing elements upon browser refresh.
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
-import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
+import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt, Flame } from 'lucide-react';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, calculateTecunStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -443,8 +443,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     if (totalNewQty > maxStock && !doesNotNeedStock(product)) {
       if (isTecunProduct(product)) {
         requiresAuth = true;
-        setErrorMsg(`"${product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
-        setTimeout(() => setErrorMsg(''), 6000);
+        const tecunBreakdown = calculateTecunStockBreakdown(product, totalNewQty);
+        setErrorMsg(`"${product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
+        setTimeout(() => setErrorMsg(''), 7000);
       } else {
         setErrorMsg(`Stock insuficiente para "${product.name}"${variant ? ` (${variant.color} - ${variant.size})` : ''} (Disponible: ${maxStock}).`);
         setTimeout(() => setErrorMsg(''), 5000);
@@ -561,8 +562,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
         if (newQ > maxStock && !doesNotNeedStock(item.product)) {
            if (isTecunProduct(item.product)) {
-              setErrorMsg(`"${item.product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
-              setTimeout(() => setErrorMsg(''), 6000);
+              const tecunBreakdown = calculateTecunStockBreakdown(item.product, newQ);
+              setErrorMsg(`"${item.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
+              setTimeout(() => setErrorMsg(''), 7000);
               return { ...item, quantity: newQ, requiresAuth: true };
            } else {
               setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
@@ -679,6 +681,21 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = *${formatMoney(itemTotal)}*\n`;
     });
     
+    const tecunOrderItems = items.filter((item: any) => {
+      const isTec = isTecunProduct(item) || isTecunProduct({ name: item.productName || item.name, category: item.category });
+      return isTec && ((item.tecunToOrder && item.tecunToOrder > 0) || (item.requiresAuth));
+    });
+
+    if (tecunOrderItems.length > 0) {
+      msg += `---------------------------------------\n`;
+      msg += `🏢 *REQUERIMIENTO PROVEEDOR TECÚN:*\n`;
+      tecunOrderItems.forEach((ti: any) => {
+        const warehouse = ti.tecunWarehouseStock !== undefined ? ti.tecunWarehouseStock : 0;
+        const toOrder = ti.tecunToOrder !== undefined ? ti.tecunToOrder : Math.max(0, (ti.quantity || 0) - warehouse);
+        msg += `⚠️ *${ti.productName || ti.name}*\n   ↳ Pedido: ${ti.quantity} | En Bodega: ${warehouse} | 👉 *Pedir a Tecún: ${toOrder} uds*\n`;
+      });
+    }
+
     msg += `---------------------------------------\n`;
     const total = invoice.totalAmount ?? invoice.total ?? 0;
     msg += `*TOTAL COMPRA:* *${formatMoney(total)}*\n`;
@@ -749,6 +766,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            effectivePrice = (price * i.appliedCustomOffer.buyQty) / (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
         }
 
+        const tecunBreakdown = calculateTecunStockBreakdown(i.product, i.quantity);
+
         return {
           productId: i.product.id,
           productName: i.product.name,
@@ -760,7 +779,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           variantId: i.variant?.id || (i as any).variantId,
           color: i.variant?.color || (i as any).color,
           size: i.variant?.size || (i as any).size,
-          requiresAuth: i.requiresAuth
+          requiresAuth: i.requiresAuth || tecunBreakdown.hasShortage,
+          tecunWarehouseStock: tecunBreakdown.isTecun ? tecunBreakdown.fromWarehouse : undefined,
+          tecunToOrder: tecunBreakdown.isTecun ? tecunBreakdown.toOrderFromCompany : undefined
         };
       });
 
@@ -1139,6 +1160,42 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           </div>
 
         </div>
+
+        {/* Smart Sales Booster / Stagnant Stock Suggestions */}
+        {!searchTerm && products.filter(p => Number(p.stock) > 0 && !p.hiddenFromSales).length > 0 && (
+          <div className="px-5 md:px-6 pt-3 pb-1">
+            <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white rounded-2xl p-3 shadow-md border border-purple-500/30 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-500/20 rounded-xl text-purple-300 shrink-0">
+                  <Flame size={16} className="text-amber-400 animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="text-[11px] font-black uppercase tracking-wider text-purple-200 flex items-center gap-1.5">
+                    <span>🚀 Impulso de Venta / Stock en Bodega</span>
+                  </h4>
+                  <p className="text-[10px] text-purple-200/80 font-medium">Recomienda estos productos con existencia para rotar inventario:</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto py-0.5">
+                {products
+                  .filter(p => Number(p.stock) >= 3 && !p.hiddenFromSales)
+                  .slice(0, 4)
+                  .map(sug => (
+                    <button
+                      key={sug.id}
+                      onClick={() => handleProductClick(sug)}
+                      className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 border border-white/15 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95 whitespace-nowrap cursor-pointer text-white"
+                      title="Agregar producto sugerido al carrito"
+                    >
+                      <Plus size={11} className="text-emerald-400" />
+                      <span>{sug.name.length > 20 ? `${sug.name.slice(0, 20)}...` : sug.name}</span>
+                      <span className="text-[9px] bg-purple-500/50 text-purple-200 px-1 py-0.5 rounded font-black">{sug.stock} disp</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic & Beautiful Products Catalog Grid */}
         <div className="flex-1 overflow-y-auto min-h-0 p-5 md:p-6 scrollbar-hide hide-scrollbar">
@@ -1754,8 +1811,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                     
                                     if (newQ > maxStock && !doesNotNeedStock(it.product)) {
                                       if (isTecunProduct(it.product)) {
-                                         setErrorMsg(`"${it.product.name}" de la sección TECUN no tiene suficiente stock. Quedará a espera de autorización en la venta.`);
-                                         setTimeout(() => setErrorMsg(''), 6000);
+                                         const tecunBreakdown = calculateTecunStockBreakdown(it.product, newQ);
+                                         setErrorMsg(`"${it.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
+                                         setTimeout(() => setErrorMsg(''), 7000);
                                          return { ...it, quantity: newQ, requiresAuth: true };
                                       } else {
                                          setErrorMsg(`Falta de stock disponible para "${it.product.name}"${it.variant ? ` (${it.variant.color})` : ''}`);
@@ -1774,6 +1832,35 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           </button>
                         </div>
                       </div>
+
+                      {isTecunProduct(item.product) && (() => {
+                        const tb = calculateTecunStockBreakdown(item.product, item.quantity);
+                        return (
+                          <div className={cn(
+                            "mt-2.5 p-2 rounded-xl text-[10px] font-bold border transition-all",
+                            tb.hasShortage 
+                              ? "bg-purple-50/90 border-purple-200 text-purple-900 shadow-xs" 
+                              : "bg-emerald-50/70 border-emerald-200 text-emerald-900"
+                          )}>
+                            <div className="flex items-center justify-between font-black uppercase text-[9px] tracking-wider mb-1 text-purple-800">
+                              <span>🏢 Control Proveedor Tecún</span>
+                              {tb.hasShortage ? (
+                                <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px] font-black">Requiere Pedido</span>
+                              ) : (
+                                <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px] font-black">Stock Completo</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+                              <span className="text-slate-700">📦 En Bodega: <strong className="text-slate-900 font-extrabold">{tb.fromWarehouse}</strong> uds</span>
+                              {tb.hasShortage && (
+                                <span className="text-purple-700 font-black bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
+                                  👉 Pedir a Empresa: <strong className="text-purple-900 font-black">{tb.toOrderFromCompany}</strong> uds
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                     </div>
                   );
