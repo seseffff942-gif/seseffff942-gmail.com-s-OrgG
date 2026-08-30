@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: cartera de clientes con ubicacion y tiempo sin visita, foto obligatoria en checkpoints y modulo de productos sin rotacion';
+  const commitMsg = 'fix: optimizar vista movil colocando visitas en barra inferior, banner ultra compacto y scroll horizontal de pestanas';
   const sha = await git.commit({
     fs,
     dir,

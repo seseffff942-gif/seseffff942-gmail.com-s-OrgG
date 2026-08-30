@@ -361,12 +361,12 @@ export function ClientVisitsMap({
   const geotaggedTotal = clients.filter(c => c.latitude && c.longitude).length;
 
   return (
-    <div className="relative w-full h-[500px] md:h-[600px] rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-100 flex flex-col">
+    <div className="relative w-full h-[360px] sm:h-[460px] md:h-[580px] rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-100 flex flex-col">
       {/* Leaflet Map DOM */}
       <div ref={mapContainerRef} className="w-full h-full flex-1" />
 
       {/* Top Floating Bar: Search, Filters & Regions */}
-      <div className="absolute top-3 left-3 right-3 z-20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 pointer-events-none">
+      <div className="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-1.5 pointer-events-none">
         
         {/* Left: Filter Pills & Search */}
         <div className="flex items-center gap-1.5 flex-wrap pointer-events-auto">

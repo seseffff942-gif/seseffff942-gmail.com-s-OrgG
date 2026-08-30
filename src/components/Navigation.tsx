@@ -942,7 +942,10 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     }
     return item.roles.includes(activeUser.role);
   });
-  const majorMobileIds = activeUser.role === 'admin' ? ['home', 'inventory', 'sales', 'daily-sales'] : ['home', 'inventory', 'sales', 'my-sales'];
+
+  const majorMobileIds = activeUser.role === 'admin' 
+    ? ['home', 'visits', 'sales', 'daily-sales'] 
+    : ['home', 'visits', 'sales', 'my-sales'];
   const majorMobileItems = userNavItems.filter(item => majorMobileIds.includes(item.id));
   const remainingMobileItems = userNavItems.filter(item => !majorMobileIds.includes(item.id));
   const isMoreActive = remainingMobileItems.some(item => item.id === currentTab);

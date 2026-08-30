@@ -303,37 +303,39 @@ export default function App() {
     <div className={`flex flex-col min-h-screen bg-surface font-sans h-screen overflow-hidden`}>
       {/* Banner de Mantenimiento Activo para SuperAdmin */}
       {isMaintenanceMode && isSuperAdmin && (
-        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white font-semibold text-[11px] md:text-xs px-4 py-2 flex items-center justify-between shadow-lg z-[70] sticky top-0 border-b border-amber-500/40">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-2.5 w-2.5 relative shrink-0">
+        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white font-semibold text-[10px] md:text-xs px-3 py-1.5 flex items-center justify-between shadow-md z-[70] sticky top-0 border-b border-amber-500/40">
+          <div className="flex items-center gap-2 truncate">
+            <span className="flex h-2 w-2 relative shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-300"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-300"></span>
             </span>
-            <span>
-              🛠️ <strong>MODO MANTENIMIENTO ACTIVO</strong> — Acceso maestro habilitado para <strong>{user?.email}</strong>. La web muestra mensaje de mantenimiento a los demás usuarios.
+            <span className="truncate">
+              🛠️ <strong className="font-bold">Mantenimiento Activo</strong>
+              <span className="hidden sm:inline"> — Acceso maestro habilitado para <strong>{user?.email}</strong></span>
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0 ml-3">
+          <div className="flex items-center gap-2 shrink-0 ml-2">
             <button 
               onClick={toggleMaintenanceMode}
-              className="bg-white/20 hover:bg-white/30 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1 rounded-full transition-all cursor-pointer border border-white/20 hover:scale-105 active:scale-95"
+              className="bg-white/20 hover:bg-white/30 text-white font-black text-[9px] uppercase tracking-tight px-2.5 py-1 rounded-full transition-all cursor-pointer border border-white/25 active:scale-95 whitespace-nowrap"
             >
-              Desactivar Mantenimiento
+              Desactivar
             </button>
           </div>
         </div>
       )}
       {!isMaintenanceMode && isSuperAdmin && (
-        <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-emerald-100 font-medium text-[11px] px-4 py-1.5 flex items-center justify-between z-[55] sticky top-0 border-b border-emerald-700/50">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span>🟢 Mantenimiento desactivado (Web visible y abierta para todos los usuarios)</span>
+        <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-emerald-100 font-medium text-[10px] md:text-[11px] px-3 py-1 flex items-center justify-between z-[55] sticky top-0 border-b border-emerald-700/50">
+          <span className="flex items-center gap-1.5 truncate">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+            <span className="truncate">🟢 Web abierta</span>
+            <span className="hidden sm:inline text-emerald-300/80">(Visible para todos)</span>
           </span>
           <button
             onClick={toggleMaintenanceMode}
-            className="bg-emerald-500/30 hover:bg-emerald-500/50 text-white font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md transition cursor-pointer border border-emerald-400/30"
+            className="bg-emerald-500/30 hover:bg-emerald-500/50 text-white font-bold text-[9px] uppercase px-2 py-0.5 rounded transition cursor-pointer border border-emerald-400/30 shrink-0 ml-2 whitespace-nowrap"
           >
-            Poner en Mantenimiento
+            Mantenimiento
           </button>
         </div>
       )}

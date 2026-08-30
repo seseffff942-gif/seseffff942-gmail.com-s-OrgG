@@ -599,12 +599,12 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         {/* Navigation Tabs Bar */}
         <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
           {/* Segmented Tab Buttons */}
-          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl flex-wrap gap-1">
+          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl flex-nowrap overflow-x-auto hide-scrollbar gap-1 max-w-full shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('my_portfolio')}
               className={cn(
-                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
                 activeTab === 'my_portfolio' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
@@ -614,7 +614,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               type="button"
               onClick={() => setActiveTab('slow_products')}
               className={cn(
-                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1",
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0",
                 activeTab === 'slow_products' ? "bg-amber-500 text-white shadow-xs" : "text-amber-900 hover:bg-amber-100/60"
               )}
             >
@@ -625,7 +625,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               type="button"
               onClick={() => setActiveTab('timeline')}
               className={cn(
-                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
                 activeTab === 'timeline' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
@@ -636,7 +636,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                 type="button"
                 onClick={() => setActiveTab('sellers')}
                 className={cn(
-                  "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
                   activeTab === 'sellers' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
                 )}
               >
