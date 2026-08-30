@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct } from '../utils';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet } from 'lucide-react';
+import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -167,6 +167,28 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     return isAdmin ? products.filter(p => excludedCriticalIds.includes(p.id)) : [];
   }, [products, excludedCriticalIds, isAdmin]);
 
+  // Slow Moving / Detenidos Products State
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [isSlowMovingModalOpen, setIsSlowMovingModalOpen] = useState(false);
+  const [slowMovingSearchTerm, setSlowMovingSearchTerm] = useState('');
+  const [slowMovingDaysThreshold, setSlowMovingDaysThreshold] = useState<number>(15);
+
+  const slowMovingProducts = useMemo(() => {
+    return calculateSlowMovingProducts(products, invoices, slowMovingDaysThreshold);
+  }, [products, invoices, slowMovingDaysThreshold]);
+
+  const filteredSlowMovingProducts = useMemo(() => {
+    if (!slowMovingSearchTerm.trim()) return slowMovingProducts;
+    const term = normalizeSearchText(slowMovingSearchTerm);
+    return slowMovingProducts.filter(item => {
+      return (
+        normalizeSearchText(item.name).includes(term) ||
+        normalizeSearchText(item.category || '').includes(term) ||
+        normalizeSearchText(String(item.id)).includes(term)
+      );
+    });
+  }, [slowMovingProducts, slowMovingSearchTerm]);
+
   const [editProductField, setEditProductField] = useState<{
     product: Product;
     field: 'name' | 'stock' | 'price' | 'costPrice' | 'image' | 'category';
@@ -195,10 +217,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [data, allUsers, serverExcluded] = await Promise.all([
+      const [data, allUsers, serverExcluded, allInvoices] = await Promise.all([
         api.getProducts(true),
         api.getUsers(),
-        api.getExcludedCriticalProducts()
+        api.getExcludedCriticalProducts(),
+        api.getInvoices().catch(() => [])
       ]);
       setProducts(data.map(p => ({ 
         ...p, 
@@ -208,6 +231,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         price: Number(p.price) || 0 
       })));
       setUsers(allUsers);
+      setInvoices(allInvoices || []);
       if (Array.isArray(serverExcluded)) {
         setExcludedCriticalIds(serverExcluded);
         localStorage.setItem('excluded_critical_product_ids', JSON.stringify(serverExcluded));
@@ -701,9 +725,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
 
       {/* Modern Administrative / Seller Stats Row */}
       {user.role === 'admin' && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-4 group hover:border-[#0b4d2c] hover:shadow-md transition-all duration-300">
-            <div className="w-12 h-12 bg-emerald-50/80 text-[#0b4d2c] rounded-xl flex items-center justify-center shrink-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 lg:gap-5">
+          {/* Card 1: Catálogo Activo */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-3.5 group hover:border-[#0b4d2c] hover:shadow-md transition-all duration-300">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-50/80 text-[#0b4d2c] rounded-xl flex items-center justify-center shrink-0">
               <Tag size={20} />
             </div>
             <div>
@@ -711,8 +736,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <h3 className="text-xl sm:text-2xl font-black text-slate-800 leading-none"><span className="notranslate" translate="no">{products.length}</span> <span className="text-xs font-semibold text-slate-500">artículos</span></h3>
             </div>
           </div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-4 group hover:border-[#0b4d2c] hover:shadow-md transition-all duration-300">
-            <div className="w-12 h-12 bg-emerald-50/80 text-[#0b4d2c] rounded-xl flex items-center justify-center shrink-0">
+
+          {/* Card 2: Stock en Bodega */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-3.5 group hover:border-[#0b4d2c] hover:shadow-md transition-all duration-300">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-50/80 text-[#0b4d2c] rounded-xl flex items-center justify-center shrink-0">
               <Package size={20} />
             </div>
             <div>
@@ -728,20 +755,45 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               </h3>
             </div>
           </div>
+
+          {/* Card 3: Stock Crítico */}
           <button
+            type="button"
             onClick={() => setIsCriticalModalOpen(true)}
-            className="w-full text-left bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-4 group hover:border-[#0b4d2c] hover:shadow-md transition-all duration-300 cursor-pointer"
+            className="w-full text-left bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-3.5 group hover:border-amber-400 hover:shadow-md transition-all duration-300 cursor-pointer"
           >
-            <div className="w-12 h-12 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-amber-100 transition-colors">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-amber-100 transition-colors">
               <AlertCircle size={20} />
             </div>
-            <div className="flex-1">
-              <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Stock Crítico o Agotado</span>
-              <div className="flex items-center justify-between">
+            <div className="flex-1 min-w-0">
+              <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5 truncate">Stock Crítico</span>
+              <div className="flex items-center justify-between gap-1">
                 <h3 className="text-xl sm:text-2xl font-black text-slate-800 leading-none">
                   <span className="notranslate" translate="no">{activeCriticalProducts.length}</span> <span className="text-xs font-semibold text-slate-500">artículos</span>
                 </h3>
-                <span className="text-[10px] bg-amber-50 text-amber-800 px-2 py-1 rounded-lg font-black group-hover:bg-[#0b4d2c] group-hover:text-white transition-all uppercase tracking-wider">
+                <span className="text-[10px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-lg font-black group-hover:bg-[#0b4d2c] group-hover:text-white transition-all uppercase tracking-wider shrink-0">
+                  Ver Todo
+                </span>
+              </div>
+            </div>
+          </button>
+
+          {/* Card 4: Productos Sin Rotación (Detenidos) */}
+          <button
+            type="button"
+            onClick={() => setIsSlowMovingModalOpen(true)}
+            className="w-full text-left bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-white p-4 sm:p-5 rounded-2xl shadow-sm border border-amber-200/90 flex items-center gap-3.5 group hover:border-amber-400 hover:shadow-md transition-all duration-300 cursor-pointer"
+          >
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-amber-200 transition-colors shadow-2xs">
+              <Flame size={20} className="text-amber-600 animate-pulse" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="text-[10px] text-amber-900/90 font-black uppercase tracking-widest block mb-0.5 truncate">Sin Rotación (Detenidos)</span>
+              <div className="flex items-center justify-between gap-1">
+                <h3 className="text-xl sm:text-2xl font-black text-amber-950 leading-none">
+                  <span className="notranslate" translate="no">{slowMovingProducts.length}</span> <span className="text-xs font-semibold text-amber-800/80">detenidos</span>
+                </h3>
+                <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-lg font-black group-hover:bg-amber-600 transition-all uppercase tracking-wider shrink-0 shadow-2xs">
                   Ver Todo
                 </span>
               </div>
@@ -3661,6 +3713,268 @@ const aVal = (a.stock || 0) * aCost;
                 </div>
               </>
             )}
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL DE PRODUCTOS SIN ROTACIÓN / DETENIDOS (ESTILO EXACTO STOCK CRÍTICO) */}
+      {isSlowMovingModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-3 sm:p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-amber-200/80"
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-6 border-b border-amber-100 flex justify-between items-center bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
+                  <Flame size={22} className="animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-black text-slate-850 text-base sm:text-lg leading-tight">
+                      Productos Sin Rotación
+                    </h3>
+                    <span className="text-xs bg-amber-500 text-white px-2.5 py-0.5 rounded-full font-black shadow-2xs">
+                      {slowMovingProducts.length} detenidos
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-900/80 font-medium mt-0.5">
+                    Artículos con stock disponible en bodega sin registrar ventas recientes
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSlowMovingModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Subheader: Threshold Filters, Search & Summary KPIs */}
+            <div className="p-4 sm:px-6 sm:py-3.5 bg-slate-50/80 border-b border-slate-150 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              {/* Threshold Switcher */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">Ventana:</span>
+                {[15, 30, 45].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setSlowMovingDaysThreshold(days)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                      slowMovingDaysThreshold === days
+                        ? "bg-amber-500 text-white shadow-2xs font-black"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-amber-50"
+                    )}
+                  >
+                    &ge; {days} días
+                  </button>
+                ))}
+              </div>
+
+              {/* Search & Excel Export */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 sm:w-56">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar producto detenido..."
+                    value={slowMovingSearchTerm}
+                    onChange={(e) => setSlowMovingSearchTerm(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                  />
+                  {slowMovingSearchTerm && (
+                    <button onClick={() => setSlowMovingSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const XLSX = await import('xlsx');
+                      const rows = filteredSlowMovingProducts.map(item => {
+                        const fullProd = products.find(p => p.id === item.id);
+                        return {
+                          'SKU': item.id ? String(item.id).split('-')[0] : '',
+                          'Producto': item.name,
+                          'Categoría': item.category || 'Otros',
+                          'Stock en Bodega': item.stock,
+                          'Precio Venta (Q)': Number(item.price || 0),
+                          'Costo Unitario (Q)': Number((fullProd?.costPrice !== undefined ? fullProd.costPrice : (fullProd as any)?.cost_price) || 0),
+                          'Días Sin Ventas': item.daysWithoutSale !== null ? item.daysWithoutSale : 'Sin historial',
+                          'Última Venta': item.lastSaleDate || 'Nunca vendido',
+                          'Recomendación Comercial': item.suggestedAction || item.recommendationReason
+                        };
+                      });
+
+                      const ws = XLSX.utils.json_to_sheet(rows);
+                      const wb = XLSX.utils.book_new();
+                      XLSX.utils.book_append_sheet(wb, ws, "Productos_Sin_Rotacion");
+                      XLSX.writeFile(wb, `productos_sin_rotacion_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    } catch (e) {
+                      alert("Error al exportar a Excel");
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
+                  title="Descargar lista de productos sin rotación en Excel"
+                >
+                  <FileSpreadsheet size={13} className="text-emerald-600" />
+                  <span className="hidden sm:inline">Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / Products List */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-3 custom-scrollbar flex-1 min-h-[300px]">
+              {filteredSlowMovingProducts.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
+                    <CheckCircle size={28} />
+                  </div>
+                  <p className="text-sm font-black text-slate-700">¡Excelente rotación!</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    {slowMovingSearchTerm 
+                      ? 'No hay productos detenidos que coincidan con la búsqueda.' 
+                      : `No se encontraron productos con stock detenido mayor a ${slowMovingDaysThreshold} días.`}
+                  </p>
+                </div>
+              ) : (
+                filteredSlowMovingProducts.map((item) => {
+                  const p = products.find(prod => prod.id === item.id) || ({
+                    id: item.id,
+                    name: item.name,
+                    category: item.category || 'Otros',
+                    price: item.price,
+                    stock: item.stock,
+                    image: item.image
+                  } as Product);
+                  const CategoryIcon = getCategoryIcon(item.category || 'Otros');
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 rounded-2xl bg-white border border-slate-200/80 hover:border-amber-300 hover:shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 group"
+                    >
+                      {/* Left: Product Image and Details */}
+                      <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden text-slate-400 group-hover:border-amber-200 transition-colors">
+                          {item.image ? (
+                            <ProductImage
+                              src={item.image}
+                              category={item.category}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <CategoryIcon size={20} className="text-[#0b4d2c]" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 
+                              onClick={() => {
+                                setSelectedProduct(p);
+                                setShowDetailModal(true);
+                                setIsSlowMovingModalOpen(false);
+                              }}
+                              className="font-bold text-slate-900 text-sm hover:text-[#0b4d2c] transition-colors leading-snug cursor-pointer notranslate"
+                              translate="no"
+                            >
+                              {item.name}
+                            </h4>
+                            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                              {item.category || 'General'}
+                            </span>
+                          </div>
+
+                          {/* Commercial recommendation callout */}
+                          <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-xl bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-950">
+                            <Lightbulb size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                            <span className="font-medium leading-tight">
+                              <strong>Estrategia:</strong> {item.suggestedAction || item.recommendationReason}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-medium flex-wrap">
+                            <span>SKU: <strong className="font-mono text-slate-600">{item.id ? String(item.id).split('-')[0] : ''}</strong></span>
+                            <span>•</span>
+                            <span>Última venta: <strong className="text-slate-600">{item.lastSaleDate || 'Sin registro previo'}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Stock, Badges & Quick Action Buttons */}
+                      <div className="flex items-center sm:flex-col items-end justify-between sm:justify-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <div className="flex items-center sm:flex-col items-end gap-1.5">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black bg-amber-100 text-amber-900 border border-amber-200 shadow-2xs whitespace-nowrap">
+                            📦 {item.stock} Uds en bodega
+                          </span>
+
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                            ⏱️ {item.daysWithoutSale !== null ? `${item.daysWithoutSale} días sin venta` : 'Nunca vendido'}
+                          </span>
+
+                          <span className="text-xs font-black text-[#0b4d2c] font-mono">
+                            Q{Number(item.price || 0).toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedProduct(p);
+                              setShowDetailModal(true);
+                              setIsSlowMovingModalOpen(false);
+                            }}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-[#0b4d2c] text-slate-700 hover:text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                            title="Ver ficha completa de este producto"
+                          >
+                            Ver Ficha
+                          </button>
+
+                          {user.role === 'admin' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsSlowMovingModalOpen(false);
+                                handleUpdatePrice(p);
+                              }}
+                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                              title="Ajustar precio de oferta / liquidación"
+                            >
+                              Precio
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-6 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+              <span className="text-xs text-slate-500 font-medium">
+                Mostrando <strong>{filteredSlowMovingProducts.length}</strong> de <strong>{slowMovingProducts.length}</strong> productos detenidos
+              </span>
+              <button 
+                type="button"
+                onClick={() => setIsSlowMovingModalOpen(false)}
+                className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-black rounded-2xl transition-all text-xs uppercase tracking-wider cursor-pointer shadow-md"
+              >
+                Cerrar
+              </button>
+            </div>
           </motion.div>
         </div>
       )}

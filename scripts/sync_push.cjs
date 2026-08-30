@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: optimizar vista movil colocando visitas en barra inferior, banner ultra compacto y scroll horizontal de pestanas';
+  const commitMsg = 'feat: integrar modulo de productos sin rotacion en inventario con tarjeta kpi y modal interactivo estilo stock critico';
   const sha = await git.commit({
     fs,
     dir,
