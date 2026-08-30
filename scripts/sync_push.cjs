@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: agregar boton de actualizar y forzado de sincronizacion en vistas de facturas';
+  const commitMsg = 'fix: resolver cache de produccion e import de servidor en serverless';
   const sha = await git.commit({
     fs,
     dir,

@@ -1060,7 +1060,8 @@ export const api = {
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          const preloadedCount = (preloadedData.invoices || []).length;
+          if (Array.isArray(parsed) && parsed.length >= preloadedCount) return parsed;
         } catch (e) {}
       }
     }
