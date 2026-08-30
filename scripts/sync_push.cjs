@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: integrar modulo de productos sin rotacion en inventario con tarjeta kpi y modal interactivo estilo stock critico';
+  const commitMsg = 'fix: corregir badge de rotacion a Sin ventas registradas en lugar de 999 dias';
   const sha = await git.commit({
     fs,
     dir,

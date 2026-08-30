@@ -50,7 +50,8 @@ export interface SlowMovingProduct {
   stock: number;
   price: number;
   image?: string;
-  daysWithoutSale: number;
+  daysWithoutSale: number | null;
+  neverSold: boolean;
   lastSaleDate?: string;
   totalSoldLast30Days: number;
   recommendationReason: string;
@@ -100,7 +101,8 @@ export function calculateSlowMovingProducts(products: any[], invoices: any[], da
     const pNameKey = (p.name || '').toLowerCase().trim();
     const sales = salesMap.get(p.id) || salesMap.get(pNameKey);
 
-    let daysWithoutSale = 999;
+    let daysWithoutSale: number | null = null;
+    let neverSold = true;
     let lastSaleDate: string | undefined = undefined;
     let totalSoldLast30Days = 0;
 
@@ -109,18 +111,19 @@ export function calculateSlowMovingProducts(products: any[], invoices: any[], da
       totalSoldLast30Days = sales.totalSold30d;
       const lastTime = new Date(sales.lastSaleDate).getTime();
       daysWithoutSale = Math.max(0, Math.floor((now - lastTime) / (1000 * 60 * 60 * 24)));
+      neverSold = false;
     }
 
-    if (daysWithoutSale >= daysThreshold || totalSoldLast30Days === 0) {
+    if (neverSold || (daysWithoutSale !== null && daysWithoutSale >= daysThreshold) || totalSoldLast30Days === 0) {
       let reason = "Sin ventas en los últimos 30 días";
       let action = "Ofrecer promoción o descuento por volumen";
-      if (daysWithoutSale === 999) {
-        reason = "Sin ventas recientes (Stock listo en bodega)";
+      if (neverSold) {
+        reason = "Sin ventas registradas (Stock disponible en bodega)";
         action = "Presentar al cliente como producto recomendado";
-      } else if (daysWithoutSale > 45) {
+      } else if (daysWithoutSale !== null && daysWithoutSale > 45) {
         reason = `Lleva ${daysWithoutSale} días sin movimiento`;
-        action = "Priorizar para rotación rápida en esta visita";
-      } else if (daysWithoutSale >= 15) {
+        action = "Priorizar para rotación rápida o descuento comercial";
+      } else if (daysWithoutSale !== null && daysWithoutSale >= 15) {
         reason = `Baja rotación (${daysWithoutSale} días sin venta)`;
         action = "Sugerir como compra complementaria";
       }
@@ -133,6 +136,7 @@ export function calculateSlowMovingProducts(products: any[], invoices: any[], da
         price: p.price ?? 0,
         image: p.image || p.imageUrl,
         daysWithoutSale,
+        neverSold,
         lastSaleDate,
         totalSoldLast30Days,
         recommendationReason: reason,
@@ -142,8 +146,13 @@ export function calculateSlowMovingProducts(products: any[], invoices: any[], da
   });
 
   return slowProducts.sort((a, b) => {
-    if (b.daysWithoutSale !== a.daysWithoutSale) {
-      return b.daysWithoutSale - a.daysWithoutSale;
+    if (a.neverSold !== b.neverSold) {
+      return a.neverSold ? -1 : 1;
+    }
+    const aDays = a.daysWithoutSale ?? 0;
+    const bDays = b.daysWithoutSale ?? 0;
+    if (bDays !== aDays) {
+      return bDays - aDays;
     }
     return b.stock - a.stock;
   });

@@ -342,7 +342,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       'Categoría': p.category || 'General',
       'Stock Disponible': p.stock,
       'Precio Unitario': `Q${p.price}`,
-      'Días Sin Venta': p.daysWithoutSale === 999 ? 'Sin ventas registradas' : p.daysWithoutSale,
+      'Días Sin Venta': p.neverSold || p.daysWithoutSale === null ? 'Sin ventas registradas' : p.daysWithoutSale,
       'Motivo': p.recommendationReason,
       'Acción Comercial Sugerida': p.suggestedAction
     }));
@@ -878,13 +878,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                       </span>
                       <span className={cn(
                         "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                        product.daysWithoutSale === 999 
+                        product.neverSold || product.daysWithoutSale === null
                           ? "bg-purple-50 text-purple-700 border-purple-200" 
-                          : product.daysWithoutSale > 45 
+                          : (product.daysWithoutSale || 0) > 45 
                             ? "bg-rose-50 text-rose-700 border-rose-200" 
                             : "bg-amber-50 text-amber-700 border-amber-200"
                       )}>
-                        {product.daysWithoutSale === 999 ? 'Sin ventas recientes' : `${product.daysWithoutSale} días sin venta`}
+                        {product.neverSold || product.daysWithoutSale === null ? 'Sin ventas registradas' : `${product.daysWithoutSale} días sin venta`}
                       </span>
                     </div>
 

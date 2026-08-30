@@ -3808,7 +3808,7 @@ const aVal = (a.stock || 0) * aCost;
                           'Stock en Bodega': item.stock,
                           'Precio Venta (Q)': Number(item.price || 0),
                           'Costo Unitario (Q)': Number((fullProd?.costPrice !== undefined ? fullProd.costPrice : (fullProd as any)?.cost_price) || 0),
-                          'Días Sin Ventas': item.daysWithoutSale !== null ? item.daysWithoutSale : 'Sin historial',
+                          'Días Sin Ventas': item.neverSold || item.daysWithoutSale === null ? 'Sin ventas registradas' : item.daysWithoutSale,
                           'Última Venta': item.lastSaleDate || 'Nunca vendido',
                           'Recomendación Comercial': item.suggestedAction || item.recommendationReason
                         };
@@ -3919,7 +3919,7 @@ const aVal = (a.stock || 0) * aCost;
                           </span>
 
                           <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
-                            ⏱️ {item.daysWithoutSale !== null ? `${item.daysWithoutSale} días sin venta` : 'Nunca vendido'}
+                            ⏱️ {item.neverSold || item.daysWithoutSale === null ? 'Sin ventas registradas' : `${item.daysWithoutSale} días sin venta`}
                           </span>
 
                           <span className="text-xs font-black text-[#0b4d2c] font-mono">
