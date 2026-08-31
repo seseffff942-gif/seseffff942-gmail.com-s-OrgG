@@ -703,36 +703,17 @@ export const api = {
   },
 
   getVisits: async (params?: { sellerId?: string; clientId?: string; date?: string; startDate?: string; endDate?: string }): Promise<ClientVisit[]> => {
-    const query = new URLSearchParams();
-    if (params?.sellerId) query.append('sellerId', params.sellerId);
-    if (params?.clientId) query.append('clientId', params.clientId);
-    if (params?.date) query.append('date', params.date);
-    if (params?.startDate) query.append('startDate', params.startDate);
-    if (params?.endDate) query.append('endDate', params.endDate);
-
-    const url = `/api/visits${query.toString() ? `?${query.toString()}` : ''}`;
+    // 1. Direct Supabase Query (Instant real-time sync across all phones & computers)
     try {
-      const res = await fetchWithAuth(url);
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
-          localStorage.setItem('cached_client_visits', JSON.stringify(data));
-        }
-        return data;
+      let query = supabase.from('client_visits').select('*').order('created_at', { ascending: false });
+      if (params?.sellerId && params.sellerId !== 'all') {
+        query = query.or(`sellerId.eq.${params.sellerId},seller_id.eq.${params.sellerId}`);
       }
-    } catch (err) {
-      console.warn('Visits fetch via API error, trying direct Supabase:', err);
-    }
-
-    // Direct Supabase Fallback
-    try {
-      let { data, error } = await supabase.from('client_visits').select('*').order('created_at', { ascending: false });
-      if (error || !data) {
-        const res2 = await supabase.from('client_visits').select('*');
-        data = res2.data;
-        error = res2.error;
+      if (params?.clientId) {
+        query = query.or(`clientId.eq.${params.clientId},client_id.eq.${params.clientId}`);
       }
-      if (!error && data && Array.isArray(data)) {
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
         const normalized = data.map((v: any) => ({
           id: v.id,
           clientId: String(v.clientId || v.client_id || ''),
@@ -756,7 +737,29 @@ export const api = {
         }
         return normalized as ClientVisit[];
       }
-    } catch (sbErr) {}
+    } catch (sbErr) {
+      console.warn('Direct Supabase getVisits error, fallback to API:', sbErr);
+    }
+
+    // 2. Fallback via backend API
+    const query = new URLSearchParams();
+    if (params?.sellerId) query.append('sellerId', params.sellerId);
+    if (params?.clientId) query.append('clientId', params.clientId);
+    if (params?.date) query.append('date', params.date);
+    if (params?.startDate) query.append('startDate', params.startDate);
+    if (params?.endDate) query.append('endDate', params.endDate);
+
+    const url = `/api/visits${query.toString() ? `?${query.toString()}` : ''}`;
+    try {
+      const res = await fetchWithAuth(url, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
+          localStorage.setItem('cached_client_visits', JSON.stringify(data));
+        }
+        return data;
+      }
+    } catch (err) {}
 
     if (typeof localStorage !== 'undefined') {
       const cached = localStorage.getItem('cached_client_visits');
