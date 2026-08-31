@@ -1121,84 +1121,44 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       )}
       
       {/* Product Selection Area */}
-      <section className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#f4f7f5] ${isMobile ? 'pb-32' : ''}`}>
+      <section className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#f4f7f5] ${isMobile ? 'pb-24' : ''}`}>
         
         {/* Header / Search & Interactive Branding bar */}
-        <div className="flex flex-col gap-4.5 p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
-          
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center justify-between sm:justify-start gap-4">
-              <div>
-                <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                  <span className="w-2.5 h-6 rounded-full bg-[#0b4d2c] block" />
-                  Catálogo de Productos
-                </h2>
-                <p className="text-xs text-slate-400 mt-1 font-bold uppercase tracking-wider">
-                  Selecciona insumos veterianarios y agrícolas para procesar la venta
-                </p>
-              </div>
+        <div className="flex flex-col gap-3 p-4 sm:p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                <span className="w-2 h-5 rounded-full bg-[#0b4d2c] block" />
+                Catálogo de Productos
+              </h2>
+              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 font-bold uppercase tracking-wider">
+                Selecciona insumos para procesar la venta
+              </p>
             </div>
             
             <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
               <input
                 type="text"
                 placeholder="Buscar por código SKU, nombre de producto..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-2xl focus:bg-white focus:border-[#0b4d2c] focus:ring-2 focus:ring-[#0b4d2c]/10 outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
+                className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl focus:bg-white focus:border-[#0b4d2c] outline-none text-[#07361e] font-semibold transition-all text-xs sm:text-sm shadow-inner"
               />
               {searchTerm && (
                 <button 
                   onClick={() => setSearchTerm('')} 
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-all cursor-pointer"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               )}
             </div>
           </div>
-
         </div>
 
-        {/* Smart Sales Booster / Stagnant Stock Suggestions */}
-        {!searchTerm && products.filter(p => Number(p.stock) > 0 && !p.hiddenFromSales).length > 0 && (
-          <div className="px-5 md:px-6 pt-3 pb-1">
-            <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white rounded-2xl p-3 shadow-md border border-purple-500/30 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-purple-500/20 rounded-xl text-purple-300 shrink-0">
-                  <Flame size={16} className="text-amber-400 animate-pulse" />
-                </div>
-                <div>
-                  <h4 className="text-[11px] font-black uppercase tracking-wider text-purple-200 flex items-center gap-1.5">
-                    <span>🚀 Impulso de Venta / Stock en Bodega</span>
-                  </h4>
-                  <p className="text-[10px] text-purple-200/80 font-medium">Recomienda estos productos con existencia para rotar inventario:</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto py-0.5">
-                {products
-                  .filter(p => Number(p.stock) >= 3 && !p.hiddenFromSales)
-                  .slice(0, 4)
-                  .map(sug => (
-                    <button
-                      key={sug.id}
-                      onClick={() => handleProductClick(sug)}
-                      className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 border border-white/15 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95 whitespace-nowrap cursor-pointer text-white"
-                      title="Agregar producto sugerido al carrito"
-                    >
-                      <Plus size={11} className="text-emerald-400" />
-                      <span>{sug.name.length > 20 ? `${sug.name.slice(0, 20)}...` : sug.name}</span>
-                      <span className="text-[9px] bg-purple-500/50 text-purple-200 px-1 py-0.5 rounded font-black">{sug.stock} disp</span>
-                    </button>
-                  ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Dynamic & Beautiful Products Catalog Grid */}
-        <div className="flex-1 overflow-y-auto min-h-0 p-5 md:p-6 scrollbar-hide hide-scrollbar">
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-5 md:p-6 scrollbar-hide hide-scrollbar">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 bg-white rounded-[2rem] border border-slate-100 shadow-sm animate-pulse space-y-4 max-w-lg mx-auto">
               <div className="w-10 h-10 border-4 border-[#0b4d2c] border-t-transparent rounded-full animate-spin" />
@@ -1343,8 +1303,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       </section>
 
       {/* Cart Floating Summary Bar for mobile screens */}
-      {isMobile && !isCartOpen && (
-        <div className="fixed bottom-20 left-4 right-4 z-40">
+      {isMobile && !isCartOpen && cart.length > 0 && (
+        <div className="fixed bottom-20 left-4 right-4 z-40 animate-in slide-in-from-bottom-4 duration-200">
           <div className="bg-[#07361e] text-white rounded-[2rem] p-4.5 shadow-[0_15px_30px_rgba(7,54,30,0.3)] flex items-center justify-between border border-emerald-800/40 backdrop-blur-md">
             <div className="flex items-center gap-3.5">
               <div className="relative p-2 rounded-xl bg-white/10 text-emerald-300">
