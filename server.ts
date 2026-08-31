@@ -2217,15 +2217,7 @@ if (!process.env.VERCEL) {
 
     let visits: any[] = [];
     try {
-      let query = supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
-      if (userRole === 'seller') {
-        if (userId) query = query.eq("sellerId", userId);
-      } else if (sellerId && sellerId !== 'all') {
-        query = query.eq("sellerId", sellerId);
-      }
-      if (clientId) query = query.eq("clientId", clientId);
-      
-      const { data, error } = await query;
+      const { data, error } = await supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
       if (!error && data && data.length > 0) {
         visits = data;
       }
@@ -2236,15 +2228,36 @@ if (!process.env.VERCEL) {
       visits = readLocalVisits();
     }
 
+    // Normalize all visit records
+    const normalizedVisits = visits.map((v: any) => ({
+      id: v.id,
+      clientId: String(v.clientId || v.client_id || ''),
+      clientName: v.clientName || v.client_name || '',
+      clientCode: v.clientCode || v.client_code || '',
+      companyName: v.companyName || v.company_name || '',
+      sellerId: String(v.sellerId || v.seller_id || ''),
+      sellerName: v.sellerName || v.seller_name || '',
+      sellerEmail: v.sellerEmail || v.seller_email || '',
+      latitude: v.latitude,
+      longitude: v.longitude,
+      accuracy: v.accuracy,
+      distanceMeters: v.distanceMeters ?? v.distance_meters,
+      visitType: v.visitType || v.visit_type || 'rutina',
+      notes: v.notes || '',
+      photoUrl: v.photoUrl || v.photo_url || '',
+      routeId: v.routeId || v.route_id,
+      createdAt: v.createdAt || v.created_at
+    }));
+
     // Apply strict filtering
-    let filtered = visits;
+    let filtered = normalizedVisits;
 
     // Strict Seller Isolation: Sellers ONLY see their own visits
     if (userRole === 'seller') {
       filtered = filtered.filter(v => {
-        const vSellerId = String(v.sellerId || v.seller_id || '').trim();
-        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
+        const vSellerId = String(v.sellerId || '').trim();
+        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
 
         return (
           (userId && vSellerId === userId) ||
@@ -2254,9 +2267,9 @@ if (!process.env.VERCEL) {
       });
     } else if (sellerId && sellerId !== 'all') {
       filtered = filtered.filter(v => {
-        const vSellerId = String(v.sellerId || v.seller_id || '').trim().toLowerCase();
-        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
+        const vSellerId = String(v.sellerId || '').trim().toLowerCase();
+        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
         const target = String(sellerId).trim().toLowerCase();
 
         return vSellerId === target || vSellerEmail === target || vSellerName === target;
@@ -2264,7 +2277,7 @@ if (!process.env.VERCEL) {
     }
 
     if (clientId) {
-      filtered = filtered.filter(v => v.clientId === clientId);
+      filtered = filtered.filter(v => String(v.clientId) === String(clientId));
     }
     if (date) {
       filtered = filtered.filter(v => (v.createdAt || '').startsWith(String(date)));

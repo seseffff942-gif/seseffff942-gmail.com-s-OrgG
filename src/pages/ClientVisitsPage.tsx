@@ -263,15 +263,21 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     const map = new Map<string, ClientVisit>();
 
     scopedVisits.forEach(v => {
-      if (v.clientId && !map.has(v.clientId)) {
-        map.set(v.clientId, v);
-      }
+      const cId = String(v.clientId || (v as any).client_id || '').trim();
+      const cName = String(v.clientName || (v as any).client_name || '').trim().toLowerCase();
+      const cCode = String(v.clientCode || (v as any).client_code || '').trim().toLowerCase();
+      if (cId && !map.has(cId)) map.set(cId, v);
+      if (cName && !map.has(cName)) map.set(cName, v);
+      if (cCode && !map.has(cCode)) map.set(cCode, v);
     });
 
     const term = normalizeSearchText(searchTerm);
 
     return clients.map(client => {
-      const lastVisit = map.get(client.id);
+      const cIdKey = String(client.id || '').trim();
+      const cNameKey = String(client.name || '').trim().toLowerCase();
+      const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
+      const lastVisit = map.get(cIdKey) || map.get(cNameKey) || (cCodeKey ? map.get(cCodeKey) : undefined);
       const daysElapsed = lastVisit 
         ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
         : null;

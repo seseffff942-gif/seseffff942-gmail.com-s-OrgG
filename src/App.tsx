@@ -73,7 +73,7 @@ export default function App() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('agricovet_maintenance_mode');
-    return saved === null ? true : saved !== 'false';
+    return saved === 'true';
   });
 
   const toggleMaintenanceMode = () => {

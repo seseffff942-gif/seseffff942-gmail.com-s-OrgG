@@ -242,9 +242,12 @@ export function ClientVisitsMap({
 
     const clientVisitMap = new Map<string, ClientVisit>();
     visits.forEach(v => {
-      if (v.clientId && !clientVisitMap.has(v.clientId)) {
-        clientVisitMap.set(v.clientId, v);
-      }
+      const cId = String(v.clientId || (v as any).client_id || '').trim();
+      const cName = String(v.clientName || (v as any).client_name || '').trim().toLowerCase();
+      const cCode = String(v.clientCode || (v as any).client_code || '').trim().toLowerCase();
+      if (cId && !clientVisitMap.has(cId)) clientVisitMap.set(cId, v);
+      if (cName && !clientVisitMap.has(cName)) clientVisitMap.set(cName, v);
+      if (cCode && !clientVisitMap.has(cCode)) clientVisitMap.set(cCode, v);
     });
 
     const now = new Date().getTime();
@@ -254,7 +257,10 @@ export function ClientVisitsMap({
     const filteredClients = clients.filter(c => {
       if (!c.latitude || !c.longitude || isNaN(c.latitude) || isNaN(c.longitude)) return false;
       
-      const lastVisit = clientVisitMap.get(c.id);
+      const cIdKey = String(c.id || '').trim();
+      const cNameKey = String(c.name || '').trim().toLowerCase();
+      const cCodeKey = String(c.clientCode || '').trim().toLowerCase();
+      const lastVisit = clientVisitMap.get(cIdKey) || clientVisitMap.get(cNameKey) || (cCodeKey ? clientVisitMap.get(cCodeKey) : undefined);
       const isRecentlyVisited = lastVisit && (now - new Date(lastVisit.createdAt).getTime() < SEVEN_DAYS_MS);
 
       if (activeFilter === 'visited' && !isRecentlyVisited) return false;
