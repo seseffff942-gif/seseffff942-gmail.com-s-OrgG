@@ -14,7 +14,7 @@
  * Soporta FACT (factura) y FCAM (factura cambiaria, la que usa este negocio)
  * con su complemento de abonos.
  */
-import type { TotalesFEL } from './calculos.js';
+import type { TotalesFEL } from './calculos';
 
 export interface EmisorXML {
   nit: string;

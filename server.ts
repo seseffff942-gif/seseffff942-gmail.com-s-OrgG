@@ -16,9 +16,8 @@ import webpush from "web-push";
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
-import { createServer as createViteServer } from "vite";
-import * as felServicio from "./fel/servicio.js";
-import * as infileApi from "./fel/infile.js";
+import * as felServicio from "./fel/servicio";
+import * as infileApi from "./fel/infile";
 
 // Exige una variable de entorno. Falla al arrancar si falta, en lugar de
 // caer silenciosamente a una base de datos que no corresponde.
@@ -7294,6 +7293,7 @@ async function startServer() {
   // ======== VITE MIDDLEWARE / SPA ========
   if (process.env.NODE_ENV !== "production") {
     console.log("Initializing Vite middleware server...");
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

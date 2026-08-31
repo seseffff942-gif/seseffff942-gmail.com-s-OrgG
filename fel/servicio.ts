@@ -5,15 +5,15 @@
  * Recibe el cliente de Supabase como parametro para no duplicar la conexion
  * ni crear dependencias circulares con server.ts.
  */
-import { calcularTotales, validarCuadre, type LineaFactura, type TotalesFEL } from './calculos.js';
+import { calcularTotales, validarCuadre, type LineaFactura, type TotalesFEL } from './calculos';
 import {
   anularDTE,
   certificarDTE,
   credencialesCompletas,
   InfileNoConfiguradoError,
   type CredencialesInfile,
-} from './infile.js';
-import { construirXmlAnulacion, construirXmlDTE } from './xml.js';
+} from './infile';
+import { construirXmlAnulacion, construirXmlDTE } from './xml';
 
 export type EstadoFEL = 'pendiente' | 'enviado' | 'certificado' | 'error' | 'anulado';
 export type TipoDTE = 'FACT' | 'FCAM' | 'NCRE' | 'NDEB' | 'NABN' | 'RDON';
