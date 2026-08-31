@@ -7484,6 +7484,15 @@ async function startServer() {
   }
 }
 
-if (!process.env.VERCEL) {
+// Only auto-start when executed directly as main script (not imported in serverless / Vercel)
+const isDirectRun = !process.env.VERCEL && (
+  (typeof process.argv[1] === 'string' && (
+    process.argv[1].endsWith('server.cjs') ||
+    process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.js')
+  ))
+);
+
+if (isDirectRun) {
   startServer();
 }
