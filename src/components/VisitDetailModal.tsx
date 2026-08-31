@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ClientVisit, Client } from '../types';
+import { api } from '../api';
 import { 
   X, MapPin, Calendar, Clock, User, Building2, 
   Phone, Tag, ExternalLink, Navigation, CheckCircle2, 
-  Maximize2, Image as ImageIcon, Sparkles, AlertCircle 
+  Maximize2, Image as ImageIcon, Sparkles, AlertCircle, Loader2 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, fechaDDMMYYYY } from '../utils';
@@ -21,6 +22,38 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string>('');
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState<boolean>(false);
+
+  // Fetch visit photo on-demand from Supabase when modal opens
+  useEffect(() => {
+    if (!isOpen || !visit) {
+      setPhotoUrl('');
+      setIsLoadingPhoto(false);
+      return;
+    }
+
+    if (visit.photoUrl && (visit.photoUrl.startsWith('data:') || visit.photoUrl.startsWith('http'))) {
+      setPhotoUrl(visit.photoUrl);
+      setIsLoadingPhoto(false);
+    } else {
+      setIsLoadingPhoto(true);
+      api.getVisitPhoto(visit.id)
+        .then((fetchedPhoto) => {
+          if (fetchedPhoto) {
+            setPhotoUrl(fetchedPhoto);
+          } else {
+            setPhotoUrl(visit.photoUrl || '');
+          }
+        })
+        .catch(() => {
+          setPhotoUrl(visit.photoUrl || '');
+        })
+        .finally(() => {
+          setIsLoadingPhoto(false);
+        });
+    }
+  }, [isOpen, visit]);
 
   // Initialize mini leaflet map when modal is open and visit has coordinates
   useEffect(() => {
@@ -217,7 +250,7 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
                     <ImageIcon size={14} className="text-teal-600" />
                     Foto de Comprobante
                   </span>
-                  {visit.photoUrl && (
+                  {photoUrl && !isLoadingPhoto && (
                     <button 
                       type="button"
                       onClick={() => setIsPhotoExpanded(true)}
@@ -229,9 +262,14 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
                 </div>
 
                 <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 shadow-inner flex items-center justify-center group">
-                  {visit.photoUrl ? (
+                  {isLoadingPhoto ? (
+                    <div className="p-6 text-center text-teal-400 space-y-2">
+                      <Loader2 size={32} className="mx-auto animate-spin text-teal-500" />
+                      <p className="text-xs font-bold text-slate-300">Cargando fotografía de prueba...</p>
+                    </div>
+                  ) : photoUrl ? (
                     <img 
-                      src={visit.photoUrl} 
+                      src={photoUrl} 
                       alt="Foto de Comprobante" 
                       className="w-full h-full object-cover cursor-pointer transition-transform group-hover:scale-105"
                       onClick={() => setIsPhotoExpanded(true)}
@@ -243,7 +281,7 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
                     </div>
                   )}
 
-                  {visit.photoUrl && (
+                  {photoUrl && !isLoadingPhoto && (
                     <div 
                       onClick={() => setIsPhotoExpanded(true)}
                       className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold cursor-pointer gap-1.5"
@@ -253,7 +291,7 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
                   )}
                 </div>
 
-                {visit.photoUrl && (
+                {photoUrl && !isLoadingPhoto && (
                   <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-[11px] text-emerald-900 font-semibold flex items-center gap-2">
                     <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
                     <span>Fotografía WebP optimizada y certificada con GPS satelital.</span>

@@ -859,6 +859,22 @@ export const api = {
     return { success: true, visit: fallbackVisit };
   },
 
+  getVisitPhoto: async (visitId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('client_visits')
+        .select('photoUrl, photo_url')
+        .eq('id', visitId)
+        .single();
+      if (!error && data) {
+        return data.photoUrl || data.photo_url || null;
+      }
+    } catch (e) {
+      console.warn('Error fetching visit photo:', e);
+    }
+    return null;
+  },
+
   getVisitStats: async (): Promise<VisitStats> => {
     try {
       const res = await fetchWithAuth('/api/visits/stats');

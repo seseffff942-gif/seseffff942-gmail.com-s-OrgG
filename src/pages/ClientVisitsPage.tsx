@@ -1318,7 +1318,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                 )}
               >
                 <TrendingUp size={14} className="text-teal-600" />
-                <span>Vendedores & Ranking</span>
+                <span>📸 Auditoría de Fotos & Ranking</span>
               </button>
             )}
           </div>
@@ -1511,6 +1511,18 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
                     {/* Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
+                      {/* View Last Visit Photo & Audit Button */}
+                      {client.lastVisit && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedVisitForDetail(client.lastVisit!)}
+                          className="px-3.5 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                          title="Ver fotografía de comprobante y posición en el mapa de la última visita"
+                        >
+                          <span>📸 Ver Foto Visita</span>
+                        </button>
+                      )}
+
                       {/* Register Visit Button */}
                       <button
                         type="button"
