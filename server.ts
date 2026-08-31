@@ -5,7 +5,6 @@ import compression from "compression";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
-import sharp from "sharp";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import helmet from "helmet";
