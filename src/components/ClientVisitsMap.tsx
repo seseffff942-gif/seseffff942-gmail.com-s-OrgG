@@ -18,6 +18,13 @@ interface ClientVisitsMapProps {
   onOpenRegisterVisitModal: () => void;
   onRefreshGps: () => void;
   isGpsLoading?: boolean;
+  // Route Tracing Props
+  routeSellerId?: string;
+  routeDate?: string;
+  isRouteTraceActive?: boolean;
+  onSelectRouteVisit?: (visit: ClientVisit) => void;
+  onOpenMarkClientModalForClient?: (client: Client) => void;
+  onClearClientLocation?: (client: Client) => void;
 }
 
 interface RegionShortcut {
@@ -47,16 +54,33 @@ export function ClientVisitsMap({
   onOpenMarkClientModal,
   onOpenRegisterVisitModal,
   onRefreshGps,
-  isGpsLoading = false
+  isGpsLoading = false,
+  routeSellerId = 'all',
+  routeDate = 'all',
+  isRouteTraceActive = true,
+  onSelectRouteVisit,
+  onOpenMarkClientModalForClient,
+  onClearClientLocation
 }: ClientVisitsMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const userAccuracyCircleRef = useRef<L.Circle | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const clientMarkersMapRef = useRef<Map<string, L.Marker>>(new Map());
 
   const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
+  // Handler to clear all client pins from the map
+  const handleClearAllPins = () => {
+    // Remove all client markers from the layer group
+    if (clientMarkersMapRef.current && markersLayerRef.current) {
+      clientMarkersMapRef.current.forEach((marker) => {
+        markersLayerRef.current?.removeLayer(marker);
+      });
+      clientMarkersMapRef.current.clear();
+    }
+  };
   const [activeFilter, setActiveFilter] = useState<'all' | 'visited' | 'pending'>('all');
   const [mapSearchTerm, setMapSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
@@ -78,6 +102,26 @@ export function ClientVisitsMap({
       zoomControl: false
     });
 
+    // Add Clear All Pins control button
+    const clearBtn = L.control({ position: 'topright' });
+    clearBtn.onAdd = function () {
+      const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-touch');
+      btn.title = 'Clear All Pins';
+      btn.style.width = '30px';
+      btn.style.height = '30px';
+      btn.style.backgroundColor = 'white';
+      btn.style.display = 'flex';
+      btn.style.alignItems = 'center';
+      btn.style.justifyContent = 'center';
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 5h4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0V6H6v6.5a.5.5 0 0 1-1 0v-7z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2h3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3a.5.5 0 0 0-.5.5V4h12v-.5a.5.5 0 0 0-.5-.5h-11z"/></svg>';
+      L.DomEvent.on(btn, 'click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        handleClearAllPins();
+      });
+      return btn;
+    };
+    clearBtn.addTo(map);
+
     const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
@@ -87,6 +131,10 @@ export function ClientVisitsMap({
 
     const markersGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = markersGroup;
+
+    const routeGroup = L.layerGroup().addTo(map);
+    routeLayerRef.current = routeGroup;
+
     mapInstanceRef.current = map;
 
     // Trigger invalidateSize after container mounts
@@ -294,6 +342,14 @@ export function ClientVisitsMap({
               🚗 Waze
             </a>
           </div>
+          <div class="flex gap-1.5 pt-1 border-t border-slate-100/80">
+            <button id="remark-btn-${client.id}" class="flex-1 py-1 px-2 bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
+              📍 Refijar GPS
+            </button>
+            <button id="clear-gps-btn-${client.id}" class="py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors" title="Borrar ubicación guardada">
+              🗑️ Borrar GPS
+            </button>
+          </div>
         </div>
       `;
 
@@ -311,9 +367,180 @@ export function ClientVisitsMap({
             marker.closePopup();
           };
         }
+
+        const remarkBtn = document.getElementById(`remark-btn-${client.id}`);
+        if (remarkBtn) {
+          remarkBtn.onclick = () => {
+            if (onOpenMarkClientModalForClient) {
+              onOpenMarkClientModalForClient(client);
+            } else {
+              onOpenMarkClientModal();
+            }
+            marker.closePopup();
+          };
+        }
+
+        const clearGpsBtn = document.getElementById(`clear-gps-btn-${client.id}`);
+        if (clearGpsBtn) {
+          clearGpsBtn.onclick = () => {
+            if (onClearClientLocation) {
+              onClearClientLocation(client);
+            }
+            marker.closePopup();
+          };
+        }
       });
     });
-  }, [clients, visits, activeFilter, mapSearchTerm]);
+  }, [clients, visits, activeFilter, mapSearchTerm, onOpenMarkClientModalForClient, onClearClientLocation]);
+
+  // Draw Sequential Route Polyline & Stops (Admin Route Audit)
+  useEffect(() => {
+    if (!mapInstanceRef.current || !routeLayerRef.current) return;
+    const routeGroup = routeLayerRef.current;
+    routeGroup.clearLayers();
+
+    if (!isRouteTraceActive) return;
+
+    // Do NOT draw a single criss-crossing line if no seller or date is selected
+    if ((!routeSellerId || routeSellerId === 'all') && (!routeDate || routeDate === 'all')) {
+      return;
+    }
+
+    // Filter and sort visits chronologically
+    const routeVisits = visits.filter(v => {
+      if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
+      if (routeSellerId && routeSellerId !== 'all') {
+        const match = v.sellerId === routeSellerId || v.sellerEmail === routeSellerId || v.sellerName === routeSellerId;
+        if (!match) return false;
+      }
+      if (routeDate && routeDate !== 'all') {
+        const vDate = (v.createdAt || '').split('T')[0];
+        if (vDate !== routeDate) return false;
+      }
+      return true;
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    if (routeVisits.length === 0) return;
+
+    const latLngs: [number, number][] = routeVisits.map(v => [v.latitude, v.longitude]);
+
+    // 1. Background glow line
+    L.polyline(latLngs, {
+      color: '#0d9488',
+      weight: 8,
+      opacity: 0.35,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(routeGroup);
+
+    // 2. Dynamic route line
+    const polyline = L.polyline(latLngs, {
+      color: '#0f766e',
+      weight: 4,
+      dashArray: '8, 8',
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(routeGroup);
+
+    if (latLngs.length > 1) {
+      try {
+        mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
+      } catch (e) {}
+    }
+
+    // Add Stop Numbers and Step Badges
+    routeVisits.forEach((v, idx) => {
+      const isStart = idx === 0;
+      const isEnd = idx === routeVisits.length - 1;
+      const stepNum = idx + 1;
+      
+      const prevVisit = idx > 0 ? routeVisits[idx - 1] : null;
+      let timeFromPrev = '';
+      let distFromPrev = '';
+
+      if (prevVisit) {
+        const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(prevVisit.createdAt).getTime());
+        const diffMins = Math.round(diffMs / 60000);
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        timeFromPrev = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+
+        const R = 6371; // km
+        const dLat = ((v.latitude - prevVisit.latitude) * Math.PI) / 180;
+        const dLon = ((v.longitude - prevVisit.longitude) * Math.PI) / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos((prevVisit.latitude * Math.PI) / 180) * 
+                  Math.cos((v.latitude * Math.PI) / 180) * 
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distKm = Math.round(R * c * 10) / 10;
+        distFromPrev = `${distKm} km`;
+      }
+
+      const stopColor = isStart ? '#10b981' : isEnd ? '#f59e0b' : '#0f766e';
+      const stopIcon = isStart ? '🚩' : isEnd ? '🏁' : `#${stepNum}`;
+
+      const stopHtml = `
+        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1" style="background-color: ${stopColor}">
+            <span>${isStart ? 'Inicio' : isEnd ? 'Final' : `Parada ${stepNum}`}</span>
+            <span class="opacity-90 font-mono">(${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+          </div>
+          <div class="w-7 h-7 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[12px] font-black transition-transform group-hover:scale-115" style="background-color: ${stopColor}">
+            ${stopIcon}
+          </div>
+        </div>
+      `;
+
+      const customStopIcon = L.divIcon({
+        className: 'custom-map-route-stop-pin',
+        html: stopHtml,
+        iconSize: [48, 54],
+        iconAnchor: [24, 50],
+        popupAnchor: [0, -48]
+      });
+
+      const popupHtml = `
+        <div class="p-3.5 text-slate-800 text-xs max-w-xs space-y-2 font-sans">
+          <div class="border-b border-slate-100 pb-1.5 flex items-center justify-between">
+            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white" style="background-color: ${stopColor}">
+              ${isStart ? '🚩 Salida / Inicio de Ruta' : isEnd ? '🏁 Destino / Cierre de Ruta' : `📍 Parada #${stepNum}`}
+            </span>
+            <span class="text-[11px] font-bold text-slate-500 font-mono">
+              ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+
+          <div>
+            <h4 class="font-black text-sm text-slate-950">${v.clientName}</h4>
+            ${v.companyName ? `<p class="text-slate-500 text-[11px]">${v.companyName}</p>` : ''}
+            <p class="text-slate-400 text-[10px] mt-0.5">Asesor: <strong class="text-slate-700">${v.sellerName}</strong></p>
+          </div>
+
+          ${prevVisit ? `
+            <div class="bg-teal-50/80 p-2 rounded-xl border border-teal-100 text-[11px] text-teal-900 space-y-0.5">
+              <p class="font-bold flex items-center gap-1">⏱️ Traslado desde parada #${idx}: <span class="text-teal-700 font-black">${timeFromPrev}</span></p>
+              <p class="font-medium text-slate-600 flex items-center gap-1">🚗 Distancia entre puntos: <span class="font-bold text-slate-800">${distFromPrev}</span></p>
+            </div>
+          ` : ''}
+
+          <div class="text-[11px] text-slate-600 space-y-1">
+            <p><strong>Gestión:</strong> <span class="capitalize font-bold text-teal-800">${v.visitType || 'Rutina'}</span></p>
+            ${v.notes ? `<p class="italic text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">"${v.notes}"</p>` : ''}
+          </div>
+        </div>
+      `;
+
+      L.marker([v.latitude, v.longitude], { icon: customStopIcon, zIndexOffset: 1500 + idx })
+        .addTo(routeGroup)
+        .bindPopup(popupHtml);
+    });
+
+    if (latLngs.length > 1 && mapInstanceRef.current) {
+      mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
+    }
+  }, [visits, routeSellerId, routeDate, isRouteTraceActive]);
 
   const handleCenterOnUser = () => {
     if (!mapInstanceRef.current) return;
@@ -512,7 +739,7 @@ export function ClientVisitsMap({
           className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-sm text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-102 active:scale-95 shadow-teal-600/10 cursor-pointer"
         >
           <Plus size={15} />
-          <span>Registrar Checkpoint</span>
+          <span>Registrar Visita</span>
         </button>
       </div>
     </div>

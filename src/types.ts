@@ -307,6 +307,7 @@ export interface ClientVisit {
   sellerId: string;
   sellerName: string;
   sellerEmail?: string;
+  routeId?: string;
   latitude: number;
   longitude: number;
   accuracy?: number;
@@ -315,6 +316,25 @@ export interface ClientVisit {
   notes?: string;
   photoUrl?: string;
   createdAt: string;
+}
+
+export interface SellerRoute {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  sellerEmail?: string;
+  status: 'active' | 'completed';
+  startedAt: string;
+  finishedAt?: string | null;
+  startLatitude?: number | null;
+  startLongitude?: number | null;
+  endLatitude?: number | null;
+  endLongitude?: number | null;
+  totalStops: number;
+  totalDistanceKm: number;
+  totalDurationMins: number;
+  notes?: string;
+  createdAt?: string;
 }
 
 export interface VisitStats {

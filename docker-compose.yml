@@ -1,0 +1,34 @@
+services:
+  agricovet-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agricovet_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-agricovet_secret_key_2026}
+      - SUPABASE_URL=${SUPABASE_URL:-http://host.docker.internal:54321}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-http://localhost:54321}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://host.docker.internal:5678/webhook/cobros-diarios}
+      - WHATSAPP_TOKEN=${WHATSAPP_TOKEN}
+      - WHATSAPP_PHONE_ID=${WHATSAPP_PHONE_ID}
+      - WHATSAPP_TEST_PHONE=${WHATSAPP_TEST_PHONE}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./clients_local.json:/app/clients_local.json
+      - ./client_visits_local.json:/app/client_visits_local.json
+      - ./warehouse_config.json:/app/warehouse_config.json
+      - ./folio_config.json:/app/folio_config.json
+    networks:
+      - agricovet-network
+
+networks:
+  agricovet-network:
+    driver: bridge

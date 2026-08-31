@@ -162,7 +162,7 @@ export function RegisterVisitModal({
     }
     // FOTO OBLIGATORIA
     if (!photoUrl) {
-      setErrorMsg('⚠️ La foto de comprobante o fachada es OBLIGATORIA para validar y registrar el checkpoint.');
+      setErrorMsg('⚠️ La foto de comprobante o fachada es OBLIGATORIA para validar y registrar la visita.');
       return;
     }
 
@@ -222,8 +222,8 @@ export function RegisterVisitModal({
               <ClipboardCheck size={20} />
             </div>
             <div>
-              <h3 className="font-bold text-base text-slate-900 tracking-tight font-manrope">Registrar Checkpoint</h3>
-              <p className="text-xs text-slate-500 font-medium">Guarda tu visita comercial en tiempo real</p>
+              <h3 className="font-bold text-base text-slate-900 tracking-tight font-manrope">Registrar Visita en Terreno</h3>
+              <p className="text-xs text-slate-500 font-medium">Guarda tu reporte de visita comercial con GPS en tiempo real</p>
             </div>
           </div>
           <button 
@@ -510,7 +510,7 @@ export function RegisterVisitModal({
             {successSaved ? (
               <>
                 <Check size={15} />
-                <span>¡Checkpoint Guardado!</span>
+                <span>¡Visita Guardada con Éxito!</span>
               </>
             ) : isSubmitting ? (
               <>
@@ -520,7 +520,7 @@ export function RegisterVisitModal({
             ) : (
               <>
                 <ClipboardCheck size={15} />
-                <span>Guardar Checkpoint con Foto</span>
+                <span>Guardar Visita con Foto</span>
               </>
             )}
           </button>

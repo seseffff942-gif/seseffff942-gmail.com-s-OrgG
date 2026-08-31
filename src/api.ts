@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
-import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats } from './types';
+import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats, SellerRoute } from './types';
 import preloadedData from './data/preloadedData.json';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
@@ -387,20 +387,49 @@ if (typeof window !== 'undefined') {
   window.addEventListener('agricovet-mutate', () => clearApiCache());
 }
 
+export const normalizeClient = (c: any): Client => {
+  if (!c) return c;
+  const latVal = (c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude)))
+    ? Number(c.latitude)
+    : ((c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined);
+  const lngVal = (c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude)))
+    ? Number(c.longitude)
+    : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined));
+
+  return {
+    id: String(c.id || ''),
+    name: c.name || '',
+    companyName: c.companyName || c.company_name || c.companyname || '',
+    nit: c.nit || '',
+    phone: c.phone || '',
+    address: c.address || '',
+    sellerId: c.sellerId || c.seller_id || c.sellerid || '',
+    clientCode: c.clientCode || c.client_code || c.clientcode || '',
+    latitude: latVal,
+    longitude: lngVal,
+    locationAddress: c.locationAddress || c.location_address || '',
+    geotaggedAt: c.geotaggedAt || c.geotagged_at || '',
+    geotaggedBy: c.geotaggedBy || c.geotagged_by || '',
+    isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
+    createdAt: c.createdAt || c.created_at || c.createdat || ''
+  };
+};
+
 export const api = {
   getClients: async (force: boolean = false): Promise<Client[]> => {
     if (!force) {
       const cached = getCachedApi('clients');
-      if (cached) return cached;
+      if (cached && Array.isArray(cached) && cached.length > 0) return cached.map(normalizeClient);
     }
     try {
       const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
       if (!error && data && Array.isArray(data) && data.length > 0) {
-        setCachedApi('clients', data);
+        const normalized = data.map(normalizeClient);
+        setCachedApi('clients', normalized);
         if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('offline_clients', JSON.stringify(data));
+          localStorage.setItem('offline_clients', JSON.stringify(normalized));
         }
-        return data as Client[];
+        return normalized;
       }
     } catch (e) {
       console.warn('Direct Supabase clients fetch fallback:', e);
@@ -409,22 +438,23 @@ export const api = {
       const res = await fetchWithAuth('/api/clients');
       if (!res.ok) throw new Error('Failed to fetch clients');
       const data = await safeJson(res);
-      setCachedApi('clients', data);
+      const normalized = (Array.isArray(data) ? data : []).map(normalizeClient);
+      setCachedApi('clients', normalized);
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('offline_clients', JSON.stringify(data));
+        localStorage.setItem('offline_clients', JSON.stringify(normalized));
       }
-      return data;
+      return normalized;
     } catch (err) {
       if (typeof localStorage !== 'undefined') {
         const cached = localStorage.getItem('offline_clients');
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(normalizeClient);
           } catch (e) {}
         }
       }
-      return (preloadedData.clients || []) as any[];
+      return ((preloadedData.clients || []) as any[]).map(normalizeClient);
     }
   },
 
@@ -584,19 +614,91 @@ export const api = {
 
     // Direct Supabase Fallback
     try {
-      await supabase.from('clients').update({
+      const sbPayload = {
         latitude,
         longitude,
         location_address: locationAddress || '',
         locationAddress: locationAddress || '',
         geotagged_at: nowIso,
         geotaggedAt: nowIso
-      }).eq('id', id);
+      };
+      const res1 = await supabase.from('clients').update(sbPayload).eq('id', id);
+      if (res1.error && !isNaN(Number(id))) {
+        await supabase.from('clients').update(sbPayload).eq('id', Number(id));
+      }
     } catch (sbErr) {
       console.warn('Direct Supabase location update error:', sbErr);
     }
 
     clearApiCache('clients');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('agricovet-mutate', { detail: { key: 'clients' } }));
+    }
+    return { success: true, client: fallbackClient };
+  },
+
+  clearClientLocation: async (id: string): Promise<{ success: boolean; client: any }> => {
+    clearApiCache('clients');
+    const fallbackClient = {
+      id,
+      latitude: null,
+      longitude: null,
+      locationAddress: null,
+      geotaggedAt: null,
+      geotaggedBy: null
+    };
+
+    // Update in local offline cache first
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const rawCached = localStorage.getItem('offline_clients');
+        if (rawCached) {
+          const list = JSON.parse(rawCached);
+          if (Array.isArray(list)) {
+            const updatedList = list.map((c: any) => c.id === id ? { ...c, ...fallbackClient } : c);
+            localStorage.setItem('offline_clients', JSON.stringify(updatedList));
+          }
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const res = await fetchWithAuth(`/api/clients/${encodeURIComponent(id)}/location`, {
+        method: 'DELETE'
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        clearApiCache('clients');
+        return data;
+      }
+    } catch (err) {
+      console.warn('API DELETE /location failed, attempting direct Supabase update:', err);
+    }
+
+    // Direct Supabase Fallback
+    try {
+      const sbPayload = {
+        latitude: null,
+        longitude: null,
+        location_address: null,
+        locationAddress: null,
+        geotagged_at: null,
+        geotaggedAt: null,
+        geotagged_by: null,
+        geotaggedBy: null
+      };
+      const res1 = await supabase.from('clients').update(sbPayload).eq('id', id);
+      if (res1.error && !isNaN(Number(id))) {
+        await supabase.from('clients').update(sbPayload).eq('id', Number(id));
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase location clear error:', sbErr);
+    }
+
+    clearApiCache('clients');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('agricovet-mutate', { detail: { key: 'clients' } }));
+    }
     return { success: true, client: fallbackClient };
   },
 
@@ -717,6 +819,59 @@ export const api = {
         recentVisits: []
       };
     }
+  },
+
+  getSellerRoutes: async (params?: { sellerId?: string; status?: string }): Promise<SellerRoute[]> => {
+    const query = new URLSearchParams();
+    if (params?.sellerId) query.append('sellerId', params.sellerId);
+    if (params?.status) query.append('status', params.status);
+
+    const url = `/api/routes${query.toString() ? `?${query.toString()}` : ''}`;
+    try {
+      const res = await fetchWithAuth(url);
+      if (res.ok) {
+        const data = await safeJson(res);
+        return Array.isArray(data) ? data : [];
+      }
+    } catch (e) {
+      console.warn('getSellerRoutes error:', e);
+    }
+    return [];
+  },
+
+  getActiveRoute: async (): Promise<SellerRoute | null> => {
+    try {
+      const res = await fetchWithAuth('/api/routes/active');
+      if (res.ok) {
+        const data = await safeJson(res);
+        return data.route || null;
+      }
+    } catch (e) {
+      console.warn('getActiveRoute error:', e);
+    }
+    return null;
+  },
+
+  startRoute: async (data?: { startLatitude?: number; startLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
+    const res = await fetchWithAuth('/api/routes/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {})
+    });
+    const result = await safeJson(res);
+    if (!res.ok) throw new Error(result.error || 'Error al iniciar ruta');
+    return result;
+  },
+
+  finishRoute: async (routeId: string, data?: { endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
+    const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {})
+    });
+    const result = await safeJson(res);
+    if (!res.ok) throw new Error(result.error || 'Error al finalizar ruta');
+    return result;
   },
 
   getMe: async (): Promise<User | null> => {

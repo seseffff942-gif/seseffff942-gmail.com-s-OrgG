@@ -979,16 +979,22 @@ if (!process.env.VERCEL) {
       if (existingIdx === -1) {
         result.push({ ...c });
       } else {
+        const existing = result[existingIdx];
         result[existingIdx] = {
-          ...result[existingIdx],
+          ...existing,
           ...c,
-          name: c.name || result[existingIdx].name,
-          companyName: c.companyName || result[existingIdx].companyName,
-          nit: (c.nit && c.nit.toUpperCase() !== 'CF') ? c.nit : result[existingIdx].nit,
-          phone: c.phone || result[existingIdx].phone,
-          address: c.address || result[existingIdx].address,
-          sellerId: c.sellerId || result[existingIdx].sellerId,
-          clientCode: c.clientCode || result[existingIdx].clientCode
+          name: c.name || existing.name,
+          companyName: c.companyName || existing.companyName,
+          nit: (c.nit && c.nit.toUpperCase() !== 'CF') ? c.nit : existing.nit,
+          phone: c.phone || existing.phone,
+          address: c.address || existing.address,
+          sellerId: c.sellerId || existing.sellerId,
+          clientCode: c.clientCode || existing.clientCode,
+          latitude: c.latitude !== undefined ? (c.latitude === null ? null : Number(c.latitude)) : existing.latitude,
+          longitude: c.longitude !== undefined ? (c.longitude === null ? null : Number(c.longitude)) : existing.longitude,
+          locationAddress: c.locationAddress !== undefined ? c.locationAddress : existing.locationAddress,
+          geotaggedAt: c.geotaggedAt !== undefined ? c.geotaggedAt : existing.geotaggedAt,
+          geotaggedBy: c.geotaggedBy !== undefined ? c.geotaggedBy : existing.geotaggedBy
         };
       }
     });
@@ -1550,6 +1556,11 @@ if (!process.env.VERCEL) {
         phone: c.phone || '',
         address: c.address || '',
         clientCode: code,
+        latitude: (c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
+        longitude: (c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
+        locationAddress: c.locationAddress || c.location_address || '',
+        geotaggedAt: c.geotaggedAt || c.geotagged_at || '',
+        geotaggedBy: c.geotaggedBy || c.geotagged_by || '',
         isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
         createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
       };
@@ -1581,6 +1592,11 @@ if (!process.env.VERCEL) {
           nit: dbObj.nit || c.nit,
           sellerId: dbObj.sellerId || c.sellerId,
           clientCode: dbObj.clientCode || c.clientCode,
+          latitude: dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined ? Number(c.latitude) : undefined),
+          longitude: dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined ? Number(c.longitude) : undefined),
+          locationAddress: dbObj.locationAddress || c.locationAddress,
+          geotaggedAt: dbObj.geotaggedAt || c.geotaggedAt,
+          geotaggedBy: dbObj.geotaggedBy || c.geotaggedBy,
           isBlocked: dbObj.isBlocked !== undefined ? dbObj.isBlocked : c.isBlocked
         };
       }
@@ -2149,14 +2165,65 @@ if (!process.env.VERCEL) {
     res.json({ success: true, client: { id, ...locationUpdates } });
   }));
 
-  // Fetch visit checkpoints
+  // Delete / Reset client GPS location
+  app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+
+    const locationUpdates = {
+      latitude: null,
+      longitude: null,
+      locationAddress: null,
+      geotaggedAt: null,
+      geotaggedBy: null
+    };
+
+    // Update in local client store
+    try {
+      updateLocalClient(id, locationUpdates);
+    } catch (e) {
+      console.warn("Could not clear local client location:", e);
+    }
+
+    // Update in Supabase
+    try {
+      const sbUpdate = {
+        latitude: null,
+        longitude: null,
+        location_address: null,
+        locationAddress: null,
+        geotagged_at: null,
+        geotaggedAt: null,
+        geotagged_by: null,
+        geotaggedBy: null
+      };
+      const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+      if (resStr.error && !isNaN(Number(id))) {
+        await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      }
+    } catch (err: any) {
+      console.warn("Supabase clear client location error:", err?.message || err);
+    }
+
+    invalidateCache("clients");
+    res.json({ success: true, message: "Ubicación GPS eliminada con éxito.", client: { id, ...locationUpdates } });
+  }));
+
+  // Fetch visit checkpoints (Strict multi-role security)
   app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
     const { sellerId, clientId, date, startDate, endDate } = req.query;
+    const userRole = req.user?.role;
+    const userId = req.user?.id ? String(req.user.id).trim() : '';
+    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
 
     let visits: any[] = [];
     try {
       let query = supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
-      if (sellerId) query = query.eq("sellerId", sellerId);
+      if (userRole === 'seller') {
+        if (userId) query = query.eq("sellerId", userId);
+      } else if (sellerId && sellerId !== 'all') {
+        query = query.eq("sellerId", sellerId);
+      }
       if (clientId) query = query.eq("clientId", clientId);
       
       const { data, error } = await query;
@@ -2170,11 +2237,33 @@ if (!process.env.VERCEL) {
       visits = readLocalVisits();
     }
 
-    // Apply filtering
+    // Apply strict filtering
     let filtered = visits;
-    if (sellerId) {
-      filtered = filtered.filter(v => v.sellerId === sellerId || v.sellerEmail === sellerId);
+
+    // Strict Seller Isolation: Sellers ONLY see their own visits
+    if (userRole === 'seller') {
+      filtered = filtered.filter(v => {
+        const vSellerId = String(v.sellerId || v.seller_id || '').trim();
+        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
+
+        return (
+          (userId && vSellerId === userId) ||
+          (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
+          (userName && vSellerName === userName)
+        );
+      });
+    } else if (sellerId && sellerId !== 'all') {
+      filtered = filtered.filter(v => {
+        const vSellerId = String(v.sellerId || v.seller_id || '').trim().toLowerCase();
+        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
+        const target = String(sellerId).trim().toLowerCase();
+
+        return vSellerId === target || vSellerEmail === target || vSellerName === target;
+      });
     }
+
     if (clientId) {
       filtered = filtered.filter(v => v.clientId === clientId);
     }
@@ -2251,15 +2340,56 @@ if (!process.env.VERCEL) {
       }
     } catch (e) {}
 
+    // Find or create active route session for this seller (Strict single active route)
+    const sellerIdStr = req.user?.id || '';
+    const sellerNameStr = req.user?.name || 'Vendedor';
+    const sellerEmailStr = req.user?.email || '';
+
+    let routes = readLocalRoutes();
+    let activeRoute = routes.find((r: any) => 
+      r.status === 'active' && 
+      (r.sellerId === sellerIdStr || r.sellerEmail === sellerEmailStr || (sellerIdStr && r.sellerId === sellerIdStr))
+    );
+
+    if (!activeRoute) {
+      // Auto-start active route on first visit
+      activeRoute = {
+        id: `route_${sellerIdStr || 'seller'}_${Date.now()}`,
+        sellerId: sellerIdStr,
+        sellerName: sellerNameStr,
+        sellerEmail: sellerEmailStr,
+        status: 'active',
+        startedAt: nowIso,
+        finishedAt: null,
+        startLatitude: latNum,
+        startLongitude: lngNum,
+        endLatitude: null,
+        endLongitude: null,
+        totalStops: 1,
+        totalDistanceKm: 0,
+        totalDurationMins: 0,
+        notes: 'Jornada iniciada automáticamente con primera visita.'
+      };
+      routes.unshift(activeRoute);
+    } else {
+      activeRoute.totalStops = (activeRoute.totalStops || 0) + 1;
+    }
+    saveLocalRoutes(routes);
+
+    try {
+      await supabase.from("seller_routes").upsert([activeRoute]);
+    } catch (e) {}
+
     const newVisit = {
       id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       clientId: clientId || '',
       clientName: clientName || '',
       clientCode: clientCode || '',
       companyName: companyName || '',
-      sellerId: req.user?.id || '',
-      sellerName: req.user?.name || 'Vendedor',
-      sellerEmail: req.user?.email || '',
+      sellerId: sellerIdStr,
+      sellerName: sellerNameStr,
+      sellerEmail: sellerEmailStr,
+      routeId: activeRoute.id,
       latitude: latNum,
       longitude: lngNum,
       accuracy: accuracy ? parseFloat(accuracy) : undefined,
@@ -2287,6 +2417,7 @@ if (!process.env.VERCEL) {
           client_code: newVisit.clientCode,
           seller_id: newVisit.sellerId,
           seller_name: newVisit.sellerName,
+          route_id: newVisit.routeId,
           latitude: newVisit.latitude,
           longitude: newVisit.longitude,
           accuracy: newVisit.accuracy,
@@ -2300,11 +2431,267 @@ if (!process.env.VERCEL) {
       console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
     }
 
-    res.json({ success: true, visit: newVisit });
+    res.json({ success: true, visit: newVisit, activeRoute });
   }));
 
-  // Visit frequency & stats endpoint
-  app.get("/api/visits/stats", requireAuth, asyncHandler(async (_req: any, res: any) => {
+  // ======== SELLER ROUTES & SHIFT SESSIONS (SINGLE ACTIVE ROUTE PER SELLER) ========
+  const SELLER_ROUTES_FILE = path.join(process.cwd(), "seller_routes_local.json");
+
+  function readLocalRoutes(): any[] {
+    try {
+      if (fs.existsSync(SELLER_ROUTES_FILE)) {
+        return JSON.parse(fs.readFileSync(SELLER_ROUTES_FILE, "utf8"));
+      }
+    } catch (err) {
+      console.error("Error reading local seller routes:", err);
+    }
+    return [];
+  }
+
+  function saveLocalRoutes(routes: any[]) {
+    try {
+      fs.writeFileSync(SELLER_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf8");
+    } catch (err) {
+      console.error("Error saving local seller routes:", err);
+    }
+  }
+
+  // Get all routes (history & active) with strict role isolation
+  app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { sellerId, status } = req.query;
+    const userRole = req.user?.role;
+    const userId = req.user?.id ? String(req.user.id).trim() : '';
+    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+
+    let routes: any[] = [];
+    try {
+      let query = supabase.from("seller_routes").select("*").order("started_at", { ascending: false });
+      if (userRole === 'seller') {
+        if (userId) query = query.eq("seller_id", userId);
+      } else if (sellerId && sellerId !== 'all') {
+        query = query.eq("seller_id", sellerId);
+      }
+      if (status) query = query.eq("status", status);
+
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        routes = data.map((r: any) => ({
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || '',
+          createdAt: r.created_at || r.createdAt
+        }));
+      }
+    } catch (e) {}
+
+    if (routes.length === 0) {
+      routes = readLocalRoutes();
+    }
+
+    // Role filtering
+    let filtered = routes;
+    if (userRole === 'seller') {
+      filtered = filtered.filter(r => {
+        const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+        const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+        const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+        return (
+          (userId && rSellerId === userId) ||
+          (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
+          (userName && rSellerName === userName)
+        );
+      });
+    } else if (sellerId && sellerId !== 'all') {
+      filtered = filtered.filter(r => {
+        const target = String(sellerId).trim().toLowerCase();
+        const rSellerId = String(r.sellerId || r.seller_id || '').trim().toLowerCase();
+        const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+        const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+        return rSellerId === target || rSellerEmail === target || rSellerName === target;
+      });
+    }
+
+    if (status) {
+      filtered = filtered.filter(r => r.status === status);
+    }
+
+    // Sort newest first
+    filtered.sort((a, b) => new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime());
+
+    res.json(filtered);
+  }));
+
+  // Get active route for current user
+  app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const userId = req.user?.id ? String(req.user.id).trim() : '';
+    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+
+    const routes = readLocalRoutes();
+    const activeRoute = routes.find((r: any) => {
+      if (r.status !== 'active') return false;
+      const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+      const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+      return (
+        (userId && rSellerId === userId) ||
+        (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
+        (userName && rSellerName === userName)
+      );
+    });
+
+    res.json({ success: true, route: activeRoute || null });
+  }));
+
+  // Start a new route session (enforce only 1 active route)
+  app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const userId = req.user?.id ? String(req.user.id).trim() : '';
+    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+    const userName = req.user?.name || 'Vendedor';
+    const { startLatitude, startLongitude, notes } = req.body;
+
+    const routes = readLocalRoutes();
+    // Check if an active route already exists
+    const existingActive = routes.find((r: any) => {
+      if (r.status !== 'active') return false;
+      const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+      return (userId && rSellerId === userId) || (userEmail && rSellerEmail === userEmail);
+    });
+
+    if (existingActive) {
+      return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
+    }
+
+    const nowIso = new Date().toISOString();
+    const newRoute = {
+      id: `route_${userId || 'seller'}_${Date.now()}`,
+      sellerId: userId,
+      sellerName: userName,
+      sellerEmail: userEmail,
+      status: 'active',
+      startedAt: nowIso,
+      finishedAt: null,
+      startLatitude: startLatitude ? parseFloat(startLatitude) : null,
+      startLongitude: startLongitude ? parseFloat(startLongitude) : null,
+      endLatitude: null,
+      endLongitude: null,
+      totalStops: 0,
+      totalDistanceKm: 0,
+      totalDurationMins: 0,
+      notes: notes || 'Jornada iniciada en terreno.',
+      createdAt: nowIso
+    };
+
+    routes.unshift(newRoute);
+    saveLocalRoutes(routes);
+
+    try {
+      await supabase.from("seller_routes").insert([{
+        id: newRoute.id,
+        seller_id: newRoute.sellerId,
+        seller_name: newRoute.sellerName,
+        seller_email: newRoute.sellerEmail,
+        status: newRoute.status,
+        started_at: newRoute.startedAt,
+        start_latitude: newRoute.startLatitude,
+        start_longitude: newRoute.startLongitude,
+        total_stops: 0,
+        total_distance_km: 0,
+        total_duration_mins: 0,
+        notes: newRoute.notes
+      }]);
+    } catch (e) {}
+
+    res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+  }));
+
+  // Finish/Archive an active route session into history
+  app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { endLatitude, endLongitude, notes } = req.body;
+    const nowIso = new Date().toISOString();
+
+    const routes = readLocalRoutes();
+    const routeIndex = routes.findIndex((r: any) => r.id === id);
+    if (routeIndex === -1) {
+      return res.status(404).json({ error: "Ruta no encontrada." });
+    }
+
+    const targetRoute = routes[routeIndex];
+    const visits = readLocalVisits().filter((v: any) => v.routeId === id || (v.sellerId === targetRoute.sellerId && (v.createdAt || '').startsWith((targetRoute.startedAt || '').split('T')[0])));
+
+    // Calculate total stops and duration
+    const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
+    const endTime = new Date(nowIso).getTime();
+    const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1000 * 60)));
+
+    // Calculate total route distance
+    let totalKm = 0;
+    const sortedVisits = [...visits].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    for (let i = 1; i < sortedVisits.length; i++) {
+      const p1 = sortedVisits[i - 1];
+      const p2 = sortedVisits[i];
+      if (p1.latitude && p1.longitude && p2.latitude && p2.longitude) {
+        totalKm += (calculateDistanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude) / 1000);
+      }
+    }
+
+    targetRoute.status = 'completed';
+    targetRoute.finishedAt = nowIso;
+    targetRoute.endLatitude = endLatitude ? parseFloat(endLatitude) : (sortedVisits[sortedVisits.length - 1]?.latitude || null);
+    targetRoute.endLongitude = endLongitude ? parseFloat(endLongitude) : (sortedVisits[sortedVisits.length - 1]?.longitude || null);
+    targetRoute.totalStops = sortedVisits.length;
+    targetRoute.totalDistanceKm = Math.round(totalKm * 10) / 10;
+    targetRoute.totalDurationMins = totalDurationMins;
+    if (notes) targetRoute.notes = notes;
+
+    routes[routeIndex] = targetRoute;
+    saveLocalRoutes(routes);
+
+    try {
+      await supabase.from("seller_routes").upsert([{
+        id: targetRoute.id,
+        seller_id: targetRoute.sellerId,
+        seller_name: targetRoute.sellerName,
+        seller_email: targetRoute.sellerEmail,
+        status: 'completed',
+        started_at: targetRoute.startedAt,
+        finished_at: targetRoute.finishedAt,
+        start_latitude: targetRoute.startLatitude,
+        start_longitude: targetRoute.startLongitude,
+        end_latitude: targetRoute.endLatitude,
+        end_longitude: targetRoute.endLongitude,
+        total_stops: targetRoute.totalStops,
+        total_distance_km: targetRoute.totalDistanceKm,
+        total_duration_mins: targetRoute.totalDurationMins,
+        notes: targetRoute.notes
+      }]);
+    } catch (e) {}
+
+    res.json({ success: true, message: "Ruta finalizada y archivada en historial con éxito.", route: targetRoute });
+  }));
+
+  // Visit frequency & stats endpoint (Strict multi-role security)
+  app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const userRole = req.user?.role;
+    const userId = req.user?.id ? String(req.user.id).trim() : '';
+    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+
     let allVisits = readLocalVisits();
     try {
       const { data } = await supabase.from("client_visits").select("*");
@@ -2319,6 +2706,7 @@ if (!process.env.VERCEL) {
           clientCode: v.clientCode || v.client_code,
           sellerId: v.sellerId || v.seller_id,
           sellerName: v.sellerName || v.seller_name,
+          sellerEmail: v.sellerEmail || v.seller_email,
           latitude: v.latitude,
           longitude: v.longitude,
           visitType: v.visitType || v.visit_type || 'rutina',
@@ -2328,6 +2716,21 @@ if (!process.env.VERCEL) {
         allVisits = Array.from(map.values());
       }
     } catch (e) {}
+
+    // Strict Seller Isolation for Stats
+    if (userRole === 'seller') {
+      allVisits = allVisits.filter(v => {
+        const vSellerId = String(v.sellerId || v.seller_id || '').trim();
+        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
+
+        return (
+          (userId && vSellerId === userId) ||
+          (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
+          (userName && vSellerName === userName)
+        );
+      });
+    }
 
     const todayStr = new Date().toISOString().split('T')[0];
     const currentMonthPrefix = todayStr.substring(0, 7);

@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Client, User } from '../types';
 import { api } from '../api';
-import { Search, MapPin, X, Check, Building2, Phone, Hash, AlertCircle, Navigation, ShieldCheck, Wifi } from 'lucide-react';
+import { Search, MapPin, X, Check, Building2, Phone, Hash, AlertCircle, Navigation, ShieldCheck, Wifi, Trash2, RotateCcw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn, normalizeSearchText } from '../utils';
 
@@ -12,6 +12,7 @@ interface MarkClientModalProps {
   currentLocation: { latitude: number; longitude: number; accuracy?: number } | null;
   currentUser: User;
   onClientMarked: (client: Client) => void;
+  preselectedClient?: Client | null;
 }
 
 export function MarkClientModal({
@@ -20,13 +21,29 @@ export function MarkClientModal({
   clients,
   currentLocation,
   currentUser,
-  onClientMarked
+  onClientMarked,
+  preselectedClient
 }: MarkClientModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(preselectedClient || null);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successSaved, setSuccessSaved] = useState(false);
+  const [successActionType, setSuccessActionType] = useState<'save' | 'clear'>('save');
+
+  useEffect(() => {
+    if (isOpen) {
+      if (preselectedClient) {
+        setSelectedClient(preselectedClient);
+        setSearchTerm(preselectedClient.name || '');
+      } else {
+        setSelectedClient(null);
+        setSearchTerm('');
+      }
+      setErrorMsg('');
+      setSuccessSaved(false);
+    }
+  }, [isOpen, preselectedClient]);
 
   // Filter clients with multi-attribute accent-insensitive fuzzy search
   const filteredClients = useMemo(() => {
@@ -82,6 +99,7 @@ export function MarkClientModal({
         geotaggedBy: currentUser.name || currentUser.email || 'Vendedor'
       };
 
+      setSuccessActionType('save');
       setSuccessSaved(true);
       setTimeout(() => {
         onClientMarked(updatedClient);
@@ -92,6 +110,44 @@ export function MarkClientModal({
       }, 700);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al guardar ubicación del cliente.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleClearLocation = async () => {
+    if (!selectedClient) return;
+    const confirmMsg = `¿Deseas borrar la ubicación GPS guardada para "${selectedClient.name}"?\n\nEl cliente quedará sin coordenadas hasta que le asignes una nueva ubicación.`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMsg('');
+
+    try {
+      await api.clearClientLocation(selectedClient.id);
+
+      const resetClient: Client = {
+        ...selectedClient,
+        latitude: undefined,
+        longitude: undefined,
+        locationAddress: undefined,
+        geotaggedAt: undefined,
+        geotaggedBy: undefined
+      };
+
+      setSuccessActionType('clear');
+      setSuccessSaved(true);
+      setTimeout(() => {
+        onClientMarked(resetClient);
+        setSuccessSaved(false);
+        setSelectedClient(null);
+        setSearchTerm('');
+        onClose();
+      }, 700);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error al borrar la ubicación del cliente.');
     } finally {
       setIsSaving(false);
     }
@@ -254,6 +310,32 @@ export function MarkClientModal({
           )}
         </div>
 
+        {/* Existing Location Warning Notice */}
+        {selectedClient && selectedClient.latitude && selectedClient.longitude && (
+          <div className="mx-4 mb-2 p-3 bg-amber-50/90 border border-amber-200/80 rounded-xl flex items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="space-y-0.5">
+              <span className="font-bold flex items-center gap-1 text-amber-950">
+                <MapPin size={13} className="text-amber-600" />
+                <span>Ubicación GPS ya registrada</span>
+              </span>
+              <p className="text-[11px] text-amber-800 font-mono">
+                {selectedClient.latitude.toFixed(6)}, {selectedClient.longitude.toFixed(6)}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClearLocation}
+              disabled={isSaving}
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold rounded-xl transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer shadow-2xs active:scale-95"
+              title="Borrar ubicación GPS guardada"
+            >
+              <Trash2 size={13} className="text-rose-600" />
+              <span>Borrar GPS</span>
+            </button>
+          </div>
+        )}
+
         {/* Error Notification */}
         {errorMsg && (
           <div className="mx-4 mb-2 p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center space-x-2 text-xs text-rose-700">
@@ -272,36 +354,50 @@ export function MarkClientModal({
             Cancelar
           </button>
 
-          <button
-            type="button"
-            onClick={handleConfirmMark}
-            disabled={!selectedClient || !currentLocation || isSaving}
-            className={cn(
-              "px-5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer",
-              successSaved
-                ? "bg-emerald-600 text-white"
-                : selectedClient && currentLocation && !isSaving
-                  ? "bg-teal-600 hover:bg-teal-700 text-white active:scale-95 shadow-teal-600/10"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+          <div className="flex items-center gap-2">
+            {selectedClient && selectedClient.latitude && selectedClient.longitude && (
+              <button
+                type="button"
+                onClick={handleClearLocation}
+                disabled={isSaving}
+                className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+              >
+                <Trash2 size={14} />
+                <span>Borrar Ubicación</span>
+              </button>
             )}
-          >
-            {successSaved ? (
-              <>
-                <Check size={15} />
-                <span>¡Ubicación Asignada!</span>
-              </>
-            ) : isSaving ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Guardando...</span>
-              </>
-            ) : (
-              <>
-                <MapPin size={15} />
-                <span>Fijar Ubicación Aquí</span>
-              </>
-            )}
-          </button>
+
+            <button
+              type="button"
+              onClick={handleConfirmMark}
+              disabled={!selectedClient || !currentLocation || isSaving}
+              className={cn(
+                "px-5 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer",
+                successSaved
+                  ? "bg-emerald-600 text-white"
+                  : selectedClient && currentLocation && !isSaving
+                    ? "bg-teal-600 hover:bg-teal-700 text-white active:scale-95 shadow-teal-600/10"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+              )}
+            >
+              {successSaved ? (
+                <>
+                  <Check size={15} />
+                  <span>{successActionType === 'clear' ? '¡Ubicación Borrada!' : '¡Ubicación Guardada!'}</span>
+                </>
+              ) : isSaving ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <MapPin size={15} />
+                  <span>{selectedClient?.latitude ? 'Reasignar / Fijar Nueva Ubicación' : 'Fijar Ubicación Aquí'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
