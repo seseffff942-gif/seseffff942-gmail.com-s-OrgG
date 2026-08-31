@@ -928,37 +928,84 @@ export const api = {
     // Direct Supabase Fallback
     const identifier = (email || '').trim().toLowerCase();
     const tokenProvided = (password || '').trim();
+    const cleanToken = tokenProvided.toUpperCase();
 
-    if (!identifier || !tokenProvided) {
-      throw new Error('Por favor, ingresa tu código de vendedor y token de acceso');
+    if (!identifier && !tokenProvided) {
+      throw new Error('Por favor, ingresa tu código de vendedor o correo y tu token de acceso');
     }
 
     let foundUser: any = null;
+    let isValidToken = false;
 
-    try {
-      // 1. Try by sellerCode
-      const { data: usersByCode } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('sellerCode', identifier);
-      
-      if (usersByCode && usersByCode.length > 0) {
-        foundUser = usersByCode[0];
+    // 1. Intentar validar por token directo en Supabase si está disponible
+    if (cleanToken) {
+      try {
+        const { data: directTokens, error: dtErr } = await supabase
+          .from('login_tokens')
+          .select('*')
+          .eq('token', cleanToken)
+          .is('usedAt', null);
+
+        if (!dtErr && directTokens && directTokens.length > 0) {
+          const matchedToken = directTokens.find(t => {
+            const exp = t.expiresAt ? new Date(t.expiresAt) : null;
+            return !exp || exp > new Date();
+          });
+          if (matchedToken) {
+            isValidToken = true;
+            const targetUserId = matchedToken.userId || (matchedToken as any).user_id;
+            if (targetUserId) {
+              const { data: uData } = await supabase.from('users').select('*').eq('id', targetUserId);
+              if (uData && uData.length > 0) {
+                foundUser = uData[0];
+              }
+            }
+            try {
+              await supabase.from('login_tokens').update({ usedAt: new Date().toISOString() }).eq('id', matchedToken.id);
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.warn('Direct token check failed:', err);
       }
+    }
 
-      // 2. Try by email (e.g. seseffff942@gmail.com)
-      if (!foundUser) {
-        const { data: usersByEmail } = await supabase
+    // 2. Si no se halló por token directo, buscar por identificador
+    if (!foundUser && identifier) {
+      try {
+        // a) Por sellerCode
+        const { data: usersByCode } = await supabase
           .from('users')
           .select('*')
-          .ilike('email', identifier);
-        
-        if (usersByEmail && usersByEmail.length > 0) {
-          foundUser = usersByEmail[0];
+          .ilike('sellerCode', identifier);
+        if (usersByCode && usersByCode.length > 0) {
+          foundUser = usersByCode[0];
         }
+
+        // b) Por email
+        if (!foundUser) {
+          const { data: usersByEmail } = await supabase
+            .from('users')
+            .select('*')
+            .ilike('email', identifier);
+          if (usersByEmail && usersByEmail.length > 0) {
+            foundUser = usersByEmail[0];
+          }
+        }
+
+        // c) Por id
+        if (!foundUser) {
+          const { data: usersById } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', identifier);
+          if (usersById && usersById.length > 0) {
+            foundUser = usersById[0];
+          }
+        }
+      } catch (e) {
+        console.warn('Direct Supabase users query failed, checking preloaded data:', e);
       }
-    } catch (e) {
-      console.warn('Direct Supabase users query failed, checking preloaded data:', e);
     }
 
     if (!foundUser) {
@@ -971,50 +1018,29 @@ export const api = {
       ];
       foundUser = allDefault.find(u => 
         (u.sellerCode?.toLowerCase() === identifier) || 
-        (u.email?.toLowerCase() === identifier)
+        (u.email?.toLowerCase() === identifier) ||
+        (u.id?.toLowerCase() === identifier) ||
+        (u.name?.toLowerCase().includes(identifier))
       );
     }
 
     if (!foundUser) {
-      throw new Error('Código de Vendedor / Administrador no encontrado');
+      throw new Error('Usuario o Código de Vendedor no encontrado en el sistema');
     }
 
-    // Verify token / password:
-    let isValidToken = 
-      tokenProvided === '123' || 
-      tokenProvided === '1521' || 
-      (foundUser.password && tokenProvided === String(foundUser.password)) ||
-      (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode));
+    if (identifier.includes('@') && foundUser.role !== 'admin' && foundUser.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+      throw new Error('El inicio de sesión por correo es exclusivo para Administradores. Por favor, ingresa con tu CÓDIGO DE VENDEDOR.');
+    }
 
-    // Check dynamic login token in Supabase
-    if (!isValidToken && foundUser.id) {
-      try {
-        const cleanToken = tokenProvided.trim().toUpperCase();
-        const { data: tokens, error: tErr } = await supabase
-          .from('login_tokens')
-          .select('*')
-          .eq('userId', foundUser.id)
-          .eq('token', cleanToken)
-          .is('usedAt', null);
-
-        if (!tErr && tokens && tokens.length > 0) {
-          const matchedToken = tokens[0];
-          const expiresAt = matchedToken.expiresAt ? new Date(matchedToken.expiresAt) : null;
-          if (!expiresAt || expiresAt > new Date()) {
-            isValidToken = true;
-            // Mark token as used
-            try {
-              await supabase
-                .from('login_tokens')
-                .update({ usedAt: new Date().toISOString() })
-                .eq('id', matchedToken.id);
-            } catch (updateErr) {
-              console.warn('Could not update usedAt for token:', updateErr);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Error checking login_tokens table in Supabase:', err);
+    // 3. Validar token si aún no ha sido marcado válido
+    if (!isValidToken) {
+      if (
+        tokenProvided === '123' || 
+        tokenProvided === '1521' || 
+        (foundUser.password && tokenProvided === String(foundUser.password)) ||
+        (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode))
+      ) {
+        isValidToken = true;
       }
     }
 

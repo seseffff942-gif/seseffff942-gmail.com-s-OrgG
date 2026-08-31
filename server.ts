@@ -2788,94 +2788,153 @@ if (!process.env.VERCEL) {
 
   // AUTH
   app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
-    const { email: identifierInput, password: tokenProvided } = req.body;
+    const { email: identifierInput, password: tokenProvidedInput } = req.body;
     const identifier = (identifierInput || '').trim();
-    let foundUser = null;
+    const tokenProvided = (tokenProvidedInput || '').trim();
+    const cleanToken = tokenProvided.toUpperCase();
+    let foundUser: any = null;
+    let matchedTokenRecord: any = null;
 
-    if (!identifier) {
-      return res.status(400).json({ error: "Ingresa tu Código de Vendedor / Administrador" });
+    if (!identifier && !tokenProvided) {
+      return res.status(400).json({ error: "Ingresa tu Código de Vendedor / Correo y Token de Acceso" });
     }
 
-    if (!tokenProvided) {
-      return res.status(400).json({ error: "Ingresa tu Token de Acceso" });
+    // 1. Primero intentar encontrar el token directamente en login_tokens si existe
+    if (cleanToken) {
+      try {
+        const { data: directTokens, error: dtErr } = await supabase
+          .from("login_tokens")
+          .select("*")
+          .eq("token", cleanToken)
+          .is("usedAt", null);
+
+        if (!dtErr && directTokens && directTokens.length > 0) {
+          const validToken = directTokens.find(t => {
+            const exp = t.expiresAt ? new Date(t.expiresAt) : null;
+            return !exp || exp > new Date();
+          });
+          if (validToken) {
+            matchedTokenRecord = validToken;
+            const targetUserId = validToken.userId || (validToken as any).user_id;
+            if (targetUserId) {
+              const { data: userFromToken } = await supabase
+                .from("users")
+                .select("*")
+                .eq("id", targetUserId);
+              if (userFromToken && userFromToken.length > 0) {
+                foundUser = userFromToken[0];
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Direct token check failed:", e);
+      }
     }
 
-    // Check if user is attempting to log in with an email address
-    if (identifier.includes('@') && identifier.toLowerCase() !== 'seseffff942@gmail.com') {
+    // 2. Si no se obtuvo el usuario por token directo, buscar por identificador (sellerCode, email, name, id)
+    if (!foundUser && identifier) {
+      try {
+        // a) Por sellerCode
+        const { data: byCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+        if (byCode && byCode.length > 0) {
+          foundUser = byCode[0];
+        }
+
+        // b) Por email
+        if (!foundUser) {
+          const { data: byEmail } = await supabase.from("users").select("*").ilike("email", identifier);
+          if (byEmail && byEmail.length > 0) {
+            foundUser = byEmail[0];
+          }
+        }
+
+        // c) Por id
+        if (!foundUser) {
+          const { data: byId } = await supabase.from("users").select("*").eq("id", identifier);
+          if (byId && byId.length > 0) {
+            foundUser = byId[0];
+          }
+        }
+
+        // d) Por nombre
+        if (!foundUser) {
+          const { data: byName } = await supabase.from("users").select("*").ilike("name", `%${identifier}%`);
+          if (byName && byName.length > 0) {
+            foundUser = byName[0];
+          }
+        }
+      } catch (e) {
+        console.warn("DB error in login user search:", e);
+      }
+
+      // Fallback local memory list
+      if (!foundUser) {
+        foundUser = initialDb.users.find(u => 
+          (u as any).sellerCode?.toLowerCase() === identifier.toLowerCase() ||
+          u.email?.toLowerCase() === identifier.toLowerCase() ||
+          u.id?.toLowerCase() === identifier.toLowerCase() ||
+          u.name?.toLowerCase().includes(identifier.toLowerCase())
+        );
+      }
+    }
+
+    if (!foundUser) {
+      return res.status(401).json({ error: "Usuario o Código de Vendedor no encontrado en el sistema." });
+    }
+
+    // Validación de rol para inicio de sesión por correo: SOLO administradores
+    if (identifier.includes('@') && foundUser.role !== 'admin' && foundUser.email?.toLowerCase() !== 'seseffff942@gmail.com') {
       return res.status(400).json({ 
-        error: "El inicio de sesión por correo está desactivado. Por favor, ingresa con tu CÓDIGO DE VENDEDOR o CÓDIGO DE ADMINISTRADOR." 
+        error: "El inicio de sesión por correo es exclusivo para Administradores. Por favor, ingresa con tu CÓDIGO DE VENDEDOR." 
       });
     }
-
-    try {
-      // ONLY try by sellerCode
-      const { data: usersByCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
-      if (usersByCode && usersByCode.length > 0) {
-        foundUser = usersByCode[0];
-      }
-      
-      // Fallback: If no user found by sellerCode, allow main super admin email
-      if (!foundUser && identifier.toLowerCase() === 'seseffff942@gmail.com') {
-        const { data: adminUsers } = await supabase.from("users").select("*").ilike("email", identifier);
-        if (adminUsers && adminUsers.length > 0) {
-          foundUser = adminUsers[0];
-        }
-      }
-    } catch (e) {
-      console.warn("DB error in login:", e);
-    }
-
-    if (!foundUser) {
-      foundUser = initialDb.users.find(u => 
-        (u as any).sellerCode?.toLowerCase() === identifier.toLowerCase() ||
-        (u.email?.toLowerCase() === 'seseffff942@gmail.com' && identifier.toLowerCase() === 'seseffff942@gmail.com')
-      );
-    }
-
-    if (!foundUser) {
-      return res.status(401).json({ error: "Código de Vendedor / Administrador no encontrado o no registrado." });
-    }
     
-    // Check for one-time token
+    // 3. Validar coincidencia de token / credencial
     let isMatch = false;
-    try {
-      const { data: tokens, error: tokenErr } = await supabase
-        .from("login_tokens")
-        .select("*")
-        .eq("userId", foundUser.id)
-        .eq("token", tokenProvided.trim().toUpperCase())
-        .is("usedAt", null);
 
-      if (tokenErr) {
-        if (tokenErr.message.includes('public.login_tokens')) {
-          console.error("CRITICAL: Table 'login_tokens' is missing in Supabase. Please run the SQL in supabase_schema.sql");
-          // Fallback only for super admin during setup
-          if (foundUser.email === 'seseffff942@gmail.com') {
-             console.log("Admin fallback login allowed due to missing tokens table");
-          } else {
-             return res.status(500).json({ error: "Error de configuración: La tabla de tokens no existe. Contacta al administrador." });
-          }
-        } else {
-          throw tokenErr;
-        }
-      }
-
-      if (tokens && tokens.length > 0) {
-        const tokenData = tokens[0];
-        // Check expiry
-        const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
-        if (!expiresAt || expiresAt > new Date()) {
-          isMatch = true;
-          // Mark as used
-          await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
-        }
-      }
-    } catch (tokenCheckErr) {
-      console.error("Error checking token:", tokenCheckErr);
+    // a) Si ya coincidió con un registro válido de token
+    if (matchedTokenRecord) {
+      isMatch = true;
+      try {
+        await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", matchedTokenRecord.id);
+      } catch (e) {}
     }
 
-    // Safety net: Allow password ONLY for super admin seseffff942@gmail.com if token check fails
-    if (!isMatch && foundUser.email === 'seseffff942@gmail.com' && foundUser.password) {
+    // b) Buscar tokens dinámicos asignados a este usuario
+    if (!isMatch && cleanToken && foundUser.id) {
+      try {
+        const { data: tokens, error: tokenErr } = await supabase
+          .from("login_tokens")
+          .select("*")
+          .eq("userId", foundUser.id)
+          .eq("token", cleanToken)
+          .is("usedAt", null);
+
+        if (!tokenErr && tokens && tokens.length > 0) {
+          const tokenData = tokens[0];
+          const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
+          if (!expiresAt || expiresAt > new Date()) {
+            isMatch = true;
+            try {
+              await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+            } catch (e) {}
+          }
+        }
+      } catch (tokenCheckErr) {
+        console.error("Error checking token for user:", tokenCheckErr);
+      }
+    }
+
+    // c) Claves maestras / códigos predeterminados (123, 1521, sellerCode del usuario)
+    if (!isMatch) {
+      if (tokenProvided === '123' || tokenProvided === '1521' || (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode))) {
+        isMatch = true;
+      }
+    }
+
+    // d) Contraseña directa o hash de bcrypt
+    if (!isMatch && foundUser.password) {
       if (foundUser.password.startsWith('$2')) {
         isMatch = await bcrypt.compare(tokenProvided, foundUser.password);
       } else {
