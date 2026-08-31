@@ -877,9 +877,33 @@ export const api = {
 
   getVisitStats: async (): Promise<VisitStats> => {
     try {
-      const res = await fetchWithAuth('/api/visits/stats');
-      if (!res.ok) throw new Error('Error al obtener estadísticas de visitas');
-      return await safeJson(res);
+      const visits = await api.getVisits();
+      const todayVisits = visits.filter(v => isTodayGuatemala(v.createdAt));
+      const todayClients = new Set(todayVisits.map(v => v.clientId || v.clientName)).size;
+      
+      const map = new Map<string, { sellerId: string; sellerName: string; todayVisits: number; monthVisits: number; lastVisitAt?: string }>();
+      visits.forEach(v => {
+        const sId = v.sellerId || v.sellerEmail || v.sellerName || 'vendedor';
+        const sName = v.sellerName || 'Asesor';
+        if (!map.has(sId)) {
+          map.set(sId, { sellerId: sId, sellerName: sName, todayVisits: 0, monthVisits: 0, lastVisitAt: v.createdAt });
+        }
+        const entry = map.get(sId)!;
+        entry.monthVisits++;
+        if (isTodayGuatemala(v.createdAt)) {
+          entry.todayVisits++;
+        }
+      });
+
+      return {
+        totalVisitsToday: todayVisits.length,
+        totalVisitsMonth: visits.length,
+        activeSellersCount: map.size,
+        clientsVisitedCount: todayClients,
+        unvisitedClientsCount: 0,
+        sellerRankings: Array.from(map.values()),
+        recentVisits: visits.slice(0, 10)
+      };
     } catch (e) {
       return {
         totalVisitsToday: 0,
@@ -894,56 +918,121 @@ export const api = {
   },
 
   getSellerRoutes: async (params?: { sellerId?: string; status?: string }): Promise<SellerRoute[]> => {
-    const query = new URLSearchParams();
-    if (params?.sellerId) query.append('sellerId', params.sellerId);
-    if (params?.status) query.append('status', params.status);
-
-    const url = `/api/routes${query.toString() ? `?${query.toString()}` : ''}`;
     try {
-      const res = await fetchWithAuth(url);
-      if (res.ok) {
-        const data = await safeJson(res);
-        return Array.isArray(data) ? data : [];
+      let query = supabase.from('seller_routes').select('*').order('created_at', { ascending: false });
+      if (params?.sellerId && params.sellerId !== 'all') {
+        query = query.or(`sellerId.eq.${params.sellerId},seller_id.eq.${params.sellerId}`);
+      }
+      if (params?.status && params.status !== 'all') {
+        query = query.eq('status', params.status);
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        return data as SellerRoute[];
       }
     } catch (e) {
-      console.warn('getSellerRoutes error:', e);
+      console.warn('Direct Supabase getSellerRoutes error:', e);
+    }
+
+    // Local storage fallback
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('cached_seller_routes');
+        if (cached) return JSON.parse(cached);
+      } catch (err) {}
     }
     return [];
   },
 
   getActiveRoute: async (): Promise<SellerRoute | null> => {
     try {
-      const res = await fetchWithAuth('/api/routes/active');
-      if (res.ok) {
-        const data = await safeJson(res);
-        return data.route || null;
+      const user = api.getSavedUser();
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from('seller_routes')
+        .select('*')
+        .eq('status', 'active')
+        .or(`sellerId.eq.${user.id},seller_id.eq.${user.id},sellerEmail.eq.${user.email}`)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        return data[0] as SellerRoute;
       }
     } catch (e) {
-      console.warn('getActiveRoute error:', e);
+      console.warn('Direct Supabase getActiveRoute error:', e);
     }
     return null;
   },
 
   startRoute: async (data?: { startLatitude?: number; startLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
-    const res = await fetchWithAuth('/api/routes/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data || {})
-    });
-    const result = await safeJson(res);
-    if (!res.ok) throw new Error(result.error || 'Error al iniciar ruta');
-    return result;
+    const user = api.getSavedUser();
+    const nowIso = new Date().toISOString();
+    const newRoute: SellerRoute = {
+      id: `ROUTE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      sellerId: user?.id || 'seller',
+      sellerName: user?.name || 'Asesor',
+      sellerEmail: user?.email || '',
+      date: getGuatemalaTodayIso(),
+      status: 'active',
+      startedAt: nowIso,
+      startLatitude: data?.startLatitude,
+      startLongitude: data?.startLongitude,
+      notes: data?.notes,
+      totalVisits: 0,
+      totalDistanceKm: 0,
+      createdAt: nowIso
+    };
+
+    try {
+      await supabase.from('seller_routes').insert([{
+        id: newRoute.id,
+        sellerId: newRoute.sellerId,
+        seller_id: newRoute.sellerId,
+        sellerName: newRoute.sellerName,
+        seller_name: newRoute.sellerName,
+        sellerEmail: newRoute.sellerEmail,
+        seller_email: newRoute.sellerEmail,
+        date: newRoute.date,
+        status: newRoute.status,
+        startedAt: newRoute.startedAt,
+        started_at: newRoute.startedAt,
+        startLatitude: newRoute.startLatitude,
+        start_latitude: newRoute.startLatitude,
+        startLongitude: newRoute.startLongitude,
+        start_longitude: newRoute.startLongitude,
+        notes: newRoute.notes,
+        totalVisits: 0,
+        total_visits: 0,
+        totalDistanceKm: 0,
+        total_distance_km: 0,
+        createdAt: nowIso,
+        created_at: nowIso
+      }]);
+    } catch (sbErr) {
+      console.warn('Direct Supabase startRoute insert error:', sbErr);
+    }
+
+    return { success: true, route: newRoute };
   },
 
   finishRoute: async (routeId: string, data?: { endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
-    const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/finish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data || {})
-    });
-    const result = await safeJson(res);
-    if (!res.ok) throw new Error(result.error || 'Error al finalizar ruta');
-    return result;
+    const nowIso = new Date().toISOString();
+    try {
+      await supabase.from('seller_routes').update({
+        status: 'completed',
+        finishedAt: nowIso,
+        finished_at: nowIso,
+        endLatitude: data?.endLatitude,
+        end_latitude: data?.endLatitude,
+        endLongitude: data?.endLongitude,
+        end_longitude: data?.endLongitude,
+        notes: data?.notes
+      }).eq('id', routeId);
+    } catch (sbErr) {
+      console.warn('Direct Supabase finishRoute error:', sbErr);
+    }
+
+    return { success: true, route: { id: routeId, status: 'completed', finishedAt: nowIso } as any };
   },
 
   getMe: async (): Promise<User | null> => {

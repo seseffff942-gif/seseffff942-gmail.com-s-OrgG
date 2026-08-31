@@ -7352,6 +7352,41 @@ ${productsContext}`;
     res.json({ success: true, message: 'Recibo eliminado correctamente' });
   }));
 
+  // VISITS & ROUTES ENDPOINTS
+  app.get('/api/visits', asyncHandler(async (req: any, res: any) => {
+    try {
+      const { data, error } = await supabase
+        .from('client_visits')
+        .select('id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt')
+        .order('created_at', { ascending: false });
+      if (!error && data) return res.json(data);
+    } catch (e) {}
+    res.json([]);
+  }));
+
+  app.get('/api/visits/stats', asyncHandler(async (req: any, res: any) => {
+    res.json({
+      totalVisitsToday: 0,
+      totalVisitsMonth: 0,
+      activeSellersCount: 0,
+      clientsVisitedCount: 0,
+      unvisitedClientsCount: 0,
+      sellerRankings: [],
+      recentVisits: []
+    });
+  }));
+
+  app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
+    try {
+      const { data, error } = await supabase
+        .from('seller_routes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) return res.json(data);
+    } catch (e) {}
+    res.json([]);
+  }));
+
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
   const isProduction = process.env.NODE_ENV === "production";
