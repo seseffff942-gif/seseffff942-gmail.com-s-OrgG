@@ -280,7 +280,10 @@ export function ClientVisitsMap({
     filteredClients.forEach(client => {
       if (!client.latitude || !client.longitude) return;
 
-      const lastVisit = clientVisitMap.get(client.id);
+      const cIdKey = String(client.id || '').trim();
+      const cNameKey = String(client.name || '').trim().toLowerCase();
+      const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
+      const lastVisit = clientVisitMap.get(cIdKey) || clientVisitMap.get(cNameKey) || (cCodeKey ? clientVisitMap.get(cCodeKey) : undefined);
       const daysSinceVisit = lastVisit 
         ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
         : null;

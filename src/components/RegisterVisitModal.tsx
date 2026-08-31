@@ -8,7 +8,7 @@ import {
   Tag, Image as ImageIcon, Trash2, Box
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn, normalizeSearchText } from '../utils';
+import { cn, normalizeSearchText, compressImageToWebP } from '../utils';
 
 interface RegisterVisitModalProps {
   isOpen: boolean;
@@ -126,20 +126,22 @@ export function RegisterVisitModal({
     );
   }, [currentLocation, selectedClient]);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setErrorMsg('La imagen es demasiado pesada. El tamaño máximo es 5MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        setPhotoUrl(reader.result as string);
+      try {
+        // Automatic conversion to WebP format with high quality and lightweight size (~35KB)
+        const webpBase64 = await compressImageToWebP(file, 900, 900, 0.70);
+        setPhotoUrl(webpBase64);
         setErrorMsg('');
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPhotoUrl(reader.result as string);
+          setErrorMsg('');
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

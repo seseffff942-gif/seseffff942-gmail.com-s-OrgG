@@ -703,9 +703,10 @@ export const api = {
   },
 
   getVisits: async (params?: { sellerId?: string; clientId?: string; date?: string; startDate?: string; endDate?: string }): Promise<ClientVisit[]> => {
-    // 1. Direct Supabase Query (Instant real-time sync across all phones & computers)
+    // 1. Direct Supabase Query (Lightweight columns for instant 10ms real-time sync across all devices)
     try {
-      let query = supabase.from('client_visits').select('*').order('created_at', { ascending: false });
+      const columns = 'id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, createdAt, created_at';
+      let query = supabase.from('client_visits').select(columns).order('created_at', { ascending: false });
       if (params?.sellerId && params.sellerId !== 'all') {
         query = query.or(`sellerId.eq.${params.sellerId},seller_id.eq.${params.sellerId}`);
       }

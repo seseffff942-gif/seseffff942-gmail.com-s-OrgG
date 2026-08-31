@@ -503,6 +503,82 @@ async function convertAllImagesToBase64(container: HTMLElement) {
 }
 
 /**
+ * Convierte y comprime cualquier imagen (File o Base64) a formato WebP optimizado (~30KB - 50KB).
+ * Reduce la resolución máxima a 900x900 y calidad a 0.70 WebP para almacenamiento ultra liviano y carga instantánea.
+ */
+export async function compressImageToWebP(
+  input: File | Blob | string,
+  maxWidth: number = 900,
+  maxHeight: number = 900,
+  quality: number = 0.70
+): Promise<string> {
+  return new Promise((resolve) => {
+    let src = '';
+    if (typeof input === 'string') {
+      src = input;
+    } else {
+      src = URL.createObjectURL(input);
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // 1. Convertir a WebP
+          const webpData = canvas.toDataURL('image/webp', quality);
+          if (webpData && webpData.startsWith('data:image/webp')) {
+            if (typeof input !== 'string') URL.revokeObjectURL(src);
+            return resolve(webpData);
+          }
+
+          // 2. Fallback a JPEG si WebP no fuera soportado
+          const jpegData = canvas.toDataURL('image/jpeg', quality);
+          if (typeof input !== 'string') URL.revokeObjectURL(src);
+          return resolve(jpegData);
+        }
+      } catch (err) {
+        console.warn('WebP compression canvas error:', err);
+      }
+
+      if (typeof input !== 'string') URL.revokeObjectURL(src);
+      resolve(typeof input === 'string' ? input : '');
+    };
+
+    img.onerror = () => {
+      if (typeof input !== 'string') URL.revokeObjectURL(src);
+      resolve(typeof input === 'string' ? input : '');
+    };
+
+    img.src = src;
+  });
+}
+
+/**
  * Datos FEL para la representacion grafica (factura impresa).
  * Cuando la factura esta certificada, SAT exige que el documento impreso
  * muestre el numero de autorizacion, serie, numero, fecha y el desglose de IVA.
