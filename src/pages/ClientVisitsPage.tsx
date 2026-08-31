@@ -4,6 +4,7 @@ import { api, supabase } from '../api';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
 import { RegisterVisitModal } from '../components/RegisterVisitModal';
+import { VisitDetailModal } from '../components/VisitDetailModal';
 import { 
   MapPin, Navigation, Compass, Calendar, Clock, 
   Users, CheckCircle2, AlertTriangle, RefreshCw, 
@@ -48,6 +49,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [selectedClientForVisit, setSelectedClientForVisit] = useState<Client | null>(null);
   const [selectedClientForMark, setSelectedClientForMark] = useState<Client | null>(null);
+  const [selectedVisitForDetail, setSelectedVisitForDetail] = useState<ClientVisit | null>(null);
 
   // Active View Tabs & Filters
   const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'routes' | 'sellers'>('my_portfolio');
@@ -810,6 +812,18 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     });
     return Array.from(map.values());
   }, [todayVisits]);
+
+  const selectedVisitClient = useMemo(() => {
+    if (!selectedVisitForDetail) return null;
+    const cId = String(selectedVisitForDetail.clientId || '').trim();
+    const cName = String(selectedVisitForDetail.clientName || '').trim().toLowerCase();
+    const cCode = String(selectedVisitForDetail.clientCode || '').trim().toLowerCase();
+    return clients.find(c => 
+      String(c.id) === cId || 
+      (c.name && c.name.trim().toLowerCase() === cName) || 
+      (c.clientCode && c.clientCode.trim().toLowerCase() === cCode)
+    ) || null;
+  }, [selectedVisitForDetail, clients]);
 
   const urgentClientsCount = clientPortfolioWithStatus.filter(c => c.status === 'urgent' || c.status === 'never').length;
 
@@ -1968,24 +1982,30 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
                       <div className="flex items-center gap-2 self-end md:self-center shrink-0">
                         {visit.photoUrl && (
-                          <a 
-                            href={visit.photoUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="w-10 h-10 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-2xs hover:scale-105 transition-transform"
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVisitForDetail(visit)}
+                            className="w-11 h-11 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-2xs hover:scale-105 transition-transform cursor-pointer"
                             title="Ver foto de comprobante"
                           >
                             <img src={visit.photoUrl} alt="Foto" className="w-full h-full object-cover" />
-                          </a>
+                          </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedVisitForDetail(visit)}
+                          className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1 border border-teal-200 transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <span>📸 Ver Detalle</span>
+                        </button>
                         <a
                           href={googleMapsUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-1.5 bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-800 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200 transition-colors"
+                          className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-200 transition-colors"
                         >
                           <ExternalLink size={13} />
-                          <span>Ver en Maps</span>
+                          <span>Maps</span>
                         </a>
                       </div>
                     </div>
@@ -1996,55 +2016,158 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </div>
         )}
 
-        {/* TAB 4: SELLERS RANKING */}
+        {/* TAB 4: SELLERS RANKING & AUDITORÍA DE FOTOS */}
         {activeTab === 'sellers' && user.role === 'admin' && (
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {stats?.sellerRankings && stats.sellerRankings.length > 0 ? (
-              stats.sellerRankings.map((seller, idx) => (
-                <div 
-                  key={seller.sellerId}
-                  className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-teal-300 transition-all shadow-xs space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-xl bg-teal-600 text-white font-black flex items-center justify-center text-sm shadow-xs">
-                        #{idx + 1}
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-sm text-slate-900">{seller.sellerName}</h4>
-                        <p className="text-[11px] text-slate-400">Asesor de Campo</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-center">
-                    <div className="p-2 bg-white rounded-xl border border-slate-100">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Hoy</span>
-                      <span className="text-lg font-black text-emerald-700">{seller.todayVisits}</span>
-                    </div>
-                    <div className="p-2 bg-white rounded-xl border border-slate-100">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Este Mes</span>
-                      <span className="text-lg font-black text-teal-800">{seller.monthVisits}</span>
-                    </div>
-                  </div>
-
-                  {seller.lastVisitAt && (
-                    <p className="text-[10px] text-slate-400 text-center">
-                      Última visita: {fechaDDMMYYYY(seller.lastVisitAt)} {new Date(seller.lastVisitAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="col-span-full py-12 text-center text-slate-400">
-                <p className="font-bold text-sm">Sin datos de ranking aún</p>
+          <div className="p-6 space-y-8">
+            {/* Ranking Cards */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="p-1.5 bg-teal-100 text-teal-800 rounded-lg">
+                  <TrendingUp size={16} />
+                </span>
+                <h3 className="text-base font-black text-slate-900">Ranking de Rendimiento por Asesor</h3>
               </div>
-            )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {stats?.sellerRankings && stats.sellerRankings.length > 0 ? (
+                  stats.sellerRankings.map((seller, idx) => (
+                    <div 
+                      key={seller.sellerId}
+                      className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-teal-300 transition-all shadow-xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-xl bg-teal-600 text-white font-black flex items-center justify-center text-sm shadow-xs">
+                            #{idx + 1}
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm text-slate-900">{seller.sellerName}</h4>
+                            <p className="text-[11px] text-slate-400">Asesor de Campo</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                        <div className="p-2 bg-white rounded-xl border border-slate-100">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">Hoy</span>
+                          <span className="text-lg font-black text-emerald-700">{seller.todayVisits}</span>
+                        </div>
+                        <div className="p-2 bg-white rounded-xl border border-slate-100">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">Este Mes</span>
+                          <span className="text-lg font-black text-teal-800">{seller.monthVisits}</span>
+                        </div>
+                      </div>
+
+                      {seller.lastVisitAt && (
+                        <p className="text-[10px] text-slate-400 text-center">
+                          Última visita: {fechaDDMMYYYY(seller.lastVisitAt)} {new Date(seller.lastVisitAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full py-6 text-center text-slate-400">
+                    <p className="font-bold text-sm">Sin datos de ranking aún</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Historial de Auditoría con Fotos & Modal */}
+            <div className="pt-6 border-t border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    <ImageIcon size={18} className="text-teal-600" />
+                    Historial & Auditoría de Visitas con Fotografía de Prueba
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Haz clic en cualquier visita para ver en modal la fotografía, hora exacta, razón y posición GPS en el mapa.
+                  </p>
+                </div>
+                <span className="text-xs font-bold bg-teal-50 text-teal-800 px-3 py-1 rounded-xl border border-teal-200 self-start sm:self-auto">
+                  {filteredVisits.length} {filteredVisits.length === 1 ? 'visita registrada' : 'visitas registradas'}
+                </span>
+              </div>
+
+              {/* Grid de Visitas con Foto */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredVisits.map((visit) => (
+                  <div
+                    key={visit.id}
+                    onClick={() => setSelectedVisitForDetail(visit)}
+                    className="bg-white p-4 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        {renderVisitBadge(visit.visitType)}
+                        <span className="text-[11px] font-mono text-slate-500 font-bold flex items-center gap-1">
+                          <Clock size={11} />
+                          {new Date(visit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 group-hover:text-teal-700 transition-colors leading-tight">
+                          {visit.clientName}
+                        </h4>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                          <span>👤 {visit.sellerName || 'Asesor'}</span>
+                          <span>•</span>
+                          <span>{fechaDDMMYYYY(visit.createdAt)}</span>
+                        </div>
+                      </div>
+
+                      {/* Photo Thumbnail Box */}
+                      <div className="w-full h-40 rounded-xl bg-slate-900 overflow-hidden relative border border-slate-100 flex items-center justify-center">
+                        {visit.photoUrl ? (
+                          <img 
+                            src={visit.photoUrl} 
+                            alt={visit.clientName} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400 p-3 space-y-1">
+                            <ImageIcon size={24} className="mx-auto text-slate-600" />
+                            <span className="text-[10px] font-bold block">Sin foto adjunta</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-teal-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5 backdrop-blur-[1px]">
+                          <span>🔍 Ver Foto & Mapa</span>
+                        </div>
+                      </div>
+
+                      {visit.notes && (
+                        <p className="text-[11px] text-slate-600 line-clamp-2 italic bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          "{visit.notes}"
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedVisitForDetail(visit);
+                      }}
+                      className="w-full py-2 bg-slate-50 group-hover:bg-teal-600 group-hover:text-white text-slate-700 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 border border-slate-200 group-hover:border-teal-600 cursor-pointer"
+                    >
+                      <span>📸 Abrir Auditoría & Mapa</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
 
       {/* Modals */}
+      <VisitDetailModal
+        isOpen={Boolean(selectedVisitForDetail)}
+        onClose={() => setSelectedVisitForDetail(null)}
+        visit={selectedVisitForDetail}
+        client={selectedVisitClient}
+      />
       <MarkClientModal
         isOpen={isMarkModalOpen}
         onClose={() => {
