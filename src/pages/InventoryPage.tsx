@@ -817,8 +817,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       <div className="flex flex-col space-y-6">
         
         {/* Search, Actions & Category Filter Panel */}
-        <div className="sticky top-2 z-20 bg-white/95 backdrop-blur-md p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-md space-y-4 sm:space-y-5 transition-all">
-          <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4 transition-all">
+          <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 items-center justify-between">
             
             {/* Search Input */}
             <div className={cn("relative w-full lg:max-w-xs flex-1", inventoryViewMode === 'office' ? 'invisible hidden lg:block' : '')}>
@@ -828,7 +828,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 placeholder="Buscar insumo, marca o SKU..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-805 placeholder:text-slate-400 text-xs sm:text-sm font-semibold outline-none focus:border-[#0b4d2c] focus:bg-white transition-all shadow-inner"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 text-xs sm:text-sm font-semibold outline-none focus:border-[#0b4d2c] focus:bg-white transition-all shadow-inner"
               />
             </div>
 
