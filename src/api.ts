@@ -794,7 +794,36 @@ export const api = {
 
     // Direct Supabase Fallback
     try {
-      await supabase.from('client_visits').insert([fallbackVisit]);
+      const sbDirectPayload = {
+        id: fallbackVisit.id,
+        clientId: fallbackVisit.clientId,
+        client_id: fallbackVisit.clientId,
+        clientName: fallbackVisit.clientName,
+        client_name: fallbackVisit.clientName,
+        clientCode: fallbackVisit.clientCode,
+        client_code: fallbackVisit.clientCode,
+        companyName: fallbackVisit.companyName,
+        company_name: fallbackVisit.companyName,
+        sellerId: fallbackVisit.sellerId,
+        seller_id: fallbackVisit.sellerId,
+        sellerName: fallbackVisit.sellerName,
+        seller_name: fallbackVisit.sellerName,
+        sellerEmail: fallbackVisit.sellerEmail,
+        seller_email: fallbackVisit.sellerEmail,
+        latitude: fallbackVisit.latitude,
+        longitude: fallbackVisit.longitude,
+        accuracy: fallbackVisit.accuracy,
+        distanceMeters: fallbackVisit.distanceMeters,
+        distance_meters: fallbackVisit.distanceMeters,
+        visitType: fallbackVisit.visitType,
+        visit_type: fallbackVisit.visitType,
+        notes: fallbackVisit.notes,
+        photoUrl: fallbackVisit.photoUrl,
+        photo_url: fallbackVisit.photoUrl,
+        createdAt: fallbackVisit.createdAt,
+        created_at: fallbackVisit.createdAt
+      };
+      await supabase.from('client_visits').insert([sbDirectPayload]);
     } catch (sbErr) {
       console.warn('Direct Supabase visit insert error:', sbErr);
     }

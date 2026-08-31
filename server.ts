@@ -2406,25 +2406,39 @@ if (!process.env.VERCEL) {
 
     // Save in Supabase
     try {
-      const { error } = await supabase.from("client_visits").insert([newVisit]);
+      const sbPayload: Record<string, any> = {
+        id: newVisit.id,
+        clientId: newVisit.clientId,
+        client_id: newVisit.clientId,
+        clientName: newVisit.clientName,
+        client_name: newVisit.clientName,
+        clientCode: newVisit.clientCode,
+        client_code: newVisit.clientCode,
+        companyName: newVisit.companyName,
+        company_name: newVisit.companyName,
+        sellerId: newVisit.sellerId,
+        seller_id: newVisit.sellerId,
+        sellerName: newVisit.sellerName,
+        seller_name: newVisit.sellerName,
+        sellerEmail: newVisit.sellerEmail,
+        seller_email: newVisit.sellerEmail,
+        latitude: newVisit.latitude,
+        longitude: newVisit.longitude,
+        accuracy: newVisit.accuracy,
+        distanceMeters: newVisit.distanceMeters,
+        distance_meters: newVisit.distanceMeters,
+        visitType: newVisit.visitType,
+        visit_type: newVisit.visitType,
+        notes: newVisit.notes,
+        photoUrl: newVisit.photoUrl,
+        photo_url: newVisit.photoUrl,
+        createdAt: newVisit.createdAt,
+        created_at: newVisit.createdAt
+      };
+
+      const { error } = await supabase.from("client_visits").insert([sbPayload]);
       if (error) {
-        // Fallback with snake_case if schema is different
-        await supabase.from("client_visits").insert([{
-          id: newVisit.id,
-          client_id: newVisit.clientId,
-          client_name: newVisit.clientName,
-          client_code: newVisit.clientCode,
-          seller_id: newVisit.sellerId,
-          seller_name: newVisit.sellerName,
-          route_id: newVisit.routeId,
-          latitude: newVisit.latitude,
-          longitude: newVisit.longitude,
-          accuracy: newVisit.accuracy,
-          visit_type: newVisit.visitType,
-          notes: newVisit.notes,
-          photo_url: newVisit.photoUrl,
-          created_at: newVisit.createdAt
-        }]);
+        console.warn("Supabase visit insert error:", error.message);
       }
     } catch (err: any) {
       console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
