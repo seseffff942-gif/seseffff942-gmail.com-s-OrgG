@@ -726,12 +726,35 @@ export const api = {
 
     // Direct Supabase Fallback
     try {
-      const { data, error } = await supabase.from('client_visits').select('*').order('createdAt', { ascending: false });
+      let { data, error } = await supabase.from('client_visits').select('*').order('created_at', { ascending: false });
+      if (error || !data) {
+        const res2 = await supabase.from('client_visits').select('*');
+        data = res2.data;
+        error = res2.error;
+      }
       if (!error && data && Array.isArray(data)) {
+        const normalized = data.map((v: any) => ({
+          id: v.id,
+          clientId: String(v.clientId || v.client_id || ''),
+          clientName: v.clientName || v.client_name || '',
+          clientCode: v.clientCode || v.client_code || '',
+          companyName: v.companyName || v.company_name || '',
+          sellerId: String(v.sellerId || v.seller_id || ''),
+          sellerName: v.sellerName || v.seller_name || '',
+          sellerEmail: v.sellerEmail || v.seller_email || '',
+          latitude: Number(v.latitude),
+          longitude: Number(v.longitude),
+          accuracy: v.accuracy ? Number(v.accuracy) : undefined,
+          distanceMeters: v.distanceMeters ?? v.distance_meters,
+          visitType: v.visitType || v.visit_type || 'rutina',
+          notes: v.notes || '',
+          photoUrl: v.photoUrl || v.photo_url || '',
+          createdAt: v.createdAt || v.created_at
+        }));
         if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('cached_client_visits', JSON.stringify(data));
+          localStorage.setItem('cached_client_visits', JSON.stringify(normalized));
         }
-        return data as ClientVisit[];
+        return normalized as ClientVisit[];
       }
     } catch (sbErr) {}
 
