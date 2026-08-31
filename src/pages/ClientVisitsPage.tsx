@@ -28,6 +28,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [stats, setStats] = useState<VisitStats | null>(null);
   const [sellerRoutes, setSellerRoutes] = useState<SellerRoute[]>([]);
   const [activeRoute, setActiveRoute] = useState<SellerRoute | null>(null);
+  const [teamUsers, setTeamUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -108,12 +109,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     else setRefreshing(true);
 
     try {
-      const [clientsData, visitsData, statsData, routesData, activeRouteData] = await Promise.all([
+      const [clientsData, visitsData, statsData, routesData, activeRouteData, usersData] = await Promise.all([
         api.getClients(),
         api.getVisits(),
         api.getVisitStats(),
         api.getSellerRoutes(),
-        api.getActiveRoute()
+        api.getActiveRoute(),
+        api.getUsers().catch(() => [])
       ]);
 
       setClients(clientsData || []);
@@ -121,6 +123,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       setStats(statsData || null);
       setSellerRoutes(routesData || []);
       setActiveRoute(activeRouteData || null);
+      setTeamUsers(usersData || []);
     } catch (e) {
       console.error('Error loading visits data:', e);
     } finally {
@@ -330,11 +333,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         distanceKm = Math.round(R * c * 10) / 10;
       }
 
-      // Check if assigned to current user
+      // Check if assigned to or geotagged by current user
       const isAssignedToUser = 
         client.sellerId === user.id || 
         client.sellerId === user.email || 
         (client as any).sellerEmail === user.email ||
+        client.geotaggedBy === user.name ||
+        (client.sellerId && user.name && client.sellerId.toLowerCase() === user.name.toLowerCase()) ||
         (user.role === 'admin');
 
       return {
@@ -356,9 +361,19 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         return false;
       }
 
-      // Filter by portfolio scope (mine vs all)
-      if (portfolioScope === 'mine' && user.role === 'seller' && !c.isAssignedToUser) {
+      // Strict Seller Isolation: Sellers ONLY see the clients they geotagged or are assigned to them
+      if (user.role === 'seller' && !c.isAssignedToUser) {
         return false;
+      }
+
+      // Filter by selected seller dropdown in Cartera & Frecuencia
+      if (selectedSellerFilter !== 'all') {
+        const matchesSeller = 
+          c.sellerId === selectedSellerFilter || 
+          (c as any).sellerEmail === selectedSellerFilter || 
+          c.geotaggedBy === selectedSellerFilter ||
+          (c.sellerId && c.sellerId.toLowerCase() === selectedSellerFilter.toLowerCase());
+        if (!matchesSeller) return false;
       }
 
       if (term) {
@@ -383,7 +398,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       if (b.daysElapsed === null) return 1;
       return b.daysElapsed - a.daysElapsed;
     });
-  }, [clients, scopedVisits, searchTerm, frequencyFilter, locationFilter, portfolioScope, currentLocation, user]);
+  }, [clients, scopedVisits, searchTerm, frequencyFilter, locationFilter, portfolioScope, selectedSellerFilter, currentLocation, user]);
 
   // Filtered Visits
   const filteredVisits = useMemo(() => {
@@ -440,6 +455,19 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     }
 
     const map = new Map<string, { id: string; name: string; email?: string; todayVisits: number; totalVisits: number }>();
+    
+    // Add registered sellers/team members
+    teamUsers.filter(u => u.role === 'seller' || u.role === 'admin').forEach(u => {
+      const id = u.id || u.email || u.name;
+      map.set(id, {
+        id,
+        name: u.name || u.email || 'Asesor',
+        email: u.email,
+        todayVisits: 0,
+        totalVisits: 0
+      });
+    });
+
     visits.forEach(v => {
       const sId = v.sellerId || v.sellerEmail || v.sellerName;
       if (!sId) return;
@@ -459,7 +487,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       }
     });
     return Array.from(map.values());
-  }, [visits, scopedVisits, user]);
+  }, [visits, scopedVisits, teamUsers, user]);
 
   // Available unique dates with recorded visits (filtered by selected seller if applicable)
   const availableVisitDates = useMemo(() => {
@@ -756,13 +784,33 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   };
 
   const userClients = user.role === 'seller' 
-    ? clients.filter(c => c.sellerId === user.id || c.sellerId === user.email || (c as any).sellerEmail === user.email || (c.sellerId && user.name && c.sellerId.toLowerCase() === user.name.toLowerCase()))
+    ? clients.filter(c => c.sellerId === user.id || c.sellerId === user.email || (c as any).sellerEmail === user.email || c.geotaggedBy === user.name || (c.sellerId && user.name && c.sellerId.toLowerCase() === user.name.toLowerCase()))
     : clients;
   const geotaggedCount = userClients.filter(c => c.latitude && c.longitude).length;
   const geotaggedPercentage = userClients.length > 0 ? Math.round((geotaggedCount / userClients.length) * 100) : 0;
-  const todayVisitsCount = user.role === 'seller' 
-    ? scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length 
-    : (stats?.totalVisitsToday ?? visits.filter(v => isTodayGuatemala(v.createdAt)).length);
+  
+  const todayVisits = scopedVisits.filter(v => isTodayGuatemala(v.createdAt));
+  const todayVisitedClientsCount = new Set(todayVisits.map(v => v.clientId || v.clientName)).size;
+  const todayTotalVisitsCount = todayVisits.length;
+
+  const sellersTodayList = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; clientCount: number; visitsCount: number }>();
+    todayVisits.forEach(v => {
+      const sId = v.sellerId || v.sellerEmail || v.sellerName || 'vendedor';
+      const sName = v.sellerName || 'Asesor';
+      if (!map.has(sId)) {
+        map.set(sId, { id: sId, name: sName, clientCount: 0, visitsCount: 0 });
+      }
+      const entry = map.get(sId)!;
+      entry.visitsCount++;
+    });
+    map.forEach((entry, sId) => {
+      const clientsForSeller = new Set(todayVisits.filter(v => (v.sellerId || v.sellerEmail || v.sellerName) === sId).map(v => v.clientId || v.clientName));
+      entry.clientCount = clientsForSeller.size;
+    });
+    return Array.from(map.values());
+  }, [todayVisits]);
+
   const urgentClientsCount = clientPortfolioWithStatus.filter(c => c.status === 'urgent' || c.status === 'never').length;
 
   if (loading) {
@@ -969,10 +1017,27 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               <Calendar size={16} />
             </div>
           </div>
-          <h4 className="text-2xl font-black text-slate-950">{todayVisitsCount}</h4>
-          <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
-            <Sparkles size={12} /> Visitas registradas
-          </p>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <h4 className="text-3xl font-black text-slate-950">{todayVisitedClientsCount}</h4>
+              <span className="text-xs font-bold text-slate-500">
+                {todayVisitedClientsCount === 1 ? 'cliente visitado' : 'clientes visitados'}
+              </span>
+            </div>
+            <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
+              <Sparkles size={12} /> {todayTotalVisitsCount} {todayTotalVisitsCount === 1 ? 'parada registrada' : 'paradas registradas'}
+            </p>
+          </div>
+
+          {sellersTodayList.length > 0 && (
+            <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
+              {sellersTodayList.map(s => (
+                <span key={s.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-teal-50 text-teal-900 border border-teal-100">
+                  👤 {s.name}: <span className="text-teal-700 font-black">{s.clientCount} {s.clientCount === 1 ? 'cliente' : 'clientes'}</span> ({s.visitsCount} {s.visitsCount === 1 ? 'parada' : 'paradas'})
+                </span>
+              ))}
+            </div>
+          )}
         </motion.div>
 
         {/* Card 2 */}
