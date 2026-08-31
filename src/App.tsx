@@ -349,16 +349,19 @@ export default function App() {
         </div>
       )}
       {isImpersonating && (
-        <div className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white font-bold text-[10px] md:text-xs px-4 py-1.5 flex items-center justify-between shadow-lg z-[60] animate-in slide-in-from-top duration-300 sticky top-0">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            <p>Sesión de Suplantación Activa: <span className="uppercase">{user?.name}</span> ({user?.email})</p>
+        <div className="bg-slate-900/95 backdrop-blur-sm text-white font-bold text-[10px] md:text-xs px-3 py-1.5 flex items-center justify-between shadow-md z-[60] sticky top-0 border-b border-teal-500/30">
+          <div className="flex items-center gap-2 truncate mr-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <p className="truncate text-slate-200">
+              Viendo como vendedor: <strong className="text-white uppercase">{user?.name}</strong>
+            </p>
           </div>
           <button 
+            type="button"
             onClick={returnToAdmin}
-            className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full text-[10px] transition-all active:scale-95 cursor-pointer uppercase tracking-tighter"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-2.5 py-1 rounded-lg text-[10px] transition-all active:scale-95 cursor-pointer shrink-0 shadow-xs flex items-center gap-1"
           >
-            Volver a mi Admin
+            <span>Volver a Admin</span>
           </button>
         </div>
       )}
