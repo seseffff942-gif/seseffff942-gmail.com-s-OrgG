@@ -6928,11 +6928,7 @@ var isDirectRun = !process.env.VERCEL && (typeof process.argv[1] === "string" &&
 if (isDirectRun) {
   startServer();
 }
-
-// api/index.ts
-function handler(req, res) {
-  return server_default(req, res);
-}
 export {
-  handler as default
+  app,
+  server_default as default
 };
