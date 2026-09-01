@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Product, AppNotification } from '../types';
 import { cn } from '../utils';
-import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield, Receipt, FileSpreadsheet, FileCheck, MapPin } from 'lucide-react';
+import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield, Receipt, FileSpreadsheet, FileCheck, MapPin, Send } from 'lucide-react';
 import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
@@ -909,6 +909,25 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     }
   }, [showNotifications]);
 
+  const [isSendingReport, setIsSendingReport] = useState(false);
+
+  const handleSendDailyReport = async () => {
+    if (isSendingReport) return;
+    setIsSendingReport(true);
+    try {
+      const res = await api.checkDailySales({ sendToWebhook: true });
+      const data = res?.data;
+      const amount = data?.cantidadVendida !== undefined ? `Q${data.cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}` : '';
+      const facturas = data?.cantidadFacturas !== undefined ? ` (${data.cantidadFacturas} factura(s))` : '';
+      alert(`✅ ¡Reporte enviado con éxito a n8n!\nVentas enviadas: ${amount}${facturas}`);
+    } catch (err: any) {
+      console.error('Error enviando reporte a webhook:', err);
+      alert(`❌ Error al enviar reporte: ${err.message || 'No se pudo conectar con el webhook'}`);
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
+
   const isQuotationAdmin = activeUser?.role === 'admin' || 
     ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(activeUser?.email?.toLowerCase() || '') ||
     (activeUser?.name || '').toLowerCase().includes('susana') ||
@@ -1010,6 +1029,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               <Download size={16} />
             </button>
           )}
+          <button 
+            onClick={handleSendDailyReport} 
+            disabled={isSendingReport} 
+            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-1.5 rounded-lg border border-emerald-200 relative transition-transform active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50" 
+            title="Enviar Reporte de Ventas del Día a n8n"
+          >
+            <Send size={16} className={isSendingReport ? "animate-spin text-emerald-600" : "text-emerald-600"} />
+          </button>
           <button onClick={() => setShowNotifications(!showNotifications)} className="text-slate-500 hover:text-slate-700 relative p-1.5 hover:bg-slate-50 rounded-lg transition-transform active:scale-95 cursor-pointer" title="Ver notificaciones">
              <Bell size={20} />
              {hasUnread && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ba1a1a] rounded-full border-2 border-white animate-pulse"></span>}
@@ -1244,6 +1271,22 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               </span>
             </div>
             <RefreshCw size={10} className={cn("opacity-60", isSyncing && "animate-spin")} />
+          </button>
+          <button 
+            onClick={handleSendDailyReport} 
+            disabled={isSendingReport} 
+            className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-bold transition-all text-left active:scale-95 cursor-pointer shadow-sm disabled:opacity-50" 
+            title="Enviar reporte de ventas del día a n8n"
+          >
+            <div className="flex items-center gap-2">
+              <Send size={13} className={isSendingReport ? "animate-spin text-emerald-400" : "text-emerald-400"} />
+              <span className="font-bold text-[11px] tracking-wide text-white">
+                {isSendingReport ? "Enviando..." : "Enviar Reporte n8n"}
+              </span>
+            </div>
+            <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded font-black">
+              HOY
+            </span>
           </button>
         </div>
         <nav className="flex-1 space-y-1">

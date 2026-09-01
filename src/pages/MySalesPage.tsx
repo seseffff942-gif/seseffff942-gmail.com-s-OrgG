@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Invoice, Payment, User } from '../types';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2, RefreshCcw } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2, RefreshCcw, Send } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, formatDateSafe, formatMoney, isTecunProduct } from '../utils';
@@ -18,6 +18,24 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSendingReport, setIsSendingReport] = useState(false);
+
+  const handleSendDailyReport = async () => {
+    if (isSendingReport) return;
+    setIsSendingReport(true);
+    try {
+      const res = await api.checkDailySales({ sendToWebhook: true });
+      const data = res?.data;
+      const amount = data?.cantidadVendida !== undefined ? `Q${data.cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}` : '';
+      const facturas = data?.cantidadFacturas !== undefined ? ` (${data.cantidadFacturas} factura(s))` : '';
+      alert(`✅ ¡Reporte enviado con éxito a n8n!\nVentas enviadas: ${amount}${facturas}`);
+    } catch (err: any) {
+      console.error('Error enviando reporte a webhook:', err);
+      alert(`❌ Error al enviar reporte: ${err.message || 'No se pudo conectar con el webhook'}`);
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
   const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
@@ -987,6 +1005,16 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
         </div>
         
         <div className="flex flex-wrap items-center justify-end gap-3 w-full md:w-auto">
+          <button
+            onClick={handleSendDailyReport}
+            disabled={isSendingReport}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-4 py-3 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 text-xs"
+            title="Enviar reporte de ventas del día a n8n"
+          >
+            <Send size={15} className={isSendingReport ? "animate-spin" : ""} />
+            <span>{isSendingReport ? "Enviando..." : "Enviar Reporte n8n"}</span>
+          </button>
+
           {user.role === 'admin' && (
             <button
               onClick={() => setIsViewModeModalOpen(true)}

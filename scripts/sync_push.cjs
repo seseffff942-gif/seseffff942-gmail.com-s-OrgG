@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'refactor: remover completamente banner morado de impulso de venta y sugerencias de stock';
+  const commitMsg = 'feat: agregar boton interactivo de Enviar Reporte n8n en navegacion y pagina de ventas';
   const sha = await git.commit({
     fs,
     dir,
