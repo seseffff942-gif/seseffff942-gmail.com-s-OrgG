@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: actualizar webhook de ventas diarias a n8n ventas-reporte con datos exclusivos y desglose de ventas';
+  const commitMsg = 'refactor: remover completamente banner morado de impulso de venta y sugerencias de stock';
   const sha = await git.commit({
     fs,
     dir,
