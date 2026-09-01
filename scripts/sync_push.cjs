@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'refactor: remover productos sin rotacion de visitas dejandolo exclusivo de inventario';
+  const commitMsg = 'feat: actualizar webhook de ventas diarias a n8n ventas-reporte con datos exclusivos y desglose de ventas';
   const sha = await git.commit({
     fs,
     dir,

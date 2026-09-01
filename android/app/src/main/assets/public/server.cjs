@@ -1200,7 +1200,7 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req, 
 }));
 app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-  const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook-test/ventas-mediodia";
+  const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/ventas-reporte";
   const sendToWebhook = req.body.sendToWebhook !== false;
   const TARGET_SELLER_EMAIL = "seseffff942@gmail.com";
   const now = /* @__PURE__ */ new Date();
@@ -1213,57 +1213,73 @@ app.post("/api/admin/check-daily-sales", requireAuth, requireAdmin, asyncHandler
   const todayLabel = `${year}-${month}-${day}`;
   const startOfDay = `${todayLabel}T00:00:00`;
   const endOfDay = `${todayLabel}T23:59:59`;
-  const { data: invoicesData, error: invErr } = await supabase.from("invoices").select("sellerId, totalAmount, date").gte("date", startOfDay).lte("date", endOfDay);
+  const { data: invoicesData, error: invErr } = await supabase.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
   if (invErr) {
     return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
   }
-  const { data: usersData } = await supabase.from("users").select("id, name, email").ilike("email", TARGET_SELLER_EMAIL);
+  const { data: usersData } = await supabase.from("users").select("id, name, email, phone").ilike("email", TARGET_SELLER_EMAIL);
   const foundUser = usersData && usersData.length > 0 ? usersData[0] : null;
   const sellerIdKeys = [
     TARGET_SELLER_EMAIL.toLowerCase(),
     foundUser?.id ? foundUser.id.toLowerCase() : null
   ].filter(Boolean);
   const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split("@")[0];
+  const sellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || "+50248234048";
   let cantidadVendida = 0;
   let cantidadFacturas = 0;
+  const ventas = [];
   for (const inv of invoicesData || []) {
     const sId = (inv.sellerId || "").toLowerCase();
     if (sellerIdKeys.includes(sId) || sId === TARGET_SELLER_EMAIL.toLowerCase()) {
       const amount = Number(inv.totalAmount) || 0;
       cantidadVendida += amount;
       cantidadFacturas += 1;
+      let horaVenta = "";
+      if (inv.date) {
+        try {
+          const d = new Date(inv.date);
+          horaVenta = d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit" });
+        } catch {
+          horaVenta = inv.date;
+        }
+      }
+      const productos = (inv.items || []).map((item) => ({
+        producto: item.productName || item.name || "Producto",
+        cantidad: item.quantity || 1,
+        precioUnitario: item.price || 0,
+        subtotal: item.total || 0,
+      }));
+      ventas.push({
+        id: inv.id,
+        folio: inv.folio || "",
+        cliente: inv.clientName || "Cliente",
+        nit: inv.nit || "CF",
+        monto: amount,
+        tipo: inv.invoice_type || "contado",
+        estado: inv.status || "completado",
+        hora: horaVenta,
+        productos,
+      });
     }
   }
   cantidadVendida = Math.round(cantidadVendida * 100) / 100;
   const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
   const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
-  const vendedoresBajoUmbral = !alcanzoMeta ? [{
-    sellerId: TARGET_SELLER_EMAIL,
-    sellerName: sellerDisplayName,
-    totalVentas: cantidadVendida,
-    cantidadFacturas,
-    diferencia: cantidadFaltante
-  }] : [];
-  const vendedoresSobreUmbral = alcanzoMeta ? [{
-    sellerId: TARGET_SELLER_EMAIL,
-    sellerName: sellerDisplayName,
-    totalVentas: cantidadVendida,
-    cantidadFacturas
-  }] : [];
   let webhookResult = null;
   if (sendToWebhook) {
     const payload = {
       fecha: todayLabel,
       vendedor: sellerDisplayName,
       email: TARGET_SELLER_EMAIL,
+      numero: sellerPhone,
+      telefono: sellerPhone,
       cantidadVendida,
       cantidadFaltante,
       alcanzoMeta,
       umbral: SALES_THRESHOLD,
       cantidadFacturas,
-      mensaje: alcanzoMeta ? `${sellerDisplayName} ha alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}.` : `${sellerDisplayName} ha vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy. Le faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
-      vendedoresBajoUmbral,
-      vendedoresSobreUmbral
+      mensaje: alcanzoMeta ? `Hola ${sellerDisplayName}, has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+      ventas,
     };
     console.log(`[CHECK-SALES] Enviando POST a n8n para ${sellerDisplayName}: ${N8N_WEBHOOK_URL}`);
     try {
