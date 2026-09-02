@@ -31,10 +31,11 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const categories = ['Todos', 'Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'Otros'];
 
   // Client Selection
-  const [client, setClient] = useState('');
-  const [nit, setNit] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
+  // Client Selection with Draft Persistence
+  const [client, setClient] = useState(() => localStorage.getItem('draft_quote_client') || '');
+  const [nit, setNit] = useState(() => localStorage.getItem('draft_quote_nit') || '');
+  const [phone, setPhone] = useState(() => localStorage.getItem('draft_quote_phone') || '');
+  const [address, setAddress] = useState(() => localStorage.getItem('draft_quote_address') || '');
   const [showClientModal, setShowClientModal] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [clientModalTab, setClientModalTab] = useState<'search' | 'create'>('search');
@@ -46,14 +47,81 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   const [consultandoNit, setConsultandoNit] = useState(false);
   const [nitResultado, setNitResultado] = useState<{ ok: boolean; texto: string } | null>(null);
 
-  // Cart & Quotation Form State
-  const [cart, setCart] = useState<QuotationItem[]>([]);
-  const [validityDays, setValidityDays] = useState<number>(15);
-  const [customNotes, setCustomNotes] = useState<string>('');
+  // Cart & Quotation Form State with Draft Persistence
+  const [cart, setCart] = useState<QuotationItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('draft_quote_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [validityDays, setValidityDays] = useState<number>(() => {
+    const saved = localStorage.getItem('draft_quote_validityDays');
+    return saved ? Number(saved) : 15;
+  });
+  const [customNotes, setCustomNotes] = useState<string>(() => localStorage.getItem('draft_quote_customNotes') || '');
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
-  const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>(user?.email || user?.id || '');
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>(() => localStorage.getItem('draft_quote_advisorId') || user?.email || user?.id || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(!isMobile);
+
+  // Sincronización automática a localStorage ante cualquier cambio
+  useEffect(() => {
+    if (client) localStorage.setItem('draft_quote_client', client);
+    else localStorage.removeItem('draft_quote_client');
+  }, [client]);
+
+  useEffect(() => {
+    if (nit) localStorage.setItem('draft_quote_nit', nit);
+    else localStorage.removeItem('draft_quote_nit');
+  }, [nit]);
+
+  useEffect(() => {
+    if (phone) localStorage.setItem('draft_quote_phone', phone);
+    else localStorage.removeItem('draft_quote_phone');
+  }, [phone]);
+
+  useEffect(() => {
+    if (address) localStorage.setItem('draft_quote_address', address);
+    else localStorage.removeItem('draft_quote_address');
+  }, [address]);
+
+  useEffect(() => {
+    if (cart && cart.length > 0) localStorage.setItem('draft_quote_cart', JSON.stringify(cart));
+    else localStorage.removeItem('draft_quote_cart');
+  }, [cart]);
+
+  useEffect(() => {
+    if (validityDays) localStorage.setItem('draft_quote_validityDays', String(validityDays));
+  }, [validityDays]);
+
+  useEffect(() => {
+    if (customNotes) localStorage.setItem('draft_quote_customNotes', customNotes);
+    else localStorage.removeItem('draft_quote_customNotes');
+  }, [customNotes]);
+
+  useEffect(() => {
+    if (selectedAdvisorId) localStorage.setItem('draft_quote_advisorId', selectedAdvisorId);
+  }, [selectedAdvisorId]);
+
+  const clearQuotationDraft = () => {
+    setCart([]);
+    setClient('');
+    setNit('');
+    setPhone('');
+    setAddress('');
+    setCustomNotes('');
+    setValidityDays(15);
+    localStorage.removeItem('draft_quote_client');
+    localStorage.removeItem('draft_quote_nit');
+    localStorage.removeItem('draft_quote_phone');
+    localStorage.removeItem('draft_quote_address');
+    localStorage.removeItem('draft_quote_cart');
+    localStorage.removeItem('draft_quote_validityDays');
+    localStorage.removeItem('draft_quote_customNotes');
+    localStorage.removeItem('draft_quote_advisorId');
+  };
 
   // Product Selection Modal
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -135,9 +203,10 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
     setHistoryLoading(true);
     try {
       const data = await api.getQuotations(user.role === 'admin' ? undefined : user.id);
-      setQuotations(data || []);
+      setQuotations(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Error loading quotations:", err);
+      setQuotations([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -229,6 +298,9 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       setSelectedVariantId(firstAvailable.id);
       setSelectedColor(firstAvailable.color || '');
       setSelectedSize(firstAvailable.size || '');
+      if (firstAvailable.price) {
+        setModalPrice(String(firstAvailable.price));
+      }
     } else {
       setSelectedVariantId(null);
       setSelectedColor('');
@@ -262,7 +334,7 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       }
     }
 
-    // Si el producto no tiene stock suficiente, mostrar modal de aviso pero permitir cotizarlo
+    // Si el producto no tiene stock suficiente, registrar aviso visual informativo
     if (!isExempt && (availableStock <= 0 || qty > availableStock)) {
       setStockWarningModal({
         show: true,
@@ -294,13 +366,8 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       );
       if (existingIdx >= 0) {
         const updated = [...prev];
-        const newQty = updated[existingIdx].quantity + qty;
-        if (!isExempt && newQty > availableStock) {
-          alert(`⚠️ No puedes agregar más unidades. El total en la cotización superaría el stock disponible de ${availableStock}.`);
-          return prev;
-        }
-        updated[existingIdx].quantity = newQty;
-        updated[existingIdx].total = newQty * updated[existingIdx].price;
+        updated[existingIdx].quantity += qty;
+        updated[existingIdx].total = updated[existingIdx].quantity * updated[existingIdx].price;
         return updated;
       }
       return [...prev, newItem];
@@ -382,13 +449,8 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       setCreatedQuotation(result);
       setShowSuccessModal(true);
       
-      // Clear Cart Form
-      setCart([]);
-      setClient('');
-      setNit('');
-      setPhone('');
-      setAddress('');
-      setCustomNotes('');
+      // Clear Cart Form & LocalStorage Draft
+      clearQuotationDraft();
 
       // Refresh Quotations list
       loadQuotations();
@@ -557,13 +619,15 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
 
   // Filtered History
   const filteredQuotations = useMemo(() => {
-    return quotations
+    const list = Array.isArray(quotations) ? quotations : [];
+    return list
       .filter(q => {
-        const matchesSearch = 
-          q.client.toLowerCase().includes(historySearch.toLowerCase()) ||
-          q.folio.toLowerCase().includes(historySearch.toLowerCase()) ||
-          (q.sellerName && q.sellerName.toLowerCase().includes(historySearch.toLowerCase()));
-        
+        if (!q) return false;
+        const cName = String(q.client || '').toLowerCase();
+        const folioStr = String(q.folio || '').toLowerCase();
+        const sName = String(q.sellerName || '').toLowerCase();
+        const sTerm = historySearch.toLowerCase();
+        const matchesSearch = cName.includes(sTerm) || folioStr.includes(sTerm) || sName.includes(sTerm);
         const matchesStatus = statusFilter === 'all' || q.status === statusFilter;
         return matchesSearch && matchesStatus;
       })
@@ -577,10 +641,11 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
 
   // Metrics
   const metrics = useMemo(() => {
-    const totalCount = quotations.length;
-    const pendingCount = quotations.filter(q => q.status === 'pendiente').length;
-    const convertedCount = quotations.filter(q => q.status === 'convertida').length;
-    const totalAmount = quotations.reduce((sum, q) => sum + Number(q.totalAmount || 0), 0);
+    const list = Array.isArray(quotations) ? quotations : [];
+    const totalCount = list.length;
+    const pendingCount = list.filter(q => q && q.status === 'pendiente').length;
+    const convertedCount = list.filter(q => q && q.status === 'convertida').length;
+    const totalAmount = list.reduce((sum, q) => sum + Number(q?.totalAmount || 0), 0);
     return { totalCount, pendingCount, convertedCount, totalAmount };
   }, [quotations]);
 
@@ -819,14 +884,22 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                     <ShoppingCart size={18} className="text-[#00696a]" />
                     <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Productos Cotizados ({cart.length})</h2>
                   </div>
-                  {cart.length > 0 && (
-                    <button
-                      onClick={() => setCart([])}
-                      className="text-[11px] text-slate-400 hover:text-red-500 font-bold transition-colors cursor-pointer"
-                    >
-                      Vaciar
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {(cart.length > 0 || client) && (
+                      <span className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md font-bold hidden sm:inline-flex items-center gap-1">
+                        💾 Guardado
+                      </span>
+                    )}
+                    {cart.length > 0 && (
+                      <button
+                        onClick={clearQuotationDraft}
+                        className="text-[11px] text-slate-400 hover:text-red-500 font-bold transition-colors cursor-pointer"
+                        title="Vaciar cotización y descartar borrador"
+                      >
+                        Vaciar
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Items in Cart */}
@@ -1217,12 +1290,11 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                       {selectedProduct.variants.map((v) => {
                         const vStock = Number(v.stock) || 0;
                         const isSelected = selectedVariantId === v.id;
-                        const isAvail = vStock > 0;
 
                         return (
                           <button
                             key={v.id}
-                            disabled={!isAvail}
+                            type="button"
                             onClick={() => {
                               setSelectedVariantId(v.id);
                               setSelectedColor(v.color || '');
@@ -1231,14 +1303,19 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
                               setModalError('');
                             }}
                             className={cn(
-                              "p-2 rounded-xl text-left border text-xs transition-all cursor-pointer flex flex-col justify-between",
-                              isSelected ? "border-[#00696a] bg-teal-50 text-[#00696a] font-bold" :
-                              isAvail ? "border-slate-200 hover:border-slate-300 bg-white text-slate-700" :
-                              "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-50"
+                              "p-2.5 rounded-xl text-left border text-xs transition-all cursor-pointer flex flex-col justify-between",
+                              isSelected 
+                                ? "border-[#00696a] bg-teal-50 text-[#00696a] font-bold ring-2 ring-[#00696a]/20 shadow-xs" 
+                                : "border-slate-200 hover:border-[#00696a]/50 bg-white text-slate-700 hover:bg-slate-50"
                             )}
                           >
-                            <span className="font-bold truncate">{v.color} {v.size ? `· ${v.size}` : ''}</span>
-                            <span className="text-[10px] mt-1">{vStock > 0 ? `${vStock} disp.` : 'Agotado'}</span>
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold truncate">{v.color} {v.size && v.size !== 'Única' ? `· ${v.size}` : ''}</span>
+                              {v.price && <span className="text-[11px] font-bold text-[#00696a]">Q{Number(v.price).toFixed(2)}</span>}
+                            </div>
+                            <span className="text-[10px] mt-1 text-slate-400 font-medium">
+                              {vStock > 0 ? `${vStock} disp.` : '0 disp. (Por arribar)'}
+                            </span>
                           </button>
                         );
                       })}

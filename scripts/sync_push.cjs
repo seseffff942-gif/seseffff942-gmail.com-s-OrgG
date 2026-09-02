@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: corregir filtros de Este Mes a mes calendario estricto y agregar opcion Mes Pasado';
+  const commitMsg = 'fix: agregar endpoints de cotizaciones, autoguardado de borrador y fallback en creacion de productos';
   const sha = await git.commit({
     fs,
     dir,

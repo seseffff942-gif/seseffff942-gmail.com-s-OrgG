@@ -274,6 +274,17 @@ app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Normalizador de rutas para Vercel Serverless (evita 404 Cannot POST /api)
+app.use((req: any, res: any, next: any) => {
+  if (req.originalUrl && req.originalUrl.startsWith('/api') && (!req.url || req.url === '/' || req.url === '/api' || req.url === '/api/index.js')) {
+    req.url = req.originalUrl;
+  }
+  if (req.url && req.url.startsWith('/api/api/')) {
+    req.url = req.url.replace('/api/api/', '/api/');
+  }
+  next();
+});
+
 // Webhook endpoint
 app.get("/api/webhooks", (req: any, res: any) => {
   const mode = req.query["hub.mode"];
@@ -7515,6 +7526,107 @@ ${productsContext}`;
     } catch (e) {}
     res.json([]);
   }));
+
+  // ======== COTIZACIONES / QUOTATIONS ENDPOINTS ========
+  app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+    try {
+      const { sellerId } = req.query;
+      let query = supabase.from('quotations').select('*').order('date', { ascending: false });
+      if (sellerId && req.user.role !== 'admin') {
+        query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        return res.json(data);
+      }
+    } catch (err: any) {
+      console.warn("Supabase quotations fetch error:", err?.message || err);
+    }
+    res.json([]);
+  }));
+
+  app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
+    if (error || !data) {
+      return res.status(404).json({ error: 'Cotización no encontrada' });
+    }
+    res.json(data);
+  }));
+
+  app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
+    if (!client || !items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Cliente y al menos un producto son requeridos' });
+    }
+
+    // Calcular correlativo de folio (COT-0001)
+    const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
+    const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
+    const nextNum = lastNum + 1;
+    const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
+
+    const totalAmount = items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
+    const quoteDate = date || new Date().toISOString();
+    const days = validityDays || 15;
+    const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    const newQuote = {
+      id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      folio: folioStr,
+      folioNumber: nextNum,
+      sellerId: sellerId || req.user.email || req.user.id,
+      sellerName: sellerName || req.user.name,
+      client: client.trim(),
+      nit: nit?.trim() || 'CF',
+      phone: phone?.trim() || '',
+      address: address?.trim() || '',
+      items,
+      totalAmount,
+      status: 'pendiente',
+      date: quoteDate,
+      validityDays: days,
+      validUntil,
+      notes: notes?.trim() || '',
+      convertedInvoiceId: null,
+      convertedInvoiceFolio: null
+    };
+
+    const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
+    if (error) {
+      throw new Error(error.message);
+    }
+    res.status(201).json(data || newQuote);
+  }));
+
+  app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const updates = req.body;
+    const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
+    res.json(data);
+  }));
+
+  app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { error } = await supabase.from('quotations').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    res.json({ success: true });
+  }));
+
+  app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
+    if (qErr || !quote) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+    await supabase.from('quotations').update({
+      status: 'convertida',
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+
+    res.json({ success: true, quotation: quote });
+  }));
+
 
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {

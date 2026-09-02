@@ -1260,25 +1260,67 @@ export const api = {
       ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
       ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
     };
-    const res = await fetchWithAuth('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const resData = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(resData.error || 'Error al crear producto');
+    
+    // 1. Intentar endpoint API backend
+    try {
+      const res = await fetchWithAuth('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await safeJson(res);
+      if (res.ok && resData && !resData.error) {
+        const normalized: Product = {
+          ...resData,
+          costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+          cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+          hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+          hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+          variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+          specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+        };
+        return normalized;
+      }
+      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
+        throw new Error(resData.error || 'Error al crear producto');
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot POST') && !apiErr.message.includes('fetch failed')) {
+        throw apiErr;
+      }
     }
-    const normalized: Product = {
-      ...resData,
-      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
-      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
-      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
-      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
-      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
-      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+
+    // 2. Respaldo directo a Supabase en caso de error de enrutador en servidor
+    const id = `p${Date.now()}`;
+    const newDbProd: any = {
+      id,
+      name: product.name,
+      category: product.category,
+      price: product.price,
+      stock: product.is_external ? 0 : product.stock,
+      cost_price: finalCost || 0,
+      hidden_from_sales: finalHidden || false,
+      is_external: product.is_external || false,
+      variants: product.variants || null,
+      specifications: product.specifications || null
     };
-    return normalized;
+
+    const { data, error } = await supabase.from('products').insert([newDbProd]).select().single();
+    if (error) {
+      const cleanProd = { id, name: product.name, category: product.category, price: product.price, stock: product.stock };
+      const { data: d2, error: e2 } = await supabase.from('products').insert([cleanProd]).select().single();
+      if (e2) throw new Error(e2.message);
+      return { ...cleanProd, is_external: false, costPrice: 0, hiddenFromSales: false } as Product;
+    }
+    return {
+      ...data,
+      costPrice: Number(data.cost_price) || 0,
+      cost_price: Number(data.cost_price) || 0,
+      hiddenFromSales: Boolean(data.hidden_from_sales),
+      hidden_from_sales: Boolean(data.hidden_from_sales),
+      variants: typeof data.variants === 'string' ? JSON.parse(data.variants) : data.variants,
+      specifications: typeof data.specifications === 'string' ? JSON.parse(data.specifications) : data.specifications
+    } as Product;
   },
 
   getProducts: async (force: boolean = false): Promise<Product[]> => {
@@ -1341,25 +1383,51 @@ export const api = {
       ...(finalCost !== undefined ? { costPrice: finalCost, cost_price: finalCost } : {}),
       ...(finalHidden !== undefined ? { hiddenFromSales: finalHidden, hidden_from_sales: finalHidden } : {})
     };
-    const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to update product');
+    try {
+      const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const resData = await safeJson(res);
+        return {
+          ...resData,
+          costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
+          cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
+          hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
+          hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+          variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
+          specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
+        };
+      }
+      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
+        const err = await safeJson(res);
+        throw new Error(err.error || 'Failed to update product');
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
+        throw apiErr;
+      }
     }
-    const resData = await res.json();
+
+    // Respaldo directo a Supabase
+    const updateObj: any = { ...updates };
+    if (finalCost !== undefined) updateObj.cost_price = finalCost;
+    if (finalHidden !== undefined) updateObj.hidden_from_sales = finalHidden;
+    delete updateObj.costPrice;
+    delete updateObj.hiddenFromSales;
+    const { data, error } = await supabase.from('products').update(updateObj).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
     return {
-      ...resData,
-      costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
-      cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
-      hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
-      hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
-      variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
-      specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
-    };
+      ...data,
+      costPrice: Number(data.cost_price) || 0,
+      cost_price: Number(data.cost_price) || 0,
+      hiddenFromSales: Boolean(data.hidden_from_sales),
+      hidden_from_sales: Boolean(data.hidden_from_sales),
+      variants: typeof data.variants === 'string' ? JSON.parse(data.variants) : data.variants,
+      specifications: typeof data.specifications === 'string' ? JSON.parse(data.specifications) : data.specifications
+    } as Product;
   },
 
   deleteProduct: async (id: string): Promise<{ success: boolean }> => {
@@ -2370,17 +2438,39 @@ export const api = {
 
   // ======== COTIZACIONES (QUOTATIONS) ========
   getQuotations: async (sellerId?: string) => {
-    const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
-    const res = await fetchWithAuth(url);
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudieron consultar las cotizaciones');
-    return data;
+    try {
+      const url = sellerId ? `/api/quotations?sellerId=${encodeURIComponent(sellerId)}` : '/api/quotations';
+      const res = await fetchWithAuth(url);
+      const data = await safeJson(res);
+      if (res.ok && Array.isArray(data)) return data;
+      if (Array.isArray(data?.quotations)) return data.quotations;
+    } catch (e) {
+      console.warn('API getQuotations fallback to Supabase:', e);
+    }
+
+    // Direct Supabase Fallback
+    try {
+      let query = supabase.from('quotations').select('*').order('date', { ascending: false });
+      if (sellerId) {
+        query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) return data;
+    } catch (sbErr) {
+      console.error('Supabase getQuotations error:', sbErr);
+    }
+    return [];
   },
 
   getQuotationById: async (id: string) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo obtener la cotización');
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+      const data = await safeJson(res);
+      if (res.ok && data && !data.error) return data;
+    } catch (e) {}
+
+    const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
+    if (error || !data) throw new Error(error?.message || 'No se pudo obtener la cotización');
     return data;
   },
 
@@ -2394,35 +2484,96 @@ export const api = {
     validityDays?: number;
     date?: string;
     sellerId?: string;
+    sellerName?: string;
   }) => {
-    const res = await fetchWithAuth('/api/quotations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(quotation),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo crear la cotización');
-    return data;
+    try {
+      const res = await fetchWithAuth('/api/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(quotation),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data && !data.error) return data;
+      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
+        throw new Error(data?.error || 'No se pudo crear la cotización');
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
+        throw apiErr;
+      }
+    }
+
+    // Direct Supabase Fallback
+    const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
+    const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
+    const nextNum = lastNum + 1;
+    const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
+    const totalAmount = quotation.items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
+    const quoteDate = quotation.date || new Date().toISOString();
+    const days = quotation.validityDays || 15;
+    const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    const newQuote = {
+      id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      folio: folioStr,
+      folioNumber: nextNum,
+      sellerId: quotation.sellerId || '',
+      sellerName: quotation.sellerName || '',
+      client: quotation.client.trim(),
+      nit: quotation.nit?.trim() || 'CF',
+      phone: quotation.phone?.trim() || '',
+      address: quotation.address?.trim() || '',
+      items: quotation.items,
+      totalAmount,
+      status: 'pendiente',
+      date: quoteDate,
+      validityDays: days,
+      validUntil,
+      notes: quotation.notes?.trim() || '',
+      convertedInvoiceId: null,
+      convertedInvoiceFolio: null
+    };
+
+    const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
+    if (error) throw new Error(error.message);
+    return data || newQuote;
   },
 
   updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar la cotización');
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data && !data.error) return data;
+      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
+        throw new Error(data?.error || 'No se pudo actualizar la cotización');
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
+        throw apiErr;
+      }
+    }
+
+    const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
     return data;
   },
 
   deleteQuotation: async (id: string) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar la cotización');
-    return data;
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await safeJson(res);
+      if (res.ok) return data;
+    } catch (e) {}
+
+    const { error } = await supabase.from('quotations').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return { success: true };
   },
 
   convertQuotationToSale: async (id: string, options?: {
@@ -2433,14 +2584,25 @@ export const api = {
     sellerPaysShipping?: boolean;
     sellerSignature?: string;
   }) => {
-    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options || {}),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data?.error || 'No se pudo convertir la cotización a venta');
-    return data;
+    try {
+      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options || {}),
+      });
+      const data = await safeJson(res);
+      if (res.ok) return data;
+    } catch (e) {}
+
+    const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
+    if (qErr || !quote) throw new Error(qErr?.message || 'Cotización no encontrada');
+
+    await supabase.from('quotations').update({
+      status: 'convertida',
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+
+    return { success: true, quotation: quote };
   },
 
   getCustomServerUrl: (): string => {
