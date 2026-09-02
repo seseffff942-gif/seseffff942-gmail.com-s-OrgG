@@ -27,7 +27,7 @@ import {
   Building2 
 } from 'lucide-react';
 import './ReciboCajaPrint.css';
-import { downloadHtmlAsPdf, printHtml, formatMoney } from '../../utils';
+import { downloadHtmlAsPdf, printHtml, formatMoney, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala } from '../../utils';
 import { ReciboCajaDB, FacturaDetalle, ChequeDetalle } from './types';
 import { api } from '../../api';
 import { Client } from '../../types';
@@ -441,8 +441,8 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
         if (!matchSearch) return false;
 
         if (filtroFecha === 'hoy') {
-          const hoyStr = new Date().toLocaleDateString('es-GT');
-          return (r.fecha || '').includes(hoyStr);
+          const hoyGT = diaGuatemala();
+          return diaGuatemala(r.fecha || r.created_at) === hoyGT;
         }
         if (filtroFecha === 'semana') {
           const now = new Date();
@@ -451,9 +451,10 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
           return recFecha >= weekAgo;
         }
         if (filtroFecha === 'mes') {
-          const now = new Date();
-          const recFecha = new Date(r.created_at || r.fecha);
-          return recFecha.getMonth() === now.getMonth() && recFecha.getFullYear() === now.getFullYear();
+          return diaGuatemala(r.created_at || r.fecha).slice(0, 7) === getMesActualGuatemala();
+        }
+        if (filtroFecha === 'mes_pasado') {
+          return diaGuatemala(r.created_at || r.fecha).slice(0, 7) === getMesPasadoGuatemala();
         }
 
         return true;
@@ -467,18 +468,15 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
   // Estadísticas rápidas
   const statsHoy = useMemo(() => {
-    const hoyStr = new Date().toLocaleDateString('es-GT');
-    const recibosHoy = recibos.filter(r => (r.fecha || '').includes(hoyStr.split('/')[0]));
+    const hoyGT = diaGuatemala();
+    const recibosHoy = recibos.filter(r => diaGuatemala(r.fecha || r.created_at) === hoyGT);
     const montoHoy = recibosHoy.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
     return { count: recibosHoy.length, monto: montoHoy };
   }, [recibos]);
 
   const statsMes = useMemo(() => {
-    const now = new Date();
-    const recMes = recibos.filter(r => {
-      const f = new Date(r.created_at || r.fecha);
-      return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
-    });
+    const mesGT = getMesActualGuatemala();
+    const recMes = recibos.filter(r => diaGuatemala(r.fecha || r.created_at).slice(0, 7) === mesGT);
     const montoMes = recMes.reduce((sum, r) => sum + (Number(r.monto_total) || 0), 0);
     return { count: recMes.length, monto: montoMes };
   }, [recibos]);
@@ -600,7 +598,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
             <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl">
-              {(['todos', 'hoy', 'semana', 'mes'] as const).map(f => (
+              {(['todos', 'hoy', 'semana', 'mes', 'mes_pasado'] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setFiltroFecha(f)}
@@ -610,7 +608,7 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {f === 'todos' ? 'Todos' : f === 'hoy' ? 'Hoy' : f === 'semana' ? '7 Días' : 'Este Mes'}
+                  {f === 'todos' ? 'Todos' : f === 'hoy' ? 'Hoy' : f === 'semana' ? '7 Días' : f === 'mes' ? 'Este Mes' : 'Mes Pasado'}
                 </button>
               ))}
             </div>

@@ -33,7 +33,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -132,7 +132,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'last_month'>('all');
   const [activeChartTab, setActiveChartTab] = useState<'hourly' | 'sellers' | 'status'>('hourly');
   const [showCharts, setShowCharts] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -272,14 +272,19 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       } else {
         const invDate = new Date(i.date);
         const now = new Date();
+        const nowGT = diaGuatemala();
+        const invGT = diaGuatemala(i.date);
         if (dateFilter === 'today') {
-          matchDate = diaGuatemala(invDate) === diaGuatemala(now);
+          matchDate = invGT === nowGT;
         } else if (dateFilter === 'week') {
           const startOfWeek = getStartOfCurrentWeek();
           matchDate = invDate >= startOfWeek;
         } else if (dateFilter === 'month') {
-          const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-          matchDate = invDate >= oneMonthAgo;
+          // Del día 1 al final del mes actual estrictamente
+          matchDate = invGT.slice(0, 7) === getMesActualGuatemala();
+        } else if (dateFilter === 'last_month') {
+          // Del día 1 al final del mes pasado estrictamente (ej: 1 al 31 de agosto)
+          matchDate = invGT.slice(0, 7) === getMesPasadoGuatemala();
         }
       }
     }
@@ -1421,7 +1426,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                   <option value="all">Todas las fechas</option>
                   <option value="today">Hoy (24 hrs)</option>
                   <option value="week">Esta Semana</option>
-                  <option value="month">Este Mes</option>
+                  <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
+                  <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
                 </select>
               )}
 

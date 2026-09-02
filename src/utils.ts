@@ -641,6 +641,44 @@ export function diaGuatemala(fecha?: any): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
 }
 
+/**
+ * Retorna el año-mes actual en hora de Guatemala ("YYYY-MM").
+ * Ejemplo en Septiembre 2026: "2026-09" (del 1 al 30 de septiembre)
+ */
+export function getMesActualGuatemala(): string {
+  return diaGuatemala().slice(0, 7);
+}
+
+/**
+ * Retorna el año-mes del mes anterior en hora de Guatemala ("YYYY-MM").
+ * Ejemplo si hoy es Septiembre 2026: "2026-08" (del 1 al 31 de agosto)
+ */
+export function getMesPasadoGuatemala(): string {
+  const todayGT = diaGuatemala();
+  const [yearStr, monthStr] = todayGT.split('-');
+  let y = parseInt(yearStr, 10);
+  let m = parseInt(monthStr, 10) - 1;
+  if (m < 1) {
+    m = 12;
+    y -= 1;
+  }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * Nombre en español del mes actual o de un mes específico ("YYYY-MM").
+ */
+export function getNombreMesGuatemala(yearMonth?: string): string {
+  const ym = yearMonth || getMesActualGuatemala();
+  const [y, m] = ym.split('-');
+  const nombres: Record<string, string> = {
+    '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+    '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+    '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre'
+  };
+  return nombres[m] ? `${nombres[m]} ${y}` : ym;
+}
+
 export function parseFolioNumber(folioVal: any): number {
   if (folioVal === undefined || folioVal === null || folioVal === '') return 0;
   const str = String(folioVal).trim();

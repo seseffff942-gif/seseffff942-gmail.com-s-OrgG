@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: agregar boton interactivo de Enviar Reporte n8n en navegacion y pagina de ventas';
+  const commitMsg = 'feat: corregir filtros de Este Mes a mes calendario estricto y agregar opcion Mes Pasado';
   const sha = await git.commit({
     fs,
     dir,

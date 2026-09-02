@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -24,7 +24,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCancelledAndRejected, setShowCancelledAndRejected] = useState(false);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'last_month'>('all');
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
   const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
@@ -365,14 +365,19 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         } else {
           const invDate = new Date(i.date);
           const now = new Date();
+          const nowGT = diaGuatemala();
+          const invGT = diaGuatemala(i.date);
           if (dateFilter === 'today') {
-            matchDate = diaGuatemala(invDate) === diaGuatemala(now);
+            matchDate = invGT === nowGT;
           } else if (dateFilter === 'week') {
             const startOfWeek = getStartOfCurrentWeek();
             matchDate = invDate >= startOfWeek;
           } else if (dateFilter === 'month') {
-            const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-            matchDate = invDate >= oneMonthAgo;
+            // Del día 1 al final del mes actual estrictamente
+            matchDate = invGT.slice(0, 7) === getMesActualGuatemala();
+          } else if (dateFilter === 'last_month') {
+            // Del día 1 al final del mes pasado estrictamente (ej: 1 al 31 de agosto)
+            matchDate = invGT.slice(0, 7) === getMesPasadoGuatemala();
           }
         }
       }
@@ -1600,7 +1605,8 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 <option value="all">Todas las fechas</option>
                 <option value="today">Hoy (24 hrs)</option>
                 <option value="week">Esta Semana</option>
-                <option value="month">Este Mes</option>
+                <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
+                <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
               </select>
             )}
 

@@ -14,7 +14,7 @@ import {
   Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -55,7 +55,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'routes' | 'sellers'>('my_portfolio');
   const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>(user.role === 'seller' ? user.email || user.id : 'all');
   const [selectedVisitTypeFilter, setSelectedVisitTypeFilter] = useState<string>('all');
-  const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month'>('all');
+  const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month' | 'last_month'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState<'all' | 'urgent' | 'regular' | 'never'>('all');
   const [locationFilter, setLocationFilter] = useState<'with_location' | 'no_gps' | 'all'>('with_location');
@@ -430,8 +430,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       }
 
       if (selectedDateRangeFilter === 'month') {
-        const vDate = (v.createdAt || '').split('T')[0];
-        if (!vDate.startsWith(monthPrefix)) return false;
+        const vDate = diaGuatemala(v.createdAt);
+        if (vDate.slice(0, 7) !== getMesActualGuatemala()) return false;
+      }
+
+      if (selectedDateRangeFilter === 'last_month') {
+        const vDate = diaGuatemala(v.createdAt);
+        if (vDate.slice(0, 7) !== getMesPasadoGuatemala()) return false;
       }
 
       if (term) {
@@ -1373,7 +1378,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                 <option value="all">📅 Todas las Fechas</option>
                 <option value="today">Solo Hoy</option>
                 <option value="7days">Últimos 7 Días</option>
-                <option value="month">Este Mes</option>
+                <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
+                <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
               </select>
             )}
 
