@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: incluir destinatarios con nombreDestinatario y telefonos formateados con codigo de pais (502) en webhook de ventas n8n';
+  const commitMsg = 'feat: actualizar webhook de ventas n8n a URL publica de ngrok y asegurar solo destinatario autorizado';
   const sha = await git.commit({
     fs,
     dir,

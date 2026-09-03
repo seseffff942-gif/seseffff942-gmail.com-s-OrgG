@@ -2422,17 +2422,36 @@ export const api = {
     return data;
   },
 
-  checkDailySales: async (options?: { sendToWebhook?: boolean; threshold?: number }) => {
+  checkDailySales: async (options?: { sendToWebhook?: boolean; threshold?: number; webhookUrl?: string }) => {
     const res = await fetchWithAuth('/api/admin/check-daily-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sendToWebhook: options?.sendToWebhook ?? false,
         threshold: options?.threshold ?? 8750,
+        webhookUrl: options?.webhookUrl,
       }),
     });
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
+
+    // Si el servidor está en la nube (Vercel) y no puede alcanzar localhost:5678, reenviar directo desde el navegador del usuario
+    if (options?.sendToWebhook && (!data.webhookResult || data.webhookResult.ok === false) && data?.data) {
+      try {
+        const localWebhookUrl = options?.webhookUrl || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte';
+        const clientRes = await fetch(localWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data.data),
+        });
+        if (clientRes.ok) {
+          data.webhookResult = { ok: true, status: clientRes.status, source: 'client-direct' };
+        }
+      } catch (clientErr) {
+        console.warn('Clientside webhook direct fetch failed:', clientErr);
+      }
+    }
+
     return data;
   },
 

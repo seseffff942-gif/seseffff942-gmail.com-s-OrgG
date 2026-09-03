@@ -3114,7 +3114,7 @@ if (!process.env.VERCEL) {
 
   app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req: any, res: any) => {
     const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/ventas-reporte";
+    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
     const sendToWebhook = req.body.sendToWebhook !== false;
     const TARGET_SELLER_EMAIL = "seseffff942@gmail.com";
 
