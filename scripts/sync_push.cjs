@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: actualizar webhook de ventas n8n a URL publica de ngrok y asegurar solo destinatario autorizado';
+  const commitMsg = 'feat: automatizar disparo de cortes de ventas a las 12:00 PM y 5:00 PM (Hora Guatemala) directamente desde Agricovet';
   const sha = await git.commit({
     fs,
     dir,

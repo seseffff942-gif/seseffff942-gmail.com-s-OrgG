@@ -3112,22 +3112,29 @@ if (!process.env.VERCEL) {
     res.json({ token, user });
   }));
 
-  app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-    const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
-    const sendToWebhook = req.body.sendToWebhook !== false;
+  // ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
+  let lastDispatchedCorteKey = '';
+
+  async function checkAndDispatchDailySales(options?: { corteHora?: string; threshold?: number; webhookUrl?: string; sendToWebhook?: boolean }) {
+    const SALES_THRESHOLD = Number(options?.threshold) || 8750;
+    const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
+    const sendToWebhook = options?.sendToWebhook !== false;
     const TARGET_SELLER_EMAIL = "seseffff942@gmail.com";
 
     const now = new Date();
-    const gtOffset = -6 * 60;
+    const gtOffset = -6 * 60; // UTC-6 Guatemala
     const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
     const gtNow = new Date(utcMs + (gtOffset * 60000));
     const year = gtNow.getFullYear();
     const month = String(gtNow.getMonth() + 1).padStart(2, "0");
     const day = String(gtNow.getDate()).padStart(2, "0");
+    const hour = gtNow.getHours();
     const todayLabel = `${year}-${month}-${day}`;
     const startOfDay = `${todayLabel}T00:00:00`;
     const endOfDay = `${todayLabel}T23:59:59`;
+
+    const corte = options?.corteHora || (hour >= 16 ? '17:00' : '12:00');
+    const esCierre = corte === '17:00' || hour >= 16;
 
     const { data: invoicesData, error: invErr } = await supabase
       .from("invoices")
@@ -3136,7 +3143,8 @@ if (!process.env.VERCEL) {
       .lte("date", endOfDay);
 
     if (invErr) {
-      return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
+      console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
+      return { error: `Error al consultar facturas: ${invErr.message}` };
     }
 
     function formatTelefonoDestinatario(rawPhone: string | null | undefined): string {
@@ -3229,6 +3237,15 @@ if (!process.env.VERCEL) {
 
     const payload = {
       fecha: todayLabel,
+      corte,
+      tipoCorte: esCierre ? 'cierre' : 'mediodia',
+      tipoReporte: esCierre ? 'cierre' : 'mediodia',
+      tipo: esCierre ? 'cierre' : 'mediodia',
+      esCierre,
+      hora: corte,
+      horaCorte: corte,
+      corteHora: corte,
+      titulo: esCierre ? 'Cierre del Día (5:00 PM)' : 'Corte de Mediodía (12:00 PM)',
       vendedor: sellerDisplayName,
       nombreDestinatario: sellerDisplayName,
       email: TARGET_SELLER_EMAIL,
@@ -3240,15 +3257,15 @@ if (!process.env.VERCEL) {
       umbral: SALES_THRESHOLD,
       cantidadFacturas,
       mensaje: alcanzoMeta
-        ? `Hola ${sellerDisplayName}, has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
-        : `Hola ${sellerDisplayName}, has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+        ? `¡Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
+        : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
       destinatarios,
       ventas,
     };
 
     let webhookResult: any = null;
     if (sendToWebhook) {
-      console.log(`[CHECK-SALES] Enviando POST a n8n para ${sellerDisplayName}: ${N8N_WEBHOOK_URL}`);
+      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
       try {
         const webhookRes = await fetch(N8N_WEBHOOK_URL, {
           method: "POST",
@@ -3257,18 +3274,70 @@ if (!process.env.VERCEL) {
         });
         const resText = await webhookRes.text().catch(() => "");
         webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
+        console.log(`[AUTO-SALES-CRON] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
       } catch (err: any) {
         webhookResult = { error: err.message, ok: false };
-        console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
+        console.error(`[AUTO-SALES-CRON] Error al enviar webhook:`, err.message);
       }
     }
 
-    return res.json({
+    return {
       success: true,
       data: payload,
       webhookResult
-    });
+    };
+  }
+
+  // Iniciar programador en segundo plano para cortes a las 12:00 PM y 5:00 PM (Hora Guatemala UTC-6)
+  function initAutoDailySalesCron() {
+    console.log('[AUTO-SALES-CRON] ⏰ Programador automático activo para cortes de 12:00 PM y 5:00 PM (Guatemala).');
+    setInterval(async () => {
+      try {
+        const now = new Date();
+        const gtOffset = -6 * 60; // UTC-6 Guatemala
+        const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const gtNow = new Date(utcMs + (gtOffset * 60000));
+
+        const year = gtNow.getFullYear();
+        const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+        const day = String(gtNow.getDate()).padStart(2, "0");
+        const hour = gtNow.getHours();
+        const minute = gtNow.getMinutes();
+        const todayDateStr = `${year}-${month}-${day}`;
+
+        // 12:00 PM en punto
+        if (hour === 12 && minute === 0) {
+          const corteKey = `${todayDateStr}_12:00`;
+          if (lastDispatchedCorteKey !== corteKey) {
+            lastDispatchedCorteKey = corteKey;
+            console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
+            await checkAndDispatchDailySales({ corteHora: '12:00' });
+          }
+        }
+
+        // 5:00 PM en punto (17:00)
+        if (hour === 17 && minute === 0) {
+          const corteKey = `${todayDateStr}_17:00`;
+          if (lastDispatchedCorteKey !== corteKey) {
+            lastDispatchedCorteKey = corteKey;
+            console.log(`[AUTO-SALES-CRON] 🕔 Disparando corte automático de las 5:00 PM para ${todayDateStr}`);
+            await checkAndDispatchDailySales({ corteHora: '17:00' });
+          }
+        }
+      } catch (e: any) {
+        console.warn('[AUTO-SALES-CRON] Error en ciclo cron:', e?.message || e);
+      }
+    }, 25000); // Revisa cada 25 segundos
+  }
+
+  initAutoDailySalesCron();
+
+  app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any) => {
+    const result: any = await checkAndDispatchDailySales(req.body);
+    if (result?.error) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
   }));
 
   app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {

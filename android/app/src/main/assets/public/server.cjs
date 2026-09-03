@@ -3240,10 +3240,11 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
   const token = import_jsonwebtoken.default.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
   res.json({ token, user });
 }));
-app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req, res) => {
-  const SALES_THRESHOLD = Number(req.body.threshold) || 8750;
-  const N8N_WEBHOOK_URL = req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
-  const sendToWebhook = req.body.sendToWebhook !== false;
+var lastDispatchedCorteKey = "";
+async function checkAndDispatchDailySales(options) {
+  const SALES_THRESHOLD = Number(options?.threshold) || 8750;
+  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
+  const sendToWebhook = options?.sendToWebhook !== false;
   const TARGET_SELLER_EMAIL = "seseffff942@gmail.com";
   const now = /* @__PURE__ */ new Date();
   const gtOffset = -6 * 60;
@@ -3252,12 +3253,16 @@ app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req, r
   const year = gtNow.getFullYear();
   const month = String(gtNow.getMonth() + 1).padStart(2, "0");
   const day = String(gtNow.getDate()).padStart(2, "0");
+  const hour = gtNow.getHours();
   const todayLabel = `${year}-${month}-${day}`;
   const startOfDay = `${todayLabel}T00:00:00`;
   const endOfDay = `${todayLabel}T23:59:59`;
+  const corte = options?.corteHora || (hour >= 16 ? "17:00" : "12:00");
+  const esCierre = corte === "17:00" || hour >= 16;
   const { data: invoicesData, error: invErr } = await supabase.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
   if (invErr) {
-    return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
+    console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
+    return { error: `Error al consultar facturas: ${invErr.message}` };
   }
   function formatTelefonoDestinatario(rawPhone) {
     if (!rawPhone) return "";
@@ -3333,6 +3338,15 @@ app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req, r
   const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
   const payload = {
     fecha: todayLabel,
+    corte,
+    tipoCorte: esCierre ? "cierre" : "mediodia",
+    tipoReporte: esCierre ? "cierre" : "mediodia",
+    tipo: esCierre ? "cierre" : "mediodia",
+    esCierre,
+    hora: corte,
+    horaCorte: corte,
+    corteHora: corte,
+    titulo: esCierre ? "Cierre del D\xEDa (5:00 PM)" : "Corte de Mediod\xEDa (12:00 PM)",
     vendedor: sellerDisplayName,
     nombreDestinatario: sellerDisplayName,
     email: TARGET_SELLER_EMAIL,
@@ -3343,13 +3357,13 @@ app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req, r
     alcanzoMeta,
     umbral: SALES_THRESHOLD,
     cantidadFacturas,
-    mensaje: alcanzoMeta ? `Hola ${sellerDisplayName}, has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+    mensaje: alcanzoMeta ? `\xA1Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, corte de las ${corte === "17:00" ? "5:00 PM" : "12:00 PM"}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
     destinatarios,
     ventas
   };
   let webhookResult = null;
   if (sendToWebhook) {
-    console.log(`[CHECK-SALES] Enviando POST a n8n para ${sellerDisplayName}: ${N8N_WEBHOOK_URL}`);
+    console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
     try {
       const webhookRes = await fetch(N8N_WEBHOOK_URL, {
         method: "POST",
@@ -3358,17 +3372,60 @@ app.post("/api/admin/check-daily-sales", requireAuth, asyncHandler(async (req, r
       });
       const resText = await webhookRes.text().catch(() => "");
       webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-      console.log(`[CHECK-SALES] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
+      console.log(`[AUTO-SALES-CRON] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
     } catch (err) {
       webhookResult = { error: err.message, ok: false };
-      console.error(`[CHECK-SALES] Error al enviar webhook:`, err.message);
+      console.error(`[AUTO-SALES-CRON] Error al enviar webhook:`, err.message);
     }
   }
-  return res.json({
+  return {
     success: true,
     data: payload,
     webhookResult
-  });
+  };
+}
+function initAutoDailySalesCron() {
+  console.log("[AUTO-SALES-CRON] \u23F0 Programador autom\xE1tico activo para cortes de 12:00 PM y 5:00 PM (Guatemala).");
+  setInterval(async () => {
+    try {
+      const now = /* @__PURE__ */ new Date();
+      const gtOffset = -6 * 60;
+      const utcMs = now.getTime() + now.getTimezoneOffset() * 6e4;
+      const gtNow = new Date(utcMs + gtOffset * 6e4);
+      const year = gtNow.getFullYear();
+      const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+      const day = String(gtNow.getDate()).padStart(2, "0");
+      const hour = gtNow.getHours();
+      const minute = gtNow.getMinutes();
+      const todayDateStr = `${year}-${month}-${day}`;
+      if (hour === 12 && minute === 0) {
+        const corteKey = `${todayDateStr}_12:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] \u{1F55B} Disparando corte autom\xE1tico de las 12:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: "12:00" });
+        }
+      }
+      if (hour === 17 && minute === 0) {
+        const corteKey = `${todayDateStr}_17:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] \u{1F554} Disparando corte autom\xE1tico de las 5:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: "17:00" });
+        }
+      }
+    } catch (e) {
+      console.warn("[AUTO-SALES-CRON] Error en ciclo cron:", e?.message || e);
+    }
+  }, 25e3);
+}
+initAutoDailySalesCron();
+app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
+  const result = await checkAndDispatchDailySales(req.body);
+  if (result?.error) {
+    return res.status(500).json(result);
+  }
+  return res.json(result);
 }));
 app.get("/api/users", requireAuth, asyncHandler(async (req, res) => {
   try {
