@@ -67,20 +67,48 @@ async function main() {
   console.log(`   Vendedor a monitorear: ${TARGET_SELLER_EMAIL}`);
   console.log('─'.repeat(60) + '\n');
 
-  // 1. Obtener usuario de Supabase para validar ID/email/nombre/teléfono
-  const { data: usersData } = await supabase
-    .from('users')
-    .select('id, name, email, phone')
-    .ilike('email', TARGET_SELLER_EMAIL);
+  function formatTelefonoDestinatario(rawPhone) {
+    if (!rawPhone) return '';
+    const digits = String(rawPhone).replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length === 8) return `502${digits}`;
+    if (digits.startsWith('502') && digits.length === 11) return digits;
+    return digits;
+  }
 
-  const foundUser = usersData && usersData.length > 0 ? usersData[0] : null;
+  // 1. Obtener usuarios de Supabase para validar vendedores y administradores
+  const { data: allUsersData } = await supabase
+    .from('users')
+    .select('id, name, email, phone, role');
+
+  const foundUser = (allUsersData || []).find((u) => (u.email || '').toLowerCase() === TARGET_SELLER_EMAIL.toLowerCase()) || null;
   const sellerIdKeys = [
     TARGET_SELLER_EMAIL.toLowerCase(),
     foundUser?.id ? foundUser.id.toLowerCase() : null,
   ].filter(Boolean);
 
   const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split('@')[0];
-  const sellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || '+50248234048';
+  const rawSellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || '50248234048';
+  const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+
+  const destinatarios = (allUsersData || [])
+    .filter((u) => {
+      if (!u || u.role === 'system') return false;
+      const email = String(u.email || '').toLowerCase();
+      return email === TARGET_SELLER_EMAIL.toLowerCase();
+    })
+    .map((u) => {
+      const rawTel = u.phone || process.env.TARGET_SELLER_PHONE || '50248234048';
+      const formattedTel = formatTelefonoDestinatario(rawTel);
+      return {
+        nombreDestinatario: u.name || u.email.split('@')[0],
+        telefono: formattedTel,
+        numero: formattedTel,
+        email: u.email,
+        rol: u.role || 'admin',
+      };
+    })
+    .filter((d) => Boolean(d.telefono));
 
   // 2. Consultar facturas de hoy en Supabase
   const { data: invoices, error } = await supabase
@@ -149,18 +177,22 @@ async function main() {
 
   const estado = alcanzoMeta ? '🟢 META ALCANZADA' : '🔴 BAJO META';
   console.log(`   ${estado}  ${sellerDisplayName} (${TARGET_SELLER_EMAIL})`);
-  console.log(`   📱 Teléfono / Número: ${sellerPhone}`);
+  console.log(`   📱 Teléfono / Número: ${sellerPhoneClean}`);
   console.log(`   💰 Cantidad Vendida:  Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}`);
   console.log(`   📉 Cantidad Faltante: Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })}`);
   console.log(`   📊 Total Facturas Hoy: ${cantidadFacturas}\n`);
+  console.log(`   👥 Destinatarios configurados (${destinatarios.length}):`);
+  destinatarios.forEach((d) => console.log(`      - ${d.nombreDestinatario} (${d.rol}): ${d.telefono}`));
+  console.log('');
 
   // 5. Construir payload exclusivo con tu información, tu número y tus ventas del día
   const payload = {
     fecha: todayLabel,
     vendedor: sellerDisplayName,
+    nombreDestinatario: sellerDisplayName,
     email: TARGET_SELLER_EMAIL,
-    numero: sellerPhone,
-    telefono: sellerPhone,
+    numero: sellerPhoneClean,
+    telefono: sellerPhoneClean,
     cantidadVendida,
     cantidadFaltante,
     alcanzoMeta,
@@ -169,6 +201,7 @@ async function main() {
     mensaje: alcanzoMeta
       ? `Hola ${sellerDisplayName}, has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
       : `Hola ${sellerDisplayName}, has vendido Q${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString('es-GT')}.`,
+    destinatarios,
     ventas,
   };
 

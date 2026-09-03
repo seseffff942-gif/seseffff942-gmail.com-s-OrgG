@@ -65,7 +65,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'fix: agregar endpoints de cotizaciones, autoguardado de borrador y fallback en creacion de productos';
+  const commitMsg = 'feat: incluir destinatarios con nombreDestinatario y telefonos formateados con codigo de pais (502) en webhook de ventas n8n';
   const sha = await git.commit({
     fs,
     dir,

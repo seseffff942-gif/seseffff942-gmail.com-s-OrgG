@@ -3139,19 +3139,47 @@ if (!process.env.VERCEL) {
       return res.status(500).json({ error: `Error al consultar facturas: ${invErr.message}` });
     }
 
-    const { data: usersData } = await supabase
-      .from("users")
-      .select("id, name, email, phone")
-      .ilike("email", TARGET_SELLER_EMAIL);
+    function formatTelefonoDestinatario(rawPhone: string | null | undefined): string {
+      if (!rawPhone) return "";
+      const digits = String(rawPhone).replace(/\D/g, "");
+      if (!digits) return "";
+      if (digits.length === 8) return `502${digits}`;
+      if (digits.startsWith("502") && digits.length === 11) return digits;
+      return digits;
+    }
 
-    const foundUser = usersData && usersData.length > 0 ? usersData[0] : null;
+    const { data: allUsersData } = await supabase
+      .from("users")
+      .select("id, name, email, phone, role");
+
+    const foundUser = (allUsersData || []).find((u: any) => (u.email || "").toLowerCase() === TARGET_SELLER_EMAIL.toLowerCase()) || null;
     const sellerIdKeys = [
       TARGET_SELLER_EMAIL.toLowerCase(),
       foundUser?.id ? foundUser.id.toLowerCase() : null
     ].filter(Boolean);
 
     const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split("@")[0];
-    const sellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || "+50248234048";
+    const rawSellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || "50248234048";
+    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+
+    const destinatarios = (allUsersData || [])
+      .filter((u: any) => {
+        if (!u || u.role === "system") return false;
+        const email = String(u.email || "").toLowerCase();
+        return email === TARGET_SELLER_EMAIL.toLowerCase();
+      })
+      .map((u: any) => {
+        const rawTel = u.phone || process.env.TARGET_SELLER_PHONE || "50248234048";
+        const formattedTel = formatTelefonoDestinatario(rawTel);
+        return {
+          nombreDestinatario: u.name || u.email.split("@")[0],
+          telefono: formattedTel,
+          numero: formattedTel,
+          email: u.email,
+          rol: u.role || "admin"
+        };
+      })
+      .filter((d: any) => Boolean(d.telefono));
 
     let cantidadVendida = 0;
     let cantidadFacturas = 0;
@@ -3202,9 +3230,10 @@ if (!process.env.VERCEL) {
     const payload = {
       fecha: todayLabel,
       vendedor: sellerDisplayName,
+      nombreDestinatario: sellerDisplayName,
       email: TARGET_SELLER_EMAIL,
-      numero: sellerPhone,
-      telefono: sellerPhone,
+      numero: sellerPhoneClean,
+      telefono: sellerPhoneClean,
       cantidadVendida,
       cantidadFaltante,
       alcanzoMeta,
@@ -3213,6 +3242,7 @@ if (!process.env.VERCEL) {
       mensaje: alcanzoMeta
         ? `Hola ${sellerDisplayName}, has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
         : `Hola ${sellerDisplayName}, has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+      destinatarios,
       ventas,
     };
 
