@@ -1408,15 +1408,53 @@ function saveLocalNotifications(notifications) {
   }
 }
 async function createNotification(type, title, message, extra = {}) {
-  console.log(`[Notification Bypassed (Disabled Temporarily)] Type: ${type}, Title: ${title}`);
-  return {
-    id: `ntf-disabled`,
+  const ntfId = `ntf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const ntf = {
+    id: ntfId,
     type,
     title,
     message,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    createdAt: nowIso,
+    created_at: nowIso,
+    productId: extra.productId || extra.product_id || null,
+    product_id: extra.productId || extra.product_id || null,
+    invoiceId: extra.invoiceId || extra.invoice_id || null,
+    invoice_id: extra.invoiceId || extra.invoice_id || null,
     ...extra
   };
+  try {
+    const local = readLocalNotifications();
+    local.unshift(ntf);
+    if (local.length > 200) local.length = 200;
+    saveLocalNotifications(local);
+  } catch (e) {
+    console.error("Error saving local notification:", e);
+  }
+  try {
+    const payload = {
+      id: ntfId,
+      type,
+      title,
+      message,
+      createdAt: nowIso,
+      created_at: nowIso,
+      productId: ntf.productId,
+      product_id: ntf.product_id,
+      invoiceId: ntf.invoiceId,
+      invoice_id: ntf.invoice_id
+    };
+    await supabase.from("notifications").insert([payload]);
+  } catch (err) {
+    console.warn("Error inserting notification into Supabase:", err);
+  }
+  try {
+    await broadcastPushNotification(title, message, "/");
+  } catch (pushErr) {
+    console.warn("Error broadcasting push notification:", pushErr);
+  }
+  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
+  return ntf;
 }
 var CLIENTS_FILE = import_path.default.join(process.cwd(), "clients_local.json");
 function readLocalClients() {
@@ -6564,6 +6602,268 @@ app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (
     console.error("Error saving WhatsApp config:", e);
     res.status(500).json({ error: e.message });
   }
+}));
+var PENDING_BOLETAS_FILE = import_path.default.join(process.cwd(), "pending_boletas_bot.json");
+function readPendingBoletas() {
+  try {
+    if (import_fs.default.existsSync(PENDING_BOLETAS_FILE)) {
+      return JSON.parse(import_fs.default.readFileSync(PENDING_BOLETAS_FILE, "utf8"));
+    }
+  } catch (e) {
+  }
+  return {};
+}
+function savePendingBoleta(phone, data) {
+  try {
+    const all = readPendingBoletas();
+    all[phone] = { ...data, timestamp: Date.now() };
+    import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
+  } catch (e) {
+    console.warn("Could not save pending boleta:", e);
+  }
+}
+function popPendingBoleta(phone) {
+  try {
+    const all = readPendingBoletas();
+    const item = all[phone];
+    if (item) {
+      delete all[phone];
+      import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
+      return item;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+function getRecentPendingBoleta(phone) {
+  try {
+    const all = readPendingBoletas();
+    if (all[phone]) return all[phone];
+    const keys = Object.keys(all);
+    for (const k of keys) {
+      if (Date.now() - (all[k]?.timestamp || 0) < 72e5) {
+        return all[k];
+      }
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function waitForPendingBoleta(phone, maxWaitMs = 6e3) {
+  const startTime = Date.now();
+  let boleta = popPendingBoleta(phone);
+  if (boleta && Date.now() - (boleta.timestamp || 0) < 72e5) {
+    return boleta;
+  }
+  const recent = getRecentPendingBoleta(phone);
+  if (recent && Date.now() - (recent.timestamp || 0) < 72e5) {
+    try {
+      const all = readPendingBoletas();
+      for (const k of Object.keys(all)) {
+        if (all[k] === recent || all[k]?.noBoleta === recent.noBoleta) delete all[k];
+      }
+      import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
+    } catch (e) {
+    }
+    return recent;
+  }
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 400));
+    const fresh = getRecentPendingBoleta(phone);
+    if (fresh && Date.now() - (fresh.timestamp || 0) < 72e5) {
+      try {
+        const all = readPendingBoletas();
+        for (const k of Object.keys(all)) {
+          if (all[k] === fresh || all[k]?.noBoleta === fresh.noBoleta) delete all[k];
+        }
+        import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
+      } catch (e) {
+      }
+      return fresh;
+    }
+  }
+  return null;
+}
+async function findInvoiceByFolio(folioInput, clientHint) {
+  const cleanFolio = String(folioInput || "").replace(/^#/, "").trim();
+  if (!cleanFolio || cleanFolio === "S/N") return null;
+  const { data: byFolio } = await supabase.from("invoices").select("*").eq("folio", cleanFolio);
+  if (byFolio && byFolio.length > 0) {
+    if (byFolio.length > 1 && clientHint) {
+      const hint = clientHint.toLowerCase().trim();
+      const best = byFolio.find((inv) => inv.clientName && inv.clientName.toLowerCase().includes(hint));
+      if (best) return best;
+    }
+    return byFolio[0];
+  }
+  const { data: byNotes } = await supabase.from("invoices").select("*").ilike("notes", `%FOLIO:${cleanFolio}%`);
+  if (byNotes && byNotes.length > 0) return byNotes[0];
+  const { data: byId } = await supabase.from("invoices").select("*").eq("id", cleanFolio);
+  if (byId && byId.length > 0) return byId[0];
+  const { data: byPrefix } = await supabase.from("invoices").select("*").ilike("id", `INV-${cleanFolio}-%`);
+  if (byPrefix && byPrefix.length > 0) return byPrefix[0];
+  if (clientHint && clientHint.length > 3) {
+    const { data: byClient } = await supabase.from("invoices").select("*").ilike("clientName", `%${clientHint}%`).order("date", { ascending: false }).limit(5);
+    if (byClient && byClient.length > 0) {
+      const withBalance = byClient.find((inv) => parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0) > 0);
+      if (withBalance) return withBalance;
+      return byClient[0];
+    }
+  }
+  return null;
+}
+app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
+  const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes } = req.body;
+  const cleanFolio = String(folio || "").replace(/^#/, "").trim();
+  const cleanPhone = String(sellerPhone || "").replace(/\D/g, "") || "default";
+  const numAmount = parseFloat(amount || 0);
+  let receiptUrl = null;
+  if (receiptBase64 && String(receiptBase64).trim() !== "") {
+    try {
+      const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ""), "base64");
+      const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+        contentType: "image/jpeg",
+        upsert: true
+      });
+      if (!uploadError) {
+        const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+        receiptUrl = publicUrlData.publicUrl;
+      } else {
+        receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
+      }
+    } catch (err) {
+      console.error("Error guardando imagen de boleta de bot:", err);
+    }
+  }
+  if (!cleanFolio || cleanFolio === "S/N") {
+    savePendingBoleta(cleanPhone, {
+      amount: numAmount,
+      noBoleta: noBoleta || "S/N",
+      banco: banco || "S/N",
+      receiptUrl,
+      sellerName: sellerName || "",
+      notes: notes || `Boleta: ${noBoleta || "S/N"} - Banco: ${banco || "S/N"}`
+    });
+    console.log(`[Bot Abono] Boleta guardada en espera de folio para tel\xE9fono ${cleanPhone} (Monto: Q. ${numAmount}, Boleta: ${noBoleta})`);
+    return res.json({
+      success: false,
+      pending: true,
+      message: "Boleta recibida y guardada a la espera de folio",
+      amount: numAmount,
+      noBoleta,
+      banco,
+      receiptUrl
+    });
+  }
+  const invoice = await findInvoiceByFolio(cleanFolio, req.body.cliente || sellerName);
+  if (!invoice) {
+    savePendingBoleta(cleanPhone, {
+      amount: numAmount,
+      noBoleta: noBoleta || "S/N",
+      banco: banco || "S/N",
+      receiptUrl,
+      sellerName: sellerName || "",
+      notes: notes || `Boleta: ${noBoleta || "S/N"} - Banco: ${banco || "S/N"}`
+    });
+    return res.json({ success: false, message: `No se encontr\xF3 ninguna factura con el folio #${cleanFolio}` });
+  }
+  popPendingBoleta(cleanPhone);
+  let currentPaid = parseFloat(invoice.paidAmount || 0);
+  let total = parseFloat(invoice.totalAmount || 0);
+  let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
+  let newStatus = newPaid >= total - 0.01 ? "paid" : invoice.status === "despachado" ? "despachado" : "pending";
+  await supabase.from("invoices").update({
+    paidAmount: newPaid,
+    status: newStatus
+  }).eq("id", invoice.id);
+  if (numAmount > 0) {
+    try {
+      await safeInsertPayment({
+        id: `PAY-BOT-${Date.now()}`,
+        invoiceId: invoice.id,
+        amount: numAmount,
+        date: (/* @__PURE__ */ new Date()).toISOString(),
+        receiptUrl: receiptUrl || null,
+        notes: notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || "S/N"}, Banco: ${banco || "S/N"})`
+      });
+    } catch (payErr) {
+      console.warn("Error guardando pago en tabla payments:", payErr);
+    }
+  }
+  const remaining = Math.max(0, total - newPaid);
+  const isFullyPaid = remaining <= 0.01;
+  return res.json({
+    success: true,
+    folio: invoice.folio || invoice.id,
+    invoiceId: invoice.id,
+    clientName: invoice.clientName || "Cliente",
+    totalAmount: total,
+    paidAmount: newPaid,
+    remainingBalance: remaining,
+    isFullyPaid
+  });
+}));
+app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, res) => {
+  const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
+  const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
+  const cleanFolio = String(folioParam || "").replace(/^#/, "").trim();
+  const cleanPhone = String(sellerPhone || "").replace(/\D/g, "") || "default";
+  if (!cleanFolio || cleanFolio === "S/N") {
+    return res.json({ success: false, message: "No se especific\xF3 folio v\xE1lido" });
+  }
+  const invoice = await findInvoiceByFolio(cleanFolio, cliente);
+  if (!invoice) {
+    return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
+  }
+  const pending = await waitForPendingBoleta(cleanPhone, 6e3);
+  let numAmount = parseFloat(amount || 0);
+  let receiptUrl = null;
+  let boletaNotes = notes ? decodeURIComponent(notes) : "";
+  if (pending) {
+    if (numAmount <= 0 && pending.amount > 0) {
+      numAmount = pending.amount;
+    }
+    receiptUrl = pending.receiptUrl;
+    if (!boletaNotes) {
+      boletaNotes = `Abono asignado por Bot WhatsApp (Boleta: ${pending.noBoleta || "S/N"}, Banco: ${pending.banco || "S/N"})`;
+    }
+  }
+  let currentPaid = parseFloat(invoice.paidAmount || 0);
+  let total = parseFloat(invoice.totalAmount || 0);
+  if (numAmount <= 0) {
+    numAmount = Math.max(0, total - currentPaid);
+  }
+  let newPaid = currentPaid + numAmount;
+  let newStatus = newPaid >= total - 0.01 ? "paid" : invoice.status === "despachado" ? "despachado" : "pending";
+  await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq("id", invoice.id);
+  if (numAmount > 0) {
+    try {
+      await safeInsertPayment({
+        id: `PAY-BOT-${Date.now()}`,
+        invoiceId: invoice.id,
+        amount: numAmount,
+        date: (/* @__PURE__ */ new Date()).toISOString(),
+        receiptUrl: receiptUrl || null,
+        notes: boletaNotes || `Abono asignado por Bot WhatsApp`
+      });
+    } catch (e) {
+      console.warn("Error guardando pago en payments:", e);
+    }
+  }
+  const remaining = Math.max(0, total - newPaid);
+  const isFullyPaid = remaining <= 0.01;
+  return res.json({
+    success: true,
+    folio: invoice.folio || invoice.id,
+    invoiceId: invoice.id,
+    clientName: invoice.clientName || "Cliente",
+    totalAmount: total,
+    paidAmount: newPaid,
+    balance: remaining,
+    isFullyPaid,
+    receiptUrl
+  });
 }));
 app.get("/api/whatsapp/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
