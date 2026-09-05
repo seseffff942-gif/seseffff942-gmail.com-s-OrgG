@@ -126,17 +126,35 @@ if (gaId) {
   console.log("[Google Analytics] No measurement ID VITE_GA_ID configured. Analytics are inactive.");
 }
 
-try {
-  if ("serviceWorker" in navigator) {
-    registerSW({ 
-      immediate: true,
-      onRegisterError(error) {
-        console.warn("Service worker registration failed:", error);
+if (import.meta.env.DEV) {
+  // En desarrollo local, desregistrar Service Workers y limpiar cachés para evitar que sirva bundles obsoletos
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const registration of registrations) {
+        registration.unregister();
       }
-    });
+    }).catch(() => {});
   }
-} catch (e) {
-  console.warn("Service worker is disabled or failed to register:", e);
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    caches.keys().then((names) => {
+      for (const name of names) {
+        caches.delete(name);
+      }
+    }).catch(() => {});
+  }
+} else {
+  try {
+    if ("serviceWorker" in navigator) {
+      registerSW({ 
+        immediate: true,
+        onRegisterError(error) {
+          console.warn("Service worker registration failed:", error);
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Service worker is disabled or failed to register:", e);
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

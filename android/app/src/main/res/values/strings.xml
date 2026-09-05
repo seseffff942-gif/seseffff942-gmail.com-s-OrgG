@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Agricovet App</string>
+    <string name="title_activity_main">Agricovet App</string>
+    <string name="package_name">com.agricovet.app</string>
+    <string name="custom_url_scheme">com.agricovet.app</string>
+</resources>

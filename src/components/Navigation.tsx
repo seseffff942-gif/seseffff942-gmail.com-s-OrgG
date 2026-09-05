@@ -845,9 +845,44 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           // Identify any completely new notifications
           const newNotifications = data.filter(n => !knownNotificationIdsRef.current.has(n.id));
           if (newNotifications.length > 0) {
-            // Trigger beautiful audio arpeggio if enabled
+            // Trigger beautiful audio arpeggio and vibration if enabled
             if (soundsEnabled) {
               playNotificationChime();
+              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                try { navigator.vibrate([120, 80, 120]); } catch (e) {}
+              }
+            }
+
+            // Trigger system / native notifications
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              newNotifications.forEach(n => {
+                try {
+                  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(n.title || 'Agricovet', {
+                        body: n.message,
+                        icon: '/agricovet.png',
+                        badge: '/agricovet.png',
+                        tag: n.id,
+                        vibrate: [100, 50, 100],
+                        data: { url: '/' }
+                      } as any);
+                    }).catch(() => {
+                      new Notification(n.title || 'Agricovet', {
+                        body: n.message,
+                        icon: '/agricovet.png'
+                      });
+                    });
+                  } else {
+                    new Notification(n.title || 'Agricovet', {
+                      body: n.message,
+                      icon: '/agricovet.png'
+                    });
+                  }
+                } catch (e) {
+                  console.warn("Error showing system notification:", e);
+                }
+              });
             }
 
             // Push into active toasts queue
@@ -885,7 +920,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     const interval = setInterval(() => {
       if (document.hidden) return; // No consultar notificaciones en segundo plano
       checkNotifications();
-    }, 45000);
+    }, 15000);
 
     const alVolver = () => { if (!document.hidden) checkNotifications(); };
     document.addEventListener('visibilitychange', alVolver);
@@ -1290,7 +1325,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           </button>
         </div>
         <nav className="flex-1 space-y-1">
-          {navItems.filter(item => item.roles.includes(user.role)).map((item) => {
+          {userNavItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
               <button

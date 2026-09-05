@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { api } from '../api';
+import { api, getApiUrl } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -287,7 +287,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
                       const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
-                      fetch('/api/whatsapp/send', {
+                      fetch(getApiUrl('/api/whatsapp/send'), {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
                           body: JSON.stringify({ 
@@ -1197,7 +1197,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                                 <button 
                                   onClick={async () => {
                                       try {
-                                        const res = await fetch('/api/whatsapp/send', {
+                                        const res = await fetch(getApiUrl('/api/whatsapp/send'), {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
                                             body: JSON.stringify({ 
@@ -1248,7 +1248,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                                 <button 
                                   onClick={async () => {
                                       try {
-                                        const res = await fetch('/api/whatsapp/send', {
+                                        const res = await fetch(getApiUrl('/api/whatsapp/send'), {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
                                             body: JSON.stringify({ 

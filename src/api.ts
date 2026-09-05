@@ -107,7 +107,8 @@ export const parseInvoiceFlags = (inv: any): Invoice => {
   return mappedInv as Invoice;
 };
 
-const getApiUrl = (endpoint: string): string => {
+export const getApiUrl = (endpoint: string): string => {
+  if (!endpoint) return endpoint;
   if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
     return endpoint;
   }
@@ -117,8 +118,13 @@ const getApiUrl = (endpoint: string): string => {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     return `${baseUrl}${cleanEndpoint}`;
   }
-  const isNative = typeof window !== 'undefined' && Capacitor.isNativePlatform();
-  if (isNative) {
+  const isCapacitorNative = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+  const isLocalOriginWithoutDevPort = typeof window !== 'undefined' && (
+    window.location.protocol === 'capacitor:' ||
+    (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80' || window.location.port === '443')) ||
+    (window.location.origin.includes('localhost') && (!window.location.port || window.location.port === '80' || window.location.port === '443'))
+  );
+  if (isCapacitorNative || isLocalOriginWithoutDevPort) {
     const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.agricovet.lat').replace(/\/$/, '');
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     return `${baseUrl}${cleanEndpoint}`;
@@ -324,7 +330,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1
 
   let response: Response;
   try {
-    response = await fetch(url, { ...options, headers });
+    response = await fetch(getApiUrl(url), { ...options, headers });
   } catch (err: any) {
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, 400));
@@ -1396,7 +1402,7 @@ export const api = {
           costPrice: resData.costPrice !== undefined ? Number(resData.costPrice) : (resData.cost_price !== undefined ? Number(resData.cost_price) : 0),
           cost_price: resData.cost_price !== undefined ? Number(resData.cost_price) : (resData.costPrice !== undefined ? Number(resData.costPrice) : 0),
           hiddenFromSales: resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : (resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : false),
-          hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hiddenFromSales) : false),
+          hidden_from_sales: resData.hidden_from_sales !== undefined ? Boolean(resData.hidden_from_sales) : (resData.hiddenFromSales !== undefined ? Boolean(resData.hidden_from_sales) : false),
           variants: typeof resData.variants === 'string' ? JSON.parse(resData.variants) : resData.variants,
           specifications: typeof resData.specifications === 'string' ? JSON.parse(resData.specifications) : resData.specifications,
         };
@@ -1406,9 +1412,7 @@ export const api = {
         throw new Error(err.error || 'Failed to update product');
       }
     } catch (apiErr: any) {
-      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
-        throw apiErr;
-      }
+      console.warn("API update failed, falling back to direct Supabase:", apiErr?.message || apiErr);
     }
 
     // Respaldo directo a Supabase
@@ -1431,14 +1435,17 @@ export const api = {
   },
 
   deleteProduct: async (id: string): Promise<{ success: boolean }> => {
-    const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to delete product');
+    try {
+      const res = await fetchWithAuth(`/api/products/${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) return res.json();
+    } catch (e) {
+      console.warn("API delete failed, falling back to direct Supabase:", e);
     }
-    return res.json();
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return { success: true };
   },
 
   bulkGenerateDescriptions: async (): Promise<{ success: boolean; generatedCount: number; remaining: number; message: string }> => {
@@ -2207,7 +2214,7 @@ export const api = {
 
   getAppLogo: async (): Promise<{ logoUrl: string }> => {
     try {
-      const res = await fetch('/api/app-logo');
+      const res = await fetch(getApiUrl('/api/app-logo'));
       if (res.ok) {
         return res.json();
       }
@@ -2225,7 +2232,7 @@ export const api = {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const res = await fetch('/api/app-logo/upload', {
+    const res = await fetch(getApiUrl('/api/app-logo/upload'), {
       method: 'POST',
       headers,
       body: formData
@@ -2242,7 +2249,7 @@ export const api = {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const res = await fetch('/api/app-signature/upload', {
+    const res = await fetch(getApiUrl('/api/app-signature/upload'), {
       method: 'POST',
       headers,
       body: formData

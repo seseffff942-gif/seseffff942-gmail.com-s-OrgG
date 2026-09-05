@@ -274,6 +274,18 @@ app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// CORS Middleware for Android Capacitor and Web Apps
+app.use((req: any, res: any, next: any) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey, Range");
+  res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Normalizador de rutas para Vercel Serverless (evita 404 Cannot POST /api)
 app.use((req: any, res: any, next: any) => {
   if (req.originalUrl && req.originalUrl.startsWith('/api') && (!req.url || req.url === '/' || req.url === '/api' || req.url === '/api/index.js')) {
@@ -312,6 +324,7 @@ app.post("/api/webhooks", (req: any, res: any) => {
 // Security Middleware: Set HTTP Headers (MitM protection via HSTS)
 app.use(helmet({
   contentSecurityPolicy: false, // Disabling to avoid breaking the frontend during dev/build
+  crossOriginResourcePolicy: { policy: "cross-origin" },
   hsts: {
     maxAge: 31536000, // 1 year
     includeSubDomains: true,
@@ -867,16 +880,60 @@ if (!process.env.VERCEL) {
   }
 
   async function createNotification(type: string, title: string, message: string, extra: any = {}) {
-    // TEMPORARILY DISABLED as requested by the user
-    console.log(`[Notification Bypassed (Disabled Temporarily)] Type: ${type}, Title: ${title}`);
-    return {
-      id: `ntf-disabled`,
+    const ntfId = `ntf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = new Date().toISOString();
+    const ntf = {
+      id: ntfId,
       type,
       title,
       message,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
+      created_at: nowIso,
+      productId: extra.productId || extra.product_id || null,
+      product_id: extra.productId || extra.product_id || null,
+      invoiceId: extra.invoiceId || extra.invoice_id || null,
+      invoice_id: extra.invoiceId || extra.invoice_id || null,
       ...extra
     };
+
+    // 1. Guardar localmente
+    try {
+      const local = readLocalNotifications();
+      local.unshift(ntf);
+      if (local.length > 200) local.length = 200;
+      saveLocalNotifications(local);
+    } catch (e) {
+      console.error("Error saving local notification:", e);
+    }
+
+    // 2. Guardar en Supabase para sincronización en tiempo real con todos los dispositivos y la APK
+    try {
+      const payload: any = {
+        id: ntfId,
+        type,
+        title,
+        message,
+        createdAt: nowIso,
+        created_at: nowIso,
+        productId: ntf.productId,
+        product_id: ntf.product_id,
+        invoiceId: ntf.invoiceId,
+        invoice_id: ntf.invoice_id
+      };
+      await supabase.from("notifications").insert([payload]);
+    } catch (err) {
+      console.warn("Error inserting notification into Supabase:", err);
+    }
+
+    // 3. Emitir Push Notification a todos los teléfonos y navegadores suscritos
+    try {
+      await broadcastPushNotification(title, message, "/");
+    } catch (pushErr) {
+      console.warn("Error broadcasting push notification:", pushErr);
+    }
+
+    console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
+    return ntf;
   }
 
   // ======== API ROUTES ========
@@ -7008,6 +7065,335 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
         console.error("Error saving WhatsApp config:", e);
         res.status(500).json({ error: e.message });
     }
+  }));
+  // ========================================
+  // BOT WHATSAPP INTEGRATION (Abonos & Folios)
+  const PENDING_BOLETAS_FILE = path.join(process.cwd(), 'pending_boletas_bot.json');
+  function readPendingBoletas(): Record<string, any> {
+    try {
+      if (fs.existsSync(PENDING_BOLETAS_FILE)) {
+        return JSON.parse(fs.readFileSync(PENDING_BOLETAS_FILE, 'utf8'));
+      }
+    } catch (e) {}
+    return {};
+  }
+  function savePendingBoleta(phone: string, data: any) {
+    try {
+      const all = readPendingBoletas();
+      all[phone] = { ...data, timestamp: Date.now() };
+      fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
+    } catch (e) {
+      console.warn("Could not save pending boleta:", e);
+    }
+  }
+  function popPendingBoleta(phone: string) {
+    try {
+      const all = readPendingBoletas();
+      const item = all[phone];
+      if (item) {
+        delete all[phone];
+        fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
+        return item;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function getRecentPendingBoleta(phone: string): any {
+    try {
+      const all = readPendingBoletas();
+      if (all[phone]) return all[phone];
+      const keys = Object.keys(all);
+      for (const k of keys) {
+        if (Date.now() - (all[k]?.timestamp || 0) < 7200000) {
+          return all[k];
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
+    const startTime = Date.now();
+    let boleta = popPendingBoleta(phone);
+    if (boleta && (Date.now() - (boleta.timestamp || 0) < 7200000)) {
+      return boleta;
+    }
+
+    const recent = getRecentPendingBoleta(phone);
+    if (recent && (Date.now() - (recent.timestamp || 0) < 7200000)) {
+      try {
+        const all = readPendingBoletas();
+        for (const k of Object.keys(all)) {
+          if (all[k] === recent || all[k]?.noBoleta === recent.noBoleta) delete all[k];
+        }
+        fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
+      } catch (e) {}
+      return recent;
+    }
+
+    // Wait up to maxWaitMs for arriving photo processing
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise(r => setTimeout(r, 400));
+      const fresh = getRecentPendingBoleta(phone);
+      if (fresh && (Date.now() - (fresh.timestamp || 0) < 7200000)) {
+        try {
+          const all = readPendingBoletas();
+          for (const k of Object.keys(all)) {
+            if (all[k] === fresh || all[k]?.noBoleta === fresh.noBoleta) delete all[k];
+          }
+          fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
+        } catch (e) {}
+        return fresh;
+      }
+    }
+
+    return null;
+  }
+
+  async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
+    const cleanFolio = String(folioInput || '').replace(/^#/, '').trim();
+    if (!cleanFolio || cleanFolio === 'S/N') return null;
+
+    // 1. Exact match on 'folio' column
+    const { data: byFolio } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq('folio', cleanFolio);
+
+    if (byFolio && byFolio.length > 0) {
+      if (byFolio.length > 1 && clientHint) {
+        const hint = clientHint.toLowerCase().trim();
+        const best = byFolio.find(inv => inv.clientName && inv.clientName.toLowerCase().includes(hint));
+        if (best) return best;
+      }
+      return byFolio[0];
+    }
+
+    // 2. Exact match in notes with FOLIO:<cleanFolio>
+    const { data: byNotes } = await supabase
+      .from("invoices")
+      .select("*")
+      .ilike('notes', `%FOLIO:${cleanFolio}%`);
+
+    if (byNotes && byNotes.length > 0) return byNotes[0];
+
+    // 3. Exact match on 'id' column
+    const { data: byId } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq('id', cleanFolio);
+
+    if (byId && byId.length > 0) return byId[0];
+
+    // 4. Exact prefix match on id (e.g. INV-831-...)
+    const { data: byPrefix } = await supabase
+      .from("invoices")
+      .select("*")
+      .ilike('id', `INV-${cleanFolio}-%`);
+
+    if (byPrefix && byPrefix.length > 0) return byPrefix[0];
+
+    // 5. Fallback: Search by clientHint if provided
+    if (clientHint && clientHint.length > 3) {
+      const { data: byClient } = await supabase
+        .from("invoices")
+        .select("*")
+        .ilike('clientName', `%${clientHint}%`)
+        .order('date', { ascending: false })
+        .limit(5);
+
+      if (byClient && byClient.length > 0) {
+        const withBalance = byClient.find(inv => (parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0)) > 0);
+        if (withBalance) return withBalance;
+        return byClient[0];
+      }
+    }
+
+    return null;
+  }
+
+  app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
+    const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes } = req.body;
+    const cleanFolio = String(folio || '').replace(/^#/, '').trim();
+    const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
+    const numAmount = parseFloat(amount || 0);
+
+    let receiptUrl = null;
+    if (receiptBase64 && String(receiptBase64).trim() !== '') {
+      try {
+        const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ''), 'base64');
+        const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('productos')
+          .upload(fileName, buffer, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: publicUrlData } = supabase.storage
+            .from('productos')
+            .getPublicUrl(fileName);
+          receiptUrl = publicUrlData.publicUrl;
+        } else {
+          receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
+        }
+      } catch (err) {
+        console.error("Error guardando imagen de boleta de bot:", err);
+      }
+    }
+
+    // If folio is not provided or is 'S/N', cache the receipt and details for follow-up text message
+    if (!cleanFolio || cleanFolio === 'S/N') {
+      savePendingBoleta(cleanPhone, {
+        amount: numAmount,
+        noBoleta: noBoleta || 'S/N',
+        banco: banco || 'S/N',
+        receiptUrl: receiptUrl,
+        sellerName: sellerName || '',
+        notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
+      });
+      console.log(`[Bot Abono] Boleta guardada en espera de folio para teléfono ${cleanPhone} (Monto: Q. ${numAmount}, Boleta: ${noBoleta})`);
+      return res.json({
+        success: false,
+        pending: true,
+        message: "Boleta recibida y guardada a la espera de folio",
+        amount: numAmount,
+        noBoleta: noBoleta,
+        banco: banco,
+        receiptUrl: receiptUrl
+      });
+    }
+
+    const invoice = await findInvoiceByFolio(cleanFolio, req.body.cliente || sellerName);
+    if (!invoice) {
+      savePendingBoleta(cleanPhone, {
+        amount: numAmount,
+        noBoleta: noBoleta || 'S/N',
+        banco: banco || 'S/N',
+        receiptUrl: receiptUrl,
+        sellerName: sellerName || '',
+        notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
+      });
+      return res.json({ success: false, message: `No se encontró ninguna factura con el folio #${cleanFolio}` });
+    }
+
+    // Clear any pending boleta for this phone since it's being applied now
+    popPendingBoleta(cleanPhone);
+
+    let currentPaid = parseFloat(invoice.paidAmount || 0);
+    let total = parseFloat(invoice.totalAmount || 0);
+    let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
+    let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
+
+    await supabase.from("invoices").update({
+      paidAmount: newPaid,
+      status: newStatus
+    }).eq('id', invoice.id);
+
+    if (numAmount > 0) {
+      try {
+        await safeInsertPayment({
+          id: `PAY-BOT-${Date.now()}`,
+          invoiceId: invoice.id,
+          amount: numAmount,
+          date: new Date().toISOString(),
+          receiptUrl: receiptUrl || null,
+          notes: notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`
+        });
+      } catch (payErr) {
+        console.warn("Error guardando pago en tabla payments:", payErr);
+      }
+    }
+
+    const remaining = Math.max(0, total - newPaid);
+    const isFullyPaid = remaining <= 0.01;
+
+    return res.json({
+      success: true,
+      folio: invoice.folio || invoice.id,
+      invoiceId: invoice.id,
+      clientName: invoice.clientName || 'Cliente',
+      totalAmount: total,
+      paidAmount: newPaid,
+      remainingBalance: remaining,
+      isFullyPaid
+    });
+  }));
+
+  app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: any, res: any) => {
+    const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
+    const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
+    const cleanFolio = String(folioParam || '').replace(/^#/, '').trim();
+    const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
+
+    if (!cleanFolio || cleanFolio === 'S/N') {
+      return res.json({ success: false, message: "No se especificó folio válido" });
+    }
+
+    const invoice = await findInvoiceByFolio(cleanFolio, cliente);
+    if (!invoice) {
+      return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
+    }
+
+    // Wait up to 6s if photo is currently processing in background
+    const pending = await waitForPendingBoleta(cleanPhone, 6000);
+    let numAmount = parseFloat(amount || 0);
+    let receiptUrl = null;
+    let boletaNotes = notes ? decodeURIComponent(notes) : '';
+
+    if (pending) {
+      if (numAmount <= 0 && pending.amount > 0) {
+        numAmount = pending.amount;
+      }
+      receiptUrl = pending.receiptUrl;
+      if (!boletaNotes) {
+        boletaNotes = `Abono asignado por Bot WhatsApp (Boleta: ${pending.noBoleta || 'S/N'}, Banco: ${pending.banco || 'S/N'})`;
+      }
+    }
+
+    let currentPaid = parseFloat(invoice.paidAmount || 0);
+    let total = parseFloat(invoice.totalAmount || 0);
+
+    if (numAmount <= 0) {
+      numAmount = Math.max(0, total - currentPaid);
+    }
+
+    let newPaid = currentPaid + numAmount;
+    let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
+
+    await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
+
+    if (numAmount > 0) {
+      try {
+        await safeInsertPayment({
+          id: `PAY-BOT-${Date.now()}`,
+          invoiceId: invoice.id,
+          amount: numAmount,
+          date: new Date().toISOString(),
+          receiptUrl: receiptUrl || null,
+          notes: boletaNotes || `Abono asignado por Bot WhatsApp`
+        });
+      } catch (e) {
+        console.warn("Error guardando pago en payments:", e);
+      }
+    }
+
+    const remaining = Math.max(0, total - newPaid);
+    const isFullyPaid = remaining <= 0.01;
+
+    return res.json({
+      success: true,
+      folio: invoice.folio || invoice.id,
+      invoiceId: invoice.id,
+      clientName: invoice.clientName || 'Cliente',
+      totalAmount: total,
+      paidAmount: newPaid,
+      balance: remaining,
+      isFullyPaid,
+      receiptUrl
+    });
   }));
   // ========================================
 

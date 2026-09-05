@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../api';
+import { api, getApiUrl } from '../api';
 import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2, RefreshCcw, Send } from 'lucide-react';
 import { format } from 'date-fns';
@@ -230,7 +230,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   if (cleanPhone.length >= 8) {
                       if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
                       const message = `Hola *${seller.name}*, la factura *${invoice.id}* a nombre de *${invoice.client}* ha sido anulada o *RECHAZADA*. Por favor revisa el sistema.`;
-                      fetch('/api/whatsapp/send', {
+                      fetch(getApiUrl('/api/whatsapp/send'), {
                           method: 'POST',
                           headers: { 
                             'Content-Type': 'application/json',
@@ -781,7 +781,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                                 <button 
                                   onClick={async () => {
                                       try {
-                                        const res = await fetch('/api/whatsapp/send', {
+                                        const res = await fetch(getApiUrl('/api/whatsapp/send'), {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
                                             body: JSON.stringify({ 
@@ -832,7 +832,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                                 <button 
                                   onClick={async () => {
                                       try {
-                                        const res = await fetch('/api/whatsapp/send', {
+                                        const res = await fetch(getApiUrl('/api/whatsapp/send'), {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('app_token')}` },
                                             body: JSON.stringify({ 
