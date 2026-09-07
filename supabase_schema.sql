@@ -200,5 +200,22 @@ CREATE POLICY "Permitir todo en client_visits para anon y authenticated"
     USING (true)
     WITH CHECK (true);
 
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL,
+    subscription JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Permitir todo en push_subscriptions para anon y authenticated" ON public.push_subscriptions;
+CREATE POLICY "Permitir todo en push_subscriptions para anon y authenticated"
+    ON public.push_subscriptions
+    FOR ALL
+    TO anon, authenticated
+    USING (true)
+    WITH CHECK (true);
+
 
 

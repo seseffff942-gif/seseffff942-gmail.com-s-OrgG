@@ -15,6 +15,7 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'paid' | 'all'>('pending');
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [expandedSeller, setExpandedSeller] = useState<string | null>(null);
   const [invoicePayments, setInvoicePayments] = useState<Record<string, Payment[]>>({});
@@ -99,8 +100,16 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
     }
   };
 
-  const pendingInvoices = invoices.filter(inv => inv.status === 'pending');
-  const filteredInvoices = pendingInvoices.filter(inv => {
+  const filteredInvoices = invoices.filter(inv => {
+    if (inv.status === 'cancelled' || inv.status === 'rejected') return false;
+
+    if (statusFilter === 'pending') {
+      const isPending = inv.status === 'pending' || (inv.totalAmount - (inv.paidAmount || 0) > 0.001);
+      if (!isPending) return false;
+    } else if (statusFilter === 'paid') {
+      const isPaid = inv.status === 'paid' || ((inv.paidAmount || 0) >= inv.totalAmount && inv.totalAmount > 0);
+      if (!isPaid) return false;
+    }
     const q = searchTerm.toLowerCase().trim();
     const cleanDigits = q.replace(/\D/g, '');
     const matchFolio = inv.folio && (
@@ -402,15 +411,30 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
-        <div className="mb-6 relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
-          <input
-            type="text"
-            placeholder="Buscar por cliente, vendedor o No. Factura..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
-          />
+        <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
+            <input
+              type="text"
+              placeholder="Buscar por cliente, vendedor o No. Factura..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl shadow-xs shrink-0">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider select-none">Estado:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="text-xs font-black text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+            >
+              <option value="pending">⏳ Pendientes de Cobro</option>
+              <option value="paid">✅ Cobradas / Pagadas</option>
+              <option value="all">Todas las Facturas</option>
+            </select>
+          </div>
         </div>
 
         {loading ? (

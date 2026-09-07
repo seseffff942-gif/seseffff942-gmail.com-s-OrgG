@@ -48,7 +48,16 @@ async function main() {
   const ghPath = path.join('C:', 'Program Files', 'GitHub CLI', 'gh.exe');
   let token = process.env.GITHUB_TOKEN;
   if (!token && fs.existsSync(ghPath)) {
-    token = execSync(`"${ghPath}" auth token`).toString().trim();
+    try {
+      token = execSync(`"${ghPath}" auth token`).toString().trim();
+    } catch (e) {}
+  }
+  if (!token) {
+    try {
+      const gitConfig = fs.readFileSync(path.join(dir, '.git', 'config'), 'utf8');
+      const match = gitConfig.match(/ghp_[A-Za-z0-9]+/);
+      if (match) token = match[0];
+    } catch (e) {}
   }
 
   if (!token) {
@@ -65,7 +74,7 @@ async function main() {
   }
 
   // 2. Commit
-  const commitMsg = 'feat: automatizar disparo de cortes de ventas a las 12:00 PM y 5:00 PM (Hora Guatemala) directamente desde Agricovet';
+  const commitMsg = 'feat: filtro de facturas pagadas/cobradas y notificaciones en tiempo real Supabase y WebPush';
   const sha = await git.commit({
     fs,
     dir,

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Product, AppNotification } from '../types';
 import { cn } from '../utils';
 import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield, Receipt, FileSpreadsheet, FileCheck, MapPin, Send } from 'lucide-react';
-import { api } from '../api';
+import { api, supabase } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
 
@@ -638,12 +638,28 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         setPushStatus('unsupported');
       }
 
-      sw.ready.then((registration) => {
-        registration.pushManager.getSubscription().then((subscription) => {
-          setIsSubscribedToPush(!!subscription);
-        });
+      sw.ready.then(async (registration) => {
+        try {
+          let subscription = await registration.pushManager.getSubscription();
+          if (!subscription && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            const publicKey = await api.getPushPublicKey();
+            if (publicKey) {
+              const applicationServerKey = urlBase64ToUint8Array(publicKey);
+              subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey
+              });
+            }
+          }
+          if (subscription) {
+            await api.sendPushSubscription(subscription);
+            setIsSubscribedToPush(true);
+          }
+        } catch (err) {
+          console.warn("Error al verificar/sincronizar suscripción push en montaje:", err);
+        }
       }).catch(err => {
-        console.warn("Error al verificar suscripción push en montaje:", err);
+        console.warn("Error al acceder a sw.ready:", err);
       });
 
       const handlePushMessage = (event: MessageEvent) => {
@@ -826,13 +842,65 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     }
   };
 
+  const dispatchNotificationAlert = (n: AppNotification) => {
+    // 1. Audio and vibration
+    const saved = localStorage.getItem('notifications_sounds_enabled');
+    const isSoundsEnabled = saved === null ? true : saved === 'true';
+    if (isSoundsEnabled) {
+      playNotificationChime();
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([150, 80, 150]); } catch (e) {}
+      }
+    }
+
+    // 2. System / native push notification
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification(n.title || 'Agricovet', {
+              body: n.message,
+              icon: '/agricovet.png',
+              badge: '/agricovet.png',
+              tag: n.id,
+              vibrate: [150, 80, 150],
+              data: { url: '/' }
+            } as any);
+          }).catch(() => {
+            new Notification(n.title || 'Agricovet', {
+              body: n.message,
+              icon: '/agricovet.png'
+            });
+          });
+        } else {
+          new Notification(n.title || 'Agricovet', {
+            body: n.message,
+            icon: '/agricovet.png'
+          });
+        }
+      } catch (e) {
+        console.warn("Error showing system notification:", e);
+      }
+    }
+
+    // 3. Screen Toast
+    const toastId = `toast-${Date.now()}-${Math.random()}`;
+    setActiveToasts(prev => [{ ...n, toastId }, ...prev]);
+    setTimeout(() => {
+      setActiveToasts(prev => prev.filter(t => t.toastId !== toastId));
+    }, 8000);
+
+    setHasUnread(true);
+  };
+
   const checkNotifications = async () => {
     try {
       const data = await api.getNotifications();
       if (data && data.length > 0) {
-        const lastSeen = localStorage.getItem(`lastSeenNotification_${user.id}`);
+        const lastSeenStr = localStorage.getItem(`lastSeenNotification_${user.id}`);
+        const lastSeen = lastSeenStr ? parseInt(lastSeenStr, 10) : 0;
         const newest = new Date(data[0].createdAt).getTime();
-        if (!lastSeen || newest > parseInt(lastSeen)) {
+        if (!lastSeen || newest > lastSeen) {
           setHasUnread(true);
         }
 
@@ -845,62 +913,10 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           // Identify any completely new notifications
           const newNotifications = data.filter(n => !knownNotificationIdsRef.current.has(n.id));
           if (newNotifications.length > 0) {
-            // Trigger beautiful audio arpeggio and vibration if enabled
-            if (soundsEnabled) {
-              playNotificationChime();
-              if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                try { navigator.vibrate([120, 80, 120]); } catch (e) {}
-              }
-            }
-
-            // Trigger system / native notifications
-            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              newNotifications.forEach(n => {
-                try {
-                  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-                    navigator.serviceWorker.ready.then(reg => {
-                      reg.showNotification(n.title || 'Agricovet', {
-                        body: n.message,
-                        icon: '/agricovet.png',
-                        badge: '/agricovet.png',
-                        tag: n.id,
-                        vibrate: [100, 50, 100],
-                        data: { url: '/' }
-                      } as any);
-                    }).catch(() => {
-                      new Notification(n.title || 'Agricovet', {
-                        body: n.message,
-                        icon: '/agricovet.png'
-                      });
-                    });
-                  } else {
-                    new Notification(n.title || 'Agricovet', {
-                      body: n.message,
-                      icon: '/agricovet.png'
-                    });
-                  }
-                } catch (e) {
-                  console.warn("Error showing system notification:", e);
-                }
-              });
-            }
-
-            // Push into active toasts queue
             newNotifications.forEach(n => {
-              const toastId = `toast-${Date.now()}-${Math.random()}`;
-              setActiveToasts(prev => [
-                { ...n, toastId },
-                ...prev
-              ]);
               knownNotificationIdsRef.current.add(n.id);
-
-              // Automatically clear from screen after 8 seconds
-              setTimeout(() => {
-                setActiveToasts(prev => prev.filter(t => t.toastId !== toastId));
-              }, 8000);
+              dispatchNotificationAlert(n);
             });
-
-            setHasUnread(true);
           }
         }
       }
@@ -917,16 +933,41 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     };
     window.addEventListener('agricovet-mutate', handleMutation);
 
+    // Supabase Live Realtime WebSocket subscription for Instant Notifications across all devices
+    const realtimeChannel = supabase
+      .channel('app_notifications_live_feed')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          const newNtf = payload.new as AppNotification;
+          if (newNtf && newNtf.id) {
+            if (!knownNotificationIdsRef.current.has(newNtf.id)) {
+              knownNotificationIdsRef.current.add(newNtf.id);
+              dispatchNotificationAlert(newNtf);
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'invoices' },
+        () => {
+          checkNotifications();
+        }
+      )
+      .subscribe();
+
     const interval = setInterval(() => {
-      if (document.hidden) return; // No consultar notificaciones en segundo plano
       checkNotifications();
     }, 15000);
 
-    const alVolver = () => { if (!document.hidden) checkNotifications(); };
+    const alVolver = () => { checkNotifications(); };
     document.addEventListener('visibilitychange', alVolver);
 
     return () => {
       clearInterval(interval);
+      supabase.removeChannel(realtimeChannel);
       document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('agricovet-mutate', handleMutation);
     };

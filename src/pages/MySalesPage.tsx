@@ -58,6 +58,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [isPaying, setIsPaying] = useState(false);
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [printTemplate, setPrintTemplate] = useState<string>('');
   const [salesViewMode, setSalesViewMode] = useState<'global' | 'mine'>(user.role === 'admin' ? 'global' : 'mine');
   const [isViewModeModalOpen, setIsViewModeModalOpen] = useState(false);
@@ -319,7 +320,14 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       matchDate = false;
     }
 
-    return matchSearch && matchDate;
+    let matchPaymentStatus = true;
+    if (paymentStatusFilter === 'paid') {
+      matchPaymentStatus = i.status === 'paid' || ((i.paidAmount || 0) >= i.totalAmount && i.totalAmount > 0);
+    } else if (paymentStatusFilter === 'pending') {
+      matchPaymentStatus = i.status !== 'cancelled' && i.status !== 'rejected' && i.status !== 'paid' && (i.totalAmount - (i.paidAmount || 0) > 0.001);
+    }
+
+    return matchSearch && matchDate && matchPaymentStatus;
   });
 
   const totalPending = filteredInvoices.reduce((acc, inv) => {
@@ -1138,6 +1146,19 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
               />
               Mostrar Anuladas/Rechazadas
             </label>
+
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl shadow-xs">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider select-none">Cobro:</span>
+              <select
+                value={paymentStatusFilter}
+                onChange={(e) => setPaymentStatusFilter(e.target.value as any)}
+                className="text-xs font-black text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+              >
+                <option value="all">Todas</option>
+                <option value="paid">✅ Cobradas / Pagadas</option>
+                <option value="pending">⏳ Pendientes de Cobro</option>
+              </select>
+            </div>
 
             <div className="flex border border-neutral-200 rounded-lg overflow-hidden shrink-0">
             <button 

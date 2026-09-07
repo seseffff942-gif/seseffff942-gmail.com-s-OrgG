@@ -55,6 +55,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [filterDate, setFilterDate] = useState<string>(getLocalDateStr());
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('all');
   const [sellerFilter, setSellerFilter] = useState<string>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
@@ -148,7 +149,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, showCancelledAndRejected, pageSize]);
+  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, paymentStatusFilter, showCancelledAndRejected, pageSize]);
 
   const loadInvoices = async () => {
     setLoading(true);
@@ -387,9 +388,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         matchSeller = i.sellerId === sellerFilter;
       }
 
-      return matchSearch && matchDate && matchSeller;
+      let matchPaymentStatus = true;
+      if (paymentStatusFilter === 'paid') {
+        matchPaymentStatus = i.status === 'paid' || ((i.paidAmount || 0) >= i.totalAmount && i.totalAmount > 0);
+      } else if (paymentStatusFilter === 'pending') {
+        matchPaymentStatus = i.status !== 'cancelled' && i.status !== 'rejected' && i.status !== 'paid' && (i.totalAmount - (i.paidAmount || 0) > 0.001);
+      }
+
+      return matchSearch && matchDate && matchSeller && matchPaymentStatus;
     });
-  }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, users]);
+  }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, paymentStatusFilter, users]);
 
   const totalPending = useMemo(() => {
     return filteredInvoices.reduce((acc, inv) => {
@@ -1621,6 +1629,19 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 {users.map(u => (
                   <option key={u.id} value={u.email} className="notranslate" translate="no">{getSellerName(u.email || u.id)}</option>
                 ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider select-none">Cobro:</span>
+              <select
+                value={paymentStatusFilter}
+                onChange={(e) => setPaymentStatusFilter(e.target.value as any)}
+                className="text-xs font-extrabold text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+              >
+                <option value="all">Todas</option>
+                <option value="paid">✅ Cobradas / Pagadas</option>
+                <option value="pending">⏳ Pendientes de Cobro</option>
               </select>
             </div>
 

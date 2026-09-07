@@ -133,6 +133,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [groupBy, setGroupBy] = useState<'date' | 'client'>('date');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'last_month'>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [activeChartTab, setActiveChartTab] = useState<'hourly' | 'sellers' | 'status'>('hourly');
   const [showCharts, setShowCharts] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -141,7 +142,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, pageSize]);
+  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, paymentStatusFilter, pageSize]);
 
   useEffect(() => {
     loadData();
@@ -291,7 +292,14 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
 
     const matchSeller = sellerFilter === 'all' || i.sellerId === sellerFilter;
 
-    return matchSearch && matchDate && matchSeller;
+    let matchPaymentStatus = true;
+    if (paymentStatusFilter === 'paid') {
+      matchPaymentStatus = i.status === 'paid' || ((i.paidAmount || 0) >= i.totalAmount && i.totalAmount > 0);
+    } else if (paymentStatusFilter === 'pending') {
+      matchPaymentStatus = i.status !== 'cancelled' && i.status !== 'rejected' && i.status !== 'paid' && (i.totalAmount - (i.paidAmount || 0) > 0.001);
+    }
+
+    return matchSearch && matchDate && matchSeller && matchPaymentStatus;
   });
 
   const renderInvoiceCard = (invoice: Invoice) => {
@@ -1442,6 +1450,19 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                   {users.map(u => (
                     <option key={u.id} value={u.email}>{getSellerName(u.email || u.id)}</option>
                   ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl shadow-xs">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider select-none">Cobro:</span>
+                <select
+                  value={paymentStatusFilter}
+                  onChange={(e) => setPaymentStatusFilter(e.target.value as any)}
+                  className="text-[11px] font-black text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+                >
+                  <option value="all">Todas</option>
+                  <option value="paid">✅ Cobradas / Pagadas</option>
+                  <option value="pending">⏳ Pendientes de Cobro</option>
                 </select>
               </div>
 

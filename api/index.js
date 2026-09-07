@@ -1285,30 +1285,39 @@ function saveWarehouseConfig(config) {
     console.error("Error saving warehouse config:", err);
   }
 }
-var vapidKeys;
+var DEFAULT_VAPID_PUBLIC = "BEnhoOXgIpOmZtjAZZnCXtG4ZdhnwBe1F1WOmAYKBs-nFKpzBKbzJheMa_uUTjE1Y_w8L5PE3sI-zWuj0ueQigw";
+var DEFAULT_VAPID_PRIVATE = "Y3DONuP5JCkC_L7xZjgZBwhmrlSn1Doja78LDTE0M-4";
+var vapidKeys = {
+  publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
+  privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
+};
 var VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
 var SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
 if (fs.existsSync(VAPID_FILE)) {
   try {
-    vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+    const fileKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+    if (fileKeys && fileKeys.publicKey && fileKeys.privateKey) {
+      vapidKeys = fileKeys;
+    }
   } catch (err) {
-    console.error("Error reading stable VAPID file, regenerando...", err);
-    vapidKeys = webpush.generateVAPIDKeys();
-    fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
+    console.error("Error reading stable VAPID file, using default:", err);
   }
 } else {
-  vapidKeys = webpush.generateVAPIDKeys();
   try {
     fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
   } catch (err) {
-    console.error("Error writing stable VAPID file:", err);
+    console.warn("Notice: could not write VAPID file:", err);
   }
 }
-webpush.setVapidDetails(
-  "mailto:seseffff942@gmail.com",
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
+try {
+  webpush.setVapidDetails(
+    "mailto:seseffff942@gmail.com",
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+} catch (err) {
+  console.error("Error configuring webpush VAPID details:", err);
+}
 function readPushSubscriptions() {
   try {
     if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
@@ -1326,14 +1335,64 @@ function savePushSubscriptions(subs) {
     console.error("Error saving push subscriptions:", err);
   }
 }
+async function getPushSubscriptions() {
+  const local = readPushSubscriptions();
+  const map = /* @__PURE__ */ new Map();
+  local.forEach((s) => {
+    if (s && s.endpoint) map.set(s.endpoint, s);
+  });
+  try {
+    const { data, error } = await supabase.from("push_subscriptions").select("*");
+    if (!error && Array.isArray(data)) {
+      data.forEach((row) => {
+        const sub = typeof row.subscription === "string" ? JSON.parse(row.subscription) : row.subscription || row;
+        if (sub && sub.endpoint) {
+          map.set(sub.endpoint, sub);
+        }
+      });
+    }
+  } catch (err) {
+  }
+  return Array.from(map.values());
+}
+async function savePushSubscription(subscription) {
+  const current = readPushSubscriptions();
+  const filtered = current.filter((sub) => sub.endpoint !== subscription.endpoint);
+  filtered.push(subscription);
+  savePushSubscriptions(filtered);
+  try {
+    const subId = Buffer.from(subscription.endpoint).toString("base64").substring(0, 100);
+    await supabase.from("push_subscriptions").upsert([{
+      id: subId,
+      endpoint: subscription.endpoint,
+      subscription,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }], { onConflict: "id" });
+  } catch (err) {
+    console.warn("Could not upsert push subscription to Supabase:", err);
+  }
+}
+async function removePushSubscription(endpoint) {
+  const current = readPushSubscriptions();
+  const filtered = current.filter((sub) => sub.endpoint !== endpoint);
+  savePushSubscriptions(filtered);
+  try {
+    const subId = Buffer.from(endpoint).toString("base64").substring(0, 100);
+    await supabase.from("push_subscriptions").delete().eq("id", subId);
+  } catch (err) {
+  }
+}
 async function broadcastPushNotification(title, message, url = "/") {
   const config = readWarehouseConfig();
   if (config.isSilentModeActive) {
     console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
     return;
   }
-  const subs = readPushSubscriptions();
-  if (subs.length === 0) return;
+  const subs = await getPushSubscriptions();
+  if (subs.length === 0) {
+    console.log(`[Push Notification] No active push subscriptions found. Title: "${title}"`);
+    return;
+  }
   const payload = JSON.stringify({ title, message, url });
   const promises = subs.map(async (sub) => {
     try {
@@ -1346,15 +1405,14 @@ async function broadcastPushNotification(title, message, url = "/") {
       });
     } catch (err) {
       if (err.statusCode === 410 || err.statusCode === 404) {
-        const current = readPushSubscriptions();
-        const updated = current.filter((s) => s.endpoint !== sub.endpoint);
-        savePushSubscriptions(updated);
+        await removePushSubscription(sub.endpoint);
       } else {
         console.error("Failed to send push to:", sub.endpoint, err.message || err);
       }
     }
   });
   await Promise.allSettled(promises);
+  console.log(`[Push Notification] Broadcasted to ${subs.length} devices: "${title}"`);
 }
 function readLocalNotifications() {
   try {
@@ -3856,10 +3914,7 @@ app.post("/api/push/subscribe", asyncHandler(async (req, res) => {
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: "Suscripci\xF3n inv\xE1lida" });
   }
-  const current = readPushSubscriptions();
-  const filtered = current.filter((sub) => sub.endpoint !== subscription.endpoint);
-  filtered.push(subscription);
-  savePushSubscriptions(filtered);
+  await savePushSubscription(subscription);
   res.json({ success: true, message: "Suscripci\xF3n guardada con \xE9xito" });
 }));
 app.post("/api/push/test", asyncHandler(async (req, res) => {
@@ -6570,6 +6625,8 @@ app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (
   }
 }));
 var PENDING_BOLETAS_FILE = path.join(process.cwd(), "pending_boletas_bot.json");
+var PENDING_FOLIOS_FILE = path.join(process.cwd(), "pending_folios_bot.json");
+var MAX_PENDING_AGE_MS = 90 * 1e3;
 function readPendingBoletas() {
   try {
     if (fs.existsSync(PENDING_BOLETAS_FILE)) {
@@ -6582,7 +6639,13 @@ function readPendingBoletas() {
 function savePendingBoleta(phone, data) {
   try {
     const all = readPendingBoletas();
-    all[phone] = { ...data, timestamp: Date.now() };
+    const now = Date.now();
+    for (const k of Object.keys(all)) {
+      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
+        delete all[k];
+      }
+    }
+    all[phone] = { ...data, timestamp: now };
     fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
   } catch (e) {
     console.warn("Could not save pending boleta:", e);
@@ -6591,25 +6654,23 @@ function savePendingBoleta(phone, data) {
 function popPendingBoleta(phone) {
   try {
     const all = readPendingBoletas();
-    const item = all[phone];
-    if (item) {
-      delete all[phone];
+    const now = Date.now();
+    let foundKey = null;
+    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
+      foundKey = phone;
+    } else {
+      for (const k of Object.keys(all)) {
+        if (now - (all[k]?.timestamp || 0) < 45e3) {
+          foundKey = k;
+          break;
+        }
+      }
+    }
+    if (foundKey && all[foundKey]) {
+      const item = all[foundKey];
+      delete all[foundKey];
       fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
       return item;
-    }
-  } catch (e) {
-  }
-  return null;
-}
-function getRecentPendingBoleta(phone) {
-  try {
-    const all = readPendingBoletas();
-    if (all[phone]) return all[phone];
-    const keys = Object.keys(all);
-    for (const k of keys) {
-      if (Date.now() - (all[k]?.timestamp || 0) < 72e5) {
-        return all[k];
-      }
     }
   } catch (e) {
   }
@@ -6618,35 +6679,60 @@ function getRecentPendingBoleta(phone) {
 async function waitForPendingBoleta(phone, maxWaitMs = 6e3) {
   const startTime = Date.now();
   let boleta = popPendingBoleta(phone);
-  if (boleta && Date.now() - (boleta.timestamp || 0) < 72e5) {
-    return boleta;
-  }
-  const recent = getRecentPendingBoleta(phone);
-  if (recent && Date.now() - (recent.timestamp || 0) < 72e5) {
-    try {
-      const all = readPendingBoletas();
-      for (const k of Object.keys(all)) {
-        if (all[k] === recent || all[k]?.noBoleta === recent.noBoleta) delete all[k];
-      }
-      fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-    } catch (e) {
-    }
-    return recent;
-  }
+  if (boleta) return boleta;
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise((r) => setTimeout(r, 400));
-    const fresh = getRecentPendingBoleta(phone);
-    if (fresh && Date.now() - (fresh.timestamp || 0) < 72e5) {
-      try {
-        const all = readPendingBoletas();
-        for (const k of Object.keys(all)) {
-          if (all[k] === fresh || all[k]?.noBoleta === fresh.noBoleta) delete all[k];
-        }
-        fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-      } catch (e) {
-      }
-      return fresh;
+    boleta = popPendingBoleta(phone);
+    if (boleta) return boleta;
+  }
+  return null;
+}
+function readPendingFolios() {
+  try {
+    if (fs.existsSync(PENDING_FOLIOS_FILE)) {
+      return JSON.parse(fs.readFileSync(PENDING_FOLIOS_FILE, "utf8"));
     }
+  } catch (e) {
+  }
+  return {};
+}
+function savePendingFolio(phone, data) {
+  try {
+    const all = readPendingFolios();
+    const now = Date.now();
+    for (const k of Object.keys(all)) {
+      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
+        delete all[k];
+      }
+    }
+    all[phone] = { ...data, timestamp: now };
+    fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
+  } catch (e) {
+    console.warn("Could not save pending folio:", e);
+  }
+}
+function popPendingFolio(phone) {
+  try {
+    const all = readPendingFolios();
+    const now = Date.now();
+    let foundKey = null;
+    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
+      foundKey = phone;
+    } else {
+      for (const k of Object.keys(all)) {
+        if (now - (all[k]?.timestamp || 0) < 6e4) {
+          foundKey = k;
+          break;
+        }
+      }
+    }
+    if (foundKey && all[foundKey]) {
+      const item = all[foundKey];
+      delete all[foundKey];
+      fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
+      return item;
+    }
+  } catch (e) {
   }
   return null;
 }
@@ -6679,8 +6765,8 @@ async function findInvoiceByFolio(folioInput, clientHint) {
   return null;
 }
 app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
-  const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes } = req.body;
-  const cleanFolio = String(folio || "").replace(/^#/, "").trim();
+  const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
+  let cleanFolio = String(folio || "").replace(/^#/, "").trim();
   const cleanPhone = String(sellerPhone || "").replace(/\D/g, "") || "default";
   const numAmount = parseFloat(amount || 0);
   let receiptUrl = null;
@@ -6700,6 +6786,14 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
       }
     } catch (err) {
       console.error("Error guardando imagen de boleta de bot:", err);
+    }
+  }
+  let matchedPendingFolio = null;
+  if (!cleanFolio || cleanFolio === "S/N") {
+    matchedPendingFolio = popPendingFolio(cleanPhone);
+    if (matchedPendingFolio && matchedPendingFolio.folio) {
+      cleanFolio = matchedPendingFolio.folio;
+      console.log(`[Bot Abono] Se asoci\xF3 boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
     }
   }
   if (!cleanFolio || cleanFolio === "S/N") {
@@ -6722,7 +6816,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
       receiptUrl
     });
   }
-  const invoice = await findInvoiceByFolio(cleanFolio, req.body.cliente || sellerName);
+  const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
   if (!invoice) {
     savePendingBoleta(cleanPhone, {
       amount: numAmount,
@@ -6735,6 +6829,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     return res.json({ success: false, message: `No se encontr\xF3 ninguna factura con el folio #${cleanFolio}` });
   }
   popPendingBoleta(cleanPhone);
+  popPendingFolio(cleanPhone);
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
@@ -6743,6 +6838,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     paidAmount: newPaid,
     status: newStatus
   }).eq("id", invoice.id);
+  const paymentNotes = notes || matchedPendingFolio?.notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || "S/N"}, Banco: ${banco || "S/N"})`;
   if (numAmount > 0) {
     try {
       await safeInsertPayment({
@@ -6751,7 +6847,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
         amount: numAmount,
         date: (/* @__PURE__ */ new Date()).toISOString(),
         receiptUrl: receiptUrl || null,
-        notes: notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || "S/N"}, Banco: ${banco || "S/N"})`
+        notes: paymentNotes
       });
     } catch (payErr) {
       console.warn("Error guardando pago en tabla payments:", payErr);
@@ -6766,8 +6862,10 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     clientName: invoice.clientName || "Cliente",
     totalAmount: total,
     paidAmount: newPaid,
+    balance: remaining,
     remainingBalance: remaining,
-    isFullyPaid
+    isFullyPaid,
+    receiptUrl
   });
 }));
 app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, res) => {
@@ -6798,7 +6896,26 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   if (numAmount <= 0) {
-    numAmount = Math.max(0, total - currentPaid);
+    savePendingFolio(cleanPhone, {
+      folio: cleanFolio,
+      cliente: cliente || invoice.clientName,
+      notes: boletaNotes || notes || "",
+      invoiceId: invoice.id
+    });
+    console.log(`[Bot Folio] Folio #${cleanFolio} guardado en espera de la imagen de boleta para ${cleanPhone}`);
+    const remaining2 = Math.max(0, total - currentPaid);
+    return res.json({
+      success: true,
+      pendingImage: true,
+      folio: invoice.folio || invoice.id,
+      invoiceId: invoice.id,
+      clientName: invoice.clientName || "Cliente",
+      totalAmount: total,
+      paidAmount: currentPaid,
+      balance: remaining2,
+      isFullyPaid: remaining2 <= 0.01,
+      message: `Folio #${cleanFolio} registrado. Esperando la imagen de la boleta para abonar.`
+    });
   }
   let newPaid = currentPaid + numAmount;
   let newStatus = newPaid >= total - 0.01 ? "paid" : invoice.status === "despachado" ? "despachado" : "pending";
@@ -6811,12 +6928,14 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
         amount: numAmount,
         date: (/* @__PURE__ */ new Date()).toISOString(),
         receiptUrl: receiptUrl || null,
-        notes: boletaNotes || `Abono asignado por Bot WhatsApp`
+        notes: boletaNotes || notes || `Abono asignado por Bot WhatsApp`
       });
     } catch (e) {
       console.warn("Error guardando pago en payments:", e);
     }
   }
+  popPendingFolio(cleanPhone);
+  popPendingBoleta(cleanPhone);
   const remaining = Math.max(0, total - newPaid);
   const isFullyPaid = remaining <= 0.01;
   return res.json({
@@ -6827,6 +6946,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
     totalAmount: total,
     paidAmount: newPaid,
     balance: remaining,
+    remainingBalance: remaining,
     isFullyPaid,
     receiptUrl
   });

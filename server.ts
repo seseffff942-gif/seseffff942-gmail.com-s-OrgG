@@ -783,32 +783,41 @@ if (!process.env.VERCEL) {
   }
 
   // ======== PUSH NOTIFICATION SETUP & VAPID SETUP ========
-  let vapidKeys: { publicKey: string; privateKey: string };
+  const DEFAULT_VAPID_PUBLIC = "BEnhoOXgIpOmZtjAZZnCXtG4ZdhnwBe1F1WOmAYKBs-nFKpzBKbzJheMa_uUTjE1Y_w8L5PE3sI-zWuj0ueQigw";
+  const DEFAULT_VAPID_PRIVATE = "Y3DONuP5JCkC_L7xZjgZBwhmrlSn1Doja78LDTE0M-4";
+  let vapidKeys: { publicKey: string; privateKey: string } = {
+    publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
+    privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
+  };
   const VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
   const SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
 
   if (fs.existsSync(VAPID_FILE)) {
     try {
-      vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+      const fileKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+      if (fileKeys && fileKeys.publicKey && fileKeys.privateKey) {
+        vapidKeys = fileKeys;
+      }
     } catch (err) {
-      console.error("Error reading stable VAPID file, regenerando...", err);
-      vapidKeys = webpush.generateVAPIDKeys();
-      fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
+      console.error("Error reading stable VAPID file, using default:", err);
     }
   } else {
-    vapidKeys = webpush.generateVAPIDKeys();
     try {
       fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
     } catch (err) {
-      console.error("Error writing stable VAPID file:", err);
+      console.warn("Notice: could not write VAPID file:", err);
     }
   }
 
-  webpush.setVapidDetails(
-    "mailto:seseffff942@gmail.com",
-    vapidKeys.publicKey,
-    vapidKeys.privateKey
-  );
+  try {
+    webpush.setVapidDetails(
+      "mailto:seseffff942@gmail.com",
+      vapidKeys.publicKey,
+      vapidKeys.privateKey
+    );
+  } catch (err) {
+    console.error("Error configuring webpush VAPID details:", err);
+  }
 
   function readPushSubscriptions(): any[] {
     try {
@@ -829,14 +838,70 @@ if (!process.env.VERCEL) {
     }
   }
 
+  async function getPushSubscriptions(): Promise<any[]> {
+    const local = readPushSubscriptions();
+    const map = new Map<string, any>();
+    local.forEach(s => {
+      if (s && s.endpoint) map.set(s.endpoint, s);
+    });
+
+    try {
+      const { data, error } = await supabase.from("push_subscriptions").select("*");
+      if (!error && Array.isArray(data)) {
+        data.forEach((row: any) => {
+          const sub = typeof row.subscription === 'string' ? JSON.parse(row.subscription) : (row.subscription || row);
+          if (sub && sub.endpoint) {
+            map.set(sub.endpoint, sub);
+          }
+        });
+      }
+    } catch (err) {
+      // Supabase table may not exist yet; local is used
+    }
+    return Array.from(map.values());
+  }
+
+  async function savePushSubscription(subscription: any) {
+    const current = readPushSubscriptions();
+    const filtered = current.filter(sub => sub.endpoint !== subscription.endpoint);
+    filtered.push(subscription);
+    savePushSubscriptions(filtered);
+
+    try {
+      const subId = Buffer.from(subscription.endpoint).toString('base64').substring(0, 100);
+      await supabase.from("push_subscriptions").upsert([{
+        id: subId,
+        endpoint: subscription.endpoint,
+        subscription: subscription,
+        updated_at: new Date().toISOString()
+      }], { onConflict: 'id' });
+    } catch (err) {
+      console.warn("Could not upsert push subscription to Supabase:", err);
+    }
+  }
+
+  async function removePushSubscription(endpoint: string) {
+    const current = readPushSubscriptions();
+    const filtered = current.filter(sub => sub.endpoint !== endpoint);
+    savePushSubscriptions(filtered);
+
+    try {
+      const subId = Buffer.from(endpoint).toString('base64').substring(0, 100);
+      await supabase.from("push_subscriptions").delete().eq('id', subId);
+    } catch (err) {}
+  }
+
   async function broadcastPushNotification(title: string, message: string, url: string = "/") {
     const config = readWarehouseConfig();
     if (config.isSilentModeActive) {
       console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
       return;
     }
-    const subs = readPushSubscriptions();
-    if (subs.length === 0) return;
+    const subs = await getPushSubscriptions();
+    if (subs.length === 0) {
+      console.log(`[Push Notification] No active push subscriptions found. Title: "${title}"`);
+      return;
+    }
     const payload = JSON.stringify({ title, message, url });
     
     const promises = subs.map(async (sub) => {
@@ -849,15 +914,14 @@ if (!process.env.VERCEL) {
         });
       } catch (err: any) {
         if (err.statusCode === 410 || err.statusCode === 404) {
-          const current = readPushSubscriptions();
-          const updated = current.filter(s => s.endpoint !== sub.endpoint);
-          savePushSubscriptions(updated);
+          await removePushSubscription(sub.endpoint);
         } else {
           console.error("Failed to send push to:", sub.endpoint, err.message || err);
         }
       }
     });
     await Promise.allSettled(promises);
+    console.log(`[Push Notification] Broadcasted to ${subs.length} devices: "${title}"`);
   }
 
   function readLocalNotifications(): any[] {
@@ -3878,10 +3942,7 @@ if (!process.env.VERCEL) {
       return res.status(400).json({ error: "Suscripción inválida" });
     }
 
-    const current = readPushSubscriptions();
-    const filtered = current.filter(sub => sub.endpoint !== subscription.endpoint);
-    filtered.push(subscription);
-    savePushSubscriptions(filtered);
+    await savePushSubscription(subscription);
 
     res.json({ success: true, message: "Suscripción guardada con éxito" });
   }));
@@ -7067,8 +7128,12 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     }
   }));
   // ========================================
-  // BOT WHATSAPP INTEGRATION (Abonos & Folios)
+  // ========================================
+  // BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional)
   const PENDING_BOLETAS_FILE = path.join(process.cwd(), 'pending_boletas_bot.json');
+  const PENDING_FOLIOS_FILE = path.join(process.cwd(), 'pending_folios_bot.json');
+  const MAX_PENDING_AGE_MS = 90 * 1000; // 90 segundos máximo de vigencia para evitar cruces entre mensajes pasados
+
   function readPendingBoletas(): Record<string, any> {
     try {
       if (fs.existsSync(PENDING_BOLETAS_FILE)) {
@@ -7077,21 +7142,46 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     } catch (e) {}
     return {};
   }
+
   function savePendingBoleta(phone: string, data: any) {
     try {
       const all = readPendingBoletas();
-      all[phone] = { ...data, timestamp: Date.now() };
+      // Limpiar boletas expiradas
+      const now = Date.now();
+      for (const k of Object.keys(all)) {
+        if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
+          delete all[k];
+        }
+      }
+      all[phone] = { ...data, timestamp: now };
       fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
     } catch (e) {
       console.warn("Could not save pending boleta:", e);
     }
   }
+
   function popPendingBoleta(phone: string) {
     try {
       const all = readPendingBoletas();
-      const item = all[phone];
-      if (item) {
-        delete all[phone];
+      const now = Date.now();
+      let foundKey: string | null = null;
+
+      // 1. Coincidencia exacta por teléfono (dentro de los 5 min)
+      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
+        foundKey = phone;
+      } else {
+        // 2. Fallback muy reciente (máximo 45 segundos) para evitar cruces
+        for (const k of Object.keys(all)) {
+          if (now - (all[k]?.timestamp || 0) < 45000) {
+            foundKey = k;
+            break;
+          }
+        }
+      }
+
+      if (foundKey && all[foundKey]) {
+        const item = all[foundKey];
+        delete all[foundKey];
         fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
         return item;
       }
@@ -7102,10 +7192,12 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
   function getRecentPendingBoleta(phone: string): any {
     try {
       const all = readPendingBoletas();
-      if (all[phone]) return all[phone];
-      const keys = Object.keys(all);
-      for (const k of keys) {
-        if (Date.now() - (all[k]?.timestamp || 0) < 7200000) {
+      const now = Date.now();
+      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
+        return all[phone];
+      }
+      for (const k of Object.keys(all)) {
+        if (now - (all[k]?.timestamp || 0) < 45000) {
           return all[k];
         }
       }
@@ -7116,38 +7208,67 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
   async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
     const startTime = Date.now();
     let boleta = popPendingBoleta(phone);
-    if (boleta && (Date.now() - (boleta.timestamp || 0) < 7200000)) {
-      return boleta;
-    }
+    if (boleta) return boleta;
 
-    const recent = getRecentPendingBoleta(phone);
-    if (recent && (Date.now() - (recent.timestamp || 0) < 7200000)) {
-      try {
-        const all = readPendingBoletas();
-        for (const k of Object.keys(all)) {
-          if (all[k] === recent || all[k]?.noBoleta === recent.noBoleta) delete all[k];
-        }
-        fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
-      } catch (e) {}
-      return recent;
-    }
-
-    // Wait up to maxWaitMs for arriving photo processing
     while (Date.now() - startTime < maxWaitMs) {
       await new Promise(r => setTimeout(r, 400));
-      const fresh = getRecentPendingBoleta(phone);
-      if (fresh && (Date.now() - (fresh.timestamp || 0) < 7200000)) {
-        try {
-          const all = readPendingBoletas();
-          for (const k of Object.keys(all)) {
-            if (all[k] === fresh || all[k]?.noBoleta === fresh.noBoleta) delete all[k];
-          }
-          fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
-        } catch (e) {}
-        return fresh;
-      }
+      boleta = popPendingBoleta(phone);
+      if (boleta) return boleta;
     }
 
+    return null;
+  }
+
+  // Manejo de folios pendientes (cuando el texto llega antes de la imagen)
+  function readPendingFolios(): Record<string, any> {
+    try {
+      if (fs.existsSync(PENDING_FOLIOS_FILE)) {
+        return JSON.parse(fs.readFileSync(PENDING_FOLIOS_FILE, 'utf8'));
+      }
+    } catch (e) {}
+    return {};
+  }
+
+  function savePendingFolio(phone: string, data: any) {
+    try {
+      const all = readPendingFolios();
+      const now = Date.now();
+      for (const k of Object.keys(all)) {
+        if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
+          delete all[k];
+        }
+      }
+      all[phone] = { ...data, timestamp: now };
+      fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), 'utf8');
+    } catch (e) {
+      console.warn("Could not save pending folio:", e);
+    }
+  }
+
+  function popPendingFolio(phone: string) {
+    try {
+      const all = readPendingFolios();
+      const now = Date.now();
+      let foundKey: string | null = null;
+
+      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
+        foundKey = phone;
+      } else {
+        for (const k of Object.keys(all)) {
+          if (now - (all[k]?.timestamp || 0) < 60000) {
+            foundKey = k;
+            break;
+          }
+        }
+      }
+
+      if (foundKey && all[foundKey]) {
+        const item = all[foundKey];
+        delete all[foundKey];
+        fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), 'utf8');
+        return item;
+      }
+    } catch (e) {}
     return null;
   }
 
@@ -7213,9 +7334,10 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     return null;
   }
 
+  // ENDPOINT: Procesar Boleta de Imagen (o con Folio incluido)
   app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
-    const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes } = req.body;
-    const cleanFolio = String(folio || '').replace(/^#/, '').trim();
+    const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
+    let cleanFolio = String(folio || '').replace(/^#/, '').trim();
     const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
     const numAmount = parseFloat(amount || 0);
 
@@ -7244,7 +7366,17 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       }
     }
 
-    // If folio is not provided or is 'S/N', cache the receipt and details for follow-up text message
+    // Si no vino folio en este mensaje, verificar si ya había un folio en espera enviado por texto antes
+    let matchedPendingFolio = null;
+    if (!cleanFolio || cleanFolio === 'S/N') {
+      matchedPendingFolio = popPendingFolio(cleanPhone);
+      if (matchedPendingFolio && matchedPendingFolio.folio) {
+        cleanFolio = matchedPendingFolio.folio;
+        console.log(`[Bot Abono] Se asoció boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
+      }
+    }
+
+    // Si aún no hay folio, guardar la boleta en espera de que el usuario mande el texto
     if (!cleanFolio || cleanFolio === 'S/N') {
       savePendingBoleta(cleanPhone, {
         amount: numAmount,
@@ -7266,7 +7398,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       });
     }
 
-    const invoice = await findInvoiceByFolio(cleanFolio, req.body.cliente || sellerName);
+    const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
     if (!invoice) {
       savePendingBoleta(cleanPhone, {
         amount: numAmount,
@@ -7279,8 +7411,9 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       return res.json({ success: false, message: `No se encontró ninguna factura con el folio #${cleanFolio}` });
     }
 
-    // Clear any pending boleta for this phone since it's being applied now
+    // Limpiar colas de este teléfono
     popPendingBoleta(cleanPhone);
+    popPendingFolio(cleanPhone);
 
     let currentPaid = parseFloat(invoice.paidAmount || 0);
     let total = parseFloat(invoice.totalAmount || 0);
@@ -7292,6 +7425,8 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       status: newStatus
     }).eq('id', invoice.id);
 
+    const paymentNotes = notes || matchedPendingFolio?.notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`;
+
     if (numAmount > 0) {
       try {
         await safeInsertPayment({
@@ -7300,7 +7435,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
           amount: numAmount,
           date: new Date().toISOString(),
           receiptUrl: receiptUrl || null,
-          notes: notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`
+          notes: paymentNotes
         });
       } catch (payErr) {
         console.warn("Error guardando pago en tabla payments:", payErr);
@@ -7317,11 +7452,14 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       clientName: invoice.clientName || 'Cliente',
       totalAmount: total,
       paidAmount: newPaid,
+      balance: remaining,
       remainingBalance: remaining,
-      isFullyPaid
+      isFullyPaid,
+      receiptUrl
     });
   }));
 
+  // ENDPOINT: Procesar Folio por Texto
   app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: any, res: any) => {
     const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
     const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
@@ -7337,7 +7475,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
     }
 
-    // Wait up to 6s if photo is currently processing in background
+    // Esperar hasta 6s por si la imagen de la boleta se está procesando simultáneamente
     const pending = await waitForPendingBoleta(cleanPhone, 6000);
     let numAmount = parseFloat(amount || 0);
     let receiptUrl = null;
@@ -7356,10 +7494,33 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     let currentPaid = parseFloat(invoice.paidAmount || 0);
     let total = parseFloat(invoice.totalAmount || 0);
 
+    // Si NO hay monto explícito ni boleta pendiente encontrada:
+    // NO autoliquidar a ciegas. Guardar folio en espera de la imagen.
     if (numAmount <= 0) {
-      numAmount = Math.max(0, total - currentPaid);
+      savePendingFolio(cleanPhone, {
+        folio: cleanFolio,
+        cliente: cliente || invoice.clientName,
+        notes: boletaNotes || notes || '',
+        invoiceId: invoice.id
+      });
+      console.log(`[Bot Folio] Folio #${cleanFolio} guardado en espera de la imagen de boleta para ${cleanPhone}`);
+
+      const remaining = Math.max(0, total - currentPaid);
+      return res.json({
+        success: true,
+        pendingImage: true,
+        folio: invoice.folio || invoice.id,
+        invoiceId: invoice.id,
+        clientName: invoice.clientName || 'Cliente',
+        totalAmount: total,
+        paidAmount: currentPaid,
+        balance: remaining,
+        isFullyPaid: remaining <= 0.01,
+        message: `Folio #${cleanFolio} registrado. Esperando la imagen de la boleta para abonar.`
+      });
     }
 
+    // Si sí hay monto o boleta vinculada:
     let newPaid = currentPaid + numAmount;
     let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
 
@@ -7373,12 +7534,16 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
           amount: numAmount,
           date: new Date().toISOString(),
           receiptUrl: receiptUrl || null,
-          notes: boletaNotes || `Abono asignado por Bot WhatsApp`
+          notes: boletaNotes || notes || `Abono asignado por Bot WhatsApp`
         });
       } catch (e) {
         console.warn("Error guardando pago en payments:", e);
       }
     }
+
+    // Limpiar folios y boletas pendientes de este teléfono
+    popPendingFolio(cleanPhone);
+    popPendingBoleta(cleanPhone);
 
     const remaining = Math.max(0, total - newPaid);
     const isFullyPaid = remaining <= 0.01;
@@ -7391,6 +7556,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
       totalAmount: total,
       paidAmount: newPaid,
       balance: remaining,
+      remainingBalance: remaining,
       isFullyPaid,
       receiptUrl
     });
