@@ -569,11 +569,20 @@ export default function App() {
                   </li>
                 </ul>
 
+                <a
+                  href="/agricovet.apk"
+                  download="agricovet.apk"
+                  className="mb-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors text-center text-xs shadow-md"
+                >
+                  <Download size={15} />
+                  Descargar APK Nativa Android (.apk)
+                </a>
+
                 <button
                   onClick={() => setShowGeneralInstallHelper(false)}
-                  className="w-full py-2.5 rounded-xl font-bold text-white bg-[#00696a] hover:bg-[#004f50] transition-colors cursor-pointer text-center text-xs shadow-md"
+                  className="w-full py-2.5 rounded-xl font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer text-center text-xs"
                 >
-                  Entendido
+                  Cerrar
                 </button>
               </div>
             </div>

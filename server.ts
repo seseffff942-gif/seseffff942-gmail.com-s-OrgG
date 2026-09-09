@@ -7129,76 +7129,103 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
   }));
   // ========================================
   // ========================================
-  // BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional)
-  const PENDING_BOLETAS_FILE = path.join(process.cwd(), 'pending_boletas_bot.json');
-  const PENDING_FOLIOS_FILE = path.join(process.cwd(), 'pending_folios_bot.json');
-  const MAX_PENDING_AGE_MS = 90 * 1000; // 90 segundos máximo de vigencia para evitar cruces entre mensajes pasados
+  // BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by Supabase for Cloud / Serverless)
+  const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
 
-  function readPendingBoletas(): Record<string, any> {
+  async function savePendingBoleta(phone: string, data: any) {
     try {
-      if (fs.existsSync(PENDING_BOLETAS_FILE)) {
-        return JSON.parse(fs.readFileSync(PENDING_BOLETAS_FILE, 'utf8'));
-      }
-    } catch (e) {}
-    return {};
-  }
-
-  function savePendingBoleta(phone: string, data: any) {
-    try {
-      const all = readPendingBoletas();
-      // Limpiar boletas expiradas
-      const now = Date.now();
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-          delete all[k];
-        }
-      }
-      all[phone] = { ...data, timestamp: now };
-      fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
+      const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+      const recordId = 'bot-boleta-' + phone;
+      await supabase.from('users').upsert({
+        id: recordId,
+        name: 'Pending Boleta',
+        email: `${recordId}@bot.local`,
+        role: 'system',
+        phone: phone,
+        password: '',
+        photo: payload
+      });
     } catch (e) {
-      console.warn("Could not save pending boleta:", e);
+      console.warn("Could not save pending boleta to Supabase:", e);
     }
   }
 
-  function popPendingBoleta(phone: string) {
+  async function popPendingBoleta(phone: string) {
     try {
-      const all = readPendingBoletas();
       const now = Date.now();
-      let foundKey: string | null = null;
-
-      // 1. Coincidencia exacta por teléfono (dentro de los 5 min)
-      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
-        foundKey = phone;
-      } else {
-        // 2. Fallback muy reciente (máximo 45 segundos) para evitar cruces
-        for (const k of Object.keys(all)) {
-          if (now - (all[k]?.timestamp || 0) < 45000) {
-            foundKey = k;
-            break;
+      const recordId = 'bot-boleta-' + phone;
+      const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+      if (direct && direct.photo) {
+        try {
+          const parsed = JSON.parse(direct.photo);
+          if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+            await supabase.from('users').delete().eq('id', recordId);
+            return parsed;
+          }
+        } catch (e) {}
+      }
+      const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-boleta-%');
+      if (recent && recent.length > 0) {
+        for (const r of recent) {
+          if (r.photo) {
+            try {
+              const parsed = JSON.parse(r.photo);
+              if (now - (parsed.timestamp || 0) < 60000) {
+                await supabase.from('users').delete().eq('id', r.id);
+                return parsed;
+              }
+            } catch (e) {}
           }
         }
-      }
-
-      if (foundKey && all[foundKey]) {
-        const item = all[foundKey];
-        delete all[foundKey];
-        fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), 'utf8');
-        return item;
       }
     } catch (e) {}
     return null;
   }
 
-  function getRecentPendingBoleta(phone: string): any {
+  async function savePendingFolio(phone: string, data: any) {
     try {
-      const all = readPendingBoletas();
+      const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+      const recordId = 'bot-folio-' + phone;
+      await supabase.from('users').upsert({
+        id: recordId,
+        name: 'Pending Folio',
+        email: `${recordId}@bot.local`,
+        role: 'system',
+        phone: phone,
+        password: '',
+        photo: payload
+      });
+    } catch (e) {
+      console.warn("Could not save pending folio to Supabase:", e);
+    }
+  }
+
+  async function popPendingFolio(phone: string) {
+    try {
       const now = Date.now();
-      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
-        return all[phone];
+      const recordId = 'bot-folio-' + phone;
+      const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+      if (direct && direct.photo) {
+        try {
+          const parsed = JSON.parse(direct.photo);
+          if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+            await supabase.from('users').delete().eq('id', recordId);
+            return parsed;
+          }
+        } catch (e) {}
       }
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) < 45000) {
-          return all[k];
+      const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-folio-%');
+      if (recent && recent.length > 0) {
+        for (const r of recent) {
+          if (r.photo) {
+            try {
+              const parsed = JSON.parse(r.photo);
+              if (now - (parsed.timestamp || 0) < 60000) {
+                await supabase.from('users').delete().eq('id', r.id);
+                return parsed;
+              }
+            } catch (e) {}
+          }
         }
       }
     } catch (e) {}
@@ -7207,68 +7234,15 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
 
   async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
     const startTime = Date.now();
-    let boleta = popPendingBoleta(phone);
+    let boleta = await popPendingBoleta(phone);
     if (boleta) return boleta;
 
     while (Date.now() - startTime < maxWaitMs) {
       await new Promise(r => setTimeout(r, 400));
-      boleta = popPendingBoleta(phone);
+      boleta = await popPendingBoleta(phone);
       if (boleta) return boleta;
     }
 
-    return null;
-  }
-
-  // Manejo de folios pendientes (cuando el texto llega antes de la imagen)
-  function readPendingFolios(): Record<string, any> {
-    try {
-      if (fs.existsSync(PENDING_FOLIOS_FILE)) {
-        return JSON.parse(fs.readFileSync(PENDING_FOLIOS_FILE, 'utf8'));
-      }
-    } catch (e) {}
-    return {};
-  }
-
-  function savePendingFolio(phone: string, data: any) {
-    try {
-      const all = readPendingFolios();
-      const now = Date.now();
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-          delete all[k];
-        }
-      }
-      all[phone] = { ...data, timestamp: now };
-      fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), 'utf8');
-    } catch (e) {
-      console.warn("Could not save pending folio:", e);
-    }
-  }
-
-  function popPendingFolio(phone: string) {
-    try {
-      const all = readPendingFolios();
-      const now = Date.now();
-      let foundKey: string | null = null;
-
-      if (all[phone] && (now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS)) {
-        foundKey = phone;
-      } else {
-        for (const k of Object.keys(all)) {
-          if (now - (all[k]?.timestamp || 0) < 60000) {
-            foundKey = k;
-            break;
-          }
-        }
-      }
-
-      if (foundKey && all[foundKey]) {
-        const item = all[foundKey];
-        delete all[foundKey];
-        fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), 'utf8');
-        return item;
-      }
-    } catch (e) {}
     return null;
   }
 
@@ -7369,7 +7343,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     // Si no vino folio en este mensaje, verificar si ya había un folio en espera enviado por texto antes
     let matchedPendingFolio = null;
     if (!cleanFolio || cleanFolio === 'S/N') {
-      matchedPendingFolio = popPendingFolio(cleanPhone);
+      matchedPendingFolio = await popPendingFolio(cleanPhone);
       if (matchedPendingFolio && matchedPendingFolio.folio) {
         cleanFolio = matchedPendingFolio.folio;
         console.log(`[Bot Abono] Se asoció boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
@@ -7378,7 +7352,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
 
     // Si aún no hay folio, guardar la boleta en espera de que el usuario mande el texto
     if (!cleanFolio || cleanFolio === 'S/N') {
-      savePendingBoleta(cleanPhone, {
+      await savePendingBoleta(cleanPhone, {
         amount: numAmount,
         noBoleta: noBoleta || 'S/N',
         banco: banco || 'S/N',
@@ -7400,7 +7374,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
 
     const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
     if (!invoice) {
-      savePendingBoleta(cleanPhone, {
+      await savePendingBoleta(cleanPhone, {
         amount: numAmount,
         noBoleta: noBoleta || 'S/N',
         banco: banco || 'S/N',
@@ -7412,8 +7386,8 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     }
 
     // Limpiar colas de este teléfono
-    popPendingBoleta(cleanPhone);
-    popPendingFolio(cleanPhone);
+    await popPendingBoleta(cleanPhone);
+    await popPendingFolio(cleanPhone);
 
     let currentPaid = parseFloat(invoice.paidAmount || 0);
     let total = parseFloat(invoice.totalAmount || 0);
@@ -7497,7 +7471,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     // Si NO hay monto explícito ni boleta pendiente encontrada:
     // NO autoliquidar a ciegas. Guardar folio en espera de la imagen.
     if (numAmount <= 0) {
-      savePendingFolio(cleanPhone, {
+      await savePendingFolio(cleanPhone, {
         folio: cleanFolio,
         cliente: cliente || invoice.clientName,
         notes: boletaNotes || notes || '',
@@ -7542,8 +7516,8 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     }
 
     // Limpiar folios y boletas pendientes de este teléfono
-    popPendingFolio(cleanPhone);
-    popPendingBoleta(cleanPhone);
+    await popPendingFolio(cleanPhone);
+    await popPendingBoleta(cleanPhone);
 
     const remaining = Math.max(0, total - newPaid);
     const isFullyPaid = remaining <= 0.01;

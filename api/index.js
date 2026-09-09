@@ -6624,53 +6624,104 @@ app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (
     res.status(500).json({ error: e.message });
   }
 }));
-var PENDING_BOLETAS_FILE = path.join(process.cwd(), "pending_boletas_bot.json");
-var PENDING_FOLIOS_FILE = path.join(process.cwd(), "pending_folios_bot.json");
-var MAX_PENDING_AGE_MS = 90 * 1e3;
-function readPendingBoletas() {
+var MAX_PENDING_AGE_MS = 120 * 1e3;
+async function savePendingBoleta(phone, data) {
   try {
-    if (fs.existsSync(PENDING_BOLETAS_FILE)) {
-      return JSON.parse(fs.readFileSync(PENDING_BOLETAS_FILE, "utf8"));
-    }
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = "bot-boleta-" + phone;
+    await supabase.from("users").upsert({
+      id: recordId,
+      name: "Pending Boleta",
+      email: `${recordId}@bot.local`,
+      role: "system",
+      phone,
+      password: "",
+      photo: payload
+    });
   } catch (e) {
+    console.warn("Could not save pending boleta to Supabase:", e);
   }
-  return {};
 }
-function savePendingBoleta(phone, data) {
+async function popPendingBoleta(phone) {
   try {
-    const all = readPendingBoletas();
     const now = Date.now();
-    for (const k of Object.keys(all)) {
-      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-        delete all[k];
+    const recordId = "bot-boleta-" + phone;
+    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from("users").delete().eq("id", recordId);
+          return parsed;
+        }
+      } catch (e) {
       }
     }
-    all[phone] = { ...data, timestamp: now };
-    fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-  } catch (e) {
-    console.warn("Could not save pending boleta:", e);
-  }
-}
-function popPendingBoleta(phone) {
-  try {
-    const all = readPendingBoletas();
-    const now = Date.now();
-    let foundKey = null;
-    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
-      foundKey = phone;
-    } else {
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) < 45e3) {
-          foundKey = k;
-          break;
+    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-boleta-%");
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 6e4) {
+              await supabase.from("users").delete().eq("id", r.id);
+              return parsed;
+            }
+          } catch (e) {
+          }
         }
       }
     }
-    if (foundKey && all[foundKey]) {
-      const item = all[foundKey];
-      delete all[foundKey];
-      fs.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-      return item;
+  } catch (e) {
+  }
+  return null;
+}
+async function savePendingFolio(phone, data) {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = "bot-folio-" + phone;
+    await supabase.from("users").upsert({
+      id: recordId,
+      name: "Pending Folio",
+      email: `${recordId}@bot.local`,
+      role: "system",
+      phone,
+      password: "",
+      photo: payload
+    });
+  } catch (e) {
+    console.warn("Could not save pending folio to Supabase:", e);
+  }
+}
+async function popPendingFolio(phone) {
+  try {
+    const now = Date.now();
+    const recordId = "bot-folio-" + phone;
+    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from("users").delete().eq("id", recordId);
+          return parsed;
+        }
+      } catch (e) {
+      }
+    }
+    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-folio-%");
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 6e4) {
+              await supabase.from("users").delete().eq("id", r.id);
+              return parsed;
+            }
+          } catch (e) {
+          }
+        }
+      }
     }
   } catch (e) {
   }
@@ -6678,61 +6729,12 @@ function popPendingBoleta(phone) {
 }
 async function waitForPendingBoleta(phone, maxWaitMs = 6e3) {
   const startTime = Date.now();
-  let boleta = popPendingBoleta(phone);
+  let boleta = await popPendingBoleta(phone);
   if (boleta) return boleta;
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise((r) => setTimeout(r, 400));
-    boleta = popPendingBoleta(phone);
+    boleta = await popPendingBoleta(phone);
     if (boleta) return boleta;
-  }
-  return null;
-}
-function readPendingFolios() {
-  try {
-    if (fs.existsSync(PENDING_FOLIOS_FILE)) {
-      return JSON.parse(fs.readFileSync(PENDING_FOLIOS_FILE, "utf8"));
-    }
-  } catch (e) {
-  }
-  return {};
-}
-function savePendingFolio(phone, data) {
-  try {
-    const all = readPendingFolios();
-    const now = Date.now();
-    for (const k of Object.keys(all)) {
-      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-        delete all[k];
-      }
-    }
-    all[phone] = { ...data, timestamp: now };
-    fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
-  } catch (e) {
-    console.warn("Could not save pending folio:", e);
-  }
-}
-function popPendingFolio(phone) {
-  try {
-    const all = readPendingFolios();
-    const now = Date.now();
-    let foundKey = null;
-    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
-      foundKey = phone;
-    } else {
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) < 6e4) {
-          foundKey = k;
-          break;
-        }
-      }
-    }
-    if (foundKey && all[foundKey]) {
-      const item = all[foundKey];
-      delete all[foundKey];
-      fs.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
-      return item;
-    }
-  } catch (e) {
   }
   return null;
 }
@@ -6790,14 +6792,14 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   }
   let matchedPendingFolio = null;
   if (!cleanFolio || cleanFolio === "S/N") {
-    matchedPendingFolio = popPendingFolio(cleanPhone);
+    matchedPendingFolio = await popPendingFolio(cleanPhone);
     if (matchedPendingFolio && matchedPendingFolio.folio) {
       cleanFolio = matchedPendingFolio.folio;
       console.log(`[Bot Abono] Se asoci\xF3 boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
     }
   }
   if (!cleanFolio || cleanFolio === "S/N") {
-    savePendingBoleta(cleanPhone, {
+    await savePendingBoleta(cleanPhone, {
       amount: numAmount,
       noBoleta: noBoleta || "S/N",
       banco: banco || "S/N",
@@ -6818,7 +6820,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   }
   const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
   if (!invoice) {
-    savePendingBoleta(cleanPhone, {
+    await savePendingBoleta(cleanPhone, {
       amount: numAmount,
       noBoleta: noBoleta || "S/N",
       banco: banco || "S/N",
@@ -6828,8 +6830,8 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     });
     return res.json({ success: false, message: `No se encontr\xF3 ninguna factura con el folio #${cleanFolio}` });
   }
-  popPendingBoleta(cleanPhone);
-  popPendingFolio(cleanPhone);
+  await popPendingBoleta(cleanPhone);
+  await popPendingFolio(cleanPhone);
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
@@ -6896,7 +6898,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   if (numAmount <= 0) {
-    savePendingFolio(cleanPhone, {
+    await savePendingFolio(cleanPhone, {
       folio: cleanFolio,
       cliente: cliente || invoice.clientName,
       notes: boletaNotes || notes || "",
@@ -6934,8 +6936,8 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
       console.warn("Error guardando pago en payments:", e);
     }
   }
-  popPendingFolio(cleanPhone);
-  popPendingBoleta(cleanPhone);
+  await popPendingFolio(cleanPhone);
+  await popPendingBoleta(cleanPhone);
   const remaining = Math.max(0, total - newPaid);
   const isFullyPaid = remaining <= 0.01;
   return res.json({

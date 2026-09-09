@@ -3,22 +3,25 @@ import { Invoice, Product, User } from '../types';
 import { 
   Trophy, TrendingUp, AlertTriangle, Sparkles, Package, 
   ArrowUpRight, Clock, DollarSign, Share2, Tag, CheckCircle,
-  Users, Layers, Flame, Award, HelpCircle
+  Users, Layers, Flame, Award, HelpCircle, Calendar, Activity
 } from 'lucide-react';
 import { formatMoney, isTecunProduct, cn } from '../utils';
+import { SellerPerformanceHistory } from './SellerPerformanceHistory';
 
 interface CommercialAnalyticsDashboardProps {
   invoices: Invoice[];
   products: Product[];
   user: User;
+  users?: User[];
 }
 
 export function CommercialAnalyticsDashboard({
   invoices,
   products,
-  user
+  user,
+  users = []
 }: CommercialAnalyticsDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'sellers' | 'top_products' | 'stagnant' | 'lines'>('sellers');
+  const [activeTab, setActiveTab] = useState<'history' | 'sellers' | 'top_products' | 'stagnant' | 'lines'>('history');
 
   const validInvoices = useMemo(() => {
     return (invoices || []).filter(i => i.status !== 'cancelled' && i.status !== 'rejected');
@@ -206,6 +209,17 @@ export function CommercialAnalyticsDashboard({
         {/* Tab Buttons */}
         <div className="flex flex-wrap items-center bg-slate-100 p-1 rounded-2xl gap-1 shrink-0 border border-slate-200/60">
           <button
+            onClick={() => setActiveTab('history')}
+            className={cn(
+              "px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
+              activeTab === 'history' ? "bg-[#0b4d2c] text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+            )}
+          >
+            <Calendar size={13} className={activeTab === 'history' ? "text-emerald-300" : "text-emerald-600"} />
+            <span>Historial Mensual</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('sellers')}
             className={cn(
               "px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
@@ -213,7 +227,7 @@ export function CommercialAnalyticsDashboard({
             )}
           >
             <Trophy size={13} className="text-amber-500" />
-            <span>Vendedores</span>
+            <span>Ranking Vendedores</span>
           </button>
 
           <button
@@ -250,6 +264,15 @@ export function CommercialAnalyticsDashboard({
           </button>
         </div>
       </div>
+
+      {/* TAB 0: HISTORIAL Y RENDIMIENTO MENSUAL (CON FILTROS Y GRÁFICAS) */}
+      {activeTab === 'history' && (
+        <SellerPerformanceHistory 
+          invoices={invoices} 
+          users={users} 
+          currentUser={user} 
+        />
+      )}
 
       {/* TAB 1: RENDIMIENTO DE VENDEDORES */}
       {activeTab === 'sellers' && (

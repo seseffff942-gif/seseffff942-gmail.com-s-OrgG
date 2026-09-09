@@ -43,6 +43,152 @@ export function isTodayGuatemala(dateStr?: string | Date | null): boolean {
   }
 }
 
+/**
+ * Parsea una fecha asegurando que el día 1 jamás ruede al mes anterior
+ * por conversiones de zona horaria (UTC vs UTC-6 Guatemala).
+ */
+export function parseGuatemalaDateParts(dateStr?: string | Date | null): { 
+  year: number; 
+  month: number; // 1-12
+  day: number; 
+  yearMonth: string; // YYYY-MM
+  isoDate: string; // YYYY-MM-DD
+} | null {
+  if (!dateStr) return null;
+  
+  if (typeof dateStr === 'string') {
+    const cleaned = dateStr.trim();
+    
+    // Si viene en formato YYYY-MM-DD (ej: "2026-06-01" o "2026-06-01 14:30:00" o "2026-06-01T...")
+    const ymdMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (ymdMatch && !cleaned.endsWith('Z')) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10);
+      const day = parseInt(ymdMatch[3], 10);
+      const monthPadded = String(month).padStart(2, '0');
+      const dayPadded = String(day).padStart(2, '0');
+      return {
+        year,
+        month,
+        day,
+        yearMonth: `${year}-${monthPadded}`,
+        isoDate: `${year}-${monthPadded}-${dayPadded}`
+      };
+    }
+
+    // Si viene en formato DD/MM/YYYY
+    const ddmmyyyyMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (ddmmyyyyMatch) {
+      const day = parseInt(ddmmyyyyMatch[1], 10);
+      const month = parseInt(ddmmyyyyMatch[2], 10);
+      const year = parseInt(ddmmyyyyMatch[3], 10);
+      const monthPadded = String(month).padStart(2, '0');
+      const dayPadded = String(day).padStart(2, '0');
+      return {
+        year,
+        month,
+        day,
+        yearMonth: `${year}-${monthPadded}`,
+        isoDate: `${year}-${monthPadded}-${dayPadded}`
+      };
+    }
+  }
+
+  // Fallback con conversión estricta a UTC-6 de Guatemala
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const gtDate = new Date(utc - (6 * 3600000));
+    const year = gtDate.getFullYear();
+    const month = gtDate.getMonth() + 1; // 1-12
+    const day = gtDate.getDate();
+    const monthPadded = String(month).padStart(2, '0');
+    const dayPadded = String(day).padStart(2, '0');
+    return {
+      year,
+      month,
+      day,
+      yearMonth: `${year}-${monthPadded}`,
+      isoDate: `${year}-${monthPadded}-${dayPadded}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+const SHORT_MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/**
+ * Obtiene la información de la semana natural (LUNES a DOMINGO) para cualquier fecha.
+ */
+export function getGuatemalaWeekInfo(dateStr?: string | Date | null): {
+  weekKey: string; // ej. "2026-W36"
+  year: number;
+  weekNumber: number;
+  startDateStr: string; // "01 Sep"
+  endDateStr: string; // "07 Sep"
+  fullLabel: string; // "Semana 36 (01 Sep - 07 Sep 2026)"
+  shortLabel: string; // "Sem 36 (01-07 Sep)"
+  startIso: string;
+  endIso: string;
+} | null {
+  const parts = parseGuatemalaDateParts(dateStr);
+  if (!parts) return null;
+
+  // Fecha local sin desfase UTC
+  const d = new Date(parts.year, parts.month - 1, parts.day);
+  const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay(); // 1 = Lunes, 7 = Domingo
+
+  // Lunes de esa semana
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - (dayOfWeek - 1));
+
+  // Domingo de esa semana
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  // Número de semana ISO
+  const target = new Date(monday.valueOf());
+  const dayNr = (monday.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+  const year = monday.getFullYear();
+  const weekKey = `${year}-W${String(weekNumber).padStart(2, '0')}`;
+
+  const monDay = String(monday.getDate()).padStart(2, '0');
+  const monMonth = SHORT_MONTHS_ES[monday.getMonth()];
+  const sunDay = String(sunday.getDate()).padStart(2, '0');
+  const sunMonth = SHORT_MONTHS_ES[sunday.getMonth()];
+
+  const startDateStr = `${monDay} ${monMonth}`;
+  const endDateStr = `${sunDay} ${sunMonth}`;
+  const shortLabel = `Sem ${weekNumber} (${monDay} ${monMonth} - ${sunDay} ${sunMonth})`;
+  const fullLabel = `Semana ${weekNumber} (${startDateStr} - ${endDateStr} ${year})`;
+
+  const startIso = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${monDay}`;
+  const endIso = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${sunDay}`;
+
+  return {
+    weekKey,
+    year,
+    weekNumber,
+    startDateStr,
+    endDateStr,
+    fullLabel,
+    shortLabel,
+    startIso,
+    endIso
+  };
+}
+
+
+
 export interface SlowMovingProduct {
   id: string;
   name: string;

@@ -3,21 +3,34 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
-import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default defineConfig(() => {
+function virtualPwaDevPlugin() {
+  const virtualModuleId = 'virtual:pwa-register';
+  const resolvedVirtualModuleId = '\0' + virtualModuleId;
   return {
-    define: {
-      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co'),
-      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno')
+    name: 'virtual-pwa-register-dev',
+    resolveId(id: string) {
+      if (id === virtualModuleId) return resolvedVirtualModuleId;
     },
-    plugins: [
-      react(), 
-      tailwindcss(),
+    load(id: string) {
+      if (id === resolvedVirtualModuleId) {
+        return `export function registerSW(options = {}) { if (options.onOfflineReady) options.onOfflineReady(); return () => {}; }`;
+      }
+    }
+  };
+}
+
+export default defineConfig(async ({ command }) => {
+  const plugins: any[] = [
+    react(), 
+    tailwindcss(),
+    virtualPwaDevPlugin()
+  ];
+
+  if (command === 'build') {
+    const { VitePWA } = await import('vite-plugin-pwa');
+    plugins.push(
       VitePWA({
         strategies: 'injectManifest',
         srcDir: 'src',
@@ -26,8 +39,6 @@ export default defineConfig(() => {
         injectManifest: {
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024
         },
-        // bottle.png y box.png se eliminaron: estaban corruptos y ahora los
-        // marcadores de "sin imagen" son SVG embebidos (no requieren red).
         includeAssets: ['agricovet.png', 'logo.png.png', 'vaquitas.jpg', 'whatsapp.wav'],
         manifest: {
           name: 'Agricovet App',
@@ -50,13 +61,17 @@ export default defineConfig(() => {
               purpose: 'any maskable'
             }
           ]
-        },
-        devOptions: {
-          enabled: false,
-          type: 'module'
         }
       })
-    ],
+    );
+  }
+
+  return {
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co'),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno')
+    },
+    plugins,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -399,10 +399,24 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     });
   }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, paymentStatusFilter, users]);
 
+  const totalSalesFiltered = useMemo(() => {
+    return filteredInvoices.reduce((acc, inv) => {
+      if (inv.status === 'cancelled' || inv.status === 'rejected') return acc;
+      return acc + (Number(inv.totalAmount) || 0);
+    }, 0);
+  }, [filteredInvoices]);
+
+  const totalPaidFiltered = useMemo(() => {
+    return filteredInvoices.reduce((acc, inv) => {
+      if (inv.status === 'cancelled' || inv.status === 'rejected') return acc;
+      return acc + (Number(inv.paidAmount) || 0);
+    }, 0);
+  }, [filteredInvoices]);
+
   const totalPending = useMemo(() => {
     return filteredInvoices.reduce((acc, inv) => {
        if (inv.status === 'cancelled' || inv.status === 'rejected') return acc;
-       return acc + (inv.totalAmount - (inv.paidAmount || 0));
+       return acc + Math.max(0, (Number(inv.totalAmount) || 0) - (Number(inv.paidAmount) || 0));
     }, 0);
   }, [filteredInvoices]);
 
@@ -1485,24 +1499,22 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         <div className="flex flex-wrap items-center gap-4">
           <motion.div 
              whileHover={{ y: -3, scale: 1.02 }}
-             onClick={() => setShowSalesModal(true)}
-             className="relative overflow-hidden bg-[#0c5c35]/[0.02] hover:bg-[#0c5c35]/[0.05] border border-emerald-500/15 hover:border-emerald-500/30 rounded-2xl px-5 py-3.5 flex flex-col cursor-pointer transition-all shadow-xs shrink-0"
+             className="relative overflow-hidden bg-[#0c5c35]/[0.02] hover:bg-[#0c5c35]/[0.05] border border-emerald-500/15 hover:border-emerald-500/30 rounded-2xl px-5 py-3.5 flex flex-col transition-all shadow-xs shrink-0"
           >
             <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <TrendingUp size={11} className="text-emerald-600 animate-pulse" /> Venta Directa
             </span>
-            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney((dailyStats?.totalSales || 0))}</span>
+            <span className="text-lg font-black text-[#0c5c35] leading-tight">{formatMoney(totalSalesFiltered)}</span>
           </motion.div>
           
           <motion.div 
              whileHover={{ y: -3, scale: 1.02 }}
-             onClick={() => setShowPaymentsModal(true)}
-             className="relative overflow-hidden bg-teal-500/[0.02] hover:bg-teal-500/[0.05] border border-teal-500/15 hover:border-teal-500/30 rounded-2xl px-5 py-3.5 flex flex-col cursor-pointer transition-all shadow-xs shrink-0"
+             className="relative overflow-hidden bg-teal-500/[0.02] hover:bg-teal-500/[0.05] border border-teal-500/15 hover:border-teal-500/30 rounded-2xl px-5 py-3.5 flex flex-col transition-all shadow-xs shrink-0"
           >
             <span className="text-[9px] font-black text-teal-700 uppercase tracking-widest flex items-center gap-1.5 mb-1">
               <Receipt size={11} className="text-teal-600" /> Total Cobrado
             </span>
-            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney((dailyStats?.totalPayments || 0))}</span>
+            <span className="text-lg font-black text-teal-700 leading-tight">{formatMoney(totalPaidFiltered)}</span>
           </motion.div>
 
           <motion.div 
@@ -1712,13 +1724,13 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 </div>
                 <div className="flex items-center gap-4 flex-wrap">
                   <div>
-                    Venta: <span className="text-slate-800 font-extrabold font-mono">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + i.totalAmount : sum, 0))}</span>
+                    Venta: <span className="text-slate-800 font-extrabold font-mono">{formatMoney(totalSalesFiltered)}</span>
                   </div>
                   <div>
-                    Cobrado: <span className="text-[#0c5c35] font-extrabold font-mono">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.paidAmount || 0) : sum, 0))}</span>
+                    Cobrado: <span className="text-[#0c5c35] font-extrabold font-mono">{formatMoney(totalPaidFiltered)}</span>
                   </div>
                   <div>
-                    Cartera Pendiente: <span className="text-orange-650 font-black font-mono animate-pulse">{formatMoney(filteredInvoices.reduce((sum, i) => i.status !== 'cancelled' && i.status !== 'rejected' ? sum + (i.totalAmount - (i.paidAmount || 0)) : sum, 0))}</span>
+                    Cartera Pendiente: <span className="text-orange-650 font-black font-mono animate-pulse">{formatMoney(totalPending)}</span>
                   </div>
                 </div>
               </motion.div>

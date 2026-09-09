@@ -5,6 +5,8 @@ import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu,
 import { api, supabase } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
+import { Capacitor } from '@capacitor/core';
+import { initNativeNotifications, showNativeAlert } from '../nativeNotifications';
 
 interface NavigationProps {
   user: User;
@@ -620,6 +622,19 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   useEffect(() => {
+    // Inicializar notificaciones nativas en Capacitor / Android APK
+    if (Capacitor.isNativePlatform()) {
+      setPushStatus('granted');
+      initNativeNotifications((data) => {
+        if (data?.tab) {
+          onChangeTab(data.tab);
+        } else {
+          setShowNotifications(true);
+        }
+      });
+      return;
+    }
+
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         setPushStatus('unsupported');
@@ -688,6 +703,17 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     setIsActivatingPush(true);
     setPushErrorMsg('');
     try {
+      if (Capacitor.isNativePlatform()) {
+        const ok = await initNativeNotifications();
+        if (ok) {
+          setIsSubscribedToPush(true);
+          setPushStatus('granted');
+        } else {
+          throw new Error('No se pudieron otorgar los permisos de notificación en el dispositivo.');
+        }
+        return;
+      }
+
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') {
         throw new Error('Tu navegador no soporta notificaciones Push directas (modo incógnito o iOS antiguo).');
       }
@@ -722,6 +748,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const handleTestPush = async () => {
     setIsSendingTestPush(true);
     try {
+      if (Capacitor.isNativePlatform()) {
+        await showNativeAlert({
+          title: "Prueba Agricovet APK 🔔",
+          body: "¡Las notificaciones nativas de Android y sonido funcionan correctamente!",
+          data: { tab: 'notifications' }
+        });
+      }
       await api.testPushNotification(
         "Prueba de Agricovet 🔔",
         "¡Sintonizado! Las notificaciones nativas de la aplicación se recibirán al instante."
@@ -843,7 +876,17 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   const dispatchNotificationAlert = (n: AppNotification) => {
-    // 1. Audio and vibration
+    // 1. Native APK Notification (Capacitor Android)
+    if (Capacitor.isNativePlatform()) {
+      showNativeAlert({
+        id: n.id,
+        title: n.title || 'Agricovet',
+        body: n.message,
+        data: n
+      });
+    }
+
+    // 2. In-app audio and vibration
     const saved = localStorage.getItem('notifications_sounds_enabled');
     const isSoundsEnabled = saved === null ? true : saved === 'true';
     if (isSoundsEnabled) {
@@ -853,8 +896,8 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       }
     }
 
-    // 2. System / native push notification
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    // 3. System Web notification (for browsers / PWA)
+    if (!Capacitor.isNativePlatform() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           navigator.serviceWorker.ready.then(reg => {
@@ -883,7 +926,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       }
     }
 
-    // 3. Screen Toast
+    // 4. Screen Toast
     const toastId = `toast-${Date.now()}-${Math.random()}`;
     setActiveToasts(prev => [{ ...n, toastId }, ...prev]);
     setTimeout(() => {
@@ -952,8 +995,47 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'invoices' },
-        () => {
+        (payload) => {
           checkNotifications();
+          const inv = payload.new as any;
+          if (inv && inv.id) {
+            const ntfId = `inv-${inv.id}`;
+            if (!knownNotificationIdsRef.current.has(ntfId)) {
+              knownNotificationIdsRef.current.add(ntfId);
+              const clientName = inv.client || inv.clientName || 'Cliente';
+              const totalAmount = Number(inv.total || 0).toFixed(2);
+              dispatchNotificationAlert({
+                id: ntfId,
+                title: '¡Nuevo Pedido Recibido! 📦',
+                message: `Pedido #${inv.correlativeNumber || inv.id?.toString().slice(0, 8)} de ${clientName} por Q${totalAmount}`,
+                type: 'sale',
+                read: false,
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'payments' },
+        (payload) => {
+          checkNotifications();
+          const payment = payload.new as any;
+          if (payment && payment.id) {
+            const ntfId = `pay-${payment.id}`;
+            if (!knownNotificationIdsRef.current.has(ntfId)) {
+              knownNotificationIdsRef.current.add(ntfId);
+              dispatchNotificationAlert({
+                id: ntfId,
+                title: 'Pago Recibido 💰',
+                message: `Cobro de Q${Number(payment.amount || 0).toFixed(2)} registrado con éxito`,
+                type: 'sale',
+                read: false,
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
         }
       )
       .subscribe();

@@ -10,5 +10,12 @@
 			"*.agricovet.lat",
 			"vedgedsbuajueynnyvpn.supabase.co"
 		]
+	},
+	"plugins": {
+		"LocalNotifications": {
+			"smallIcon": "ic_launcher",
+			"iconColor": "#16a34a",
+			"sound": "whatsapp.wav"
+		}
 	}
 }
