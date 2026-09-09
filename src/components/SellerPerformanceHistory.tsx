@@ -863,92 +863,92 @@ export function SellerPerformanceHistory({
       )}
 
       {/* 3. SUMMARY KPI CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         
         {/* Total Facturado */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider">
               {viewGranularity === 'weekly' ? 'Venta Total en Semanas' :
                viewGranularity === 'daily' ? 'Venta Total en Días' : 'Venta Total Periodo'}
             </span>
-            <div className="p-2 bg-emerald-50 text-[#0b4d2c] rounded-xl">
-              <DollarSign size={16} />
+            <div className="p-1.5 bg-emerald-50 text-[#0b4d2c] rounded-lg">
+              <DollarSign size={14} />
             </div>
           </div>
           <div>
-            <span className="text-xl sm:text-2xl font-black text-slate-900 block notranslate" translate="no">
+            <span className="text-lg sm:text-xl font-black text-slate-900 block notranslate" translate="no">
               {formatMoney(summaryStats.totalSales)}
             </span>
-            <span className="text-[11px] font-semibold text-slate-500 mt-0.5 block">
-              {summaryStats.totalInvoices} pedidos en {summaryStats.periodsCount} {viewGranularity === 'weekly' ? 'semanas' : viewGranularity === 'daily' ? 'días con venta' : 'meses'}
+            <span className="text-[10px] font-semibold text-slate-500 mt-0.5 block">
+              {summaryStats.totalInvoices} pedidos en {summaryStats.periodsCount} {viewGranularity === 'weekly' ? 'semanas' : viewGranularity === 'daily' ? 'días' : 'meses'}
             </span>
           </div>
         </div>
 
         {/* Promedio de Venta */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider">
               {viewGranularity === 'weekly' ? 'Promedio Semanal' :
                viewGranularity === 'daily' ? 'Promedio Diario' : 'Promedio Mensual'}
             </span>
-            <div className="p-2 bg-blue-50 text-blue-700 rounded-xl">
-              <BarChart3 size={16} />
+            <div className="p-1.5 bg-blue-50 text-blue-700 rounded-lg">
+              <BarChart3 size={14} />
             </div>
           </div>
           <div>
-            <span className="text-xl sm:text-2xl font-black text-blue-900 block notranslate" translate="no">
+            <span className="text-lg sm:text-xl font-black text-blue-900 block notranslate" translate="no">
               {formatMoney(summaryStats.avgPeriodSales)}
             </span>
-            <span className="text-[11px] font-semibold text-slate-500 mt-0.5 block">
+            <span className="text-[10px] font-semibold text-slate-500 mt-0.5 block">
               Ticket Prom: {formatMoney(summaryStats.overallAvgTicket)}
             </span>
           </div>
         </div>
 
-        {/* Mejor Periodo (Récord Histórico Verdadero) */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
-              {viewGranularity === 'weekly' ? 'Semana Récord Histórica' : 'Mes Récord Histórico'}
+        {/* Mejor Periodo */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {viewGranularity === 'weekly' ? 'Semana Récord' : 'Mes Récord'}
             </span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
-              <Award size={16} />
+            <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+              <Award size={14} />
             </div>
           </div>
           <div>
             {summaryStats.bestPeriod ? (
               <>
-                <span className="text-sm sm:text-base font-black text-slate-900 block leading-tight truncate">
+                <span className="text-xs sm:text-sm font-black text-slate-900 block leading-tight truncate">
                   {summaryStats.bestPeriod.shortLabel || summaryStats.bestPeriod.fullLabel || summaryStats.bestPeriod.label}
                 </span>
-                <span className="text-xs font-black text-amber-700 block mt-0.5 notranslate" translate="no">
-                  {formatMoney(summaryStats.bestPeriod.totalSales)} ({summaryStats.bestPeriod.invoiceCount} pedidos)
+                <span className="text-[11px] font-black text-amber-700 block mt-0.5 notranslate" translate="no">
+                  {formatMoney(summaryStats.bestPeriod.totalSales)} ({summaryStats.bestPeriod.invoiceCount} ped.)
                 </span>
               </>
             ) : (
-              <span className="text-sm font-medium text-slate-400">Sin datos</span>
+              <span className="text-xs font-medium text-slate-400">Sin datos</span>
             )}
           </div>
         </div>
 
         {/* Cobrado vs Por Cobrar */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Tasa de Recaudo</span>
-            <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
-              <CheckCircle2 size={16} />
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider">Tasa de Recaudo</span>
+            <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg">
+              <CheckCircle2 size={14} />
             </div>
           </div>
           <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black text-emerald-800">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg sm:text-xl font-black text-emerald-800">
                 {summaryStats.collectionRate.toFixed(1)}%
               </span>
               <span className="text-[10px] font-bold text-slate-400">Cobrado</span>
             </div>
-            <span className="text-[11px] font-bold text-amber-700 mt-0.5 block notranslate" translate="no">
+            <span className="text-[10px] font-bold text-amber-700 mt-0.5 block notranslate" translate="no">
               Pendiente: {formatMoney(summaryStats.totalPending)}
             </span>
           </div>
@@ -957,44 +957,33 @@ export function SellerPerformanceHistory({
       </div>
 
       {/* 4. INTERACTIVE RECHARTS GRAPH */}
-      <div className="bg-white p-5 sm:p-7 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5 border-b border-slate-100">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={cn(
-                "px-2 py-0.5 rounded-md text-[10px] font-black uppercase",
-                viewGranularity === 'weekly' ? "bg-emerald-100 text-emerald-900" :
-                viewGranularity === 'daily' ? "bg-blue-100 text-blue-900" :
-                "bg-purple-100 text-purple-900"
-              )}>
-                {viewGranularity === 'weekly' ? 'Vista Semanal (Lunes a Domingo)' :
-                 viewGranularity === 'daily' ? 'Vista Día por Día' : 'Vista Mes a Mes'}
-              </span>
-            </div>
-            <h4 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <BarChart3 size={18} className="text-[#0b4d2c]" />
+            <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <BarChart3 size={16} className="text-[#0b4d2c]" />
               {viewGranularity === 'weekly' 
-                ? 'Curva Semanal: Identificación de Semanas de Caída' 
+                ? 'Curva Semanal: Trayectoria y Puntos de Caída' 
                 : viewGranularity === 'daily'
-                ? 'Curva Diaria Continua: Días de Actividad y Días Sin Ventas'
+                ? 'Curva Diaria: Días de Actividad'
                 : 'Facturación y Pedidos Mes a Mes'}
             </h4>
-            <p className="text-xs text-slate-500 font-medium">
+            <p className="text-[11px] text-slate-500 font-medium">
               {viewGranularity === 'weekly'
-                ? 'Cada barra representa una semana natural (Lunes a Domingo) para ver la trayectoria exacta.'
+                ? 'Barras por semana natural (Lunes a Domingo) para auditar ventas y pedidos.'
                 : viewGranularity === 'daily'
-                ? 'Detalle de cada día individual con pedidos registrados.'
-                : 'Resumen consolidado por meses del año.'}
+                ? 'Detalle de días con pedidos registrados.'
+                : 'Resumen consolidado por meses.'}
             </p>
           </div>
 
           {/* Metric switch buttons */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/60 self-start sm:self-auto text-xs">
             <button
               onClick={() => setChartMetric('both')}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer",
-                chartMetric === 'both' ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-900"
+                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                chartMetric === 'both' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
               Ventas & Pedidos
@@ -1002,8 +991,8 @@ export function SellerPerformanceHistory({
             <button
               onClick={() => setChartMetric('sales')}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer",
-                chartMetric === 'sales' ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-900"
+                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                chartMetric === 'sales' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
               Solo Monto (Q)
@@ -1011,8 +1000,8 @@ export function SellerPerformanceHistory({
             <button
               onClick={() => setChartMetric('count')}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer",
-                chartMetric === 'count' ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-900"
+                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                chartMetric === 'count' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
               Solo Pedidos
@@ -1021,22 +1010,22 @@ export function SellerPerformanceHistory({
         </div>
 
         {activeDataset.length > 0 ? (
-          <div className="h-[340px] sm:h-[400px] w-full pt-2">
+          <div className="h-[250px] sm:h-[280px] w-full pt-1">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={activeDataset} margin={{ top: 20, right: 20, left: 10, bottom: 35 }}>
+              <ComposedChart data={activeDataset} margin={{ top: 15, right: 15, left: 5, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
                   dataKey="label" 
                   stroke="#64748b" 
                   fontSize={viewGranularity === 'daily' ? 10 : 11} 
                   tickLine={false}
-                  dy={10}
+                  dy={8}
                   interval={viewGranularity === 'daily' && activeDataset.length > 25 ? 'preserveStartEnd' : 0}
                 />
                 <YAxis 
                   yAxisId="left" 
                   stroke="#64748b" 
-                  fontSize={11} 
+                  fontSize={10} 
                   tickLine={false} 
                   axisLine={false}
                   tickFormatter={(val) => `Q${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
@@ -1046,7 +1035,7 @@ export function SellerPerformanceHistory({
                     yAxisId="right" 
                     orientation="right" 
                     stroke="#94a3b8" 
-                    fontSize={11} 
+                    fontSize={10} 
                     tickLine={false} 
                     axisLine={false}
                     tickFormatter={(val) => `${val} ped`}
@@ -1061,17 +1050,17 @@ export function SellerPerformanceHistory({
                       const isSpike = (data.wowOrderDiff !== undefined && data.wowOrderDiff > 0) || (data.diffOrders !== undefined && data.diffOrders > 0) || (data.momCountDiff !== undefined && data.momCountDiff > 0);
 
                       return (
-                        <div className="bg-slate-900/95 text-white p-4 rounded-2xl shadow-xl border border-slate-700/80 backdrop-blur-md text-xs space-y-2.5 min-w-[240px]">
-                          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                            <span className="font-black text-sm text-emerald-400">{title}</span>
+                        <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/80 backdrop-blur-md text-xs space-y-2 min-w-[220px]">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                            <span className="font-black text-xs text-emerald-400">{title}</span>
                             {data.hasPrev && (
                               <span className={cn(
-                                "font-black px-2 py-0.5 rounded text-[10px] flex items-center gap-0.5",
+                                "font-black px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5",
                                 isDrop ? "bg-rose-900/60 text-rose-300 border border-rose-700" :
                                 isSpike ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700" :
                                 "bg-slate-800 text-slate-300"
                               )}>
-                                {isDrop ? <ArrowDownRight size={11} /> : <ArrowUpRight size={11} />}
+                                {isDrop ? <ArrowDownRight size={10} /> : <ArrowUpRight size={10} />}
                                 {viewGranularity === 'weekly' ? `${data.wowPercent > 0 ? `+${data.wowPercent.toFixed(1)}%` : `${data.wowPercent.toFixed(1)}%`}` :
                                  viewGranularity === 'daily' ? `${data.diffSales >= 0 ? `+${formatMoney(data.diffSales)}` : formatMoney(data.diffSales)}` :
                                  `${data.momPercent > 0 ? `+${data.momPercent.toFixed(1)}%` : `${data.momPercent.toFixed(1)}%`}`}
@@ -1079,50 +1068,24 @@ export function SellerPerformanceHistory({
                             )}
                           </div>
                           
-                          <div className="space-y-1.5">
+                          <div className="space-y-1">
                             <div className="flex justify-between">
                               <span className="text-slate-400">Total Facturado:</span>
                               <span className="font-black text-white notranslate" translate="no">{formatMoney(data.totalSales)}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400">Pedidos Realizados:</span>
+                              <span className="text-slate-400">Pedidos:</span>
                               <span className="font-bold text-teal-300">{data.invoiceCount} pedidos</span>
                             </div>
-
-                            {/* Natural Language Comparison */}
-                            {data.hasPrev && (
-                              <div className="p-2 bg-slate-800/80 rounded-xl text-[11px] text-slate-200 font-semibold border border-slate-700/50">
-                                {viewGranularity === 'weekly' ? (
-                                  <span>
-                                    {data.wowOrderDiff < 0 ? `🔻 ${Math.abs(data.wowOrderDiff)} pedidos menos que la semana pasada (${data.invoiceCount} vs ${data.prevCount} pedidos)` :
-                                     data.wowOrderDiff > 0 ? `🟢 ${data.wowOrderDiff} pedidos más que la semana pasada (${data.invoiceCount} vs ${data.prevCount} pedidos)` :
-                                     '⚡ Mismo volumen de pedidos que la semana pasada'}
-                                  </span>
-                                ) : viewGranularity === 'daily' ? (
-                                  <span>
-                                    {data.diffOrders < 0 ? `🔻 ${Math.abs(data.diffOrders)} pedidos menos que el día previo` :
-                                     data.diffOrders > 0 ? `🟢 ${data.diffOrders} pedidos más que el día previo` :
-                                     '⚡ Mismo volumen de pedidos que el día previo'}
-                                  </span>
-                                ) : (
-                                  <span>
-                                    {data.momCountDiff < 0 ? `🔻 ${Math.abs(data.momCountDiff)} pedidos menos que ${data.prevMonthName}` :
-                                     data.momCountDiff > 0 ? `🟢 ${data.momCountDiff} pedidos más que ${data.prevMonthName}` :
-                                     '⚡ Mismo volumen de pedidos'}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-
                             <div className="flex justify-between">
                               <span className="text-slate-400">Ticket Promedio:</span>
                               <span className="font-bold text-slate-200 notranslate" translate="no">{formatMoney(data.avgTicket)}</span>
                             </div>
-                            <div className="flex justify-between pt-1.5 border-t border-slate-800">
+                            <div className="flex justify-between pt-1 border-t border-slate-800 text-[11px]">
                               <span className="text-slate-400">Cobrado:</span>
                               <span className="font-bold text-emerald-300 notranslate" translate="no">{formatMoney(data.paidAmount)}</span>
                             </div>
-                            <div className="flex justify-between">
+                            <div className="flex justify-between text-[11px]">
                               <span className="text-slate-400">Saldo Pendiente:</span>
                               <span className="font-bold text-amber-300 notranslate" translate="no">{formatMoney(data.pendingAmount)}</span>
                             </div>
@@ -1133,7 +1096,7 @@ export function SellerPerformanceHistory({
                     return null;
                   }}
                 />
-                <RechartsLegend verticalAlign="top" height={36} />
+                <RechartsLegend verticalAlign="top" height={30} wrapperStyle={{ fontSize: '11px' }} />
 
                 {/* Average Reference Line */}
                 <ReferenceLine 
@@ -1141,7 +1104,7 @@ export function SellerPerformanceHistory({
                   y={summaryStats.avgPeriodSales} 
                   stroke="#94a3b8" 
                   strokeDasharray="4 4" 
-                  label={{ value: `Prom: Q${Math.round(summaryStats.avgPeriodSales).toLocaleString()}`, fill: '#94a3b8', fontSize: 10, position: 'insideTopLeft' }} 
+                  label={{ value: `Prom: Q${Math.round(summaryStats.avgPeriodSales).toLocaleString()}`, fill: '#94a3b8', fontSize: 9, position: 'insideTopLeft' }} 
                 />
 
                 {/* Bars */}
@@ -1149,9 +1112,9 @@ export function SellerPerformanceHistory({
                   <Bar 
                     yAxisId="left" 
                     dataKey="totalSales" 
-                    name="Facturación Total (Q)" 
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={viewGranularity === 'daily' ? 24 : 48}
+                    name="Facturación (Q)" 
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={viewGranularity === 'daily' ? 18 : 36}
                   >
                     {activeDataset.map((entry: any, index: number) => {
                       const isRecord = Boolean(entry.isTrueRecord);
@@ -1159,9 +1122,9 @@ export function SellerPerformanceHistory({
                       const isGrowth = (entry.wowOrderDiff !== undefined && entry.wowOrderDiff >= 4) || (entry.diffOrders !== undefined && entry.diffOrders > 0) || (entry.momCountDiff !== undefined && entry.momCountDiff >= 4) || (entry.momPercent !== undefined && entry.momPercent >= 15);
                       
                       let fillColor = '#0b4d2c';
-                      if (isRecord) fillColor = '#f59e0b'; // Gold only for true record
-                      else if (isDrop) fillColor = '#ef4444'; // Red for drop
-                      else if (isGrowth) fillColor = '#10b981'; // Bright green
+                      if (isRecord) fillColor = '#f59e0b';
+                      else if (isDrop) fillColor = '#ef4444';
+                      else if (isGrowth) fillColor = '#10b981';
 
                       return <Cell key={`cell-${index}`} fill={fillColor} />;
                     })}
@@ -1174,66 +1137,65 @@ export function SellerPerformanceHistory({
                     yAxisId="right" 
                     type="monotone" 
                     dataKey="invoiceCount" 
-                    name="Cantidad de Pedidos" 
+                    name="Pedidos" 
                     stroke="#3b82f6" 
-                    strokeWidth={2.5} 
-                    dot={{ r: viewGranularity === 'daily' ? 2 : 4, fill: '#3b82f6' }}
-                    activeDot={{ r: 6 }} 
+                    strokeWidth={2} 
+                    dot={{ r: viewGranularity === 'daily' ? 2 : 3, fill: '#3b82f6' }}
+                    activeDot={{ r: 5 }} 
                   />
                 )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="py-12 text-center text-slate-400">
-            <Info size={28} className="mx-auto mb-2 opacity-50" />
-            <p className="font-bold text-sm">No hay datos registrados para los filtros seleccionados</p>
-            <p className="text-xs text-slate-400 mt-1">Prueba ampliando el rango o seleccionando "Todo".</p>
+          <div className="py-8 text-center text-slate-400">
+            <Info size={24} className="mx-auto mb-1.5 opacity-50" />
+            <p className="font-bold text-xs">No hay datos registrados para los filtros seleccionados</p>
           </div>
         )}
       </div>
 
-      {/* 5. DETAILED AUDIT TABLE (SHOWS EXACT COMPARISONS AND NEVER FALSE RECORDS) */}
+      {/* 5. DETAILED AUDIT TABLE (COMPACT EXECUTIVE TABLE) */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h4 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <Calendar size={18} className="text-[#0b4d2c]" />
+            <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <Calendar size={16} className="text-[#0b4d2c]" />
               {viewGranularity === 'weekly' ? 'Auditoría Semana a Semana (Lunes a Domingo)' :
                viewGranularity === 'daily' ? 'Auditoría Día por Día' :
                'Auditoría Mes a Mes'}
             </h4>
-            <p className="text-xs text-slate-500 font-medium">
-              Desglose detallado con cálculo de pedidos más/menos respecto al periodo inmediatamente anterior.
+            <p className="text-[11px] text-slate-500 font-medium">
+              Desglose con comparativa respecto al periodo inmediatamente anterior.
             </p>
           </div>
-          <span className="text-xs font-bold text-slate-400">
-            Mostrando {activeDataset.length} periodos
+          <span className="text-[11px] font-bold text-slate-400">
+            {activeDataset.length} periodos
           </span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[760px]">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-black uppercase text-slate-500 tracking-wider">
-                <th className="py-3.5 px-5">
-                  {viewGranularity === 'weekly' ? 'Semana (Lunes - Domingo)' :
-                   viewGranularity === 'daily' ? 'Fecha (Día)' : 'Mes / Periodo'}
+              <tr className="bg-slate-50/90 border-b border-slate-200/80 text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                <th className="py-2.5 px-3 whitespace-nowrap">
+                  {viewGranularity === 'weekly' ? 'Semana (Período)' :
+                   viewGranularity === 'daily' ? 'Fecha' : 'Mes / Periodo'}
                 </th>
-                <th className="py-3.5 px-4 text-right">Facturación Total</th>
-                <th className="py-3.5 px-4 text-center">Variación Ventas ($Q$)</th>
-                <th className="py-3.5 px-4 text-center">Pedidos</th>
-                <th className="py-3.5 px-4 text-center">Comparativa de Pedidos</th>
-                <th className="py-3.5 px-4 text-right">Ticket Prom.</th>
-                <th className="py-3.5 px-4 text-right">Cobrado</th>
-                <th className="py-3.5 px-4 text-right">Por Cobrar</th>
-                <th className="py-3.5 px-5 text-center">Diagnóstico</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Facturación</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Variación</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Pedidos</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Comparativa</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Ticket Prom.</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Cobrado</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Por Cobrar</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Estado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
               {activeDataset.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400 font-bold">
+                  <td colSpan={9} className="py-6 text-center text-slate-400 font-bold text-xs">
                     No se encontraron registros en este periodo
                   </td>
                 </tr>
@@ -1249,115 +1211,111 @@ export function SellerPerformanceHistory({
                     <tr key={row.weekKey || row.isoDate || row.yearMonth} className="hover:bg-slate-50/80 transition">
                       
                       {/* Periodo */}
-                      <td className="py-4 px-5 font-bold text-slate-900">
-                        <div className="flex items-center gap-2.5">
-                          <div className={cn(
-                            "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-xs",
-                            isRecord ? "bg-amber-100 text-amber-900 font-black border border-amber-300" :
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "w-6 h-6 rounded-md flex items-center justify-center font-black text-[10px] shrink-0",
+                            isRecord ? "bg-amber-100 text-amber-900 border border-amber-300" :
                             isSevereDrop ? "bg-rose-100 text-rose-800" :
                             "bg-slate-100 text-slate-700"
                           )}>
                             {viewGranularity === 'weekly' ? `W${row.weekNumber}` :
                              viewGranularity === 'daily' ? row.dayNum :
                              row.shortMonthName}
-                          </div>
-                          <div>
-                            <span className="block text-sm font-black text-slate-900">
-                              {viewGranularity === 'weekly' ? row.shortLabel :
-                               viewGranularity === 'daily' ? row.fullDateStr :
-                               `${row.monthName} (Mes #${row.monthIndex + 1})`}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-bold">
-                              {viewGranularity === 'weekly' ? `${row.year} • Lunes a Domingo` :
-                               viewGranularity === 'daily' ? `${row.monthName} ${row.year}` : row.year}
-                            </span>
-                          </div>
+                          </span>
+                          <span className="font-bold text-xs text-slate-900">
+                            {viewGranularity === 'weekly' 
+                              ? `Sem ${row.weekNumber} (${row.startDateStr} - ${row.endDateStr})`
+                              : viewGranularity === 'daily' 
+                              ? row.fullDateStr 
+                              : `${row.monthName} ${row.year}`}
+                          </span>
                         </div>
                       </td>
 
                       {/* Facturación Total */}
-                      <td className="py-4 px-4 text-right font-black text-slate-900 text-sm notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 text-xs whitespace-nowrap notranslate" translate="no">
                         {formatMoney(row.totalSales)}
                       </td>
 
                       {/* Variación Ventas */}
-                      <td className="py-4 px-4 text-center">
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {row.hasPrev ? (
                           <span className={cn(
-                            "inline-flex items-center gap-0.5 px-2.5 py-1 rounded-xl text-[11px] font-black shadow-xs",
+                            "inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-black",
                             (viewGranularity === 'daily' ? row.diffSales > 0 : pctChange > 0)
-                              ? "bg-emerald-100 text-emerald-900 border border-emerald-200" 
+                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200" 
                               : (viewGranularity === 'daily' ? row.diffSales < 0 : pctChange < 0)
-                              ? "bg-rose-100 text-rose-900 border border-rose-200" 
-                              : "bg-slate-100 text-slate-700"
+                              ? "bg-rose-50 text-rose-800 border border-rose-200" 
+                              : "bg-slate-100 text-slate-600"
                           )}>
-                            {(viewGranularity === 'daily' ? row.diffSales > 0 : pctChange > 0) ? <ArrowUpRight size={13} className="text-emerald-700" /> : <ArrowDownRight size={13} className="text-rose-700" />}
+                            {(viewGranularity === 'daily' ? row.diffSales > 0 : pctChange > 0) ? <ArrowUpRight size={11} className="text-emerald-700" /> : <ArrowDownRight size={11} className="text-rose-700" />}
                             {viewGranularity === 'daily' 
                               ? (row.diffSales >= 0 ? `+${formatMoney(row.diffSales)}` : formatMoney(row.diffSales))
                               : (pctChange > 0 ? `+${pctChange.toFixed(1)}%` : `${pctChange.toFixed(1)}%`)}
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-[10px] font-bold">Inicio periodo</span>
+                          <span className="text-slate-400 text-[10px] font-medium">-</span>
                         )}
                       </td>
 
                       {/* Pedidos */}
-                      <td className="py-4 px-4 text-center font-bold text-slate-800">
-                        {row.invoiceCount} pedidos
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-800 text-xs whitespace-nowrap">
+                        {row.invoiceCount} ped.
                       </td>
 
-                      {/* Comparativa de Pedidos Exacta */}
-                      <td className="py-4 px-4 text-center">
+                      {/* Comparativa de Pedidos */}
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {row.hasPrev ? (
                           orderDiff < 0 ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-black text-rose-700 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-100">
-                              🔻 {Math.abs(orderDiff)} pedidos menos {viewGranularity === 'weekly' ? 'que sem. pasada' : viewGranularity === 'daily' ? 'que día anterior' : `que ${row.prevMonthName}`}
+                            <span className="inline-flex items-center text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
+                              🔻 {Math.abs(orderDiff)} menos
                             </span>
                           ) : orderDiff > 0 ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
-                              🟢 {orderDiff} pedidos más {viewGranularity === 'weekly' ? 'que sem. pasada' : viewGranularity === 'daily' ? 'que día anterior' : `que ${row.prevMonthName}`}
+                            <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                              🟢 +{orderDiff} más
                             </span>
                           ) : (
-                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                              Mismo volumen ({row.invoiceCount})
+                            <span className="text-[10px] font-medium text-slate-400">
+                              Igual
                             </span>
                           )
                         ) : (
-                          <span className="text-slate-400 text-[10px]">Primer registro</span>
+                          <span className="text-slate-400 text-[10px]">-</span>
                         )}
                       </td>
 
                       {/* Ticket Promedio */}
-                      <td className="py-4 px-4 text-right font-bold text-slate-600 notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-medium text-slate-600 text-xs whitespace-nowrap notranslate" translate="no">
                         {formatMoney(row.avgTicket)}
                       </td>
 
                       {/* Cobrado */}
-                      <td className="py-4 px-4 text-right font-bold text-emerald-700 notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-bold text-emerald-700 text-xs whitespace-nowrap notranslate" translate="no">
                         {formatMoney(row.paidAmount)}
                       </td>
 
                       {/* Por Cobrar */}
-                      <td className="py-4 px-4 text-right font-bold text-amber-700 notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-bold text-amber-700 text-xs whitespace-nowrap notranslate" translate="no">
                         {formatMoney(row.pendingAmount)}
                       </td>
 
-                      {/* Diagnóstico */}
-                      <td className="py-4 px-5 text-center">
+                      {/* Estado / Diagnóstico */}
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {isRecord ? (
-                          <span className="px-2.5 py-1 bg-amber-100 text-amber-900 border border-amber-300 font-black text-[10px] rounded-lg inline-flex items-center gap-1">
-                            🏆 Mes Récord
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-black text-[9px] rounded-md inline-flex items-center gap-1">
+                            🏆 Récord
                           </span>
                         ) : isSevereDrop ? (
-                          <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-200 font-black text-[10px] rounded-lg inline-flex items-center gap-1">
-                            ⚠️ Caída Ventas
+                          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-200 font-black text-[9px] rounded-md inline-flex items-center gap-1">
+                            ⚠️ Caída
                           </span>
                         ) : isGoodGrowth ? (
-                          <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 font-black text-[10px] rounded-lg inline-flex items-center gap-1">
-                            🚀 Crecimiento
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 font-black text-[9px] rounded-md inline-flex items-center gap-1">
+                            🚀 Alza
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-lg">
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 font-semibold text-[9px] rounded-md">
                             Estable
                           </span>
                         )}
