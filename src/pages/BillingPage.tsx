@@ -12,6 +12,7 @@ import { ImageModal } from '../components/ImageModal';
 import { FelBadge, FelPanel } from '../components/FelPanel';
 import { FelConfigModal } from '../components/FelConfigModal';
 import { ReciboConformeModal } from '../components/ReciboConformeModal';
+import { DateFilterDropdown } from '../components/DateFilterDropdown';
 
 interface BillingPageProps {
   user: User;
@@ -1569,66 +1570,14 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
               Mostrar Anuladas/Rechazadas
             </label>
             
-            <div className="flex border border-slate-200 bg-slate-50 p-1 rounded-xl shadow-xs shrink-0">
-              <button 
-                type="button"
-                onClick={() => setDateViewMode('day')}
-                className={cn(
-                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
-                  dateViewMode === 'day' 
-                    ? "bg-[#0c5c35] text-white shadow-sm font-black" 
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-              >
-                📆 Por Día
-              </button>
-              <button 
-                type="button"
-                onClick={() => setDateViewMode('all')}
-                className={cn(
-                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
-                  dateViewMode === 'all' 
-                    ? "bg-[#0c5c35] text-white shadow-sm font-black" 
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-              >
-                📋 Historial
-              </button>
-            </div>
-
-            {dateViewMode === 'day' && (
-              <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 px-3 py-2 rounded-xl transition-all shadow-xs">
-                <input 
-                  type="date" 
-                  value={filterDate}
-                  onChange={(e) => {
-                    if (e.target.value) setFilterDate(e.target.value);
-                  }}
-                  className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
-                />
-                <button
-                  type="button"
-                  onClick={() => setFilterDate(getLocalDateStr())}
-                  className="text-[9px] font-black bg-[#0c5c35]/10 hover:bg-[#0c5c35]/20 text-[#0c5c35] px-2 py-1 rounded-md"
-                >
-                  Hoy
-                </button>
-              </div>
-            )}
-
-            {dateViewMode === 'all' && (
-              <select 
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value as any)}
-                className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50 text-slate-800 outline-none shadow-xs cursor-pointer focus:border-[#0c5c35]"
-              >
-                <option value="all">Todas las fechas</option>
-                <option value="today">Hoy (24 hrs)</option>
-                <option value="week">Esta Semana</option>
-                <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
-                <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
-              </select>
-            )}
+            <DateFilterDropdown
+              dateViewMode={dateViewMode}
+              setDateViewMode={setDateViewMode}
+              dateFilter={dateFilter}
+              setDateFilter={setDateFilter}
+              filterDate={filterDate}
+              setFilterDate={setFilterDate}
+            />
 
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
               <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider select-none">Vendedor:</span>

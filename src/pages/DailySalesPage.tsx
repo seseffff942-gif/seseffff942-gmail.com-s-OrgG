@@ -38,6 +38,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { ReciboConformeModal } from '../components/ReciboConformeModal';
+import { DateFilterDropdown } from '../components/DateFilterDropdown';
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -1378,66 +1379,14 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <span>Actualizar</span>
               </button>
               
-              <div className="flex border border-slate-200 bg-slate-50/50 p-1 rounded-xl shadow-xs">
-                <button 
-                  type="button"
-                  onClick={() => setDateViewMode('day')}
-                  className={cn(
-                    "px-3 py-1.5 text-[11px] font-black rounded-lg transition-all cursor-pointer",
-                    dateViewMode === 'day' 
-                      ? "bg-slate-800 text-white shadow-sm" 
-                      : "text-slate-500 hover:text-slate-900"
-                  )}
-                >
-                  📆 Por Día
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setDateViewMode('all')}
-                  className={cn(
-                    "px-3 py-1.5 text-[11px] font-black rounded-lg transition-all cursor-pointer",
-                    dateViewMode === 'all' 
-                      ? "bg-slate-800 text-white shadow-sm" 
-                      : "text-slate-500 hover:text-slate-900"
-                  )}
-                >
-                  📋 Historial
-                </button>
-              </div>
-
-              {dateViewMode === 'day' && (
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200 px-3 py-1.5 rounded-xl transition-all shadow-xs">
-                  <input 
-                    type="date" 
-                    value={filterDate}
-                    onChange={(e) => {
-                      if (e.target.value) setFilterDate(e.target.value);
-                    }}
-                    className="text-[11px] font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFilterDate(getLocalDateStr())}
-                    className="text-[9px] font-black bg-emerald-55 border border-emerald-100 text-emerald-800 px-2 py-0.5 rounded cursor-pointer"
-                  >
-                    Hoy
-                  </button>
-                </div>
-              )}
-
-              {dateViewMode === 'all' && (
-                <select 
-                  value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value as any)}
-                  className="px-3 py-1.5 text-[11px] font-extrabold border border-slate-200 rounded-xl bg-slate-50 text-slate-800 outline-none shadow-xs cursor-pointer"
-                >
-                  <option value="all">Todas las fechas</option>
-                  <option value="today">Hoy (24 hrs)</option>
-                  <option value="week">Esta Semana</option>
-                  <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
-                  <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
-                </select>
-              )}
+              <DateFilterDropdown
+                dateViewMode={dateViewMode}
+                setDateViewMode={setDateViewMode}
+                dateFilter={dateFilter}
+                setDateFilter={setDateFilter}
+                filterDate={filterDate}
+                setFilterDate={setFilterDate}
+              />
 
               <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl shadow-xs">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider select-none">Vendedor:</span>
