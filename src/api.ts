@@ -2770,6 +2770,10 @@ export const api = {
   },
 
   // BOTÓN DE PÁNICO Y ESTADO DE BASES DE DATOS
+  isNeonMode: (): boolean => {
+    return isNeonMode();
+  },
+
   getDbStatus: async () => {
     try {
       const res = await fetch(getApiUrl('/api/panic/status'));

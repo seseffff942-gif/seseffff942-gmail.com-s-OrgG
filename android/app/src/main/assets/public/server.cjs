@@ -29,8 +29,16 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // server.ts
 var server_exports = {};
 __export(server_exports, {
+  activeDatabaseMode: () => activeDatabaseMode,
   app: () => app,
-  default: () => server_default
+  default: () => server_default,
+  fetchGlobalDbModeFromDb: () => fetchGlobalDbModeFromDb,
+  getGlobalDbMode: () => getGlobalDbMode,
+  isNeonActive: () => isNeonActive,
+  neonPool: () => neonPool,
+  persistGlobalDbMode: () => persistGlobalDbMode,
+  queryNeon: () => queryNeon,
+  setGlobalDbMode: () => setGlobalDbMode
 });
 module.exports = __toCommonJS(server_exports);
 var import_config = require("dotenv/config");
@@ -679,6 +687,7 @@ async function anularFactura(supabase2, invoice, motivo) {
 
 // server.ts
 var import_supabase_js = require("@supabase/supabase-js");
+var import_pg = __toESM(require("pg"), 1);
 function requireEnv(name) {
   const value = process.env[name];
   if (!value || !value.trim()) {
@@ -695,6 +704,97 @@ var supabaseUrl = requireEnv("SUPABASE_URL");
 var supabaseKey = requireEnv("SUPABASE_ANON_KEY");
 var supabase = (0, import_supabase_js.createClient)(supabaseUrl, supabaseKey);
 console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
+var neonDbUrl = process.env.NEON_DATABASE_URL || "";
+var neonPool = neonDbUrl ? new import_pg.default.Pool({
+  connectionString: neonDbUrl,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 3e4,
+  connectionTimeoutMillis: 5e3
+}) : null;
+if (neonPool) {
+  console.log(`[DB] Pool de Respaldo Neon inicializado.`);
+} else {
+  console.warn(`[DB] NEON_DATABASE_URL no configurada. Respaldo Neon inactivo.`);
+}
+var PANIC_STATE_FILE = import_path.default.join(process.cwd(), "panic_state.json");
+var lastDbModeCached = {
+  mode: "supabase",
+  timestamp: 0
+};
+var activeDatabaseMode = "supabase";
+async function fetchGlobalDbModeFromDb() {
+  if (Date.now() - lastDbModeCached.timestamp < 2e3) {
+    return lastDbModeCached.mode;
+  }
+  if (neonPool) {
+    try {
+      const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
+      if (res.rows && res.rows.length > 0) {
+        const val = res.rows[0].value;
+        if (val === "neon" || val === "supabase") {
+          activeDatabaseMode = val;
+          lastDbModeCached = { mode: val, timestamp: Date.now() };
+          return val;
+        }
+      }
+    } catch (e) {
+    }
+  }
+  try {
+    if (import_fs.default.existsSync(PANIC_STATE_FILE)) {
+      const content = import_fs.default.readFileSync(PANIC_STATE_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      if (parsed.activeMode === "neon" || parsed.activeMode === "supabase") {
+        activeDatabaseMode = parsed.activeMode;
+        lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
+        return parsed.activeMode;
+      }
+    }
+  } catch (e) {
+  }
+  return activeDatabaseMode;
+}
+function getGlobalDbMode() {
+  return activeDatabaseMode;
+}
+async function persistGlobalDbMode(mode) {
+  activeDatabaseMode = mode;
+  lastDbModeCached = { mode, timestamp: Date.now() };
+  if (neonPool) {
+    try {
+      await neonPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
+      await neonPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();", [mode]);
+      console.log(`[PANIC SWITCH CLOUD PERSISTED] Modo guardado globalmente en Neon DB: ${mode.toUpperCase()}`);
+    } catch (e) {
+      console.error("Error guardando active_db_mode en Neon:", e.message);
+    }
+  }
+  try {
+    import_fs.default.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
+      activeMode: mode,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2), "utf-8");
+  } catch (e) {
+  }
+}
+function setGlobalDbMode(mode) {
+  persistGlobalDbMode(mode).catch(() => {
+  });
+}
+function isNeonActive() {
+  return activeDatabaseMode === "neon";
+}
+async function queryNeon(sql, params = []) {
+  if (!neonPool) return [];
+  try {
+    const res = await neonPool.query(sql, params);
+    return res.rows || [];
+  } catch (err) {
+    console.error(`[Neon Query Error] ${sql.substring(0, 80)}...:`, err.message);
+    return [];
+  }
+}
 var initialDb = {
   users: [
     { id: "u1b", name: "Due\xF1o / CEO", email: "seseffff942@gmail.com", role: "admin", photo: "https://i.pravatar.cc/150?u=9", password: "123" },
@@ -1156,16 +1256,35 @@ var requireAuth = async (req, res, next) => {
     const payload = import_jsonwebtoken.default.verify(token, JWT_SECRET);
     const iat = payload.iat ? payload.iat * 1e3 : 0;
     let user = null;
-    try {
-      const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
-      if (users && users.length > 0) {
-        user = users[0];
-        if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
-          return res.status(401).json({ error: "Tu sesi\xF3n ha sido cerrada por el administrador. Por favor, inicia sesi\xF3n de nuevo." });
+    if (isNeonActive() && neonPool) {
+      try {
+        const rows = await queryNeon("SELECT * FROM public.users WHERE id = $1", [payload.id]);
+        if (rows && rows.length > 0) user = rows[0];
+      } catch (neErr) {
+        console.warn("Neon DB error in requireAuth:", neErr);
+      }
+    }
+    if (!user) {
+      try {
+        const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+        if (users && users.length > 0) {
+          user = users[0];
+        }
+      } catch (dbErr) {
+        console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
+        if (neonPool) {
+          try {
+            const rows = await queryNeon("SELECT * FROM public.users WHERE id = $1", [payload.id]);
+            if (rows && rows.length > 0) user = rows[0];
+          } catch (neErr2) {
+          }
         }
       }
-    } catch (dbErr) {
-      console.warn("DB error in requireAuth, trying initialDb fallback:", dbErr);
+    }
+    if (user) {
+      if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+        return res.status(401).json({ error: "Tu sesi\xF3n ha sido cerrada por el administrador. Por favor, inicia sesi\xF3n de nuevo." });
+      }
     }
     if (!user) {
       user = initialDb.users.find((u) => u.id === payload.id);
@@ -2006,17 +2125,26 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   }
   const deletedKeys = getDeletedClientKeys();
   let dbClients = [];
-  try {
-    const { data, error } = await supabase.from("clients").select("*");
-    if (!error && data) {
-      dbClients = data;
-    } else if (error) {
-      if (error.code !== "42P01" && !error.message.includes("schema cache") && !error.message.includes("does not exist")) {
-        console.error("Fetch clients Supabase error:", error.message);
+  if (isNeonActive() && neonPool) {
+    try {
+      dbClients = await queryNeon("SELECT * FROM public.clients ORDER BY name ASC");
+    } catch (neErr) {
+      console.warn("Fetch clients Neon error:", neErr);
+    }
+  }
+  if (dbClients.length === 0) {
+    try {
+      const { data, error } = await supabase.from("clients").select("*");
+      if (!error && data) {
+        dbClients = data;
+      } else if (neonPool) {
+        dbClients = await queryNeon("SELECT * FROM public.clients ORDER BY name ASC");
+      }
+    } catch (e) {
+      if (neonPool) {
+        dbClients = await queryNeon("SELECT * FROM public.clients ORDER BY name ASC");
       }
     }
-  } catch (e) {
-    console.error("Fetch clients Supabase catch error:", e);
   }
   const localClients = readLocalClients();
   const allDbDeletedNames = /* @__PURE__ */ new Set();
@@ -3195,6 +3323,27 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
     } catch (e) {
       console.warn("DB error in login user search:", e);
     }
+    if (!foundUser && neonPool) {
+      try {
+        const client = await neonPool.connect();
+        const nRes = await client.query(
+          `SELECT * FROM public.users 
+             WHERE LOWER("sellerCode") = LOWER($1) 
+                OR LOWER(email) = LOWER($1) 
+                OR id = $1 
+                OR LOWER(name) LIKE LOWER($2)
+             LIMIT 1`,
+          [identifier, `%${identifier}%`]
+        );
+        client.release();
+        if (nRes.rows && nRes.rows.length > 0) {
+          foundUser = nRes.rows[0];
+          console.log(`[AUTH] Usuario encontrado en Neon Respaldo: ${foundUser.email || foundUser.name}`);
+        }
+      } catch (nErr) {
+        console.warn("Neon fallback search error:", nErr);
+      }
+    }
     if (!foundUser) {
       foundUser = initialDb.users.find(
         (u) => u.sellerCode?.toLowerCase() === identifier.toLowerCase() || u.email?.toLowerCase() === identifier.toLowerCase() || u.id?.toLowerCase() === identifier.toLowerCase() || u.name?.toLowerCase().includes(identifier.toLowerCase())
@@ -3703,38 +3852,27 @@ app.get("/api/products", requireAuth, asyncHandler(async (req, res) => {
     }
     return res.json(cached);
   }
-  const { data: products, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
-  if (error) {
-    if (error.message.includes("cost_price") || error.message.includes("hidden_from_sales")) {
-      const { data: fallback2, error: err3 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external");
-      if (err3) {
-        const { data: fallback3, error: err4 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-        if (err4) throw new Error(err4.message);
-        const fb = (fallback3 || []).map((p) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-        setCachedData("products", fb);
-        return res.json(isOwner ? fb : fb.map((p) => {
-          const { cost_price, costPrice, ...rest } = p;
-          return rest;
-        }));
+  let products = [];
+  if (isNeonActive() && neonPool) {
+    try {
+      products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+    } catch (neErr) {
+      console.warn("Fetch products Neon error:", neErr);
+    }
+  }
+  if (products.length === 0) {
+    try {
+      const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
+      if (!error && data) {
+        products = data;
+      } else if (neonPool) {
+        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
       }
-      const fb2 = (fallback2 || []).map((p) => ({ ...p, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-      setCachedData("products", fb2);
-      return res.json(isOwner ? fb2 : fb2.map((p) => {
-        const { cost_price, costPrice, ...rest } = p;
-        return rest;
-      }));
+    } catch (err) {
+      if (neonPool) {
+        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+      }
     }
-    if (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
-      const { data: fallback, error: err2 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-      if (err2) throw new Error(err2.message);
-      const fallbackData = (fallback || []).map((p) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-      setCachedData("products", fallbackData);
-      return res.json(isOwner ? fallbackData : fallbackData.map((p) => {
-        const { cost_price, costPrice, ...rest } = p;
-        return rest;
-      }));
-    }
-    throw new Error(error.message);
   }
   const normalized = (products || []).map((p) => ({
     ...p,
@@ -3957,6 +4095,96 @@ app.post("/api/push/test", asyncHandler(async (req, res) => {
   const resolvedMessage = message || "\xA1Las notificaciones Push funcionan con vibraci\xF3n tipo WhatsApp!";
   await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
   res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
+}));
+app.get("/api/panic/status", asyncHandler(async (req, res) => {
+  let supabaseHealthy = false;
+  let neonHealthy = false;
+  const currentMode = await fetchGlobalDbModeFromDb();
+  try {
+    const sbPromise = supabase.from("users").select("id").limit(1);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+    const { error } = await Promise.race([sbPromise, timeoutPromise]);
+    supabaseHealthy = !error;
+  } catch (e) {
+    supabaseHealthy = false;
+  }
+  if (neonPool) {
+    try {
+      const neonPromise = neonPool.query("SELECT 1;");
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+      await Promise.race([neonPromise, timeoutPromise]);
+      neonHealthy = true;
+    } catch (e) {
+      neonHealthy = false;
+    }
+  }
+  res.json({
+    activeMode: currentMode,
+    supabaseHealthy,
+    neonHealthy,
+    neonConfigured: Boolean(neonPool)
+  });
+}));
+app.post("/api/panic/switch", asyncHandler(async (req, res) => {
+  const { mode } = req.body;
+  if (mode === "supabase" || mode === "neon") {
+    await persistGlobalDbMode(mode);
+    console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
+    return res.json({ success: true, activeMode: mode });
+  }
+  res.status(400).json({ error: "Modo no v\xE1lido. Usa 'supabase' o 'neon'." });
+}));
+app.post("/api/panic/sync", asyncHandler(async (req, res) => {
+  if (!neonPool) {
+    return res.status(500).json({ error: "Neon no est\xE1 configurado" });
+  }
+  const client = await neonPool.connect();
+  let usersSynced = 0;
+  let productsSynced = 0;
+  try {
+    const { data: users } = await supabase.from("users").select("*");
+    if (users && users.length > 0) {
+      for (const u of users) {
+        await client.query(`
+            INSERT INTO public.users (id, name, email, role, password, photo, phone, "sellerCode")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              email = EXCLUDED.email,
+              role = EXCLUDED.role,
+              password = EXCLUDED.password,
+              photo = EXCLUDED.photo,
+              phone = EXCLUDED.phone,
+              "sellerCode" = EXCLUDED."sellerCode";
+          `, [u.id, u.name, u.email, u.role, u.password || "123", u.photo, u.phone, u.sellerCode]);
+        usersSynced++;
+      }
+    }
+    const { data: products } = await supabase.from("products").select("*");
+    if (products && products.length > 0) {
+      for (const p of products) {
+        await client.query(`
+            INSERT INTO public.products (id, name, category, stock, price, description, image, variants, specifications)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              category = EXCLUDED.category,
+              stock = EXCLUDED.stock,
+              price = EXCLUDED.price,
+              description = EXCLUDED.description,
+              image = EXCLUDED.image,
+              variants = EXCLUDED.variants,
+              specifications = EXCLUDED.specifications;
+          `, [p.id, p.name, p.category, p.stock, p.price, p.description, p.image, JSON.stringify(p.variants || null), JSON.stringify(p.specifications || null)]);
+        productsSynced++;
+      }
+    }
+    return res.json({ success: true, usersSynced, productsSynced });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 }));
 app.get("/api/app-logo", asyncHandler(async (req, res) => {
   const config = readWarehouseConfig();
@@ -4922,7 +5150,8 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   let safeNotes = notes !== void 0 ? String(notes).replace(/\|\|\|/g, " - ") : "";
   let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
   let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-  let reconstructedBaseNotes = oldNit + obsFlag + sellerSigFlag;
+  let effectiveNit = nit !== void 0 && nit !== null ? String(nit).trim() : oldNit;
+  let reconstructedBaseNotes = effectiveNit + obsFlag + sellerSigFlag;
   for (const f of keepFlags) {
     reconstructedBaseNotes += "|||" + f;
   }
@@ -4957,6 +5186,8 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   updatedDataRaw["clientName"] = client;
   updatedDataRaw["customerPhone"] = phone || "";
   updatedDataRaw["deliveryAddress"] = address || "";
+  updatedDataRaw["nit"] = effectiveNit;
+  updatedDataRaw["customerNit"] = effectiveNit;
   const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq("id", id);
   if (updateError) {
     console.warn("Primary update invoice error:", updateError.message);
@@ -4964,18 +5195,34 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     delete fallbackData["clientName"];
     delete fallbackData["customerPhone"];
     delete fallbackData["deliveryAddress"];
+    delete fallbackData["customerNit"];
     fallbackData["client"] = client;
     fallbackData["phone"] = phone || "";
     fallbackData["address"] = address || "";
+    fallbackData["nit"] = effectiveNit;
     const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq("id", id);
     if (retryError1) {
       const bareData = { ...fallbackData };
       delete bareData["phone"];
       delete bareData["address"];
+      delete bareData["nit"];
       await supabase.from("invoices").update(bareData).eq("id", id);
     }
   }
-  const updatedData = { ...updatedDataRaw, client, phone, address };
+  if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
+    try {
+      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      if (matchedClients && matchedClients.length > 0) {
+        for (const mc of matchedClients) {
+          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          updateLocalClient(mc.id, { nit: effectiveNit });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not sync client NIT:", e);
+    }
+  }
+  const updatedData = { ...updatedDataRaw, client, nit: effectiveNit, phone, address };
   await syncInvoiceToPermanentBackup(id);
   invalidateCache("products");
   invalidateCache("folio_map");
@@ -4991,10 +5238,59 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     isOwed: true,
     folio: folioMap[returnInvoice.id] || 1,
     client: returnInvoice.client || returnInvoice.clientName || client,
-    nit: returnInvoice.nit || "",
+    nit: effectiveNit || returnInvoice.nit || "",
     phone: returnInvoice.phone || returnInvoice.customerPhone || phone || "",
     address: returnInvoice.address || returnInvoice.deliveryAddress || address || ""
   });
+}));
+app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { nit, client, phone, address } = req.body;
+  const { data: invoices } = await supabase.from("invoices").select("*").eq("id", id);
+  if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+  const oldInvoice = invoices[0];
+  let baseNotesParts = (oldInvoice.notes || "").split("|||");
+  let effectiveNit = nit !== void 0 ? String(nit).trim() : baseNotesParts[0].trim();
+  let otherFlags = baseNotesParts.slice(1).join("|||");
+  let newNotes = effectiveNit + (otherFlags ? "|||" + otherFlags : "");
+  const updatePayload = {
+    notes: newNotes
+  };
+  if (nit !== void 0) {
+    updatePayload.nit = effectiveNit;
+    updatePayload.customerNit = effectiveNit;
+  }
+  if (client !== void 0) {
+    updatePayload.clientName = client.trim();
+    updatePayload.client = client.trim();
+  }
+  if (phone !== void 0) {
+    updatePayload.customerPhone = phone.trim();
+    updatePayload.phone = phone.trim();
+  }
+  if (address !== void 0) {
+    updatePayload.deliveryAddress = address.trim();
+    updatePayload.address = address.trim();
+  }
+  const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq("id", id);
+  if (updateError) {
+    const fallback = { notes: newNotes };
+    await supabase.from("invoices").update(fallback).eq("id", id);
+  }
+  await syncInvoiceToPermanentBackup(id);
+  if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
+    try {
+      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      if (matchedClients && matchedClients.length > 0) {
+        for (const mc of matchedClients) {
+          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          updateLocalClient(mc.id, { nit: effectiveNit });
+        }
+      }
+    } catch (e) {
+    }
+  }
+  res.json({ success: true, nit: effectiveNit, client, phone, address });
 }));
 app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -5225,6 +5521,21 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   const fetchInvoices = async () => {
+    if (isNeonActive() && neonPool) {
+      try {
+        let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
+        const params = [];
+        if (sellerId) {
+          params.push(sellerId);
+          sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+        }
+        sql += " ORDER BY date DESC, id DESC";
+        const rows = await queryNeon(sql, params);
+        return { data: rows, error: null };
+      } catch (neErr) {
+        console.warn("Fetch invoices Neon error:", neErr);
+      }
+    }
     let allInvoices = [];
     let page = 0;
     const PAGE_SIZE = 1e3;
@@ -5245,6 +5556,20 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           page = 0;
           allInvoices = [];
           continue;
+        }
+        if (neonPool) {
+          try {
+            let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
+            const params = [];
+            if (sellerId) {
+              params.push(sellerId);
+              sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+            }
+            sql += " ORDER BY date DESC, id DESC";
+            const rows = await queryNeon(sql, params);
+            return { data: rows, error: null };
+          } catch (neErr2) {
+          }
         }
         return res2;
       }
@@ -6658,53 +6983,104 @@ app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (
     res.status(500).json({ error: e.message });
   }
 }));
-var PENDING_BOLETAS_FILE = import_path.default.join(process.cwd(), "pending_boletas_bot.json");
-var PENDING_FOLIOS_FILE = import_path.default.join(process.cwd(), "pending_folios_bot.json");
-var MAX_PENDING_AGE_MS = 90 * 1e3;
-function readPendingBoletas() {
+var MAX_PENDING_AGE_MS = 120 * 1e3;
+async function savePendingBoleta(phone, data) {
   try {
-    if (import_fs.default.existsSync(PENDING_BOLETAS_FILE)) {
-      return JSON.parse(import_fs.default.readFileSync(PENDING_BOLETAS_FILE, "utf8"));
-    }
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = "bot-boleta-" + phone;
+    await supabase.from("users").upsert({
+      id: recordId,
+      name: "Pending Boleta",
+      email: `${recordId}@bot.local`,
+      role: "system",
+      phone,
+      password: "",
+      photo: payload
+    });
   } catch (e) {
+    console.warn("Could not save pending boleta to Supabase:", e);
   }
-  return {};
 }
-function savePendingBoleta(phone, data) {
+async function popPendingBoleta(phone) {
   try {
-    const all = readPendingBoletas();
     const now = Date.now();
-    for (const k of Object.keys(all)) {
-      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-        delete all[k];
+    const recordId = "bot-boleta-" + phone;
+    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from("users").delete().eq("id", recordId);
+          return parsed;
+        }
+      } catch (e) {
       }
     }
-    all[phone] = { ...data, timestamp: now };
-    import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-  } catch (e) {
-    console.warn("Could not save pending boleta:", e);
-  }
-}
-function popPendingBoleta(phone) {
-  try {
-    const all = readPendingBoletas();
-    const now = Date.now();
-    let foundKey = null;
-    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
-      foundKey = phone;
-    } else {
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) < 45e3) {
-          foundKey = k;
-          break;
+    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-boleta-%");
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 6e4) {
+              await supabase.from("users").delete().eq("id", r.id);
+              return parsed;
+            }
+          } catch (e) {
+          }
         }
       }
     }
-    if (foundKey && all[foundKey]) {
-      const item = all[foundKey];
-      delete all[foundKey];
-      import_fs.default.writeFileSync(PENDING_BOLETAS_FILE, JSON.stringify(all, null, 2), "utf8");
-      return item;
+  } catch (e) {
+  }
+  return null;
+}
+async function savePendingFolio(phone, data) {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = "bot-folio-" + phone;
+    await supabase.from("users").upsert({
+      id: recordId,
+      name: "Pending Folio",
+      email: `${recordId}@bot.local`,
+      role: "system",
+      phone,
+      password: "",
+      photo: payload
+    });
+  } catch (e) {
+    console.warn("Could not save pending folio to Supabase:", e);
+  }
+}
+async function popPendingFolio(phone) {
+  try {
+    const now = Date.now();
+    const recordId = "bot-folio-" + phone;
+    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from("users").delete().eq("id", recordId);
+          return parsed;
+        }
+      } catch (e) {
+      }
+    }
+    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-folio-%");
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 6e4) {
+              await supabase.from("users").delete().eq("id", r.id);
+              return parsed;
+            }
+          } catch (e) {
+          }
+        }
+      }
     }
   } catch (e) {
   }
@@ -6712,61 +7088,12 @@ function popPendingBoleta(phone) {
 }
 async function waitForPendingBoleta(phone, maxWaitMs = 6e3) {
   const startTime = Date.now();
-  let boleta = popPendingBoleta(phone);
+  let boleta = await popPendingBoleta(phone);
   if (boleta) return boleta;
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise((r) => setTimeout(r, 400));
-    boleta = popPendingBoleta(phone);
+    boleta = await popPendingBoleta(phone);
     if (boleta) return boleta;
-  }
-  return null;
-}
-function readPendingFolios() {
-  try {
-    if (import_fs.default.existsSync(PENDING_FOLIOS_FILE)) {
-      return JSON.parse(import_fs.default.readFileSync(PENDING_FOLIOS_FILE, "utf8"));
-    }
-  } catch (e) {
-  }
-  return {};
-}
-function savePendingFolio(phone, data) {
-  try {
-    const all = readPendingFolios();
-    const now = Date.now();
-    for (const k of Object.keys(all)) {
-      if (now - (all[k]?.timestamp || 0) > MAX_PENDING_AGE_MS) {
-        delete all[k];
-      }
-    }
-    all[phone] = { ...data, timestamp: now };
-    import_fs.default.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
-  } catch (e) {
-    console.warn("Could not save pending folio:", e);
-  }
-}
-function popPendingFolio(phone) {
-  try {
-    const all = readPendingFolios();
-    const now = Date.now();
-    let foundKey = null;
-    if (all[phone] && now - (all[phone]?.timestamp || 0) < MAX_PENDING_AGE_MS) {
-      foundKey = phone;
-    } else {
-      for (const k of Object.keys(all)) {
-        if (now - (all[k]?.timestamp || 0) < 6e4) {
-          foundKey = k;
-          break;
-        }
-      }
-    }
-    if (foundKey && all[foundKey]) {
-      const item = all[foundKey];
-      delete all[foundKey];
-      import_fs.default.writeFileSync(PENDING_FOLIOS_FILE, JSON.stringify(all, null, 2), "utf8");
-      return item;
-    }
-  } catch (e) {
   }
   return null;
 }
@@ -6824,14 +7151,14 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   }
   let matchedPendingFolio = null;
   if (!cleanFolio || cleanFolio === "S/N") {
-    matchedPendingFolio = popPendingFolio(cleanPhone);
+    matchedPendingFolio = await popPendingFolio(cleanPhone);
     if (matchedPendingFolio && matchedPendingFolio.folio) {
       cleanFolio = matchedPendingFolio.folio;
       console.log(`[Bot Abono] Se asoci\xF3 boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
     }
   }
   if (!cleanFolio || cleanFolio === "S/N") {
-    savePendingBoleta(cleanPhone, {
+    await savePendingBoleta(cleanPhone, {
       amount: numAmount,
       noBoleta: noBoleta || "S/N",
       banco: banco || "S/N",
@@ -6852,7 +7179,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   }
   const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
   if (!invoice) {
-    savePendingBoleta(cleanPhone, {
+    await savePendingBoleta(cleanPhone, {
       amount: numAmount,
       noBoleta: noBoleta || "S/N",
       banco: banco || "S/N",
@@ -6862,8 +7189,8 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     });
     return res.json({ success: false, message: `No se encontr\xF3 ninguna factura con el folio #${cleanFolio}` });
   }
-  popPendingBoleta(cleanPhone);
-  popPendingFolio(cleanPhone);
+  await popPendingBoleta(cleanPhone);
+  await popPendingFolio(cleanPhone);
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
@@ -6930,7 +7257,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
   let currentPaid = parseFloat(invoice.paidAmount || 0);
   let total = parseFloat(invoice.totalAmount || 0);
   if (numAmount <= 0) {
-    savePendingFolio(cleanPhone, {
+    await savePendingFolio(cleanPhone, {
       folio: cleanFolio,
       cliente: cliente || invoice.clientName,
       notes: boletaNotes || notes || "",
@@ -6968,8 +7295,8 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
       console.warn("Error guardando pago en payments:", e);
     }
   }
-  popPendingFolio(cleanPhone);
-  popPendingBoleta(cleanPhone);
+  await popPendingFolio(cleanPhone);
+  await popPendingBoleta(cleanPhone);
   const remaining = Math.max(0, total - newPaid);
   const isFullyPaid = remaining <= 0.01;
   return res.json({
@@ -7583,8 +7910,15 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = import_path.default.join(process.cwd(), "dist");
-    app.use(import_express.default.static(distPath));
+    app.use((req, res, next) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      next();
+    });
+    app.use(import_express.default.static(distPath, { maxAge: 0, etag: false, lastModified: false }));
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.sendFile(import_path.default.join(distPath, "index.html"));
     });
   }
@@ -7677,6 +8011,14 @@ if (isDirectRun) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  app
+  activeDatabaseMode,
+  app,
+  fetchGlobalDbModeFromDb,
+  getGlobalDbMode,
+  isNeonActive,
+  neonPool,
+  persistGlobalDbMode,
+  queryNeon,
+  setGlobalDbMode
 });
 //# sourceMappingURL=server.cjs.map

@@ -71,7 +71,7 @@
   }
 })();
 
-import {StrictMode} from 'react';
+import React, { StrictMode, Component, ReactNode } from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
@@ -165,8 +165,49 @@ if (import.meta.env.DEV || isLocalhost) {
   }
 }
 
+class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("[Agricovet Root Error]:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', backgroundColor: '#050c09', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', fontFamily: 'sans-serif', color: '#f8fafc' }}>
+          <div style={{ backgroundColor: '#0d1f17', border: '1px solid #10b98133', padding: '2rem', borderRadius: '1.5rem', maxWidth: '420px', width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+            <div style={{ width: '3.5rem', height: '3.5rem', backgroundColor: '#10b9811a', color: '#34d399', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1.5rem' }}>🌱</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.5rem', color: '#ffffff' }}>Agricovet</h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              {this.state.error?.message || 'Se ha detectado una actualización en la aplicación.'}
+            </p>
+            <button 
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.hash = '';
+                window.location.reload();
+              }}
+              style={{ width: '100%', padding: '0.85rem', backgroundColor: '#059669', color: '#ffffff', fontWeight: 700, border: 'none', borderRadius: '0.75rem', cursor: 'pointer', fontSize: '0.9rem', transition: 'all 0.2s' }}
+            >
+              🔄 Actualizar y Recargar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <RootErrorBoundary>
+      <App />
+    </RootErrorBoundary>
   </StrictMode>,
 );
