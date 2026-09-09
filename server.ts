@@ -59,39 +59,76 @@ if (neonPool) {
   console.warn(`[DB] NEON_DATABASE_URL no configurada. Respaldo Neon inactivo.`);
 }
 
-// ESTADO GLOBAL DE BOTÓN DE PÁNICO (PERSISTENTE PARA TODOS LOS USUARIOS)
+// ESTADO GLOBAL DE BOTÓN DE PÁNICO (PERSISTENTE EN BASE DE DATOS PARA TODOS LOS DISPOSITIVOS Y SERVERLESS)
 const PANIC_STATE_FILE = path.join(process.cwd(), "panic_state.json");
+let lastDbModeCached: { mode: 'supabase' | 'neon'; timestamp: number } = {
+  mode: 'supabase',
+  timestamp: 0
+};
 
-export function getGlobalDbMode(): 'supabase' | 'neon' {
+export let activeDatabaseMode: 'supabase' | 'neon' = 'supabase';
+
+export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
+  if (Date.now() - lastDbModeCached.timestamp < 2000) {
+    return lastDbModeCached.mode;
+  }
+  if (neonPool) {
+    try {
+      const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
+      if (res.rows && res.rows.length > 0) {
+        const val = res.rows[0].value;
+        if (val === 'neon' || val === 'supabase') {
+          activeDatabaseMode = val;
+          lastDbModeCached = { mode: val, timestamp: Date.now() };
+          return val;
+        }
+      }
+    } catch (e) {}
+  }
   try {
     if (fs.existsSync(PANIC_STATE_FILE)) {
       const content = fs.readFileSync(PANIC_STATE_FILE, "utf-8");
       const parsed = JSON.parse(content);
       if (parsed.activeMode === "neon" || parsed.activeMode === "supabase") {
+        activeDatabaseMode = parsed.activeMode;
+        lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
         return parsed.activeMode;
       }
     }
   } catch (e) {}
-  return "supabase";
+  return activeDatabaseMode;
 }
 
-export let activeDatabaseMode: 'supabase' | 'neon' = getGlobalDbMode();
+export function getGlobalDbMode(): 'supabase' | 'neon' {
+  return activeDatabaseMode;
+}
 
-export function setGlobalDbMode(mode: 'supabase' | 'neon') {
+export async function persistGlobalDbMode(mode: 'supabase' | 'neon') {
+  activeDatabaseMode = mode;
+  lastDbModeCached = { mode, timestamp: Date.now() };
+  if (neonPool) {
+    try {
+      await neonPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
+      await neonPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();", [mode]);
+      console.log(`[PANIC SWITCH CLOUD PERSISTED] Modo guardado globalmente en Neon DB: ${mode.toUpperCase()}`);
+    } catch (e: any) {
+      console.error("Error guardando active_db_mode en Neon:", e.message);
+    }
+  }
   try {
-    activeDatabaseMode = mode;
     fs.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
       activeMode: mode,
       updatedAt: new Date().toISOString()
     }, null, 2), "utf-8");
-    console.log(`[PANIC SWITCH] Modo de base de datos cambiado globalmente a: ${mode.toUpperCase()}`);
-  } catch (e) {
-    console.error("Error guardando panic_state.json:", e);
-  }
+  } catch (e) {}
+}
+
+export function setGlobalDbMode(mode: 'supabase' | 'neon') {
+  persistGlobalDbMode(mode).catch(() => {});
 }
 
 export function isNeonActive(): boolean {
-  return activeDatabaseMode === 'neon' || getGlobalDbMode() === 'neon';
+  return activeDatabaseMode === 'neon';
 }
 
 export async function queryNeon(sql: string, params: any[] = []): Promise<any[]> {
@@ -4074,6 +4111,9 @@ if (!process.env.VERCEL) {
     let supabaseHealthy = false;
     let neonHealthy = false;
 
+    // Obtener modo global persistido desde Neon DB
+    const currentMode = await fetchGlobalDbModeFromDb();
+
     // Test Supabase con timeout de 1.5s
     try {
       const sbPromise = supabase.from("users").select("id").limit(1);
@@ -4097,7 +4137,7 @@ if (!process.env.VERCEL) {
     }
 
     res.json({
-      activeMode: activeDatabaseMode,
+      activeMode: currentMode,
       supabaseHealthy,
       neonHealthy,
       neonConfigured: Boolean(neonPool)
@@ -4107,10 +4147,9 @@ if (!process.env.VERCEL) {
   app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
     const { mode } = req.body;
     if (mode === "supabase" || mode === "neon") {
-      activeDatabaseMode = mode;
-      setGlobalDbMode(mode);
-      console.log(`[PANIC SWITCH GLOBAL] Base de datos activa cambiada a nivel SERVIDOR para todos: ${activeDatabaseMode.toUpperCase()}`);
-      return res.json({ success: true, activeMode: activeDatabaseMode });
+      await persistGlobalDbMode(mode);
+      console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
+      return res.json({ success: true, activeMode: mode });
     }
     res.status(400).json({ error: "Modo no válido. Usa 'supabase' o 'neon'." });
   }));

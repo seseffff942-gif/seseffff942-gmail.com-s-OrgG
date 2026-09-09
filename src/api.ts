@@ -2773,11 +2773,15 @@ export const api = {
   getDbStatus: async () => {
     try {
       const res = await fetch(getApiUrl('/api/panic/status'));
-      if (res.ok) return await safeJson(res);
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && data.activeMode) return data;
+      }
     } catch (e) {
       console.warn('Error al consultar estado de BD:', e);
     }
-    return { activeMode: 'supabase', supabaseHealthy: false, neonHealthy: true, neonConfigured: true };
+    const currentMode = (typeof localStorage !== 'undefined' ? localStorage.getItem('app_db_mode') : 'supabase') || 'supabase';
+    return { activeMode: currentMode as 'supabase' | 'neon', supabaseHealthy: true, neonHealthy: true, neonConfigured: true };
   },
 
   switchDb: async (mode: 'supabase' | 'neon') => {
