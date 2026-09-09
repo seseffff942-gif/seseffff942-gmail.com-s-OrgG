@@ -20,6 +20,7 @@ notifications_local.json
 offers_extra.json
 push_subscriptions.json
 excluded_critical.json
+panic_state.json
 
 # Android y Gradle cache
 android/.gradle/

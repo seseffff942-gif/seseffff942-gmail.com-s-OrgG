@@ -3,6 +3,7 @@ import { Lock, Mail, User as UserIcon, Monitor, Smartphone, Sparkles, AlertTrian
 import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
+import { PanicButton } from './PanicButton';
 
 interface LoginProps {
   onLogin: (user: any, device: 'desktop' | 'phone') => void;
@@ -181,6 +182,11 @@ export function Login({ onLogin }: LoginProps) {
             {/* Top reflective light line (Simulating hand-polished glass highlights) */}
             <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
             <div className="absolute -left-[50px] -top-[50px] w-44 h-44 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+
+            {/* Switch de Servidor / Botón de Pánico */}
+            <div className="flex justify-end mb-2 relative z-20">
+              <PanicButton variant="compact" />
+            </div>
 
             {/* Header / Logo Segment */}
             <div className="text-center mb-8 relative">

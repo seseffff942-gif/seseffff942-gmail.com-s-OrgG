@@ -21,8 +21,8 @@ import { QuotationsPage } from './pages/QuotationsPage';
 import { ClientVisitsPage } from './pages/ClientVisitsPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
-import { api } from './api';
-import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle } from 'lucide-react';
+import { api, clearApiCache } from './api';
+import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle, Database, RefreshCw } from 'lucide-react';
 
 // ... (in App component) ...
 
@@ -40,13 +40,11 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center">
-          <div className="bg-slate-800 p-8 rounded-3xl max-w-md w-full border border-slate-700 shadow-2xl space-y-4">
-            <h2 className="text-xl font-black text-emerald-400">Agricovet App</h2>
-            <p className="text-xs text-slate-300">
-              Se recuperó la vista tras un evento inesperado.
-            </p>
-            <p className="text-[11px] font-mono text-rose-400 bg-slate-950/60 p-3 rounded-xl break-all">
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+          <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 bg-red-500/10 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl">⚠️</div>
+            <h2 className="text-white font-bold text-base">Algo no cargó correctamente</h2>
+            <p className="text-slate-400 text-xs">
               {this.state.error?.message || 'Error de visualización'}
             </p>
             <button 
@@ -71,6 +69,9 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [dbMode, setDbMode] = useState<'supabase' | 'neon'>(() => {
+    return (localStorage.getItem('app_db_mode') as any) || 'supabase';
+  });
   const [isMaintenanceMode, setIsMaintenanceMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('agricovet_maintenance_mode');
     return saved === 'true';
@@ -81,6 +82,45 @@ export default function App() {
     setIsMaintenanceMode(nextVal);
     localStorage.setItem('agricovet_maintenance_mode', nextVal ? 'true' : 'false');
   };
+
+  // Sincronización Global del Botón de Pánico (Aplica para todos los usuarios y pestañas)
+  React.useEffect(() => {
+    const checkPanicStatus = async () => {
+      try {
+        const data = await api.getDbStatus();
+        if (data && data.activeMode) {
+          const newMode = data.activeMode;
+          const currentMode = localStorage.getItem('app_db_mode') || 'supabase';
+          if (newMode !== currentMode) {
+            console.log(`[GLOBAL PANIC SYNC] Modo cambiado en servidor a: ${newMode}`);
+            localStorage.setItem('app_db_mode', newMode);
+            setDbMode(newMode);
+            clearApiCache();
+            window.dispatchEvent(new CustomEvent('agricovet-panic-mode-changed', { detail: { mode: newMode } }));
+            window.dispatchEvent(new CustomEvent('agricovet-mutate'));
+          } else if (newMode !== dbMode) {
+            setDbMode(newMode);
+          }
+        }
+      } catch (err) {}
+    };
+
+    checkPanicStatus();
+    const interval = setInterval(checkPanicStatus, 4000);
+
+    const handlePanicChange = (e: any) => {
+      if (e.detail?.mode) {
+        setDbMode(e.detail.mode);
+        clearApiCache();
+      }
+    };
+    window.addEventListener('agricovet-panic-mode-changed', handlePanicChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('agricovet-panic-mode-changed', handlePanicChange);
+    };
+  }, [dbMode]);
 
   React.useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -107,7 +147,12 @@ export default function App() {
       return;
     }
 
+    const timer = setTimeout(() => {
+      setAuthLoading(false);
+    }, 1500);
+
     api.getMe().then(signedInUser => {
+      clearTimeout(timer);
       if (signedInUser) {
         setUser(signedInUser);
         localStorage.setItem('app_user', JSON.stringify(signedInUser));
@@ -121,6 +166,7 @@ export default function App() {
       }
       setAuthLoading(false);
     }).catch(() => {
+      clearTimeout(timer);
       const cached = localStorage.getItem('app_user');
       if (cached) {
         try {
@@ -266,7 +312,21 @@ export default function App() {
   };
 
   if (authLoading) {
-    return <div className="min-h-screen bg-[#040907] flex items-center justify-center font-bold text-teal-400">Verificando sesión...</div>;
+    return (
+      <div className="min-h-screen bg-[#040907] flex flex-col items-center justify-center p-6 font-sans text-slate-100 select-none">
+        <div className="flex flex-col items-center space-y-4 max-w-xs text-center">
+          <div className="w-10 h-10 rounded-2xl border-2 border-teal-500 border-t-transparent animate-spin"></div>
+          <p className="font-bold text-teal-400 text-sm tracking-wide">Iniciando Agricovet...</p>
+          <p className="text-[11px] text-slate-400">Verificando conexión segura y credenciales</p>
+          <button
+            onClick={() => setAuthLoading(false)}
+            className="mt-4 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 cursor-pointer transition"
+          >
+            Continuar sin esperar
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const isSuperAdmin = user?.email?.toLowerCase() === 'seseffff942@gmail.com';
@@ -301,6 +361,35 @@ export default function App() {
 
   const appContent = (
     <div className={`flex flex-col min-h-screen bg-surface font-sans h-screen overflow-hidden`}>
+      {/* Banner de Contingencia Global (Neon Backup) */}
+      {dbMode === 'neon' && (
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-3 py-1.5 text-[11px] font-bold flex flex-wrap items-center justify-between shadow-lg sticky top-0 z-[100] border-b border-amber-400/40 animate-pulse">
+          <div className="flex items-center gap-2 truncate">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+            </span>
+            <span className="bg-amber-950/80 border border-amber-300/40 px-1.5 py-0.5 rounded text-[9px] tracking-wide uppercase font-black text-amber-200 shrink-0">
+              🚨 MODO DE EMERGENCIA (NEON DB ACTIVO)
+            </span>
+            <span className="text-amber-50 truncate hidden sm:inline">
+              La plataforma está operando sobre la base de datos de respaldo para toda la empresa.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              onClick={() => {
+                clearApiCache();
+                window.dispatchEvent(new CustomEvent('agricovet-mutate'));
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer flex items-center gap-1 border border-white/20"
+            >
+              <RefreshCw className="w-2.5 h-2.5" />
+              Recargar
+            </button>
+          </div>
+        </div>
+      )}
       {/* Banner de Mantenimiento Activo para SuperAdmin */}
       {isMaintenanceMode && isSuperAdmin && (
         <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white font-semibold text-[10px] md:text-xs px-3 py-1.5 flex items-center justify-between shadow-md z-[70] sticky top-0 border-b border-amber-500/40">

@@ -605,7 +605,7 @@ export function formatMoney(num: number | undefined | string) {
   if (isNaN(n)) return 'Q0.00';
   return 'Q' + n.toLocaleString('en-US', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 4
+    maximumFractionDigits: 2
   });
 }
 

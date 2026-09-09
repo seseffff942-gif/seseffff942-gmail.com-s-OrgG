@@ -35,13 +35,75 @@ function requireEnv(name: string): string {
 const JWT_SECRET = requireEnv("JWT_SECRET");
 
 import { createClient } from '@supabase/supabase-js';
+import pg from 'pg';
+
 const supabaseUrl = requireEnv("SUPABASE_URL");
 const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
 
+// Configuración de Base de Datos de Respaldo (Neon PostgreSQL)
+const neonDbUrl = process.env.NEON_DATABASE_URL || '';
+export const neonPool = neonDbUrl ? new pg.Pool({
+  connectionString: neonDbUrl,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000
+}) : null;
 
+if (neonPool) {
+  console.log(`[DB] Pool de Respaldo Neon inicializado.`);
+} else {
+  console.warn(`[DB] NEON_DATABASE_URL no configurada. Respaldo Neon inactivo.`);
+}
+
+// ESTADO GLOBAL DE BOTÓN DE PÁNICO (PERSISTENTE PARA TODOS LOS USUARIOS)
+const PANIC_STATE_FILE = path.join(process.cwd(), "panic_state.json");
+
+export function getGlobalDbMode(): 'supabase' | 'neon' {
+  try {
+    if (fs.existsSync(PANIC_STATE_FILE)) {
+      const content = fs.readFileSync(PANIC_STATE_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      if (parsed.activeMode === "neon" || parsed.activeMode === "supabase") {
+        return parsed.activeMode;
+      }
+    }
+  } catch (e) {}
+  return "supabase";
+}
+
+export let activeDatabaseMode: 'supabase' | 'neon' = getGlobalDbMode();
+
+export function setGlobalDbMode(mode: 'supabase' | 'neon') {
+  try {
+    activeDatabaseMode = mode;
+    fs.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
+      activeMode: mode,
+      updatedAt: new Date().toISOString()
+    }, null, 2), "utf-8");
+    console.log(`[PANIC SWITCH] Modo de base de datos cambiado globalmente a: ${mode.toUpperCase()}`);
+  } catch (e) {
+    console.error("Error guardando panic_state.json:", e);
+  }
+}
+
+export function isNeonActive(): boolean {
+  return activeDatabaseMode === 'neon' || getGlobalDbMode() === 'neon';
+}
+
+export async function queryNeon(sql: string, params: any[] = []): Promise<any[]> {
+  if (!neonPool) return [];
+  try {
+    const res = await neonPool.query(sql, params);
+    return res.rows || [];
+  } catch (err: any) {
+    console.error(`[Neon Query Error] ${sql.substring(0, 80)}...:`, err.message);
+    return [];
+  }
+}
 // Initial Seed Data
 const initialDb = {
   users: [
@@ -576,18 +638,37 @@ if (!process.env.VERCEL) {
       const iat = payload.iat ? payload.iat * 1000 : 0;
       
       let user = null;
-      try {
-        const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
-        if (users && users.length > 0) {
-          user = users[0];
-          
-          // Force Logout Check
-          if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
-            return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
+      if (isNeonActive() && neonPool) {
+        try {
+          const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
+          if (rows && rows.length > 0) user = rows[0];
+        } catch (neErr) {
+          console.warn("Neon DB error in requireAuth:", neErr);
+        }
+      }
+
+      if (!user) {
+        try {
+          const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+          if (users && users.length > 0) {
+            user = users[0];
+          }
+        } catch (dbErr) {
+          console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
+          if (neonPool) {
+            try {
+              const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
+              if (rows && rows.length > 0) user = rows[0];
+            } catch (neErr2) {}
           }
         }
-      } catch (dbErr) {
-        console.warn("DB error in requireAuth, trying initialDb fallback:", dbErr);
+      }
+
+      if (user) {
+        // Force Logout Check
+        if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+          return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
+        }
       }
 
       if (!user) {
@@ -729,6 +810,8 @@ if (!process.env.VERCEL) {
   // ======== API ERROR WRAPPER ========
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
     Promise.resolve(fn(req, res, next)).catch(next);
+
+
 
   app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
     const { force } = req.body;
@@ -1589,17 +1672,27 @@ if (!process.env.VERCEL) {
     const deletedKeys = getDeletedClientKeys();
 
     let dbClients: any[] = [];
-    try {
-      const { data, error } = await supabase.from("clients").select("*");
-      if (!error && data) {
-        dbClients = data;
-      } else if (error) {
-        if (error.code !== '42P01' && !error.message.includes('schema cache') && !error.message.includes('does not exist')) {
-          console.error("Fetch clients Supabase error:", error.message);
+    if (isNeonActive() && neonPool) {
+      try {
+        dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
+      } catch (neErr) {
+        console.warn("Fetch clients Neon error:", neErr);
+      }
+    }
+
+    if (dbClients.length === 0) {
+      try {
+        const { data, error } = await supabase.from("clients").select("*");
+        if (!error && data) {
+          dbClients = data;
+        } else if (neonPool) {
+          dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
+        }
+      } catch (e) {
+        if (neonPool) {
+          dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
         }
       }
-    } catch (e) {
-      console.error("Fetch clients Supabase catch error:", e);
     }
 
     const localClients = readLocalClients();
@@ -3026,6 +3119,29 @@ if (!process.env.VERCEL) {
         console.warn("DB error in login user search:", e);
       }
 
+      // Fallback a Neon PostgreSQL si Supabase falló o no se encontró
+      if (!foundUser && neonPool) {
+        try {
+          const client = await neonPool.connect();
+          const nRes = await client.query(
+            `SELECT * FROM public.users 
+             WHERE LOWER("sellerCode") = LOWER($1) 
+                OR LOWER(email) = LOWER($1) 
+                OR id = $1 
+                OR LOWER(name) LIKE LOWER($2)
+             LIMIT 1`,
+            [identifier, `%${identifier}%`]
+          );
+          client.release();
+          if (nRes.rows && nRes.rows.length > 0) {
+            foundUser = nRes.rows[0];
+            console.log(`[AUTH] Usuario encontrado en Neon Respaldo: ${foundUser.email || foundUser.name}`);
+          }
+        } catch (nErr) {
+          console.warn("Neon fallback search error:", nErr);
+        }
+      }
+
       // Fallback local memory list
       if (!foundUser) {
         foundUser = initialDb.users.find(u => 
@@ -3656,34 +3772,28 @@ if (!process.env.VERCEL) {
       return res.json(cached);
     }
 
-    // Select explicitly to be more resilient to schema out-of-sync issues
-    const { data: products, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
-    
-    if (error) {
-       // If new columns don't exist yet, fallback gracefully
-       if (error.message.includes("cost_price") || error.message.includes("hidden_from_sales")) {
-          const { data: fallback2, error: err3 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external");
-          if (err3) {
-            // Even deeper fallback without specifications/is_external
-            const { data: fallback3, error: err4 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-            if (err4) throw new Error(err4.message);
-            const fb = (fallback3 || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-            setCachedData("products", fb);
-            return res.json(isOwner ? fb : fb.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-          }
-          const fb2 = (fallback2 || []).map((p: any) => ({ ...p, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-          setCachedData("products", fb2);
-          return res.json(isOwner ? fb2 : fb2.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-       }
-       // If specifications or is_external fails, retry with fewer columns as a fallback
-       if (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
-          const { data: fallback, error: err2 } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants");
-          if (err2) throw new Error(err2.message);
-          const fallbackData = (fallback || []).map((p: any) => ({ ...p, specifications: null, is_external: false, cost_price: 0, hidden_from_sales: false, costPrice: 0, hiddenFromSales: false }));
-          setCachedData("products", fallbackData);
-          return res.json(isOwner ? fallbackData : fallbackData.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-       }
-       throw new Error(error.message);
+    let products: any[] = [];
+    if (isNeonActive() && neonPool) {
+      try {
+        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+      } catch (neErr) {
+        console.warn("Fetch products Neon error:", neErr);
+      }
+    }
+
+    if (products.length === 0) {
+      try {
+        const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
+        if (!error && data) {
+          products = data;
+        } else if (neonPool) {
+          products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+        }
+      } catch (err) {
+        if (neonPool) {
+          products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+        }
+      }
     }
 
     // Normalize: map DB snake_case to camelCase aliases for frontend
@@ -3955,7 +4065,112 @@ if (!process.env.VERCEL) {
     await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
     res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
   }));
-  
+
+  // ==========================================
+  // RUTAS DEL BOTÓN DE PÁNICO Y ESTADO DE BD (GLOBALES)
+  // ==========================================
+
+  app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
+    let supabaseHealthy = false;
+    let neonHealthy = false;
+
+    // Test Supabase con timeout de 1.5s
+    try {
+      const sbPromise = supabase.from("users").select("id").limit(1);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+      const { error } = await Promise.race([sbPromise, timeoutPromise]) as any;
+      supabaseHealthy = !error;
+    } catch (e) {
+      supabaseHealthy = false;
+    }
+
+    // Test Neon con timeout de 1.5s
+    if (neonPool) {
+      try {
+        const neonPromise = neonPool.query("SELECT 1;");
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+        await Promise.race([neonPromise, timeoutPromise]);
+        neonHealthy = true;
+      } catch (e) {
+        neonHealthy = false;
+      }
+    }
+
+    res.json({
+      activeMode: activeDatabaseMode,
+      supabaseHealthy,
+      neonHealthy,
+      neonConfigured: Boolean(neonPool)
+    });
+  }));
+
+  app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
+    const { mode } = req.body;
+    if (mode === "supabase" || mode === "neon") {
+      activeDatabaseMode = mode;
+      setGlobalDbMode(mode);
+      console.log(`[PANIC SWITCH GLOBAL] Base de datos activa cambiada a nivel SERVIDOR para todos: ${activeDatabaseMode.toUpperCase()}`);
+      return res.json({ success: true, activeMode: activeDatabaseMode });
+    }
+    res.status(400).json({ error: "Modo no válido. Usa 'supabase' o 'neon'." });
+  }));
+
+  app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
+    if (!neonPool) {
+      return res.status(500).json({ error: "Neon no está configurado" });
+    }
+
+    const client = await neonPool.connect();
+    let usersSynced = 0;
+    let productsSynced = 0;
+
+    try {
+      const { data: users } = await supabase.from("users").select("*");
+      if (users && users.length > 0) {
+        for (const u of users) {
+          await client.query(`
+            INSERT INTO public.users (id, name, email, role, password, photo, phone, "sellerCode")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              email = EXCLUDED.email,
+              role = EXCLUDED.role,
+              password = EXCLUDED.password,
+              photo = EXCLUDED.photo,
+              phone = EXCLUDED.phone,
+              "sellerCode" = EXCLUDED."sellerCode";
+          `, [u.id, u.name, u.email, u.role, u.password || '123', u.photo, u.phone, u.sellerCode]);
+          usersSynced++;
+        }
+      }
+
+      const { data: products } = await supabase.from("products").select("*");
+      if (products && products.length > 0) {
+        for (const p of products) {
+          await client.query(`
+            INSERT INTO public.products (id, name, category, stock, price, description, image, variants, specifications)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              category = EXCLUDED.category,
+              stock = EXCLUDED.stock,
+              price = EXCLUDED.price,
+              description = EXCLUDED.description,
+              image = EXCLUDED.image,
+              variants = EXCLUDED.variants,
+              specifications = EXCLUDED.specifications;
+          `, [p.id, p.name, p.category, p.stock, p.price, p.description, p.image, JSON.stringify(p.variants || null), JSON.stringify(p.specifications || null)]);
+          productsSynced++;
+        }
+      }
+      return res.json({ success: true, usersSynced, productsSynced });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  }));
+
   // WAREHOUSE CONFIG API
   app.get("/api/app-logo", asyncHandler(async (req: any, res: any) => {
     const config = readWarehouseConfig();
@@ -5093,7 +5308,8 @@ if (!process.env.VERCEL) {
     let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
     let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
 
-    let reconstructedBaseNotes = oldNit + obsFlag + sellerSigFlag;
+    let effectiveNit = (nit !== undefined && nit !== null) ? String(nit).trim() : oldNit;
+    let reconstructedBaseNotes = effectiveNit + obsFlag + sellerSigFlag;
     for(const f of keepFlags) {
       reconstructedBaseNotes += "|||" + f;
     }
@@ -5135,6 +5351,8 @@ if (!process.env.VERCEL) {
     updatedDataRaw['clientName'] = client;
     updatedDataRaw['customerPhone'] = phone || '';
     updatedDataRaw['deliveryAddress'] = address || '';
+    updatedDataRaw['nit'] = effectiveNit;
+    updatedDataRaw['customerNit'] = effectiveNit;
 
     const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq('id', id);
     if (updateError) {
@@ -5143,20 +5361,38 @@ if (!process.env.VERCEL) {
         delete fallbackData['clientName'];
         delete fallbackData['customerPhone'];
         delete fallbackData['deliveryAddress'];
+        delete fallbackData['customerNit'];
         fallbackData['client'] = client;
         fallbackData['phone'] = phone || '';
         fallbackData['address'] = address || '';
+        fallbackData['nit'] = effectiveNit;
 
         const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq('id', id);
         if (retryError1) {
              const bareData = { ...fallbackData };
              delete bareData['phone'];
              delete bareData['address'];
+             delete bareData['nit'];
              await supabase.from("invoices").update(bareData).eq('id', id);
         }
     }
 
-    const updatedData = { ...updatedDataRaw, client, phone, address };
+    // Auto sync NIT to clients table if client exists
+    if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
+      try {
+        const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+        if (matchedClients && matchedClients.length > 0) {
+          for (const mc of matchedClients) {
+            await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+            updateLocalClient(mc.id, { nit: effectiveNit });
+          }
+        }
+      } catch (e) {
+        console.warn("Could not sync client NIT:", e);
+      }
+    }
+
+    const updatedData = { ...updatedDataRaw, client, nit: effectiveNit, phone, address };
     await syncInvoiceToPermanentBackup(id);
     
     invalidateCache("products");
@@ -5176,10 +5412,66 @@ if (!process.env.VERCEL) {
       isOwed: true,
       folio: folioMap[returnInvoice.id] || 1,
       client: returnInvoice.client || returnInvoice.clientName || client,
-      nit: returnInvoice.nit || '',
+      nit: effectiveNit || returnInvoice.nit || '',
       phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
       address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
     });
+  }));
+
+  app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any, res: any) => {
+    const { id } = req.params;
+    const { nit, client, phone, address } = req.body;
+    
+    const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
+    if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+    const oldInvoice = invoices[0];
+    
+    let baseNotesParts = (oldInvoice.notes || '').split("|||");
+    let effectiveNit = nit !== undefined ? String(nit).trim() : baseNotesParts[0].trim();
+    let otherFlags = baseNotesParts.slice(1).join("|||");
+    let newNotes = effectiveNit + (otherFlags ? "|||" + otherFlags : "");
+    
+    const updatePayload: any = {
+      notes: newNotes
+    };
+    if (nit !== undefined) {
+      updatePayload.nit = effectiveNit;
+      updatePayload.customerNit = effectiveNit;
+    }
+    if (client !== undefined) {
+      updatePayload.clientName = client.trim();
+      updatePayload.client = client.trim();
+    }
+    if (phone !== undefined) {
+      updatePayload.customerPhone = phone.trim();
+      updatePayload.phone = phone.trim();
+    }
+    if (address !== undefined) {
+      updatePayload.deliveryAddress = address.trim();
+      updatePayload.address = address.trim();
+    }
+    
+    const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq('id', id);
+    if (updateError) {
+      const fallback = { notes: newNotes };
+      await supabase.from("invoices").update(fallback).eq('id', id);
+    }
+    
+    await syncInvoiceToPermanentBackup(id);
+    
+    if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
+      try {
+        const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+        if (matchedClients && matchedClients.length > 0) {
+          for (const mc of matchedClients) {
+            await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+            updateLocalClient(mc.id, { nit: effectiveNit });
+          }
+        }
+      } catch (e) {}
+    }
+    
+    res.json({ success: true, nit: effectiveNit, client, phone, address });
   }));
 
   app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
@@ -5463,6 +5755,22 @@ if (!process.env.VERCEL) {
     }
     
     const fetchInvoices = async () => {
+      if (isNeonActive() && neonPool) {
+        try {
+          let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+          const params: any[] = [];
+          if (sellerId) {
+            params.push(sellerId);
+            sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+          }
+          sql += ' ORDER BY date DESC, id DESC';
+          const rows = await queryNeon(sql, params);
+          return { data: rows, error: null };
+        } catch (neErr) {
+          console.warn("Fetch invoices Neon error:", neErr);
+        }
+      }
+
       let allInvoices: any[] = [];
       let page = 0;
       const PAGE_SIZE = 1000;
@@ -5487,6 +5795,19 @@ if (!process.env.VERCEL) {
             page = 0;
             allInvoices = [];
             continue;
+          }
+          if (neonPool) {
+            try {
+              let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+              const params: any[] = [];
+              if (sellerId) {
+                params.push(sellerId);
+                sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+              }
+              sql += ' ORDER BY date DESC, id DESC';
+              const rows = await queryNeon(sql, params);
+              return { data: rows, error: null };
+            } catch (neErr2) {}
           }
           return res;
         }
@@ -8288,8 +8609,15 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use((req, res, next) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      next();
+    });
+    app.use(express.static(distPath, { maxAge: 0, etag: false, lastModified: false }));
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

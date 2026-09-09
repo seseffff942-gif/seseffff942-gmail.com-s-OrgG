@@ -1371,7 +1371,29 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-2">Información del Cliente</h4>
                   <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
                     <div>
-                      <span className="text-slate-400 font-bold block">NIT o C/F</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-bold block">NIT o C/F</span>
+                        {user.role === 'admin' && (
+                          <button
+                            onClick={async () => {
+                              const newNit = prompt('Editar NIT para esta venta:', selectedInvoiceForModal.nit || 'CF');
+                              if (newNit === null) return;
+                              try {
+                                await api.updateInvoiceCustomer(selectedInvoiceForModal.id, { nit: newNit.trim(), client: selectedInvoiceForModal.client });
+                                alert('NIT actualizado con éxito');
+                                const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+                                setInvoices(Array.isArray(refreshedInvoices) ? refreshedInvoices : []);
+                                setSelectedInvoiceForModal((prev: any) => prev ? { ...prev, nit: newNit.trim() } : null);
+                              } catch(err: any) {
+                                alert('Error actualizando NIT: ' + err.message);
+                              }
+                            }}
+                            className="text-[10px] font-black text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                          >
+                            ✏️ Editar NIT
+                          </button>
+                        )}
+                      </div>
                       <p className="font-extrabold text-slate-800 mt-0.5">{selectedInvoiceForModal.nit || 'C/F'}</p>
                     </div>
                     <div>

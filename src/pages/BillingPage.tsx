@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api, getApiUrl } from '../api';
 import { Invoice, Payment, User, EstadoFEL } from '../types';
 import SignaturePad from '../components/SignaturePad';
-import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
@@ -1923,7 +1923,28 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-2">Información del Cliente</h4>
                   <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
                     <div>
-                      <span className="text-slate-400 font-bold block">NIT o C/F</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-bold block">NIT o C/F</span>
+                        {user.role === 'admin' && (
+                          <button
+                            onClick={async () => {
+                              const newNit = prompt('Editar NIT para esta venta:', selectedInvoiceForModal.nit || 'CF');
+                              if (newNit === null) return;
+                              try {
+                                await api.updateInvoiceCustomer(selectedInvoiceForModal.id, { nit: newNit.trim(), client: selectedInvoiceForModal.client });
+                                alert('NIT actualizado con éxito');
+                                loadInvoices();
+                                setSelectedInvoiceForModal((prev: any) => prev ? { ...prev, nit: newNit.trim() } : null);
+                              } catch(err: any) {
+                                alert('Error actualizando NIT: ' + err.message);
+                              }
+                            }}
+                            className="text-[10px] font-black text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                          >
+                            ✏️ Editar NIT
+                          </button>
+                        )}
+                      </div>
                       <p className="font-extrabold text-slate-800 mt-0.5">{selectedInvoiceForModal.nit || 'C/F'}</p>
                     </div>
                     <div>
@@ -2397,6 +2418,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 >
                   <Download size={14} /> <span>Descargar PDF</span>
                 </button>
+                {selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && user.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('edit_invoice', JSON.stringify(selectedInvoiceForModal));
+                      window.location.hash = 'sales';
+                    }}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+                  >
+                    <Edit2 size={14} /> <span>Editar Venta</span>
+                  </button>
+                )}
                 {selectedInvoiceForModal.phone && (
                   <button
                     onClick={() => {

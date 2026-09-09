@@ -126,8 +126,16 @@ if (gaId) {
   console.log("[Google Analytics] No measurement ID VITE_GA_ID configured. Analytics are inactive.");
 }
 
-if (import.meta.env.DEV) {
-  // En desarrollo local, desregistrar Service Workers y limpiar cachés para evitar que sirva bundles obsoletos
+const isLocalhost = Boolean(
+  typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '[::1]' ||
+    window.location.hostname.match(/^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/)
+  )
+);
+
+if (import.meta.env.DEV || isLocalhost) {
+  // En localhost o desarrollo, desregistrar absolutamente todo Service Worker y vaciar caches
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {

@@ -6,9 +6,10 @@ import {
   BarChart3, DollarSign, Award, AlertTriangle, Sparkles, 
   ArrowUpRight, ArrowDownRight, Layers, FileText, CheckCircle2,
   Clock, Filter, RefreshCw, ChevronDown, Activity, Info,
-  Package, Users, ShoppingBag, ArrowRight, Eye, Target, Compass
+  Package, Users, ShoppingBag, ArrowRight, Eye, Target, Compass,
+  Printer, Download, FileSpreadsheet, ShieldCheck
 } from 'lucide-react';
-import { formatMoney, cn, parseGuatemalaDateParts, getGuatemalaWeekInfo } from '../utils';
+import { formatMoney, cn, parseGuatemalaDateParts, getGuatemalaWeekInfo, printHtml } from '../utils';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -97,9 +98,12 @@ export function SellerPerformanceHistory({
     return sellerKeyOrEmail;
   };
 
-  // Valid invoices (ignoring cancelled or rejected)
+  // Valid invoices (ignoring cancelled, rejected, and anulada)
   const validInvoices = useMemo(() => {
-    return (invoices || []).filter(inv => inv.status !== 'cancelled' && inv.status !== 'rejected');
+    return (invoices || []).filter(inv => {
+      const st = String(inv.status || '').toLowerCase().trim();
+      return st !== 'cancelled' && st !== 'rejected' && st !== 'anulada' && st !== 'rechazada';
+    });
   }, [invoices]);
 
   // Unique sellers list for dropdown
@@ -582,22 +586,158 @@ export function SellerPerformanceHistory({
     };
   }, [activeDataset, viewGranularity, allHistoricalWeeks, allHistoricalMonths]);
 
+  // Handler para imprimir informe formal ejecutivo
+  const handlePrintReport = async () => {
+    const sellerTitle = selectedSeller !== 'all' ? selectedSeller : 'Todo el Equipo Comercial';
+    const granularityTitle = viewGranularity === 'weekly' ? 'Auditoría Semanal (Lunes a Domingo)' :
+      viewGranularity === 'daily' ? 'Auditoría Día por Día' : 'Auditoría Mes a Mes';
+    const nowStr = new Date().toLocaleString('es-GT', { timeZone: 'America/Guatemala', dateStyle: 'long', timeStyle: 'short' });
+
+    const rowsHtml = [...activeDataset].reverse().map((row: any) => {
+      const periodLabel = viewGranularity === 'weekly'
+        ? `Sem ${row.weekNumber} (${row.startDateStr} - ${row.endDateStr})`
+        : viewGranularity === 'daily' ? row.fullDateStr : `${row.monthName} ${row.year}`;
+      const pctChange = viewGranularity === 'weekly' ? row.wowPercent : viewGranularity === 'monthly' ? row.momPercent : 0;
+      const orderDiff = viewGranularity === 'weekly' ? row.wowOrderDiff : viewGranularity === 'daily' ? row.diffOrders : row.momCountDiff;
+      
+      const varSalesStr = row.hasPrev 
+        ? (pctChange > 0 ? `+${pctChange.toFixed(1)}%` : `${pctChange.toFixed(1)}%`)
+        : '-';
+      const compOrdersStr = row.hasPrev 
+        ? (orderDiff < 0 ? `-${Math.abs(orderDiff)} ped.` : orderDiff > 0 ? `+${orderDiff} ped.` : '0')
+        : '-';
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 7px 10px; font-weight: 600; color: #1e293b;">${periodLabel}</td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: #0f172a;">${formatMoney(row.totalSales)}</td>
+          <td style="padding: 7px 10px; text-align: center; font-size: 11px; color: ${pctChange < 0 ? '#b91c1c' : pctChange > 0 ? '#15803d' : '#64748b'}; font-weight: bold;">${varSalesStr}</td>
+          <td style="padding: 7px 10px; text-align: center; font-weight: 600;">${row.invoiceCount}</td>
+          <td style="padding: 7px 10px; text-align: center; font-size: 11px; color: ${orderDiff < 0 ? '#b91c1c' : orderDiff > 0 ? '#15803d' : '#64748b'}; font-weight: bold;">${compOrdersStr}</td>
+          <td style="padding: 7px 10px; text-align: right; color: #475569;">${formatMoney(row.avgTicket)}</td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: 600; color: #047857;">${formatMoney(row.paidAmount)}</td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: 600; color: #b45309;">${formatMoney(row.pendingAmount)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Informe de Rendimiento Comercial - Agricovet</title>
+        <style>
+          @page { size: letter landscape; margin: 12mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; padding: 15px; font-size: 11px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0b4d2c; padding-bottom: 10px; margin-bottom: 15px; }
+          .title { font-size: 18px; font-weight: 900; color: #0b4d2c; text-transform: uppercase; margin: 0; }
+          .subtitle { font-size: 11px; color: #475569; margin-top: 2px; font-weight: 700; letter-spacing: 0.5px; }
+          .meta-box { text-align: right; font-size: 10px; color: #64748b; line-height: 1.4; }
+          .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+          .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; }
+          .kpi-title { font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
+          .kpi-val { font-size: 16px; font-weight: 900; color: #0f172a; }
+          .kpi-sub { font-size: 9px; color: #64748b; margin-top: 2px; font-weight: 600; }
+          table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+          th { background: #f1f5f9; color: #334155; font-weight: 800; text-transform: uppercase; font-size: 9.5px; padding: 7px 10px; border-bottom: 2px solid #cbd5e1; }
+          tfoot tr td { background: #0b4d2c; color: #ffffff; font-weight: 900; font-size: 11px; padding: 8px 10px; }
+          .footer { margin-top: 24px; display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="title">Agricovet de Guatemala</h1>
+            <div class="subtitle">INFORME EJECUTIVO DE AUDITORÍA Y RENDIMIENTO COMERCIAL</div>
+          </div>
+          <div class="meta-box">
+            <div><strong>Vendedor / Segmento:</strong> ${sellerTitle}</div>
+            <div><strong>Granularidad:</strong> ${granularityTitle}</div>
+            <div><strong>Fecha Emisión:</strong> ${nowStr}</div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Facturación Total Auditada</div>
+            <div class="kpi-val" style="color: #0b4d2c;">${formatMoney(summaryStats.totalSales)}</div>
+            <div class="kpi-sub">${summaryStats.totalInvoices} pedidos registrados</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Promedio por Período</div>
+            <div class="kpi-val" style="color: #1e40af;">${formatMoney(summaryStats.avgPeriodSales)}</div>
+            <div class="kpi-sub">Ticket Promedio: ${formatMoney(summaryStats.overallAvgTicket)}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Total Cobrado</div>
+            <div class="kpi-val" style="color: #047857;">${formatMoney(summaryStats.totalPaid)}</div>
+            <div class="kpi-sub">Tasa Recaudo: ${summaryStats.collectionRate.toFixed(1)}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Saldo por Cobrar</div>
+            <div class="kpi-val" style="color: #b45309;">${formatMoney(summaryStats.totalPending)}</div>
+            <div class="kpi-sub">Cartera pendiente total</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">Período / Semana</th>
+              <th style="text-align: right;">Facturación Total</th>
+              <th style="text-align: center;">Variación</th>
+              <th style="text-align: center;">Pedidos</th>
+              <th style="text-align: center;">Comp. Pedidos</th>
+              <th style="text-align: right;">Ticket Prom.</th>
+              <th style="text-align: right;">Cobrado</th>
+              <th style="text-align: right;">Por Cobrar</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>TOTAL AUDITADO (${activeDataset.length} períodos)</td>
+              <td style="text-align: right;">${formatMoney(summaryStats.totalSales)}</td>
+              <td style="text-align: center;">-</td>
+              <td style="text-align: center;">${summaryStats.totalInvoices} ped.</td>
+              <td style="text-align: center;">-</td>
+              <td style="text-align: right;">${formatMoney(summaryStats.overallAvgTicket)}</td>
+              <td style="text-align: right;">${formatMoney(summaryStats.totalPaid)}</td>
+              <td style="text-align: right;">${formatMoney(summaryStats.totalPending)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="footer">
+          <div>Sistema de Gestión Comercial Agricovet • Reporte Oficial de Auditoría</div>
+          <div>Documento Generado para Dirección / Gerencia General</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await printHtml(html);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       
       {/* 1. FILTER HEADER BAR */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-5 sm:p-6 rounded-3xl shadow-md border border-slate-700/60 relative overflow-hidden">
+      <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white p-5 sm:p-6 rounded-3xl shadow-lg border border-slate-800 relative overflow-hidden">
         <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative z-10">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase rounded-full tracking-widest flex items-center gap-1.5">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase rounded-full tracking-widest flex items-center gap-1.5 shadow-xs">
                 <Compass size={12} className="text-emerald-400 animate-pulse" />
-                Auditoría de Curva y Picadas de Rendimiento
+                Auditoría Comercial
               </span>
-              <span className="text-slate-400 text-xs font-medium">
-                {viewGranularity === 'weekly' ? `${weeklyData.length} semanas` :
+              <span className="text-slate-400 text-xs font-semibold">
+                {viewGranularity === 'weekly' ? `${weeklyData.length} semanas evaluadas` :
                  viewGranularity === 'daily' ? `${dailyData.length} días con ventas` :
                  `${monthlyData.length} meses`}
               </span>
@@ -606,175 +746,188 @@ export function SellerPerformanceHistory({
               Evolución Comercial {selectedSeller !== 'all' ? `• ${selectedSeller}` : '• Todo el Equipo'}
             </h3>
             <p className="text-xs text-slate-300 font-medium max-w-xl mt-0.5">
-              Identifica la semana y el día exacto donde comenzó a caer el rendimiento para tomar acciones comerciales a tiempo.
+              Análisis de ventas, pedidos, cobranza y trayectoria comercial.
             </p>
           </div>
 
-          {/* Interactive Filters Controls */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            
-            {/* GRANULARITY TOGGLE: SEMANAS vs DIAS vs MESES */}
-            <div className="relative min-w-[240px]">
-              <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block mb-1">
-                Granularidad (Ver Semanas / Días):
-              </label>
-              <div className="flex bg-slate-800/90 p-1 rounded-xl border border-slate-600/70">
-                <button
-                  type="button"
-                  onClick={() => setViewGranularity('weekly')}
-                  className={cn(
-                    "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
-                    viewGranularity === 'weekly' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <Calendar size={13} />
-                  <span>Semanas</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewGranularity('daily')}
-                  className={cn(
-                    "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
-                    viewGranularity === 'daily' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <Activity size={13} />
-                  <span>Días</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewGranularity('monthly')}
-                  className={cn(
-                    "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
-                    viewGranularity === 'monthly' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <Layers size={13} />
-                  <span>Meses</span>
-                </button>
-              </div>
-            </div>
-
-            {/* VENDEDOR SELECTOR */}
-            <div className="relative min-w-[170px] sm:min-w-[190px]">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Vendedor:
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedSeller}
-                  onChange={(e) => setSelectedSeller(e.target.value)}
-                  className="w-full appearance-none bg-slate-800/90 border border-slate-600/70 hover:border-emerald-500/50 rounded-xl px-3.5 py-2 pr-9 text-xs font-bold text-white shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition"
-                >
-                  <option value="all">👥 Todo el Equipo Comercial</option>
-                  {availableSellers.map(seller => (
-                    <option key={seller} value={seller}>
-                      👤 {seller}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* AÑO SELECTOR */}
-            <div className="relative min-w-[90px]">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Año:
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="w-full appearance-none bg-slate-800/90 border border-slate-600/70 hover:border-emerald-500/50 rounded-xl px-3 py-2 pr-8 text-xs font-bold text-white shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition"
-                >
-                  <option value="all">📅 Todos</option>
-                  {availableYears.map(yr => (
-                    <option key={yr} value={String(yr)}>
-                      {yr}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* RANGO CONTROL SEGÚN GRANULARIDAD */}
-            {viewGranularity === 'weekly' && (
-              <div className="relative">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  Rango Semanas:
-                </label>
-                <div className="flex bg-slate-800/90 p-0.5 rounded-xl border border-slate-600/70">
-                  {(['4w', '8w', '12w', '24w', 'all'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setWeeklyTimeRange(r)}
-                      className={cn(
-                        "px-2 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
-                        weeklyTimeRange === r ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                      )}
-                    >
-                      {r === 'all' ? 'Todo' : r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {viewGranularity === 'daily' && (
-              <div className="relative">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  Rango Días:
-                </label>
-                <div className="flex bg-slate-800/90 p-0.5 rounded-xl border border-slate-600/70">
-                  {(['14d', '30d', '60d', '90d', 'all'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setDailyTimeRange(r)}
-                      className={cn(
-                        "px-2 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
-                        dailyTimeRange === r ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                      )}
-                    >
-                      {r === 'all' ? 'Todo' : r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {viewGranularity === 'monthly' && (
-              <div className="relative">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  Rango Meses:
-                </label>
-                <div className="flex bg-slate-800/90 p-0.5 rounded-xl border border-slate-600/70">
-                  {(['2m', '6m', '12m', 'all'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setTimeRange(r)}
-                      className={cn(
-                        "px-2 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
-                        timeRange === r ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-                      )}
-                    >
-                      {r === 'all' ? 'Todo' : r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
+          {/* Action Button: Imprimir Informe Formal */}
+          <div className="flex items-center gap-2 self-start lg:self-center shrink-0">
+            <button
+              type="button"
+              onClick={handlePrintReport}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
+              title="Generar vista formal para imprimir o PDF"
+            >
+              <Printer size={14} />
+              <span>Imprimir Informe</span>
+            </button>
           </div>
+        </div>
+
+        {/* Secondary Filter Controls Toolbar */}
+        <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center gap-3 relative z-10">
+          
+          {/* GRANULARITY TOGGLE: SEMANAS vs DIAS vs MESES */}
+          <div className="relative min-w-[230px]">
+            <label className="text-[10px] font-black text-emerald-400 uppercase tracking-wider block mb-1">
+              Granularidad:
+            </label>
+            <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setViewGranularity('weekly')}
+                className={cn(
+                  "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
+                  viewGranularity === 'weekly' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                )}
+              >
+                <Calendar size={13} />
+                <span>Semanas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewGranularity('daily')}
+                className={cn(
+                  "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
+                  viewGranularity === 'daily' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                )}
+              >
+                <Activity size={13} />
+                <span>Días</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewGranularity('monthly')}
+                className={cn(
+                  "flex-1 py-1.5 px-2.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center justify-center gap-1",
+                  viewGranularity === 'monthly' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                )}
+              >
+                <Layers size={13} />
+                <span>Meses</span>
+              </button>
+            </div>
+          </div>
+
+          {/* VENDEDOR SELECTOR */}
+          <div className="relative min-w-[170px] sm:min-w-[190px]">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Vendedor:
+            </label>
+            <div className="relative">
+              <select
+                value={selectedSeller}
+                onChange={(e) => setSelectedSeller(e.target.value)}
+                className="w-full appearance-none bg-slate-900/90 border border-slate-700 hover:border-emerald-500/50 rounded-xl px-3.5 py-2 pr-9 text-xs font-bold text-white shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition"
+              >
+                <option value="all">👥 Todo el Equipo Comercial</option>
+                {availableSellers.map(seller => (
+                  <option key={seller} value={seller}>
+                    👤 {seller}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* AÑO SELECTOR */}
+          <div className="relative min-w-[90px]">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Año:
+            </label>
+            <div className="relative">
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full appearance-none bg-slate-900/90 border border-slate-700 hover:border-emerald-500/50 rounded-xl px-3 py-2 pr-8 text-xs font-bold text-white shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition"
+              >
+                <option value="all">📅 Todos</option>
+                {availableYears.map(yr => (
+                  <option key={yr} value={String(yr)}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* RANGO CONTROL SEGÚN GRANULARIDAD */}
+          {viewGranularity === 'weekly' && (
+            <div className="relative">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Rango Semanas:
+              </label>
+              <div className="flex bg-slate-900/90 p-0.5 rounded-xl border border-slate-700">
+                {(['4w', '8w', '12w', '24w', 'all'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setWeeklyTimeRange(r)}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
+                      weeklyTimeRange === r ? "bg-emerald-600 text-white shadow-xs font-black" : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    {r === 'all' ? 'Todo' : r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {viewGranularity === 'daily' && (
+            <div className="relative">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Rango Días:
+              </label>
+              <div className="flex bg-slate-900/90 p-0.5 rounded-xl border border-slate-700">
+                {(['14d', '30d', '60d', '90d', 'all'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setDailyTimeRange(r)}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
+                      dailyTimeRange === r ? "bg-emerald-600 text-white shadow-xs font-black" : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    {r === 'all' ? 'Todo' : r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {viewGranularity === 'monthly' && (
+            <div className="relative">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Rango Meses:
+              </label>
+              <div className="flex bg-slate-900/90 p-0.5 rounded-xl border border-slate-700">
+                {(['2m', '6m', '12m', 'all'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setTimeRange(r)}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer",
+                      timeRange === r ? "bg-emerald-600 text-white shadow-xs font-black" : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    {r === 'all' ? 'Todo' : r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* QUICK MONTH CHIPS (ONLY IN MONTHLY MODE) */}
         {viewGranularity === 'monthly' && (
-          <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <span className="text-[10px] font-bold text-slate-400 uppercase mr-1 shrink-0">
               Vista por Mes:
             </span>
@@ -863,58 +1016,59 @@ export function SellerPerformanceHistory({
       )}
 
       {/* 3. SUMMARY KPI CARDS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         
         {/* Total Facturado */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider">
-              {viewGranularity === 'weekly' ? 'Venta Total en Semanas' :
-               viewGranularity === 'daily' ? 'Venta Total en Días' : 'Venta Total Periodo'}
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-emerald-300 transition">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              {viewGranularity === 'weekly' ? 'Facturación en Semanas' :
+               viewGranularity === 'daily' ? 'Facturación en Días' : 'Facturación en Meses'}
             </span>
-            <div className="p-1.5 bg-emerald-50 text-[#0b4d2c] rounded-lg">
-              <DollarSign size={14} />
+            <div className="p-1.5 bg-emerald-50 text-[#0b4d2c] rounded-xl">
+              <DollarSign size={15} />
             </div>
           </div>
           <div>
-            <span className="text-lg sm:text-xl font-black text-slate-900 block notranslate" translate="no">
+            <span className="text-xl font-black text-slate-900 block notranslate font-mono" translate="no">
               {formatMoney(summaryStats.totalSales)}
             </span>
-            <span className="text-[10px] font-semibold text-slate-500 mt-0.5 block">
-              {summaryStats.totalInvoices} pedidos en {summaryStats.periodsCount} {viewGranularity === 'weekly' ? 'semanas' : viewGranularity === 'daily' ? 'días' : 'meses'}
-            </span>
+            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mt-1">
+              <span>{summaryStats.totalInvoices} pedidos</span>
+              <span className="text-emerald-700 font-bold">{summaryStats.periodsCount} períodos</span>
+            </div>
           </div>
         </div>
 
         {/* Promedio de Venta */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-blue-300 transition">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
               {viewGranularity === 'weekly' ? 'Promedio Semanal' :
                viewGranularity === 'daily' ? 'Promedio Diario' : 'Promedio Mensual'}
             </span>
-            <div className="p-1.5 bg-blue-50 text-blue-700 rounded-lg">
-              <BarChart3 size={14} />
+            <div className="p-1.5 bg-blue-50 text-blue-700 rounded-xl">
+              <BarChart3 size={15} />
             </div>
           </div>
           <div>
-            <span className="text-lg sm:text-xl font-black text-blue-900 block notranslate" translate="no">
+            <span className="text-xl font-black text-blue-900 block notranslate font-mono" translate="no">
               {formatMoney(summaryStats.avgPeriodSales)}
             </span>
-            <span className="text-[10px] font-semibold text-slate-500 mt-0.5 block">
-              Ticket Prom: {formatMoney(summaryStats.overallAvgTicket)}
-            </span>
+            <div className="text-[11px] font-semibold text-slate-500 mt-1">
+              Ticket Prom: <strong className="text-slate-800 font-mono">{formatMoney(summaryStats.overallAvgTicket)}</strong>
+            </div>
           </div>
         </div>
 
         {/* Mejor Periodo */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider">
-              {viewGranularity === 'weekly' ? 'Semana Récord' : 'Mes Récord'}
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-amber-300 transition">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              {viewGranularity === 'weekly' ? 'Récord Semanal' : 'Récord Mensual'}
             </span>
-            <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
-              <Award size={14} />
+            <div className="p-1.5 bg-amber-50 text-amber-600 rounded-xl">
+              <Award size={15} />
             </div>
           </div>
           <div>
@@ -923,7 +1077,7 @@ export function SellerPerformanceHistory({
                 <span className="text-xs sm:text-sm font-black text-slate-900 block leading-tight truncate">
                   {summaryStats.bestPeriod.shortLabel || summaryStats.bestPeriod.fullLabel || summaryStats.bestPeriod.label}
                 </span>
-                <span className="text-[11px] font-black text-amber-700 block mt-0.5 notranslate" translate="no">
+                <span className="text-xs font-black text-amber-700 block mt-1 notranslate font-mono" translate="no">
                   {formatMoney(summaryStats.bestPeriod.totalSales)} ({summaryStats.bestPeriod.invoiceCount} ped.)
                 </span>
               </>
@@ -934,21 +1088,30 @@ export function SellerPerformanceHistory({
         </div>
 
         {/* Cobrado vs Por Cobrar */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-slate-400 mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider">Tasa de Recaudo</span>
-            <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg">
-              <CheckCircle2 size={14} />
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-teal-300 transition">
+          <div className="flex items-center justify-between text-slate-400 mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tasa de Recaudo</span>
+            <div className="p-1.5 bg-teal-50 text-teal-700 rounded-xl">
+              <CheckCircle2 size={15} />
             </div>
           </div>
           <div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-lg sm:text-xl font-black text-emerald-800">
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-xl font-black text-emerald-800">
                 {summaryStats.collectionRate.toFixed(1)}%
               </span>
-              <span className="text-[10px] font-bold text-slate-400">Cobrado</span>
+              <span className="text-[10px] font-bold text-slate-400">Cobrado: {formatMoney(summaryStats.totalPaid)}</span>
             </div>
-            <span className="text-[10px] font-bold text-amber-700 mt-0.5 block notranslate" translate="no">
+            
+            {/* Visual Progress Bar */}
+            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+              <div 
+                className="bg-emerald-600 h-full rounded-full transition-all duration-500" 
+                style={{ width: `${Math.min(100, Math.max(0, summaryStats.collectionRate))}%` }}
+              />
+            </div>
+
+            <span className="text-[10px] font-bold text-amber-700 mt-1 block notranslate" translate="no">
               Pendiente: {formatMoney(summaryStats.totalPending)}
             </span>
           </div>
@@ -957,7 +1120,7 @@ export function SellerPerformanceHistory({
       </div>
 
       {/* 4. INTERACTIVE RECHARTS GRAPH */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-3">
+      <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5 border-b border-slate-100">
           <div>
             <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
@@ -982,7 +1145,7 @@ export function SellerPerformanceHistory({
             <button
               onClick={() => setChartMetric('both')}
               className={cn(
-                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                "px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
                 chartMetric === 'both' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
@@ -991,7 +1154,7 @@ export function SellerPerformanceHistory({
             <button
               onClick={() => setChartMetric('sales')}
               className={cn(
-                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                "px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
                 chartMetric === 'sales' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
@@ -1000,7 +1163,7 @@ export function SellerPerformanceHistory({
             <button
               onClick={() => setChartMetric('count')}
               className={cn(
-                "px-2 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
+                "px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-[11px]",
                 chartMetric === 'count' ? "bg-white text-slate-900 shadow-xs font-black" : "text-slate-500 hover:text-slate-900"
               )}
             >
@@ -1012,20 +1175,27 @@ export function SellerPerformanceHistory({
         {activeDataset.length > 0 ? (
           <div className="h-[250px] sm:h-[280px] w-full pt-1">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={activeDataset} margin={{ top: 15, right: 15, left: 5, bottom: 25 }}>
+              <ComposedChart data={activeDataset} margin={{ top: 10, right: 8, left: -15, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
                   dataKey="label" 
                   stroke="#64748b" 
-                  fontSize={viewGranularity === 'daily' ? 10 : 11} 
+                  fontSize={9}
                   tickLine={false}
-                  dy={8}
-                  interval={viewGranularity === 'daily' && activeDataset.length > 25 ? 'preserveStartEnd' : 0}
+                  dy={4}
+                  interval={viewGranularity === 'daily' ? (activeDataset.length > 20 ? 'preserveStartEnd' : 1) : 0}
+                  tickFormatter={(val: string) => {
+                    if (viewGranularity === 'weekly') {
+                      return val.replace('Sem ', 'S');
+                    }
+                    return val;
+                  }}
                 />
                 <YAxis 
                   yAxisId="left" 
                   stroke="#64748b" 
-                  fontSize={10} 
+                  fontSize={9}
+                  width={38}
                   tickLine={false} 
                   axisLine={false}
                   tickFormatter={(val) => `Q${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
@@ -1035,10 +1205,11 @@ export function SellerPerformanceHistory({
                     yAxisId="right" 
                     orientation="right" 
                     stroke="#94a3b8" 
-                    fontSize={10} 
+                    fontSize={9}
+                    width={26}
                     tickLine={false} 
                     axisLine={false}
-                    tickFormatter={(val) => `${val} ped`}
+                    tickFormatter={(val) => `${val}`}
                   />
                 )}
                 <RechartsTooltip 
@@ -1050,8 +1221,8 @@ export function SellerPerformanceHistory({
                       const isSpike = (data.wowOrderDiff !== undefined && data.wowOrderDiff > 0) || (data.diffOrders !== undefined && data.diffOrders > 0) || (data.momCountDiff !== undefined && data.momCountDiff > 0);
 
                       return (
-                        <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/80 backdrop-blur-md text-xs space-y-2 min-w-[220px]">
-                          <div className="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                        <div className="bg-slate-900/95 text-white p-3 rounded-2xl shadow-xl border border-slate-700/80 backdrop-blur-md text-xs space-y-2 min-w-[200px]">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-1">
                             <span className="font-black text-xs text-emerald-400">{title}</span>
                             {data.hasPrev && (
                               <span className={cn(
@@ -1071,7 +1242,7 @@ export function SellerPerformanceHistory({
                           <div className="space-y-1">
                             <div className="flex justify-between">
                               <span className="text-slate-400">Total Facturado:</span>
-                              <span className="font-black text-white notranslate" translate="no">{formatMoney(data.totalSales)}</span>
+                              <span className="font-black text-white notranslate font-mono" translate="no">{formatMoney(data.totalSales)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-slate-400">Pedidos:</span>
@@ -1079,15 +1250,15 @@ export function SellerPerformanceHistory({
                             </div>
                             <div className="flex justify-between">
                               <span className="text-slate-400">Ticket Promedio:</span>
-                              <span className="font-bold text-slate-200 notranslate" translate="no">{formatMoney(data.avgTicket)}</span>
+                              <span className="font-bold text-slate-200 notranslate font-mono" translate="no">{formatMoney(data.avgTicket)}</span>
                             </div>
                             <div className="flex justify-between pt-1 border-t border-slate-800 text-[11px]">
                               <span className="text-slate-400">Cobrado:</span>
-                              <span className="font-bold text-emerald-300 notranslate" translate="no">{formatMoney(data.paidAmount)}</span>
+                              <span className="font-bold text-emerald-300 notranslate font-mono" translate="no">{formatMoney(data.paidAmount)}</span>
                             </div>
                             <div className="flex justify-between text-[11px]">
                               <span className="text-slate-400">Saldo Pendiente:</span>
-                              <span className="font-bold text-amber-300 notranslate" translate="no">{formatMoney(data.pendingAmount)}</span>
+                              <span className="font-bold text-amber-300 notranslate font-mono" translate="no">{formatMoney(data.pendingAmount)}</span>
                             </div>
                           </div>
                         </div>
@@ -1096,7 +1267,7 @@ export function SellerPerformanceHistory({
                     return null;
                   }}
                 />
-                <RechartsLegend verticalAlign="top" height={30} wrapperStyle={{ fontSize: '11px' }} />
+                <RechartsLegend verticalAlign="top" height={28} wrapperStyle={{ fontSize: '10px' }} />
 
                 {/* Average Reference Line */}
                 <ReferenceLine 
@@ -1104,7 +1275,7 @@ export function SellerPerformanceHistory({
                   y={summaryStats.avgPeriodSales} 
                   stroke="#94a3b8" 
                   strokeDasharray="4 4" 
-                  label={{ value: `Prom: Q${Math.round(summaryStats.avgPeriodSales).toLocaleString()}`, fill: '#94a3b8', fontSize: 9, position: 'insideTopLeft' }} 
+                  label={{ value: `Prom: Q${Math.round(summaryStats.avgPeriodSales).toLocaleString()}`, fill: '#94a3b8', fontSize: 8, position: 'insideTopLeft' }} 
                 />
 
                 {/* Bars */}
@@ -1113,8 +1284,8 @@ export function SellerPerformanceHistory({
                     yAxisId="left" 
                     dataKey="totalSales" 
                     name="Facturación (Q)" 
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={viewGranularity === 'daily' ? 18 : 36}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={viewGranularity === 'daily' ? 14 : 22}
                   >
                     {activeDataset.map((entry: any, index: number) => {
                       const isRecord = Boolean(entry.isTrueRecord);
@@ -1140,8 +1311,8 @@ export function SellerPerformanceHistory({
                     name="Pedidos" 
                     stroke="#3b82f6" 
                     strokeWidth={2} 
-                    dot={{ r: viewGranularity === 'daily' ? 2 : 3, fill: '#3b82f6' }}
-                    activeDot={{ r: 5 }} 
+                    dot={{ r: viewGranularity === 'daily' ? 1.5 : 2.5, fill: '#3b82f6' }}
+                    activeDot={{ r: 4 }} 
                   />
                 )}
               </ComposedChart>
@@ -1155,7 +1326,7 @@ export function SellerPerformanceHistory({
         )}
       </div>
 
-      {/* 5. DETAILED AUDIT TABLE (COMPACT EXECUTIVE TABLE) */}
+      {/* 5. DETAILED AUDIT TABLE (WITH TOTALS FOOTER) */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -1166,18 +1337,20 @@ export function SellerPerformanceHistory({
                'Auditoría Mes a Mes'}
             </h4>
             <p className="text-[11px] text-slate-500 font-medium">
-              Desglose con comparativa respecto al periodo inmediatamente anterior.
+              Desglose período a período con comparativas exactas y totalizadores para informe formal.
             </p>
           </div>
-          <span className="text-[11px] font-bold text-slate-400">
-            {activeDataset.length} periodos
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+              {activeDataset.length} períodos auditados
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[760px]">
             <thead>
-              <tr className="bg-slate-50/90 border-b border-slate-200/80 text-[10px] font-black uppercase text-slate-500 tracking-wider">
+              <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] font-black uppercase text-slate-500 tracking-wider">
                 <th className="py-2.5 px-3 whitespace-nowrap">
                   {viewGranularity === 'weekly' ? 'Semana (Período)' :
                    viewGranularity === 'daily' ? 'Fecha' : 'Mes / Periodo'}
@@ -1208,7 +1381,7 @@ export function SellerPerformanceHistory({
                   const isGoodGrowth = row.hasPrev && (orderDiff >= 3 || pctChange >= 12);
 
                   return (
-                    <tr key={row.weekKey || row.isoDate || row.yearMonth} className="hover:bg-slate-50/80 transition">
+                    <tr key={row.weekKey || row.isoDate || row.yearMonth} className="hover:bg-slate-50/80 transition even:bg-slate-50/30">
                       
                       {/* Periodo */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
@@ -1234,7 +1407,7 @@ export function SellerPerformanceHistory({
                       </td>
 
                       {/* Facturación Total */}
-                      <td className="py-2.5 px-3 text-right font-black text-slate-900 text-xs whitespace-nowrap notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 text-xs whitespace-nowrap notranslate font-mono" translate="no">
                         {formatMoney(row.totalSales)}
                       </td>
 
@@ -1286,17 +1459,17 @@ export function SellerPerformanceHistory({
                       </td>
 
                       {/* Ticket Promedio */}
-                      <td className="py-2.5 px-3 text-right font-medium text-slate-600 text-xs whitespace-nowrap notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-medium text-slate-600 text-xs whitespace-nowrap notranslate font-mono" translate="no">
                         {formatMoney(row.avgTicket)}
                       </td>
 
                       {/* Cobrado */}
-                      <td className="py-2.5 px-3 text-right font-bold text-emerald-700 text-xs whitespace-nowrap notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-bold text-emerald-700 text-xs whitespace-nowrap notranslate font-mono" translate="no">
                         {formatMoney(row.paidAmount)}
                       </td>
 
                       {/* Por Cobrar */}
-                      <td className="py-2.5 px-3 text-right font-bold text-amber-700 text-xs whitespace-nowrap notranslate" translate="no">
+                      <td className="py-2.5 px-3 text-right font-bold text-amber-700 text-xs whitespace-nowrap notranslate font-mono" translate="no">
                         {formatMoney(row.pendingAmount)}
                       </td>
 
@@ -1326,6 +1499,46 @@ export function SellerPerformanceHistory({
                 })
               )}
             </tbody>
+
+            {/* Fila de Totales Generales para Informe */}
+            {activeDataset.length > 0 && (
+              <tfoot className="border-t-2 border-[#0b4d2c] bg-slate-900 text-white font-black text-xs">
+                <tr>
+                  <td className="py-3 px-3 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5 text-emerald-400 uppercase text-[10px] tracking-wider">
+                      <ShieldCheck size={14} />
+                      <span>TOTAL GENERAL ({activeDataset.length} períodos)</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-emerald-300 font-black whitespace-nowrap" translate="no">
+                    {formatMoney(summaryStats.totalSales)}
+                  </td>
+                  <td className="py-3 px-3 text-center text-slate-400 font-medium">
+                    -
+                  </td>
+                  <td className="py-3 px-3 text-center text-white font-black whitespace-nowrap">
+                    {summaryStats.totalInvoices} ped.
+                  </td>
+                  <td className="py-3 px-3 text-center text-slate-400 font-medium">
+                    -
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-slate-200 whitespace-nowrap" translate="no">
+                    {formatMoney(summaryStats.overallAvgTicket)}
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-emerald-300 whitespace-nowrap" translate="no">
+                    {formatMoney(summaryStats.totalPaid)}
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-amber-300 whitespace-nowrap" translate="no">
+                    {formatMoney(summaryStats.totalPending)}
+                  </td>
+                  <td className="py-3 px-3 text-center whitespace-nowrap">
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded text-[10px]">
+                      {summaryStats.collectionRate.toFixed(1)}% Cobro
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

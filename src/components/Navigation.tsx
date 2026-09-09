@@ -5,6 +5,7 @@ import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu,
 import { api, supabase } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
+import { PanicButton } from './PanicButton';
 import { Capacitor } from '@capacitor/core';
 import { initNativeNotifications, showNativeAlert } from '../nativeNotifications';
 
@@ -1158,6 +1159,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                 {isOnline ? "Nube" : "Offline"}
               </span>
             </button>
+            <div className="hidden xs:block">
+              <PanicButton variant="compact" />
+            </div>
           </div>
         </div>
           <div className="flex items-center gap-2.5 relative">
@@ -1575,6 +1579,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               </span>
               <RefreshCw size={11} className={cn("text-slate-400 ml-1.5", isSyncing && "animate-spin")} />
             </button>
+
+            {/* Botón de Pánico y Selector de Base de Datos */}
+            <PanicButton variant="compact" />
           </div>
         </div>
         <div className="flex items-center gap-6 ml-8 relative">

@@ -1,12 +1,17 @@
 import { Capacitor } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
 import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats, SellerRoute } from './types';
+import { isTodayGuatemala, getGuatemalaTodayIso } from './utils';
 import preloadedData from './data/preloadedData.json';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vedgedsbuajueynnyvpn.supabase.co';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+export const isNeonMode = (): boolean => {
+  return typeof localStorage !== 'undefined' && localStorage.getItem('app_db_mode') === 'neon';
+};
 
 export const SUPABASE_REST_BASE = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1`;
 
@@ -427,18 +432,20 @@ export const api = {
       const cached = getCachedApi('clients');
       if (cached && Array.isArray(cached) && cached.length > 0) return cached.map(normalizeClient);
     }
-    try {
-      const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
-      if (!error && data && Array.isArray(data) && data.length > 0) {
-        const normalized = data.map(normalizeClient);
-        setCachedApi('clients', normalized);
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('offline_clients', JSON.stringify(normalized));
+    if (!isNeonMode()) {
+      try {
+        const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
+        if (!error && data && Array.isArray(data) && data.length > 0) {
+          const normalized = data.map(normalizeClient);
+          setCachedApi('clients', normalized);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('offline_clients', JSON.stringify(normalized));
+          }
+          return normalized;
         }
-        return normalized;
+      } catch (e) {
+        console.warn('Direct Supabase clients fetch fallback:', e);
       }
-    } catch (e) {
-      console.warn('Direct Supabase clients fetch fallback:', e);
     }
     try {
       const res = await fetchWithAuth('/api/clients');
@@ -1041,6 +1048,15 @@ export const api = {
     return { success: true, route: { id: routeId, status: 'completed', finishedAt: nowIso } as any };
   },
 
+  getSavedUser: (): User | null => {
+    try {
+      const rawUser = localStorage.getItem('app_user');
+      return rawUser ? JSON.parse(rawUser) : null;
+    } catch {
+      return null;
+    }
+  },
+
   getMe: async (): Promise<User | null> => {
     const token = localStorage.getItem('app_token');
     if (!token) return null;
@@ -1344,18 +1360,20 @@ export const api = {
       const cachedMem = getCachedApi('products');
       if (cachedMem && Array.isArray(cachedMem)) return cachedMem.map(mapProduct);
     }
-    try {
-      const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
-      if (!error && data && Array.isArray(data) && data.length > 0) {
-        const normalized = data.map(mapProduct);
-        setCachedApi('products', normalized);
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('cached_products', JSON.stringify(normalized));
+    if (!isNeonMode()) {
+      try {
+        const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
+        if (!error && data && Array.isArray(data) && data.length > 0) {
+          const normalized = data.map(mapProduct);
+          setCachedApi('products', normalized);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('cached_products', JSON.stringify(normalized));
+          }
+          return normalized;
         }
-        return normalized;
+      } catch (e) {
+        console.warn('Direct Supabase products fetch fallback:', e);
       }
-    } catch (e) {
-      console.warn('Direct Supabase products fetch fallback:', e);
     }
     try {
       const res = await fetchWithAuth('/api/products');
@@ -1521,6 +1539,19 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to update invoice');
+    }
+    return res.json();
+  },
+
+  updateInvoiceCustomer: async (id: string, data: { nit?: string; client?: string; phone?: string; address?: string }): Promise<any> => {
+    const res = await fetchWithAuth(`/api/invoices/${id}/customer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update invoice customer');
     }
     return res.json();
   },
@@ -2738,5 +2769,41 @@ export const api = {
     return null;
   },
 
+  // BOTÓN DE PÁNICO Y ESTADO DE BASES DE DATOS
+  getDbStatus: async () => {
+    try {
+      const res = await fetch(getApiUrl('/api/panic/status'));
+      if (res.ok) return await safeJson(res);
+    } catch (e) {
+      console.warn('Error al consultar estado de BD:', e);
+    }
+    return { activeMode: 'supabase', supabaseHealthy: false, neonHealthy: true, neonConfigured: true };
+  },
+
+  switchDb: async (mode: 'supabase' | 'neon') => {
+    try {
+      const res = await fetch(getApiUrl('/api/panic/switch'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (res.ok) {
+        localStorage.setItem('app_db_mode', mode);
+        return await safeJson(res);
+      }
+    } catch (err) {}
+    localStorage.setItem('app_db_mode', mode);
+    return { success: true, activeMode: mode };
+  },
+
+  syncNeon: async () => {
+    const res = await fetch(getApiUrl('/api/panic/sync'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Error al sincronizar con Neon');
+    return await safeJson(res);
+  }
 };
+
 
