@@ -77,6 +77,9 @@ export default function App() {
     return saved === 'true';
   });
 
+  const [isSupabaseDown, setIsSupabaseDown] = useState(false);
+  const [isSwitchingDb, setIsSwitchingDb] = useState(false);
+
   const toggleMaintenanceMode = () => {
     const nextVal = !isMaintenanceMode;
     setIsMaintenanceMode(nextVal);
@@ -88,25 +91,30 @@ export default function App() {
     const checkPanicStatus = async () => {
       try {
         const data = await api.getDbStatus();
-        if (data && data.activeMode) {
-          const newMode = data.activeMode;
-          const currentMode = localStorage.getItem('app_db_mode') || 'supabase';
-          if (newMode !== currentMode) {
-            console.log(`[GLOBAL PANIC SYNC] Modo cambiado en servidor a: ${newMode}`);
-            localStorage.setItem('app_db_mode', newMode);
-            setDbMode(newMode);
-            clearApiCache();
-            window.dispatchEvent(new CustomEvent('agricovet-panic-mode-changed', { detail: { mode: newMode } }));
-            window.dispatchEvent(new CustomEvent('agricovet-mutate'));
-          } else if (newMode !== dbMode) {
-            setDbMode(newMode);
+        if (data) {
+          setIsSupabaseDown(data.supabaseHealthy === false);
+          if (data.activeMode) {
+            const newMode = data.activeMode;
+            const currentMode = localStorage.getItem('app_db_mode') || 'supabase';
+            if (newMode !== currentMode) {
+              console.log(`[GLOBAL PANIC SYNC] Modo cambiado en servidor a: ${newMode}`);
+              localStorage.setItem('app_db_mode', newMode);
+              setDbMode(newMode);
+              clearApiCache();
+              window.dispatchEvent(new CustomEvent('agricovet-panic-mode-changed', { detail: { mode: newMode } }));
+              window.dispatchEvent(new CustomEvent('agricovet-mutate'));
+            } else if (newMode !== dbMode) {
+              setDbMode(newMode);
+            }
           }
         }
-      } catch (err) {}
+      } catch (err) {
+        setIsSupabaseDown(true);
+      }
     };
 
     checkPanicStatus();
-    const interval = setInterval(checkPanicStatus, 4000);
+    const interval = setInterval(checkPanicStatus, 3000);
 
     const handlePanicChange = (e: any) => {
       if (e.detail?.mode) {
@@ -114,11 +122,16 @@ export default function App() {
         clearApiCache();
       }
     };
+    const handleDbError = () => {
+      setIsSupabaseDown(true);
+    };
     window.addEventListener('agricovet-panic-mode-changed', handlePanicChange);
+    window.addEventListener('agricovet-db-error', handleDbError);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('agricovet-panic-mode-changed', handlePanicChange);
+      window.removeEventListener('agricovet-db-error', handleDbError);
     };
   }, [dbMode]);
 
@@ -361,9 +374,45 @@ export default function App() {
 
   const appContent = (
     <div className={`flex flex-col min-h-screen bg-surface font-sans h-screen overflow-hidden`}>
+      {/* Banner de Caída Detectada de Supabase -> Opción para Conectar a Neon */}
+      {dbMode === 'supabase' && isSupabaseDown && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-700 to-red-800 text-white px-3 py-2 text-xs font-bold flex flex-wrap items-center justify-between shadow-2xl sticky top-0 z-[110] border-b border-red-400">
+          <div className="flex items-center gap-2 truncate">
+            <span className="text-base shrink-0 animate-bounce">⚠️</span>
+            <span className="bg-red-950/90 border border-red-300/40 px-1.5 py-0.5 rounded text-[10px] tracking-wide uppercase font-black text-red-200 shrink-0">
+              CAÍDA DE SUPABASE DETECTADA
+            </span>
+            <span className="text-red-100 font-medium truncate hidden sm:inline">
+              La base de datos principal no responde. Puedes activar el respaldo Neon de inmediato:
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              disabled={isSwitchingDb}
+              onClick={async () => {
+                setIsSwitchingDb(true);
+                try {
+                  await api.switchDb('neon');
+                  setDbMode('neon');
+                  setIsSupabaseDown(false);
+                  clearApiCache();
+                  window.dispatchEvent(new CustomEvent('agricovet-panic-mode-changed', { detail: { mode: 'neon' } }));
+                  window.dispatchEvent(new CustomEvent('agricovet-mutate'));
+                } finally {
+                  setIsSwitchingDb(false);
+                }
+              }}
+              className="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95 border border-amber-300 uppercase tracking-tight"
+            >
+              <Database className="w-3.5 h-3.5 text-slate-900" />
+              {isSwitchingDb ? 'Conectando a Neon...' : '🔄 Conectar a Neon Respaldo'}
+            </button>
+          </div>
+        </div>
+      )}
       {/* Banner de Contingencia Global (Neon Backup) */}
       {dbMode === 'neon' && (
-        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-3 py-1.5 text-[11px] font-bold flex flex-wrap items-center justify-between shadow-lg sticky top-0 z-[100] border-b border-amber-400/40 animate-pulse">
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-3 py-1.5 text-[11px] font-bold flex flex-wrap items-center justify-between shadow-lg sticky top-0 z-[100] border-b border-amber-400/40">
           <div className="flex items-center gap-2 truncate">
             <span className="flex h-2 w-2 relative shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
@@ -373,10 +422,28 @@ export default function App() {
               🚨 MODO DE EMERGENCIA (NEON DB ACTIVO)
             </span>
             <span className="text-amber-50 truncate hidden sm:inline">
-              La plataforma está operando sobre la base de datos de respaldo para toda la empresa.
+              La plataforma está operando sobre la base de datos de respaldo Neon para toda la empresa.
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              disabled={isSwitchingDb}
+              onClick={async () => {
+                setIsSwitchingDb(true);
+                try {
+                  await api.switchDb('supabase');
+                  setDbMode('supabase');
+                  clearApiCache();
+                  window.dispatchEvent(new CustomEvent('agricovet-panic-mode-changed', { detail: { mode: 'supabase' } }));
+                  window.dispatchEvent(new CustomEvent('agricovet-mutate'));
+                } finally {
+                  setIsSwitchingDb(false);
+                }
+              }}
+              className="bg-emerald-500 hover:bg-emerald-400 text-white px-2.5 py-0.5 rounded text-[10px] font-black transition cursor-pointer flex items-center gap-1 border border-emerald-400 shadow active:scale-95"
+            >
+              ⚡ Restaurar Supabase
+            </button>
             <button
               onClick={() => {
                 clearApiCache();

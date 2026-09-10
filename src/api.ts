@@ -467,7 +467,7 @@ export const api = {
           } catch (e) {}
         }
       }
-      return ((preloadedData.clients || []) as any[]).map(normalizeClient);
+      return [];
     }
   },
 
@@ -1387,14 +1387,16 @@ export const api = {
       localStorage.setItem('cached_products', JSON.stringify(normalized));
       return normalized;
     } catch (err) {
-      const cached = localStorage.getItem('cached_products') || localStorage.getItem('offline_products');
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(mapProduct);
-        } catch (e) {}
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('cached_products') || localStorage.getItem('offline_products');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(mapProduct);
+          } catch (e) {}
+        }
       }
-      return ((preloadedData.products || []) as any[]).map(mapProduct);
+      return [];
     }
   },
 
@@ -1685,12 +1687,11 @@ export const api = {
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          const preloadedCount = (preloadedData.invoices || []).length;
-          if (Array.isArray(parsed) && parsed.length >= preloadedCount) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch (e) {}
       }
     }
-    return (preloadedData.invoices || []).map(inv => parseInvoiceFlags(inv)) as any[];
+    return [];
   },
 
   getClientInvoices: async (clientName: string): Promise<Invoice[]> => {
