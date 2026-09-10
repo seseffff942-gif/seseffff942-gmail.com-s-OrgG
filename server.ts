@@ -11,6 +11,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import webpush from "web-push";
+import admin from "firebase-admin";
 
 // Sync check - version 2026.06.12.0002
 import nodemailer from "nodemailer";
@@ -911,6 +912,27 @@ if (!process.env.VERCEL) {
   };
   const VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
   const SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
+  const FCM_TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
+  const FIREBASE_SERVICE_ACCOUNT_FILE = path.join(process.cwd(), "firebase-service-account.json");
+
+  let firebaseAdminApp: any = null;
+  try {
+    let serviceAccount: any = null;
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
+      serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+    }
+    if (serviceAccount && serviceAccount.private_key) {
+      firebaseAdminApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id || "agricovet-29e17"
+      }, "agricovet-app-admin");
+      console.log(`[Firebase Admin] 🔥 Conectado exitosamente con FCM para el proyecto: ${serviceAccount.project_id}`);
+    }
+  } catch (err: any) {
+    console.warn("[Firebase Admin] Init warning:", err.message || err);
+  }
 
   if (fs.existsSync(VAPID_FILE)) {
     try {
@@ -1011,6 +1033,45 @@ if (!process.env.VERCEL) {
     } catch (err) {}
   }
 
+  function readFcmTokens(): string[] {
+    try {
+      if (fs.existsSync(FCM_TOKENS_FILE)) {
+        return JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, "utf8"));
+      }
+    } catch (err) {}
+    return [];
+  }
+
+  function saveFcmTokens(tokens: string[]) {
+    try {
+      fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
+    } catch (err) {}
+  }
+
+  async function getFcmTokens(): Promise<string[]> {
+    const local = readFcmTokens();
+    const tokenSet = new Set<string>(local);
+    try {
+      const { data, error } = await supabase.from("fcm_tokens").select("token");
+      if (!error && Array.isArray(data)) {
+        data.forEach((r: any) => { if (r?.token) tokenSet.add(r.token); });
+      }
+    } catch (e) {}
+    return Array.from(tokenSet);
+  }
+
+  async function registerFcmToken(token: string) {
+    if (!token || typeof token !== "string") return;
+    const tokens = readFcmTokens();
+    if (!tokens.includes(token)) {
+      tokens.push(token);
+      saveFcmTokens(tokens);
+    }
+    try {
+      await supabase.from("fcm_tokens").upsert([{ token, updated_at: new Date().toISOString() }], { onConflict: "token" });
+    } catch (e) {}
+  }
+
   async function broadcastPushNotification(title: string, message: string, url: string = "/") {
     const config = readWarehouseConfig();
     if (config.isSilentModeActive) {
@@ -1018,30 +1079,77 @@ if (!process.env.VERCEL) {
       return;
     }
     const subs = await getPushSubscriptions();
-    if (subs.length === 0) {
-      console.log(`[Push Notification] No active push subscriptions found. Title: "${title}"`);
-      return;
-    }
     const payload = JSON.stringify({ title, message, url });
     
-    const promises = subs.map(async (sub) => {
-      try {
-        await webpush.sendNotification(sub, payload, {
-          headers: {
-            'Urgency': 'high',
-          },
-          TTL: 86400, // 24 hours in seconds
-        });
-      } catch (err: any) {
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          await removePushSubscription(sub.endpoint);
-        } else {
-          console.error("Failed to send push to:", sub.endpoint, err.message || err);
+    // 1. Web Push (Navegadores / PWA)
+    if (subs.length > 0) {
+      const promises = subs.map(async (sub) => {
+        try {
+          await webpush.sendNotification(sub, payload, {
+            headers: {
+              'Urgency': 'high',
+            },
+            TTL: 86400, // 24 hours in seconds
+          });
+        } catch (err: any) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            await removePushSubscription(sub.endpoint);
+          } else {
+            console.error("Failed to send push to:", sub.endpoint, err.message || err);
+          }
         }
+      });
+      await Promise.allSettled(promises);
+      console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
+    }
+
+    // 2. Multicast a todos los teléfonos Android con FCM Nativo (24/7 en segundo plano)
+    const fcmTokens = await getFcmTokens();
+    if (fcmTokens.length > 0 && firebaseAdminApp) {
+      try {
+        const messaging = admin.messaging(firebaseAdminApp);
+        const fcmResponse = await messaging.sendEachForMulticast({
+          tokens: fcmTokens,
+          notification: {
+            title: title || "Agricovet",
+            body: message || "",
+          },
+          android: {
+            priority: "high",
+            notification: {
+              sound: "whatsapp.wav",
+              channelId: "agricovet_orders_channel_v4",
+              priority: "high",
+              defaultSound: false,
+              notificationCount: 1,
+              icon: "ic_stat_notification",
+              color: "#10b981"
+            }
+          },
+          data: {
+            title: String(title || "Agricovet"),
+            message: String(message || ""),
+            url: String(url || "/")
+          }
+        });
+        console.log(`[FCM Android Push] 📲 Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
+        
+        if (fcmResponse.failureCount > 0) {
+          const failedTokens: string[] = [];
+          fcmResponse.responses.forEach((resp, idx) => {
+            if (!resp.success && (resp.error?.code === 'messaging/invalid-registration-token' || resp.error?.code === 'messaging/registration-token-not-registered')) {
+              failedTokens.push(fcmTokens[idx]);
+            }
+          });
+          if (failedTokens.length > 0) {
+            const currentTokens = readFcmTokens().filter(t => !failedTokens.includes(t));
+            saveFcmTokens(currentTokens);
+          }
+        }
+      } catch (fcmErr: any) {
+        console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
       }
-    });
-    await Promise.allSettled(promises);
-    console.log(`[Push Notification] Broadcasted to ${subs.length} devices: "${title}"`);
+    }
   }
 
   function readLocalNotifications(): any[] {
@@ -3389,11 +3497,10 @@ if (!process.env.VERCEL) {
   // ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
   let lastDispatchedCorteKey = '';
 
-  async function checkAndDispatchDailySales(options?: { corteHora?: string; threshold?: number; webhookUrl?: string; sendToWebhook?: boolean }) {
+  async function checkAndDispatchDailySales(options?: { corteHora?: string; threshold?: number; webhookUrl?: string; sendToWebhook?: boolean; targetSellerEmail?: string }) {
     const SALES_THRESHOLD = Number(options?.threshold) || 8750;
     const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
     const sendToWebhook = options?.sendToWebhook !== false;
-    const TARGET_SELLER_EMAIL = "seseffff942@gmail.com";
 
     const now = new Date();
     const gtOffset = -6 * 60; // UTC-6 Guatemala
@@ -3432,133 +3539,175 @@ if (!process.env.VERCEL) {
 
     const { data: allUsersData } = await supabase
       .from("users")
-      .select("id, name, email, phone, role");
+      .select("id, name, email, phone, role, sellerCode");
 
-    const foundUser = (allUsersData || []).find((u: any) => (u.email || "").toLowerCase() === TARGET_SELLER_EMAIL.toLowerCase()) || null;
-    const sellerIdKeys = [
-      TARGET_SELLER_EMAIL.toLowerCase(),
-      foundUser?.id ? foundUser.id.toLowerCase() : null
-    ].filter(Boolean);
+    const users = (allUsersData || []).filter((u: any) => u && u.role !== "system" && u.email);
 
-    const sellerDisplayName = foundUser?.name || TARGET_SELLER_EMAIL.split("@")[0];
-    const rawSellerPhone = foundUser?.phone || process.env.TARGET_SELLER_PHONE || "50248234048";
-    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+    // Vendedores / Administradores objetivos (Emanuel, Erick Juárez, Herbert Argueta, Sergio Lima y vendedores activos)
+    const targetUsers = options?.targetSellerEmail
+      ? users.filter((u: any) => (u.email || "").toLowerCase() === options.targetSellerEmail!.toLowerCase())
+      : users.filter((u: any) => {
+          const email = (u.email || "").toLowerCase();
+          const role = (u.role || "").toLowerCase();
+          return (
+            email === "seseffff942@gmail.com" ||
+            email === "jerickottoniel@gmail.com" ||
+            email === "gruasytransportesali@gmail.com" ||
+            email === "limalopez22@gmail.com" ||
+            role === "seller" ||
+            role === "admin"
+          );
+        });
 
-    const destinatarios = (allUsersData || [])
-      .filter((u: any) => {
-        if (!u || u.role === "system") return false;
-        const email = String(u.email || "").toLowerCase();
-        return email === TARGET_SELLER_EMAIL.toLowerCase();
-      })
-      .map((u: any) => {
-        const rawTel = u.phone || process.env.TARGET_SELLER_PHONE || "50248234048";
-        const formattedTel = formatTelefonoDestinatario(rawTel);
-        return {
-          nombreDestinatario: u.name || u.email.split("@")[0],
-          telefono: formattedTel,
-          numero: formattedTel,
-          email: u.email,
-          rol: u.role || "admin"
-        };
-      })
-      .filter((d: any) => Boolean(d.telefono));
+    // Deduplicar usuarios por email
+    const uniqueTargetUsers: any[] = [];
+    const seenEmails = new Set<string>();
+    targetUsers.forEach((u: any) => {
+      const email = (u.email || "").toLowerCase();
+      if (!seenEmails.has(email)) {
+        seenEmails.add(email);
+        uniqueTargetUsers.push(u);
+      }
+    });
 
-    let cantidadVendida = 0;
-    let cantidadFacturas = 0;
-    const ventas: any[] = [];
+    const results: any[] = [];
+    const allReports: any[] = [];
 
-    for (const inv of invoicesData || []) {
-      const sId = (inv.sellerId || "").toLowerCase();
-      if (sellerIdKeys.includes(sId) || sId === TARGET_SELLER_EMAIL.toLowerCase()) {
-        const amount = Number(inv.totalAmount) || 0;
-        cantidadVendida += amount;
-        cantidadFacturas += 1;
+    for (const seller of uniqueTargetUsers) {
+      const sellerEmail = (seller.email || "").toLowerCase();
+      const sellerIdKeys = [
+        sellerEmail,
+        seller.id ? seller.id.toLowerCase() : null,
+        seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
+        seller.name ? seller.name.toLowerCase() : null
+      ].filter(Boolean);
 
-        let horaVenta = "";
-        if (inv.date) {
-          try {
-            const d = new Date(inv.date);
-            horaVenta = d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit" });
-          } catch {
-            horaVenta = inv.date;
+      const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
+      const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
+      const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+
+      const destinatarios = [{
+        nombreDestinatario: sellerDisplayName,
+        telefono: sellerPhoneClean,
+        numero: sellerPhoneClean,
+        email: seller.email,
+        rol: seller.role || "seller"
+      }].filter((d: any) => Boolean(d.telefono));
+
+      let cantidadVendida = 0;
+      let cantidadFacturas = 0;
+      const ventas: any[] = [];
+
+      for (const inv of invoicesData || []) {
+        if (!inv || inv.status === 'cancelled' || inv.status === 'rejected') continue;
+        const sId = (inv.sellerId || "").toLowerCase();
+        if (sellerIdKeys.includes(sId) || sId === sellerEmail || (inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase())) {
+          const amount = Number(inv.totalAmount) || 0;
+          cantidadVendida += amount;
+          cantidadFacturas += 1;
+
+          let horaVenta = "";
+          if (inv.date) {
+            try {
+              const d = new Date(inv.date);
+              horaVenta = d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit" });
+            } catch {
+              horaVenta = inv.date;
+            }
           }
+
+          const productos = (inv.items || []).map((item: any) => ({
+            producto: item.productName || item.name || "Producto",
+            cantidad: item.quantity || 1,
+            precioUnitario: item.price || 0,
+            subtotal: item.total || 0,
+          }));
+
+          ventas.push({
+            id: inv.id,
+            folio: inv.folio || "",
+            cliente: inv.clientName || "Cliente",
+            nit: inv.nit || "CF",
+            monto: amount,
+            tipo: inv.invoice_type || "contado",
+            estado: inv.status || "completado",
+            hora: horaVenta,
+            productos,
+          });
         }
-
-        const productos = (inv.items || []).map((item: any) => ({
-          producto: item.productName || item.name || "Producto",
-          cantidad: item.quantity || 1,
-          precioUnitario: item.price || 0,
-          subtotal: item.total || 0,
-        }));
-
-        ventas.push({
-          id: inv.id,
-          folio: inv.folio || "",
-          cliente: inv.clientName || "Cliente",
-          nit: inv.nit || "CF",
-          monto: amount,
-          tipo: inv.invoice_type || "contado",
-          estado: inv.status || "completado",
-          hora: horaVenta,
-          productos,
-        });
       }
-    }
 
-    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-    const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
-    const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
+      cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+      const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
+      const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
 
-    const payload = {
-      fecha: todayLabel,
-      corte,
-      tipoCorte: esCierre ? 'cierre' : 'mediodia',
-      tipoReporte: esCierre ? 'cierre' : 'mediodia',
-      tipo: esCierre ? 'cierre' : 'mediodia',
-      esCierre,
-      hora: corte,
-      horaCorte: corte,
-      corteHora: corte,
-      titulo: esCierre ? 'Cierre del Día (5:00 PM)' : 'Corte de Mediodía (12:00 PM)',
-      vendedor: sellerDisplayName,
-      nombreDestinatario: sellerDisplayName,
-      email: TARGET_SELLER_EMAIL,
-      numero: sellerPhoneClean,
-      telefono: sellerPhoneClean,
-      cantidadVendida,
-      cantidadFaltante,
-      alcanzoMeta,
-      umbral: SALES_THRESHOLD,
-      cantidadFacturas,
-      mensaje: alcanzoMeta
-        ? `¡Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
-        : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
-      destinatarios,
-      ventas,
-    };
+      const payload = {
+        fecha: todayLabel,
+        corte,
+        tipoCorte: esCierre ? 'cierre' : 'mediodia',
+        tipoReporte: esCierre ? 'cierre' : 'mediodia',
+        tipo: esCierre ? 'cierre' : 'mediodia',
+        esCierre,
+        hora: corte,
+        horaCorte: corte,
+        corteHora: corte,
+        titulo: esCierre ? `Cierre del Día (5:00 PM) - ${sellerDisplayName}` : `Corte de Mediodía (12:00 PM) - ${sellerDisplayName}`,
+        vendedor: sellerDisplayName,
+        nombreDestinatario: sellerDisplayName,
+        email: seller.email,
+        numero: sellerPhoneClean,
+        telefono: sellerPhoneClean,
+        cantidadVendida,
+        cantidadFaltante,
+        alcanzoMeta,
+        umbral: SALES_THRESHOLD,
+        cantidadFacturas,
+        mensaje: alcanzoMeta
+          ? `¡Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
+          : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+        destinatarios,
+        ventas,
+      };
 
-    let webhookResult: any = null;
-    if (sendToWebhook) {
-      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
-      try {
-        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const resText = await webhookRes.text().catch(() => "");
-        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[AUTO-SALES-CRON] Respuesta n8n: HTTP ${webhookRes.status} - ${resText}`);
-      } catch (err: any) {
-        webhookResult = { error: err.message, ok: false };
-        console.error(`[AUTO-SALES-CRON] Error al enviar webhook:`, err.message);
+      allReports.push(payload);
+
+      let webhookResult: any = null;
+      if (sendToWebhook) {
+        console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
+        try {
+          const webhookRes = await fetch(N8N_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const resText = await webhookRes.text().catch(() => "");
+          webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+          console.log(`[AUTO-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+        } catch (err: any) {
+          webhookResult = { error: err.message, ok: false };
+          console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+        }
       }
+
+      results.push({
+        vendedor: sellerDisplayName,
+        email: seller.email,
+        telefono: sellerPhoneClean,
+        cantidadVendida,
+        cantidadFacturas,
+        webhookResult,
+        payload
+      });
     }
 
     return {
       success: true,
-      data: payload,
-      webhookResult
+      totalVendedores: uniqueTargetUsers.length,
+      corte,
+      fecha: todayLabel,
+      data: allReports[0] || null,
+      reports: allReports,
+      results
     };
   }
 
@@ -4000,19 +4149,19 @@ if (!process.env.VERCEL) {
     if (originalProduct && stock !== undefined && originalProduct.stock !== stock && !doesNotNeedStock(originalProduct)) {
       const diff = stock - originalProduct.stock;
       if (diff > 0) {
-        await createNotification('restock', 'Stock Agregado', `Se agregaron ${Math.abs(diff)} unidades a ${originalProduct.name}. Nuevo stock: ${stock}.`, { productId: id });
+        await createNotification('restock', '📦 Ingreso de Stock', `+${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
       } else if (stock === 0) {
-        await createNotification('out_of_stock', 'Producto Agotado', `${originalProduct.name} se ha quedado sin stock.`, { productId: id });
+        await createNotification('out_of_stock', '🚨 Producto Agotado', `⚠️ ${originalProduct.name} se ha quedado sin existencias (0 uds).`, { productId: id });
       } else if (isCriticalStock(originalProduct, stock)) {
-        await createNotification('low_stock', 'Stock Crítico', `Solo quedan ${stock} unidades de ${originalProduct.name} (límite crítico: ${getCriticalStockThreshold(originalProduct)} uds).`, { productId: id });
+        await createNotification('low_stock', '⚠️ Alerta de Stock Crítico', `Solo quedan ${stock} uds de ${originalProduct.name} (Mínimo: ${getCriticalStockThreshold(originalProduct)} uds)`, { productId: id });
       } else {
-        await createNotification('low_stock', 'Stock Modificado', `Se redujo el stock de ${originalProduct.name} en ${Math.abs(diff)} unidades. Nuevo stock: ${stock}.`, { productId: id });
+        await createNotification('low_stock', '📉 Reducción de Stock', `-${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
       }
     }
 
     // PRICE UPDATES NOTIFICATION
     if (originalProduct && price !== undefined && originalProduct.price !== price) {
-      await createNotification('price_changed', 'Precio Modificado', `El precio de ${originalProduct.name} cambió de Q${originalProduct.price} a Q${price}.`, { productId: id });
+      await createNotification('price_changed', '🏷️ Precio Actualizado', `${originalProduct.name}: Q${originalProduct.price} ➔ Q${price}`, { productId: id });
     }
 
     res.json(updatedProduct);
@@ -4101,6 +4250,16 @@ if (!process.env.VERCEL) {
     const resolvedMessage = message || "¡Las notificaciones Push funcionan con vibración tipo WhatsApp!";
     await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
     res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
+  }));
+
+  // FCM TOKEN REGISTER (ANDROID NATIVE 24/7 PUSH)
+  app.post("/api/fcm/register", asyncHandler(async (req: any, res: any) => {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: "FCM token requerido" });
+    }
+    await registerFcmToken(token);
+    res.json({ success: true, message: "FCM token registrado correctamente" });
   }));
 
   // ==========================================
@@ -5160,7 +5319,7 @@ if (!process.env.VERCEL) {
     }
 
     // CREATE UI NOTIFICATION
-    await createNotification('new_order', 'Nuevo Pedido', `Se ha registrado un pedido de ${client} por Q${total.toFixed(2)}.`, { invoiceId: id });
+    await createNotification('new_order', '🛒 ¡Nuevo Pedido!', `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
 
     let returnInvoice = { ...invoice };
     const rawNotes = returnInvoice.notes || "";

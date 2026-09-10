@@ -1007,8 +1007,8 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               const totalAmount = Number(inv.total || 0).toFixed(2);
               dispatchNotificationAlert({
                 id: ntfId,
-                title: '¡Nuevo Pedido Recibido! 📦',
-                message: `Pedido #${inv.correlativeNumber || inv.id?.toString().slice(0, 8)} de ${clientName} por Q${totalAmount}`,
+                title: '🛒 ¡Nuevo Pedido!',
+                message: `👤 ${clientName} • 💰 Total: Q${totalAmount}`,
                 type: 'sale',
                 read: false,
                 createdAt: new Date().toISOString()
@@ -1029,8 +1029,8 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               knownNotificationIdsRef.current.add(ntfId);
               dispatchNotificationAlert({
                 id: ntfId,
-                title: 'Pago Recibido 💰',
-                message: `Cobro de Q${Number(payment.amount || 0).toFixed(2)} registrado con éxito`,
+                title: '💰 ¡Pago Recibido!',
+                message: `Q${Number(payment.amount || 0).toFixed(2)} registrado con éxito`,
                 type: 'sale',
                 read: false,
                 createdAt: new Date().toISOString()

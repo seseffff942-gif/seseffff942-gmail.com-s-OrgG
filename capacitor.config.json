@@ -13,9 +13,12 @@
   },
   "plugins": {
     "LocalNotifications": {
-      "smallIcon": "ic_launcher",
-      "iconColor": "#16a34a",
+      "smallIcon": "ic_stat_notification",
+      "iconColor": "#10b981",
       "sound": "whatsapp.wav"
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
     }
   }
 }

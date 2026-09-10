@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "201560432916",
+    "project_id": "agricovet-29e17",
+    "storage_bucket": "agricovet-29e17.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:201560432916:android:e1089526f76e96793ae201",
+        "android_client_info": {
+          "package_name": "com.agricovet.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByI3r_2dTWRV2ZLAUb2qQHNA7StxWUXDc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

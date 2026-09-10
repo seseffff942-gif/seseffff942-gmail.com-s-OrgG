@@ -111,7 +111,9 @@ export default defineConfig(async ({ command }) => {
         protocol: 'wss',
         clientPort: 443,
       } : true),
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch: process.env.DISABLE_HMR === 'true' ? null : {
+        ignored: ['**/android/**', '**/dist/**', '**/.git/**', '**/panic_state.json', '**/*.apk', '**/*.jar', '**/node_modules/**']
+      },
     },
   };
 });

@@ -53,6 +53,7 @@ var import_helmet = __toESM(require("helmet"), 1);
 var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
 var import_web_push = __toESM(require("web-push"), 1);
+var import_firebase_admin = __toESM(require("firebase-admin"), 1);
 var import_nodemailer = __toESM(require("nodemailer"), 1);
 var import_genai = require("@google/genai");
 
@@ -1446,6 +1447,26 @@ var vapidKeys = {
 };
 var VAPID_FILE = import_path.default.join(process.cwd(), "vapid_keys.json");
 var SUBSCRIPTIONS_FILE = import_path.default.join(process.cwd(), "push_subscriptions.json");
+var FCM_TOKENS_FILE = import_path.default.join(process.cwd(), "fcm_tokens.json");
+var FIREBASE_SERVICE_ACCOUNT_FILE = import_path.default.join(process.cwd(), "firebase-service-account.json");
+var firebaseAdminApp = null;
+try {
+  let serviceAccount = null;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else if (import_fs.default.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
+    serviceAccount = JSON.parse(import_fs.default.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  }
+  if (serviceAccount && serviceAccount.private_key) {
+    firebaseAdminApp = import_firebase_admin.default.initializeApp({
+      credential: import_firebase_admin.default.credential.cert(serviceAccount),
+      projectId: serviceAccount.project_id || "agricovet-29e17"
+    }, "agricovet-app-admin");
+    console.log(`[Firebase Admin] \u{1F525} Conectado exitosamente con FCM para el proyecto: ${serviceAccount.project_id}`);
+  }
+} catch (err) {
+  console.warn("[Firebase Admin] Init warning:", err.message || err);
+}
 if (import_fs.default.existsSync(VAPID_FILE)) {
   try {
     const fileKeys = JSON.parse(import_fs.default.readFileSync(VAPID_FILE, "utf8"));
@@ -1535,6 +1556,47 @@ async function removePushSubscription(endpoint) {
   } catch (err) {
   }
 }
+function readFcmTokens() {
+  try {
+    if (import_fs.default.existsSync(FCM_TOKENS_FILE)) {
+      return JSON.parse(import_fs.default.readFileSync(FCM_TOKENS_FILE, "utf8"));
+    }
+  } catch (err) {
+  }
+  return [];
+}
+function saveFcmTokens(tokens) {
+  try {
+    import_fs.default.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
+  } catch (err) {
+  }
+}
+async function getFcmTokens() {
+  const local = readFcmTokens();
+  const tokenSet = new Set(local);
+  try {
+    const { data, error } = await supabase.from("fcm_tokens").select("token");
+    if (!error && Array.isArray(data)) {
+      data.forEach((r) => {
+        if (r?.token) tokenSet.add(r.token);
+      });
+    }
+  } catch (e) {
+  }
+  return Array.from(tokenSet);
+}
+async function registerFcmToken(token) {
+  if (!token || typeof token !== "string") return;
+  const tokens = readFcmTokens();
+  if (!tokens.includes(token)) {
+    tokens.push(token);
+    saveFcmTokens(tokens);
+  }
+  try {
+    await supabase.from("fcm_tokens").upsert([{ token, updated_at: (/* @__PURE__ */ new Date()).toISOString() }], { onConflict: "token" });
+  } catch (e) {
+  }
+}
 async function broadcastPushNotification(title, message, url = "/") {
   const config = readWarehouseConfig();
   if (config.isSilentModeActive) {
@@ -1542,30 +1604,73 @@ async function broadcastPushNotification(title, message, url = "/") {
     return;
   }
   const subs = await getPushSubscriptions();
-  if (subs.length === 0) {
-    console.log(`[Push Notification] No active push subscriptions found. Title: "${title}"`);
-    return;
-  }
   const payload = JSON.stringify({ title, message, url });
-  const promises = subs.map(async (sub) => {
-    try {
-      await import_web_push.default.sendNotification(sub, payload, {
-        headers: {
-          "Urgency": "high"
-        },
-        TTL: 86400
-        // 24 hours in seconds
-      });
-    } catch (err) {
-      if (err.statusCode === 410 || err.statusCode === 404) {
-        await removePushSubscription(sub.endpoint);
-      } else {
-        console.error("Failed to send push to:", sub.endpoint, err.message || err);
+  if (subs.length > 0) {
+    const promises = subs.map(async (sub) => {
+      try {
+        await import_web_push.default.sendNotification(sub, payload, {
+          headers: {
+            "Urgency": "high"
+          },
+          TTL: 86400
+          // 24 hours in seconds
+        });
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await removePushSubscription(sub.endpoint);
+        } else {
+          console.error("Failed to send push to:", sub.endpoint, err.message || err);
+        }
       }
+    });
+    await Promise.allSettled(promises);
+    console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
+  }
+  const fcmTokens = await getFcmTokens();
+  if (fcmTokens.length > 0 && firebaseAdminApp) {
+    try {
+      const messaging = import_firebase_admin.default.messaging(firebaseAdminApp);
+      const fcmResponse = await messaging.sendEachForMulticast({
+        tokens: fcmTokens,
+        notification: {
+          title: title || "Agricovet",
+          body: message || ""
+        },
+        android: {
+          priority: "high",
+          notification: {
+            sound: "whatsapp.wav",
+            channelId: "agricovet_orders_channel_v4",
+            priority: "high",
+            defaultSound: false,
+            notificationCount: 1,
+            icon: "ic_stat_notification",
+            color: "#10b981"
+          }
+        },
+        data: {
+          title: String(title || "Agricovet"),
+          message: String(message || ""),
+          url: String(url || "/")
+        }
+      });
+      console.log(`[FCM Android Push] \u{1F4F2} Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
+      if (fcmResponse.failureCount > 0) {
+        const failedTokens = [];
+        fcmResponse.responses.forEach((resp, idx) => {
+          if (!resp.success && (resp.error?.code === "messaging/invalid-registration-token" || resp.error?.code === "messaging/registration-token-not-registered")) {
+            failedTokens.push(fcmTokens[idx]);
+          }
+        });
+        if (failedTokens.length > 0) {
+          const currentTokens = readFcmTokens().filter((t) => !failedTokens.includes(t));
+          saveFcmTokens(currentTokens);
+        }
+      }
+    } catch (fcmErr) {
+      console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
     }
-  });
-  await Promise.allSettled(promises);
-  console.log(`[Push Notification] Broadcasted to ${subs.length} devices: "${title}"`);
+  }
 }
 function readLocalNotifications() {
   try {
@@ -4013,17 +4118,17 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
   if (originalProduct && stock !== void 0 && originalProduct.stock !== stock && !doesNotNeedStock(originalProduct)) {
     const diff = stock - originalProduct.stock;
     if (diff > 0) {
-      await createNotification("restock", "Stock Agregado", `Se agregaron ${Math.abs(diff)} unidades a ${originalProduct.name}. Nuevo stock: ${stock}.`, { productId: id });
+      await createNotification("restock", "\u{1F4E6} Ingreso de Stock", `+${Math.abs(diff)} uds \u2022 ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
     } else if (stock === 0) {
-      await createNotification("out_of_stock", "Producto Agotado", `${originalProduct.name} se ha quedado sin stock.`, { productId: id });
+      await createNotification("out_of_stock", "\u{1F6A8} Producto Agotado", `\u26A0\uFE0F ${originalProduct.name} se ha quedado sin existencias (0 uds).`, { productId: id });
     } else if (isCriticalStock(originalProduct, stock)) {
-      await createNotification("low_stock", "Stock Cr\xEDtico", `Solo quedan ${stock} unidades de ${originalProduct.name} (l\xEDmite cr\xEDtico: ${getCriticalStockThreshold(originalProduct)} uds).`, { productId: id });
+      await createNotification("low_stock", "\u26A0\uFE0F Alerta de Stock Cr\xEDtico", `Solo quedan ${stock} uds de ${originalProduct.name} (M\xEDnimo: ${getCriticalStockThreshold(originalProduct)} uds)`, { productId: id });
     } else {
-      await createNotification("low_stock", "Stock Modificado", `Se redujo el stock de ${originalProduct.name} en ${Math.abs(diff)} unidades. Nuevo stock: ${stock}.`, { productId: id });
+      await createNotification("low_stock", "\u{1F4C9} Reducci\xF3n de Stock", `-${Math.abs(diff)} uds \u2022 ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
     }
   }
   if (originalProduct && price !== void 0 && originalProduct.price !== price) {
-    await createNotification("price_changed", "Precio Modificado", `El precio de ${originalProduct.name} cambi\xF3 de Q${originalProduct.price} a Q${price}.`, { productId: id });
+    await createNotification("price_changed", "\u{1F3F7}\uFE0F Precio Actualizado", `${originalProduct.name}: Q${originalProduct.price} \u2794 Q${price}`, { productId: id });
   }
   res.json(updatedProduct);
 }));
@@ -4095,6 +4200,14 @@ app.post("/api/push/test", asyncHandler(async (req, res) => {
   const resolvedMessage = message || "\xA1Las notificaciones Push funcionan con vibraci\xF3n tipo WhatsApp!";
   await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
   res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
+}));
+app.post("/api/fcm/register", asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(400).json({ error: "FCM token requerido" });
+  }
+  await registerFcmToken(token);
+  res.json({ success: true, message: "FCM token registrado correctamente" });
 }));
 app.get("/api/panic/status", asyncHandler(async (req, res) => {
   let supabaseHealthy = false;
@@ -4785,13 +4898,13 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           const stockMessage = `\u26A0\uFE0F *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
           const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
           if (admins) {
-            for (const admin of admins) {
-              if (admin.phone) {
-                console.log(`Enviando alerta de stock a admin ${admin.name}: ${productNameStr}`);
-                internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_cero", "es_MX", [
+            for (const admin2 of admins) {
+              if (admin2.phone) {
+                console.log(`Enviando alerta de stock a admin ${admin2.name}: ${productNameStr}`);
+                internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_cero", "es_MX", [
                   { name: "w_producto", value: productNameStr.substring(0, 50) },
                   { name: "w_cliente", value: client.substring(0, 50) }
-                ]).catch((err) => console.warn(`Error enviando alerta stock a ${admin.name}:`, err.message));
+                ]).catch((err) => console.warn(`Error enviando alerta stock a ${admin2.name}:`, err.message));
               }
             }
           }
@@ -4802,12 +4915,12 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
             const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
             const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
-              for (const admin of admins) {
-                if (admin.phone) {
-                  internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+              for (const admin2 of admins) {
+                if (admin2.phone) {
+                  internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_critico", "es_MX", [
                     { name: "w_producto", value: productNameStr.substring(0, 50) },
                     { name: "w_stock", value: String(newStock) }
-                  ]).catch((err) => console.warn(`Error enviando alerta cr\xEDtica a ${admin.name}:`, err.message));
+                  ]).catch((err) => console.warn(`Error enviando alerta cr\xEDtica a ${admin2.name}:`, err.message));
                 }
               }
             }
@@ -4952,11 +5065,11 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
       const folioMap2 = await getFolioMap();
       const folioVal = String(folioMap2[String(id)] || 1);
-      for (const admin of admins) {
-        if (admin.phone) {
+      for (const admin2 of admins) {
+        if (admin2.phone) {
           const message = `\u{1F6A8} *\xA1Nuevo Pedido Ingresado!* \u{1F6A8}
 
-Hola ${admin.name || "Sergio"},
+Hola ${admin2.name || "Sergio"},
 
 Detalles de la compra:
 \u{1F464} *Cliente*: ${client}
@@ -4967,9 +5080,9 @@ Detalles de la compra:
 Por favor, revisa el panel de administraci\xF3n para confirmar el inventario y coordinar el despacho. \u{1F331}\u{1F69C}
 
 AgricoVet - Sistema de Notificaciones`;
-          console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
-          internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
-            admin.name || "Sergio",
+          console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin2.name} (${admin2.phone})`);
+          internalSendWhatsApp(admin2.phone, message, "alerta_nuevo_pedido_interno", "es", [
+            admin2.name || "Sergio",
             client,
             itemSummaryTruncated,
             totalFormatted,
@@ -4977,12 +5090,12 @@ AgricoVet - Sistema de Notificaciones`;
             folioVal
           ]).then((result) => {
             if (!result.success) {
-              console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
+              console.error(`Error WhatsApp al admin ${admin2.name} (${admin2.phone}):`, result.error, result.data || "");
             } else {
-              console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
+              console.log(`WhatsApp enviado exitosamente a ${admin2.name}.`);
             }
           }).catch((err) => {
-            console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
+            console.error(`Exception enviando WhatsApp a admin ${admin2.name}:`, err);
           });
         }
       }
@@ -4990,7 +5103,8 @@ AgricoVet - Sistema de Notificaciones`;
   } catch (e) {
     console.error("Notification block error:", e);
   }
-  await createNotification("new_order", "Nuevo Pedido", `Se ha registrado un pedido de ${client} por Q${total.toFixed(2)}.`, { invoiceId: id });
+  await createNotification("new_order", "\u{1F6D2} \xA1Nuevo Pedido!", `\u{1F464} ${client} \u2022 \u{1F4B0} Total: Q${total.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4E6} ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
   let returnInvoice = { ...invoice };
   const rawNotes = returnInvoice.notes || "";
   const flags = rawNotes.split("|||");

@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { api } from './api';
 
 let isInitialized = false;
 
@@ -26,10 +28,17 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
   }
 
   try {
-    // 1. Create Android Notification Channel with custom sound & MAX importance
+    // 1. Delete legacy channels if any to ensure clean OS sound bindings
+    try {
+      await LocalNotifications.deleteChannel({ id: 'agricovet_orders_channel' });
+      await LocalNotifications.deleteChannel({ id: 'agricovet_orders_channel_v2' });
+      await LocalNotifications.deleteChannel({ id: 'agricovet_orders_channel_v3' });
+    } catch (delErr) {}
+
+    // 2. Create Android Notification Channel with custom sound & MAX importance
     try {
       await LocalNotifications.createChannel({
-        id: 'agricovet_orders_channel',
+        id: 'agricovet_orders_channel_v4',
         name: 'Pedidos y Facturación Agricovet',
         description: 'Notificaciones prioritarias con sonido de pedidos y facturas',
         importance: 5, // 5 = High / Heads-up popup
@@ -39,11 +48,12 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
         lights: true,
         lightColor: '#16a34a',
       });
+      console.log('[Native Notifications] Channel agricovet_orders_channel_v4 created with sound whatsapp.wav');
     } catch (chanErr) {
       console.warn('[Native Notifications] Channel creation warning:', chanErr);
     }
 
-    // 2. Request Local Notification Permissions (Android 13+)
+    // 3. Request Local & Push Notification Permissions (Android 13+)
     try {
       const permStatus = await LocalNotifications.checkPermissions();
       if (permStatus.display !== 'granted') {
@@ -54,16 +64,64 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
       console.warn('[Native Notifications] Permission request error:', permErr);
     }
 
-    // 3. Listen to Local Notification Action Clicks
-    LocalNotifications.addListener('localNotificationActionPerformed', (notificationAction) => {
-      console.log('[Native Notifications] Action clicked:', notificationAction);
-      if (onNotificationClick && notificationAction.notification.extra) {
-        onNotificationClick(notificationAction.notification.extra);
+    // 4. Request Firebase Cloud Messaging (FCM) Native Push Registration
+    try {
+      const pushPerm = await PushNotifications.checkPermissions();
+      if (pushPerm.receive !== 'granted') {
+        await PushNotifications.requestPermissions();
       }
-    });
+      await PushNotifications.register();
+      console.log('[Native Push] PushNotifications.register() invoked successfully.');
+    } catch (pushErr) {
+      console.warn('[Native Push] Push register warning:', pushErr);
+    }
+
+    // 5. Listen for FCM Device Token Registration
+    try {
+      PushNotifications.addListener('registration', (token) => {
+        console.log('[Native Push] FCM Token received:', token.value);
+        if (token?.value) {
+          localStorage.setItem('agricovet_fcm_token', token.value);
+          api.sendFcmToken(token.value).catch(() => {});
+        }
+      });
+
+      PushNotifications.addListener('registrationError', (error) => {
+        console.warn('[Native Push] Registration error:', error);
+      });
+
+      // 6. Listen for incoming push notification while app is active
+      PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        console.log('[Native Push] Notification received in foreground:', notification);
+        showNativeAlert({
+          title: notification.title || (notification.data && notification.data.title) || 'Agricovet',
+          body: notification.body || (notification.data && (notification.data.message || notification.data.body)) || '',
+          data: notification.data
+        });
+      });
+
+      PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+        console.log('[Native Push] Action performed:', action);
+        if (onNotificationClick && action.notification.data) {
+          onNotificationClick(action.notification.data);
+        }
+      });
+    } catch (regErr) {
+      console.warn('[Native Push] Listener registration error:', regErr);
+    }
+
+    // 7. Listen to Local Notification Action Clicks
+    try {
+      LocalNotifications.addListener('localNotificationActionPerformed', (notificationAction) => {
+        console.log('[Native Notifications] Action clicked:', notificationAction);
+        if (onNotificationClick && notificationAction.notification.extra) {
+          onNotificationClick(notificationAction.notification.extra);
+        }
+      });
+    } catch (locErr) {}
 
     isInitialized = true;
-    console.log('[Native Notifications] Initialized successfully for native platform.');
+    console.log('[Native Notifications] Initialized successfully with FCM background push.');
     return true;
   } catch (err) {
     console.error('[Native Notifications] Initialization failed:', err);
@@ -77,13 +135,20 @@ export async function showNativeAlert(notification: {
   body: string;
   data?: any;
 }) {
+  // Always play audio immediately in-app for audio feedback
+  try {
+    const audio = new Audio('/whatsapp.wav');
+    audio.volume = 1.0;
+    audio.play().catch(() => {});
+  } catch (e) {}
+
   if (!Capacitor.isNativePlatform()) {
     return false;
   }
 
   try {
     if (!isInitialized) {
-      await initNativeNotifications();
+      await initNativeNotifications().catch(() => {});
     }
 
     const intId = getNumericNotificationId(notification.id);
@@ -92,15 +157,16 @@ export async function showNativeAlert(notification: {
       notifications: [
         {
           id: intId,
-          title: notification.title || 'Agricovet',
+          title: notification.title || '🌱 Agricovet',
           body: notification.body || '',
-          channelId: 'agricovet_orders_channel',
+          largeBody: notification.body || '',
+          summaryText: 'Agricovet Alertas',
+          channelId: 'agricovet_orders_channel_v4',
           sound: 'whatsapp.wav',
-          smallIcon: 'ic_launcher',
-          iconColor: '#16a34a',
+          smallIcon: 'ic_stat_notification',
+          iconColor: '#10b981',
           extra: notification.data || {},
-          actionTypeId: '',
-          schedule: { at: new Date(Date.now() + 100) }
+          actionTypeId: ''
         }
       ]
     });

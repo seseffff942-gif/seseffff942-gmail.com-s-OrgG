@@ -2233,6 +2233,20 @@ export const api = {
     return res.json();
   },
 
+  sendFcmToken: async (fcmToken: string): Promise<any> => {
+    try {
+      const res = await fetchWithAuth('/api/fcm/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: fcmToken })
+      });
+      if (res.ok) return res.json();
+    } catch (e) {
+      console.warn('Error al registrar FCM Token:', e);
+    }
+    return null;
+  },
+
   testPushNotification: async (title?: string, message?: string): Promise<any> => {
     const res = await fetchWithAuth('/api/push/test', {
       method: 'POST',
@@ -2473,20 +2487,20 @@ export const api = {
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
 
-    // Si el servidor está en la nube (Vercel) y no puede alcanzar localhost:5678, reenviar directo desde el navegador del usuario
-    if (options?.sendToWebhook && (!data.webhookResult || data.webhookResult.ok === false) && data?.data) {
-      try {
-        const localWebhookUrl = options?.webhookUrl || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte';
-        const clientRes = await fetch(localWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data.data),
-        });
-        if (clientRes.ok) {
-          data.webhookResult = { ok: true, status: clientRes.status, source: 'client-direct' };
+    // Si el servidor está en la nube (Vercel) y no puede alcanzar el webhook, reenviar directo desde el navegador del usuario
+    if (options?.sendToWebhook && (data?.reports || data?.data)) {
+      const reportsToSend = Array.isArray(data.reports) && data.reports.length > 0 ? data.reports : (data.data ? [data.data] : []);
+      const localWebhookUrl = options?.webhookUrl || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte';
+      for (const rep of reportsToSend) {
+        try {
+          await fetch(localWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rep),
+          });
+        } catch (clientErr) {
+          console.warn('Clientside webhook direct fetch failed for report:', rep?.vendedor, clientErr);
         }
-      } catch (clientErr) {
-        console.warn('Clientside webhook direct fetch failed:', clientErr);
       }
     }
 

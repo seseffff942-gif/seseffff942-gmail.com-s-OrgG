@@ -9,8 +9,10 @@ coverage/
 # Respaldo de migracion
 migration_backup/
 
-# Llaves VAPID generadas automaticamente (contienen llave privada)
+# Llaves VAPID y Firebase (contienen llave privada)
 vapid_keys.json
+firebase-service-account.json
+fcm_tokens.json
 
 # Archivos de datos que el servidor escribe en runtime (no son codigo)
 invoices_permanent_backup.json
