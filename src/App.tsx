@@ -79,6 +79,7 @@ export default function App() {
 
   const [isSupabaseDown, setIsSupabaseDown] = useState(false);
   const [isSwitchingDb, setIsSwitchingDb] = useState(false);
+  const consecutiveFailuresRef = React.useRef(0);
 
   const toggleMaintenanceMode = () => {
     const nextVal = !isMaintenanceMode;
@@ -86,18 +87,29 @@ export default function App() {
     localStorage.setItem('agricovet_maintenance_mode', nextVal ? 'true' : 'false');
   };
 
-  // Sincronización Global del Botón de Pánico (Aplica para todos los usuarios y pestañas)
+  // Sincronización Global del Botón de Pánico y Estado de BD con protección ante falsos positivos
   React.useEffect(() => {
     const checkPanicStatus = async () => {
       try {
         const data = await api.getDbStatus();
         if (data) {
-          setIsSupabaseDown(data.supabaseHealthy === false);
+          if (data.supabaseHealthy === false) {
+            consecutiveFailuresRef.current += 1;
+            // Solo marcar como caído si falla al menos 2 veces consecutivas para evitar falsos positivos por micro-latencia
+            if (consecutiveFailuresRef.current >= 2) {
+              setIsSupabaseDown(true);
+            }
+          } else {
+            // Supabase respondió correctamente: resetear contador y quitar alerta
+            consecutiveFailuresRef.current = 0;
+            setIsSupabaseDown(false);
+          }
+
           if (data.activeMode) {
             const newMode = data.activeMode;
             const currentMode = localStorage.getItem('app_db_mode') || 'supabase';
             if (newMode !== currentMode) {
-              console.log(`[GLOBAL PANIC SYNC] Modo cambiado en servidor a: ${newMode}`);
+              console.log(`[GLOBAL DB SYNC] Modo cambiado en servidor a: ${newMode}`);
               localStorage.setItem('app_db_mode', newMode);
               setDbMode(newMode);
               clearApiCache();
@@ -109,12 +121,16 @@ export default function App() {
           }
         }
       } catch (err) {
-        setIsSupabaseDown(true);
+        consecutiveFailuresRef.current += 1;
+        if (consecutiveFailuresRef.current >= 2) {
+          setIsSupabaseDown(true);
+        }
       }
     };
 
     checkPanicStatus();
-    const interval = setInterval(checkPanicStatus, 3000);
+    // Sondeo cada 15 segundos en lugar de cada 3 segundos para no saturar la red ni la BD
+    const interval = setInterval(checkPanicStatus, 15000);
 
     const handlePanicChange = (e: any) => {
       if (e.detail?.mode) {
@@ -123,7 +139,10 @@ export default function App() {
       }
     };
     const handleDbError = () => {
-      setIsSupabaseDown(true);
+      consecutiveFailuresRef.current += 1;
+      if (consecutiveFailuresRef.current >= 2) {
+        setIsSupabaseDown(true);
+      }
     };
     window.addEventListener('agricovet-panic-mode-changed', handlePanicChange);
     window.addEventListener('agricovet-db-error', handleDbError);

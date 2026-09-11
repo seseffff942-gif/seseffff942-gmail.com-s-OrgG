@@ -70,7 +70,7 @@ let lastDbModeCached: { mode: 'supabase' | 'neon'; timestamp: number } = {
 export let activeDatabaseMode: 'supabase' | 'neon' = 'supabase';
 
 export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
-  if (Date.now() - lastDbModeCached.timestamp < 2000) {
+  if (Date.now() - lastDbModeCached.timestamp < 15000) {
     return lastDbModeCached.mode;
   }
   if (neonPool) {
@@ -4273,21 +4273,21 @@ if (!process.env.VERCEL) {
     // Obtener modo global persistido desde Neon DB
     const currentMode = await fetchGlobalDbModeFromDb();
 
-    // Test Supabase con timeout de 1.5s
+    // Test Supabase con timeout robusto de 6s para evitar falsas alarmas por latencia normal
     try {
       const sbPromise = supabase.from("users").select("id").limit(1);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
       const { error } = await Promise.race([sbPromise, timeoutPromise]) as any;
       supabaseHealthy = !error;
     } catch (e) {
       supabaseHealthy = false;
     }
 
-    // Test Neon con timeout de 1.5s
+    // Test Neon con timeout de 6s
     if (neonPool) {
       try {
         const neonPromise = neonPool.query("SELECT 1;");
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
         await Promise.race([neonPromise, timeoutPromise]);
         neonHealthy = true;
       } catch (e) {

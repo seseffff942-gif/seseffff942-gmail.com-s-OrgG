@@ -683,7 +683,7 @@ var lastDbModeCached = {
 };
 var activeDatabaseMode = "supabase";
 async function fetchGlobalDbModeFromDb() {
-  if (Date.now() - lastDbModeCached.timestamp < 2e3) {
+  if (Date.now() - lastDbModeCached.timestamp < 15e3) {
     return lastDbModeCached.mode;
   }
   if (neonPool) {
@@ -4200,7 +4200,7 @@ app.get("/api/panic/status", asyncHandler(async (req, res) => {
   const currentMode = await fetchGlobalDbModeFromDb();
   try {
     const sbPromise = supabase.from("users").select("id").limit(1);
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6e3));
     const { error } = await Promise.race([sbPromise, timeoutPromise]);
     supabaseHealthy = !error;
   } catch (e) {
@@ -4209,7 +4209,7 @@ app.get("/api/panic/status", asyncHandler(async (req, res) => {
   if (neonPool) {
     try {
       const neonPromise = neonPool.query("SELECT 1;");
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6e3));
       await Promise.race([neonPromise, timeoutPromise]);
       neonHealthy = true;
     } catch (e) {
