@@ -3497,7 +3497,14 @@ if (!process.env.VERCEL) {
   // ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
   let lastDispatchedCorteKey = '';
 
-  async function checkAndDispatchDailySales(options?: { corteHora?: string; threshold?: number; webhookUrl?: string; sendToWebhook?: boolean; targetSellerEmail?: string }) {
+  async function checkAndDispatchDailySales(options?: { 
+    corteHora?: string; 
+    threshold?: number; 
+    webhookUrl?: string; 
+    sendToWebhook?: boolean; 
+    targetSellerEmail?: string;
+    targetSellerEmails?: string[];
+  }) {
     const SALES_THRESHOLD = Number(options?.threshold) || 8750;
     const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
     const sendToWebhook = options?.sendToWebhook !== false;
@@ -3543,21 +3550,38 @@ if (!process.env.VERCEL) {
 
     const users = (allUsersData || []).filter((u: any) => u && u.role !== "system" && u.email);
 
-    // Vendedores / Administradores objetivos (Emanuel, Erick Juárez, Herbert Argueta, Sergio Lima y vendedores activos)
-    const targetUsers = options?.targetSellerEmail
-      ? users.filter((u: any) => (u.email || "").toLowerCase() === options.targetSellerEmail!.toLowerCase())
-      : users.filter((u: any) => {
-          const email = (u.email || "").toLowerCase();
-          const role = (u.role || "").toLowerCase();
-          return (
-            email === "seseffff942@gmail.com" ||
-            email === "jerickottoniel@gmail.com" ||
-            email === "gruasytransportesali@gmail.com" ||
-            email === "limalopez22@gmail.com" ||
-            role === "seller" ||
-            role === "admin"
-          );
-        });
+    // Vendedores / Administradores objetivos (Permite selección dinámica o lista por defecto)
+    let targetUsers: any[] = [];
+    if (Array.isArray(options?.targetSellerEmails) && options.targetSellerEmails.length > 0) {
+      const allowed = new Set(options.targetSellerEmails.map((e: any) => String(e).toLowerCase().trim()));
+      targetUsers = users.filter((u: any) => {
+        const email = (u.email || "").toLowerCase().trim();
+        const id = (u.id || "").toLowerCase().trim();
+        const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+        return allowed.has(email) || allowed.has(id) || allowed.has(code);
+      });
+    } else if (options?.targetSellerEmail) {
+      const target = options.targetSellerEmail.toLowerCase().trim();
+      targetUsers = users.filter((u: any) => {
+        const email = (u.email || "").toLowerCase().trim();
+        const id = (u.id || "").toLowerCase().trim();
+        const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+        return email === target || id === target || code === target;
+      });
+    } else {
+      targetUsers = users.filter((u: any) => {
+        const email = (u.email || "").toLowerCase().trim();
+        const role = (u.role || "").toLowerCase();
+        return (
+          email === "seseffff942@gmail.com" ||
+          email === "jerickottoniel@gmail.com" ||
+          email === "gruasytransportesali@gmail.com" ||
+          email === "limalopez22@gmail.com" ||
+          role === "seller" ||
+          role === "admin"
+        );
+      });
+    }
 
     // Deduplicar usuarios por email
     const uniqueTargetUsers: any[] = [];

@@ -2475,7 +2475,14 @@ export const api = {
     return data;
   },
 
-  checkDailySales: async (options?: { sendToWebhook?: boolean; threshold?: number; webhookUrl?: string }) => {
+  checkDailySales: async (options?: { 
+    sendToWebhook?: boolean; 
+    threshold?: number; 
+    webhookUrl?: string;
+    corteHora?: string;
+    targetSellerEmail?: string;
+    targetSellerEmails?: string[];
+  }) => {
     const res = await fetchWithAuth('/api/admin/check-daily-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2483,6 +2490,9 @@ export const api = {
         sendToWebhook: options?.sendToWebhook ?? false,
         threshold: options?.threshold ?? 8750,
         webhookUrl: options?.webhookUrl,
+        corteHora: options?.corteHora,
+        targetSellerEmail: options?.targetSellerEmail,
+        targetSellerEmails: options?.targetSellerEmails,
       }),
     });
     const data = await safeJson(res);
@@ -2507,6 +2517,7 @@ export const api = {
 
     return data;
   },
+
 
   // ======== COTIZACIONES (QUOTATIONS) ========
   getQuotations: async (sellerId?: string) => {

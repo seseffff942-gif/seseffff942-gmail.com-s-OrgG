@@ -6,6 +6,7 @@ import { api, supabase } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
 import { PanicButton } from './PanicButton';
+import { SendN8nModal } from './SendN8nModal';
 import { Capacitor } from '@capacitor/core';
 import { initNativeNotifications, showNativeAlert } from '../nativeNotifications';
 
@@ -1068,30 +1069,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     }
   }, [showNotifications]);
 
-  const [isSendingReport, setIsSendingReport] = useState(false);
-
-  const handleSendDailyReport = async () => {
-    if (isSendingReport) return;
-    setIsSendingReport(true);
-    try {
-      const res = await api.checkDailySales({ sendToWebhook: true });
-      const data = res?.data;
-      const amount = data?.cantidadVendida !== undefined ? `Q${data.cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}` : '';
-      const facturas = data?.cantidadFacturas !== undefined ? ` (${data.cantidadFacturas} factura(s))` : '';
-      alert(`✅ ¡Reporte enviado con éxito a n8n!\nVentas enviadas: ${amount}${facturas}`);
-    } catch (err: any) {
-      console.error('Error enviando reporte a webhook:', err);
-      alert(`❌ Error al enviar reporte: ${err.message || 'No se pudo conectar con el webhook'}`);
-    } finally {
-      setIsSendingReport(false);
-    }
-  };
+  const [isN8nModalOpen, setIsN8nModalOpen] = useState(false);
 
   const isQuotationAdmin = activeUser?.role === 'admin' || 
     ['seseffff942@gmail.com', 'limalopez22@gmail.com'].includes(activeUser?.email?.toLowerCase() || '') ||
     (activeUser?.name || '').toLowerCase().includes('susana') ||
     (activeUser?.name || '').toLowerCase().includes('sergio') ||
     (activeUser?.name || '').toLowerCase().includes('emanuel');
+
 
   const navItems = [
     { id: 'home', label: 'Inicio', icon: Leaf, roles: ['admin', 'seller'] },
@@ -1192,12 +1177,11 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
             </button>
           )}
           <button 
-            onClick={handleSendDailyReport} 
-            disabled={isSendingReport} 
-            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-1.5 rounded-lg border border-emerald-200 relative transition-transform active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50" 
+            onClick={() => setIsN8nModalOpen(true)} 
+            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-1.5 rounded-lg border border-emerald-200 relative transition-transform active:scale-95 flex items-center justify-center cursor-pointer shadow-xs" 
             title="Enviar Reporte de Ventas del Día a n8n"
           >
-            <Send size={16} className={isSendingReport ? "animate-spin text-emerald-600" : "text-emerald-600"} />
+            <Send size={16} className="text-emerald-600" />
           </button>
           <button onClick={() => setShowNotifications(!showNotifications)} className="text-slate-500 hover:text-slate-700 relative p-1.5 hover:bg-slate-50 rounded-lg transition-transform active:scale-95 cursor-pointer" title="Ver notificaciones">
              <Bell size={20} />
@@ -1435,15 +1419,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
             <RefreshCw size={10} className={cn("opacity-60", isSyncing && "animate-spin")} />
           </button>
           <button 
-            onClick={handleSendDailyReport} 
-            disabled={isSendingReport} 
-            className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-bold transition-all text-left active:scale-95 cursor-pointer shadow-sm disabled:opacity-50" 
+            onClick={() => setIsN8nModalOpen(true)} 
+            className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-bold transition-all text-left active:scale-95 cursor-pointer shadow-sm" 
             title="Enviar reporte de ventas del día a n8n"
           >
             <div className="flex items-center gap-2">
-              <Send size={13} className={isSendingReport ? "animate-spin text-emerald-400" : "text-emerald-400"} />
+              <Send size={13} className="text-emerald-400" />
               <span className="font-bold text-[11px] tracking-wide text-white">
-                {isSendingReport ? "Enviando..." : "Enviar Reporte n8n"}
+                Enviar Reporte n8n
               </span>
             </div>
             <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded font-black">
@@ -2039,6 +2022,12 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         user={user}
         soundsEnabled={soundsEnabled}
         setSoundsEnabled={setSoundsEnabled}
+      />
+
+      {/* Modal para Envío Selectivo de Reportes a n8n */}
+      <SendN8nModal 
+        isOpen={isN8nModalOpen}
+        onClose={() => setIsN8nModalOpen(false)}
       />
     </>
   );

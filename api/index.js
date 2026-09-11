@@ -3592,11 +3592,30 @@ async function checkAndDispatchDailySales(options) {
   }
   const { data: allUsersData } = await supabase.from("users").select("id, name, email, phone, role, sellerCode");
   const users = (allUsersData || []).filter((u) => u && u.role !== "system" && u.email);
-  const targetUsers = options?.targetSellerEmail ? users.filter((u) => (u.email || "").toLowerCase() === options.targetSellerEmail.toLowerCase()) : users.filter((u) => {
-    const email = (u.email || "").toLowerCase();
-    const role = (u.role || "").toLowerCase();
-    return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
-  });
+  let targetUsers = [];
+  if (Array.isArray(options?.targetSellerEmails) && options.targetSellerEmails.length > 0) {
+    const allowed = new Set(options.targetSellerEmails.map((e) => String(e).toLowerCase().trim()));
+    targetUsers = users.filter((u) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const id = (u.id || "").toLowerCase().trim();
+      const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+      return allowed.has(email) || allowed.has(id) || allowed.has(code);
+    });
+  } else if (options?.targetSellerEmail) {
+    const target = options.targetSellerEmail.toLowerCase().trim();
+    targetUsers = users.filter((u) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const id = (u.id || "").toLowerCase().trim();
+      const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+      return email === target || id === target || code === target;
+    });
+  } else {
+    targetUsers = users.filter((u) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const role = (u.role || "").toLowerCase();
+      return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
+    });
+  }
   const uniqueTargetUsers = [];
   const seenEmails = /* @__PURE__ */ new Set();
   targetUsers.forEach((u) => {

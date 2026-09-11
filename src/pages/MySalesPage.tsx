@@ -5,9 +5,9 @@ import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer,
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, formatDateSafe, formatMoney, isTecunProduct } from '../utils';
-import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
+import { SendN8nModal } from '../components/SendN8nModal';
 
 interface BillingPageProps {
   user: User;
@@ -18,24 +18,8 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSendingReport, setIsSendingReport] = useState(false);
+  const [isN8nModalOpen, setIsN8nModalOpen] = useState(false);
 
-  const handleSendDailyReport = async () => {
-    if (isSendingReport) return;
-    setIsSendingReport(true);
-    try {
-      const res = await api.checkDailySales({ sendToWebhook: true });
-      const data = res?.data;
-      const amount = data?.cantidadVendida !== undefined ? `Q${data.cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}` : '';
-      const facturas = data?.cantidadFacturas !== undefined ? ` (${data.cantidadFacturas} factura(s))` : '';
-      alert(`✅ ¡Reporte enviado con éxito a n8n!\nVentas enviadas: ${amount}${facturas}`);
-    } catch (err: any) {
-      console.error('Error enviando reporte a webhook:', err);
-      alert(`❌ Error al enviar reporte: ${err.message || 'No se pudo conectar con el webhook'}`);
-    } finally {
-      setIsSendingReport(false);
-    }
-  };
   const [searchTerm, setSearchTerm] = useState('');
   const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
   const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
@@ -1014,13 +998,12 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
         
         <div className="flex flex-wrap items-center justify-end gap-3 w-full md:w-auto">
           <button
-            onClick={handleSendDailyReport}
-            disabled={isSendingReport}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-4 py-3 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 text-xs"
+            onClick={() => setIsN8nModalOpen(true)}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-4 py-3 rounded-xl shadow-sm transition-all cursor-pointer text-xs"
             title="Enviar reporte de ventas del día a n8n"
           >
-            <Send size={15} className={isSendingReport ? "animate-spin" : ""} />
-            <span>{isSendingReport ? "Enviando..." : "Enviar Reporte n8n"}</span>
+            <Send size={15} />
+            <span>Enviar Reporte n8n</span>
           </button>
 
           {user.role === 'admin' && (
@@ -2055,6 +2038,12 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
           </div>
         </div>
       )}
+
+      {/* Modal para Envío Selectivo de Reportes a n8n */}
+      <SendN8nModal
+        isOpen={isN8nModalOpen}
+        onClose={() => setIsN8nModalOpen(false)}
+      />
     </div>
   );
 }
