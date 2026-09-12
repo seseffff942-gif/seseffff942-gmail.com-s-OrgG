@@ -19,6 +19,13 @@ import { GoogleGenAI, Type } from "@google/genai";
 import * as felServicio from "./fel/servicio";
 import * as infileApi from "./fel/infile";
 
+let sharp: any = null;
+try {
+  sharp = require('sharp');
+} catch (e) {
+  // sharp is optional in some environments
+}
+
 // Exige una variable de entorno. Falla al arrancar si falta, en lugar de
 // caer silenciosamente a una base de datos que no corresponde.
 function requireEnv(name: string): string {
@@ -3507,6 +3514,7 @@ async function checkAndDispatchDailySales(options?: {
 }) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
+  const sendToWebhook = options?.sendToWebhook !== false;
 
   const now = new Date();
   const gtOffset = -6 * 60; // UTC-6 Guatemala

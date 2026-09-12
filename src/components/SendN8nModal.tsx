@@ -39,7 +39,7 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
       try {
         const data = await api.getUsers();
         const validUsers = (data || []).filter(u => 
-          u && u.email && u.role !== 'system' && (u.role === 'seller' || u.role === 'admin')
+          u && u.email && (u.role as string) !== 'system' && (u.role === 'seller' || u.role === 'admin')
         );
         setUsers(validUsers);
 

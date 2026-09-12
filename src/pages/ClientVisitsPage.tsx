@@ -12,7 +12,7 @@ import {
   DollarSign, ShoppingCart, UserPlus, Package, 
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
   Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2,
-  Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle
+  Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon
 } from 'lucide-react';
 import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';

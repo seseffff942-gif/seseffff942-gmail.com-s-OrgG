@@ -8,6 +8,7 @@ import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAs
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { SendN8nModal } from '../components/SendN8nModal';
+import { motion } from 'motion/react';
 
 interface BillingPageProps {
   user: User;

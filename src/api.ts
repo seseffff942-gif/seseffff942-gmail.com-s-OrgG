@@ -7,7 +7,11 @@ import preloadedData from './data/preloadedData.json';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Inicializar cliente Supabase de forma segura sin exponer credenciales en el código fuente.
+// Si no hay variables de entorno configuradas, se utiliza un placeholder válido para evitar excepciones fatales al cargar el módulo.
+export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : createClient('https://placeholder.supabase.co', 'placeholder-anon-key');
 
 export const isNeonMode = (): boolean => {
   return typeof localStorage !== 'undefined' && localStorage.getItem('app_db_mode') === 'neon';

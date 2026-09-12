@@ -3,6 +3,7 @@ export type Role = 'admin' | 'seller';
 export interface Client {
   id: string;
   sellerId?: string; // Add sellerId
+  sellerName?: string;
   name: string;
   companyName?: string;
   nit?: string;
@@ -33,11 +34,12 @@ export interface User {
 
 export interface AppNotification {
   id: string;
-  type: 'out_of_stock' | 'low_stock' | 'restock' | 'sale_rejected' | 'sale_authorized' | 'new_order' | 'payment_received' | 'price_changed';
+  type: 'out_of_stock' | 'low_stock' | 'restock' | 'sale_rejected' | 'sale_authorized' | 'new_order' | 'payment_received' | 'price_changed' | 'sale';
   title: string;
   message: string;
   productId?: string;
   invoiceId?: string;
+  read?: boolean;
   createdAt: string;
 }
 
@@ -323,6 +325,7 @@ export interface SellerRoute {
   sellerId: string;
   sellerName: string;
   sellerEmail?: string;
+  date?: string;
   status: 'active' | 'completed';
   startedAt: string;
   finishedAt?: string | null;
@@ -330,9 +333,10 @@ export interface SellerRoute {
   startLongitude?: number | null;
   endLatitude?: number | null;
   endLongitude?: number | null;
-  totalStops: number;
+  totalStops?: number;
+  totalVisits?: number;
   totalDistanceKm: number;
-  totalDurationMins: number;
+  totalDurationMins?: number;
   notes?: string;
   createdAt?: string;
 }

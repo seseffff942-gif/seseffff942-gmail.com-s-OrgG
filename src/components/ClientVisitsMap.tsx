@@ -103,7 +103,7 @@ export function ClientVisitsMap({
     });
 
     // Add Clear All Pins control button
-    const clearBtn = L.control({ position: 'topright' });
+    const clearBtn = (L as any).control({ position: 'topright' });
     clearBtn.onAdd = function () {
       const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-touch');
       btn.title = 'Clear All Pins';

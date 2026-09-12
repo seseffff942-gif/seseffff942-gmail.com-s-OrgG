@@ -1,3 +1,10 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // server.ts
 import "dotenv/config";
 import express from "express";
@@ -647,13 +654,18 @@ async function anularFactura(supabase2, invoice, motivo) {
 // server.ts
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
+var sharp = null;
+try {
+  sharp = __require("sharp");
+} catch (e) {
+}
 function requireEnv(name) {
   const value = process.env[name];
   if (!value || !value.trim()) {
     console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
     if (name === "JWT_SECRET") return "agricovet_secret_key_2026";
-    if (name === "SUPABASE_URL") return "https://vedgedsbuajueynnyvpn.supabase.co";
-    if (name === "SUPABASE_ANON_KEY") return "sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno";
+    if (name === "SUPABASE_URL") return "";
+    if (name === "SUPABASE_ANON_KEY") return "";
     return "default_value";
   }
   return value.trim();
@@ -3562,7 +3574,7 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
 var lastDispatchedCorteKey = "";
 async function checkAndDispatchDailySales(options) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
-  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
+  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
   const sendToWebhook = options?.sendToWebhook !== false;
   const now = /* @__PURE__ */ new Date();
   const gtOffset = -6 * 60;
