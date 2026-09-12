@@ -1,5 +1,5 @@
 # Etapa 1: Construcción (Builder)
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN test -f folio_config.json || echo "{}" > folio_config.json
 RUN npm run build
 
 # Etapa 2: Imagen de Producción (Runner)
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
