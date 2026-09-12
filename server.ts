@@ -26,8 +26,8 @@ function requireEnv(name: string): string {
   if (!value || !value.trim()) {
     console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
     if (name === "JWT_SECRET") return "agricovet_secret_key_2026";
-    if (name === "SUPABASE_URL") return "https://vedgedsbuajueynnyvpn.supabase.co";
-    if (name === "SUPABASE_ANON_KEY") return "sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno";
+    if (name === "SUPABASE_URL") return "";
+    if (name === "SUPABASE_ANON_KEY") return "";
     return "default_value";
   }
   return value.trim();
@@ -84,7 +84,7 @@ export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
           return val;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   try {
     if (fs.existsSync(PANIC_STATE_FILE)) {
@@ -96,7 +96,7 @@ export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
         return parsed.activeMode;
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   return activeDatabaseMode;
 }
 
@@ -121,11 +121,11 @@ export async function persistGlobalDbMode(mode: 'supabase' | 'neon') {
       activeMode: mode,
       updatedAt: new Date().toISOString()
     }, null, 2), "utf-8");
-  } catch (e) {}
+  } catch (e) { }
 }
 
 export function setGlobalDbMode(mode: 'supabase' | 'neon') {
-  persistGlobalDbMode(mode).catch(() => {});
+  persistGlobalDbMode(mode).catch(() => { });
 }
 
 export function isNeonActive(): boolean {
@@ -310,16 +310,16 @@ function updateTagInNotes(notes: string, tag: string, value: any): string {
 async function seedDatabase(force: boolean = false) {
   try {
     console.log(`[Seed] Inactive check for products. force=${force}`);
-    
+
     // Delete the removed products from the actual database to fulfill user request
     try {
       await supabase.from("products").delete().in('name', ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
-    } catch (e) {}
+    } catch (e) { }
 
     // Ensure jerickottoniel@gmail.com is named Erick Juárez
     try {
       await supabase.from("users").update({ name: "Erick Juárez" }).ilike("email", "jerickottoniel@gmail.com");
-    } catch (e) {}
+    } catch (e) { }
 
     const { data: defaultUsers, error: uErr } = await supabase.from("users").select("id").limit(1);
     if (uErr) {
@@ -411,7 +411,7 @@ app.get("/api/webhooks", (req: any, res: any) => {
     res.set("Content-Type", "text/plain");
     return res.status(200).send(challenge);
   }
-  
+
   console.error("Webhook verification failed. Token mismatch or missing params.");
   res.status(403).send("Verification failed");
 });
@@ -477,7 +477,7 @@ const apiLimiter = rateLimit({
 });
 
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
+  windowMs: 15 * 60 * 1000,
   max: 10, // Limit each IP to 10 login requests per window
   message: { error: "Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos." },
   standardHeaders: true,
@@ -492,2452 +492,2414 @@ if (!process.env.VERCEL) {
   seedDatabase().catch(err => console.error("Seeding DB failed", err));
 }
 
-  // ======== SYSTEM PERFORMANCES CACHE ========
-  interface CacheEntry {
-    timestamp: number;
-    ttl: number;
-    data: any;
+// ======== SYSTEM PERFORMANCES CACHE ========
+interface CacheEntry {
+  timestamp: number;
+  ttl: number;
+  data: any;
+}
+const memoryCache: Record<string, CacheEntry> = {};
+const DEFAULT_CACHE_TTL_MS = 60000; // 60 seconds default TTL for cached reads
+
+const getCachedData = (key: string): any | null => {
+  const entry = memoryCache[key];
+  if (entry && (Date.now() - entry.timestamp) < entry.ttl) {
+    return entry.data;
   }
-  const memoryCache: Record<string, CacheEntry> = {};
-  const DEFAULT_CACHE_TTL_MS = 60000; // 60 seconds default TTL for cached reads
+  return null;
+};
 
-  const getCachedData = (key: string): any | null => {
-    const entry = memoryCache[key];
-    if (entry && (Date.now() - entry.timestamp) < entry.ttl) {
-      return entry.data;
+const setCachedData = (key: string, data: any, ttlMs: number = DEFAULT_CACHE_TTL_MS): void => {
+  memoryCache[key] = {
+    timestamp: Date.now(),
+    ttl: ttlMs,
+    data
+  };
+};
+
+const invalidateCache = (key: string): void => {
+  delete memoryCache[key];
+};
+
+async function getFolioMap(forceRefresh: boolean = false) {
+  if (!forceRefresh) {
+    const cached = getCachedData("folio_map");
+    if (cached) return cached;
+  }
+
+  let startFrom = 1;
+  let resetDate: string | null = null;
+
+  // 1. Try reading from Supabase sys-folio-config first (production dynamic config)
+  try {
+    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    if (sysRow && sysRow.photo) {
+      const config = JSON.parse(sysRow.photo);
+      startFrom = config.startFrom || 1;
+      resetDate = config.resetDate || null;
     }
-    return null;
-  };
+  } catch (e) { }
 
-  const setCachedData = (key: string, data: any, ttlMs: number = DEFAULT_CACHE_TTL_MS): void => {
-    memoryCache[key] = {
-      timestamp: Date.now(),
-      ttl: ttlMs,
-      data
-    };
-  };
-
-  const invalidateCache = (key: string): void => {
-    delete memoryCache[key];
-  };
-
-  async function getFolioMap(forceRefresh: boolean = false) {
-    if (!forceRefresh) {
-      const cached = getCachedData("folio_map");
-      if (cached) return cached;
-    }
-
-    let startFrom = 1;
-    let resetDate: string | null = null;
-
-    // 1. Try reading from Supabase sys-folio-config first (production dynamic config)
+  // 2. Fallback to local folio_config.json if not configured in DB
+  if (startFrom === 1 && !resetDate) {
+    const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
-      if (sysRow && sysRow.photo) {
-        const config = JSON.parse(sysRow.photo);
+      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+        const config = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
         startFrom = config.startFrom || 1;
         resetDate = config.resetDate || null;
       }
-    } catch (e) {}
+    } catch (e) { }
+  }
 
-    // 2. Fallback to local folio_config.json if not configured in DB
-    if (startFrom === 1 && !resetDate) {
-      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-      try {
-        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-          const config = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-          startFrom = config.startFrom || 1;
-          resetDate = config.resetDate || null;
-        }
-      } catch (e) {}
+  // 3. Paginate to fetch all invoices (avoid Supabase 1000 rows cut)
+  let invoices: any[] = [];
+  let page = 0;
+  const PAGE_SIZE = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase
+      .from("invoices")
+      .select("id, date, status, notes, folio")
+      .eq("is_archived", false);
+
+    if (resetDate) {
+      query = query.gte("date", resetDate);
     }
 
-    // 3. Paginate to fetch all invoices (avoid Supabase 1000 rows cut)
-    let invoices: any[] = [];
-    let page = 0;
-    const PAGE_SIZE = 1000;
-    let hasMore = true;
+    const { data: pageData, error } = await query
+      .order("date", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    while (hasMore) {
-      let query = supabase
-        .from("invoices")
-        .select("id, date, status, notes, folio")
-        .eq("is_archived", false);
-      
-      if (resetDate) {
-        query = query.gte("date", resetDate);
-      }
+    if (error) {
+      if (error.code === '42703' || error.message?.includes('folio') || error.message?.includes('is_archived')) {
+        let retryQ = supabase.from("invoices").select("id, date, status, notes");
+        if (resetDate) retryQ = retryQ.gte("date", resetDate);
+        const retryRes = await retryQ
+          .order("date", { ascending: true, nullsFirst: false })
+          .order("id", { ascending: true })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      const { data: pageData, error } = await query
-        .order("date", { ascending: true, nullsFirst: false })
-        .order("id", { ascending: true })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-      if (error) {
-        if (error.code === '42703' || error.message?.includes('folio') || error.message?.includes('is_archived')) {
-          let retryQ = supabase.from("invoices").select("id, date, status, notes");
-          if (resetDate) retryQ = retryQ.gte("date", resetDate);
-          const retryRes = await retryQ
-            .order("date", { ascending: true, nullsFirst: false })
-            .order("id", { ascending: true })
-            .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-          if (retryRes.data && retryRes.data.length > 0) {
-            invoices = invoices.concat(retryRes.data);
-            if (retryRes.data.length < PAGE_SIZE) hasMore = false;
-            else page++;
-          } else {
-            hasMore = false;
-          }
+        if (retryRes.data && retryRes.data.length > 0) {
+          invoices = invoices.concat(retryRes.data);
+          if (retryRes.data.length < PAGE_SIZE) hasMore = false;
+          else page++;
         } else {
-          console.error("Error fetching for folio map:", error.message);
           hasMore = false;
-        }
-      } else if (pageData && pageData.length > 0) {
-        invoices = invoices.concat(pageData);
-        if (pageData.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          page++;
         }
       } else {
+        console.error("Error fetching for folio map:", error.message);
         hasMore = false;
       }
-    }
-
-    const map: Record<string, number> = {};
-    const usedFolios = new Set<number>();
-
-    if (invoices && invoices.length > 0) {
-      console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
-      
-      // Pass 1: Collect explicit locked folios in database column or notes (e.g. |||FOLIO:123)
-      invoices.forEach((inv) => {
-        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
-        if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
-          const num = parseInt(String(inv.folio).trim(), 10);
-          if (!isNaN(num) && num > 0) {
-            map[String(inv.id)] = num;
-            usedFolios.add(num);
-            return;
-          }
-        }
-        if (inv.notes && inv.notes.includes("|||FOLIO:")) {
-          const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
-          if (match && match[1]) {
-            const manualFolio = parseInt(match[1], 10);
-            if (!isNaN(manualFolio)) {
-              map[String(inv.id)] = manualFolio;
-              usedFolios.add(manualFolio);
-            }
-          }
-        }
-      });
-
-      // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio
-      let currentFolio = startFrom;
-      invoices.forEach((inv) => {
-        if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
-        if (map[String(inv.id)] !== undefined) return; // already locked
-
-        while (usedFolios.has(currentFolio) || currentFolio === 812) {
-          currentFolio++;
-        }
-
-        map[String(inv.id)] = currentFolio;
-        usedFolios.add(currentFolio);
-        currentFolio++;
-      });
-
-      console.log(`Folio map generated: ${Object.keys(map).length} active entries.`);
+    } else if (pageData && pageData.length > 0) {
+      invoices = invoices.concat(pageData);
+      if (pageData.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        page++;
+      }
     } else {
-      console.log("No invoices found for folio map generation.");
+      hasMore = false;
     }
-
-    setCachedData("folio_map", map, 10 * 60 * 1000); // 10 minutes TTL, invalidated automatically on invoice mutations
-    return map;
   }
 
-  // ======== MIDDLEWARES ========
-  const requireAuth = async (req: any, res: any, next: any) => {
-    let token = null;
-    const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'] || req.headers['x-access-token'];
-    if (authHeader && typeof authHeader === 'string') {
-      token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
-    } else if (req.query && req.query.token) {
-      token = req.query.token;
-    }
+  const map: Record<string, number> = {};
+  const usedFolios = new Set<number>();
 
-    if (!token) {
-      return res.status(401).json({ error: "Acceso no autorizado: Token faltante" });
-    }
-    try {
-      const payload = jwt.verify(token, JWT_SECRET) as any;
-      const iat = payload.iat ? payload.iat * 1000 : 0;
-      
-      let user = null;
-      if (isNeonActive() && neonPool) {
-        try {
-          const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
-          if (rows && rows.length > 0) user = rows[0];
-        } catch (neErr) {
-          console.warn("Neon DB error in requireAuth:", neErr);
+  if (invoices && invoices.length > 0) {
+    console.log(`[FolioDebug] Processing ${invoices.length} invoices. startFrom: ${startFrom}`);
+
+    // Pass 1: Collect explicit locked folios in database column or notes (e.g. |||FOLIO:123)
+    invoices.forEach((inv) => {
+      if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+      if (inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '') {
+        const num = parseInt(String(inv.folio).trim(), 10);
+        if (!isNaN(num) && num > 0) {
+          map[String(inv.id)] = num;
+          usedFolios.add(num);
+          return;
         }
       }
-
-      if (!user) {
-        try {
-          const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
-          if (users && users.length > 0) {
-            user = users[0];
-          }
-        } catch (dbErr) {
-          console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
-          if (neonPool) {
-            try {
-              const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
-              if (rows && rows.length > 0) user = rows[0];
-            } catch (neErr2) {}
+      if (inv.notes && inv.notes.includes("|||FOLIO:")) {
+        const match = inv.notes.match(/\|\|\|FOLIO:(\d+)/);
+        if (match && match[1]) {
+          const manualFolio = parseInt(match[1], 10);
+          if (!isNaN(manualFolio)) {
+            map[String(inv.id)] = manualFolio;
+            usedFolios.add(manualFolio);
           }
         }
       }
-
-      if (user) {
-        // Force Logout Check
-        if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
-          return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
-        }
-      }
-
-      if (!user) {
-        user = initialDb.users.find(u => u.id === payload.id);
-      }
-
-      if (!user) {
-        return res.status(401).json({ error: "Acceso no autorizado: Usuario no existe" });
-      }
-      req.user = user;
-      next();
-    } catch (e) {
-      return res.status(401).json({ error: "Acceso no autorizado: Token inválido o expirado" });
-    }
-  };
-
-  const requireAdmin = (req: any, res: any, next: any) => {
-    const role = (req.user?.role || '').toLowerCase().trim();
-    if (!req.user || (role !== 'admin' && role !== 'dueño' && role !== 'dueno' && role !== 'ceo' && role !== 'owner')) {
-      return res.status(403).json({ error: "Acceso denegado: Se requieren permisos de administrador" });
-    }
-    next();
-  };
-
-  const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
-    if (!product) return false;
-    const nameLower = (product.name || '').toLowerCase();
-    const categoryLower = (product.category || '').toLowerCase();
-    
-    // Explicitly exclude INCUBADORAS
-    if (categoryLower.includes('incubadora') || nameLower.includes('incubadora')) {
-      return true;
-    }
-    
-    const keywords = ['bebedero', 'comedero', 'puya', 'arete', 'aretes'];
-    return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
-  };
-
-  const is100gProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
-    if (!product) return false;
-    const nameL = (product.name || '').toLowerCase();
-    const catL = (product.category || '').toLowerCase();
-    const combined = `${nameL} ${catL}`;
-    return /100\s*(g|gr|gram|gramos)\b/i.test(combined) || 
-           combined.includes('100g') || 
-           combined.includes('100 g') || 
-           combined.includes('100gr') || 
-           combined.includes('100 gr') || 
-           combined.includes('100gramos') || 
-           combined.includes('100 gramos');
-  };
-
-  const getCriticalStockThreshold = (product: { name?: string; category?: string } | null | undefined): number => {
-    if (!product) return 5;
-    const nameL = (product.name || '').toLowerCase();
-    const catL = (product.category || '').toLowerCase();
-
-    const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
-    const isNexlabet = nameL.includes('nexlabet');
-    const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
-
-    if ((isSA && !isNexlabet) || isOtherCritical) {
-      return 120;
-    }
-
-    if (is100gProduct(product)) {
-      return 25;
-    }
-
-    return 5;
-  };
-
-  const isCriticalStock = (product: { name?: string; category?: string } | null | undefined, currentStock?: number): boolean => {
-    if (!product) return false;
-    const stock = currentStock !== undefined ? currentStock : ((product as any).stock || 0);
-    const threshold = getCriticalStockThreshold(product);
-    return stock <= threshold;
-  };
-
-  // Mutex de concurrencia para operaciones de stock en memoria
-  const stockLockMap = new Map<string, Promise<void>>();
-
-  async function acquireStockLocks(productIds: (string | undefined)[]): Promise<() => void> {
-    const validIds = Array.from(new Set(productIds.filter((id): id is string => Boolean(id)))).sort();
-    if (validIds.length === 0) return () => {};
-
-    const previousLocks = validIds.map(id => stockLockMap.get(id) || Promise.resolve());
-    await Promise.all(previousLocks);
-
-    let releaseCallback: () => void = () => {};
-    const newLock = new Promise<void>(resolve => {
-      releaseCallback = resolve;
     });
 
-    for (const id of validIds) {
-      stockLockMap.set(id, newLock);
-    }
+    // Pass 2: Assign sequential folios for legacy invoices without an explicit locked folio
+    let currentFolio = startFrom;
+    invoices.forEach((inv) => {
+      if (!inv.id || inv.status === 'cancelled' || inv.status === 'rejected') return;
+      if (map[String(inv.id)] !== undefined) return; // already locked
 
-    return () => {
-      releaseCallback();
-      for (const id of validIds) {
-        if (stockLockMap.get(id) === newLock) {
-          stockLockMap.delete(id);
-        }
+      while (usedFolios.has(currentFolio) || currentFolio === 812) {
+        currentFolio++;
       }
-    };
-  }
 
-  // Devuelve al inventario las cantidades de una factura (al anularla o
-  // rechazarla). Respeta variantes y omite productos externos. Se usa tanto
-  // al cambiar el estado de la factura como al anular su DTE ante SAT.
-  async function restaurarStockDeFactura(invoice: any) {
-    for (const item of (invoice.items || [])) {
-       const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
-       const product = prods?.[0];
-       if (product && !product.is_external) {
-          let variantsToUpdate = product.variants ? [...product.variants] : [];
-          let variantObj = null;
-          if (item.variantId) {
-            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-            if (varIndex !== -1) {
-               variantObj = variantsToUpdate[varIndex];
-            }
-          }
+      map[String(inv.id)] = currentFolio;
+      usedFolios.add(currentFolio);
+      currentFolio++;
+    });
 
-          if (variantObj && variantObj.stock !== undefined) {
-             const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-             variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-             const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
-             if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-          } else {
-             const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
-             if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-          }
-       }
-    }
-  }
-
-  // ======== API ERROR WRAPPER ========
-  const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
-    Promise.resolve(fn(req, res, next)).catch(next);
-
-
-
-  app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { force } = req.body;
-    await seedDatabase(!!force);
-    res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
-  }));
-
-  app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { invoiceId, items, client, sellerId } = req.body;
-    const dispatchId = `DISP-${Date.now()}`;
-    const dispatchRecord = {
-      id: dispatchId,
-      invoiceId,
-      items,
-      date: new Date().toISOString(),
-      client,
-      sellerId: sellerId || req.user.id
-    };
-    await supabase.from("dispatches").insert([dispatchRecord]);
-    res.json({ success: true, dispatchId });
-  }));
-
-  app.post("/api/invoices/:id/dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { error } = await supabase.from("invoices").update({ status: 'despachado' }).eq('id', id);
-    if (error) throw error;
-    await syncInvoiceToPermanentBackup(id);
-    res.json({ success: true });
-  }));
-
-  // ======== NOTIFICATIONS HELPERS ========
-  const NOTIFICATIONS_FILE = path.join(process.cwd(), "notifications_local.json");
-  const WAREHOUSE_CONFIG_FILE = path.join(process.cwd(), "warehouse_config.json");
-
-  function readWarehouseConfig() {
-    try {
-      if (fs.existsSync(WAREHOUSE_CONFIG_FILE)) {
-        return JSON.parse(fs.readFileSync(WAREHOUSE_CONFIG_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading warehouse config:", err);
-    }
-    return { location: "", password: "123" };
-  }
-
-  function saveWarehouseConfig(config: any) {
-    try {
-      fs.writeFileSync(WAREHOUSE_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving warehouse config:", err);
-    }
-  }
-
-  // ======== PUSH NOTIFICATION SETUP & VAPID SETUP ========
-  const DEFAULT_VAPID_PUBLIC = "BEnhoOXgIpOmZtjAZZnCXtG4ZdhnwBe1F1WOmAYKBs-nFKpzBKbzJheMa_uUTjE1Y_w8L5PE3sI-zWuj0ueQigw";
-  const DEFAULT_VAPID_PRIVATE = "Y3DONuP5JCkC_L7xZjgZBwhmrlSn1Doja78LDTE0M-4";
-  let vapidKeys: { publicKey: string; privateKey: string } = {
-    publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
-    privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
-  };
-  const VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
-  const SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
-  const FCM_TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
-  const FIREBASE_SERVICE_ACCOUNT_FILE = path.join(process.cwd(), "firebase-service-account.json");
-
-  let firebaseAdminApp: any = null;
-  try {
-    let serviceAccount: any = null;
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
-      serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
-    }
-    if (serviceAccount && serviceAccount.private_key) {
-      firebaseAdminApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: serviceAccount.project_id || "agricovet-29e17"
-      }, "agricovet-app-admin");
-      console.log(`[Firebase Admin] 🔥 Conectado exitosamente con FCM para el proyecto: ${serviceAccount.project_id}`);
-    }
-  } catch (err: any) {
-    console.warn("[Firebase Admin] Init warning:", err.message || err);
-  }
-
-  if (fs.existsSync(VAPID_FILE)) {
-    try {
-      const fileKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
-      if (fileKeys && fileKeys.publicKey && fileKeys.privateKey) {
-        vapidKeys = fileKeys;
-      }
-    } catch (err) {
-      console.error("Error reading stable VAPID file, using default:", err);
-    }
+    console.log(`Folio map generated: ${Object.keys(map).length} active entries.`);
   } else {
-    try {
-      fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
-    } catch (err) {
-      console.warn("Notice: could not write VAPID file:", err);
+    console.log("No invoices found for folio map generation.");
+  }
+
+  setCachedData("folio_map", map, 10 * 60 * 1000); // 10 minutes TTL, invalidated automatically on invoice mutations
+  return map;
+}
+
+// ======== MIDDLEWARES ========
+const requireAuth = async (req: any, res: any, next: any) => {
+  let token = null;
+  const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'] || req.headers['x-access-token'];
+  if (authHeader && typeof authHeader === 'string') {
+    token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (!token) {
+    return res.status(401).json({ error: "Acceso no autorizado: Token faltante" });
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as any;
+    const iat = payload.iat ? payload.iat * 1000 : 0;
+
+    let user = null;
+    if (isNeonActive() && neonPool) {
+      try {
+        const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
+        if (rows && rows.length > 0) user = rows[0];
+      } catch (neErr) {
+        console.warn("Neon DB error in requireAuth:", neErr);
+      }
+    }
+
+    if (!user) {
+      try {
+        const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+        if (users && users.length > 0) {
+          user = users[0];
+        }
+      } catch (dbErr) {
+        console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
+        if (neonPool) {
+          try {
+            const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
+            if (rows && rows.length > 0) user = rows[0];
+          } catch (neErr2) { }
+        }
+      }
+    }
+
+    if (user) {
+      // Force Logout Check
+      if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+        return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
+      }
+    }
+
+    if (!user) {
+      user = initialDb.users.find(u => u.id === payload.id);
+    }
+
+    if (!user) {
+      return res.status(401).json({ error: "Acceso no autorizado: Usuario no existe" });
+    }
+    req.user = user;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: "Acceso no autorizado: Token inválido o expirado" });
+  }
+};
+
+const requireAdmin = (req: any, res: any, next: any) => {
+  const role = (req.user?.role || '').toLowerCase().trim();
+  if (!req.user || (role !== 'admin' && role !== 'dueño' && role !== 'dueno' && role !== 'ceo' && role !== 'owner')) {
+    return res.status(403).json({ error: "Acceso denegado: Se requieren permisos de administrador" });
+  }
+  next();
+};
+
+const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
+  if (!product) return false;
+  const nameLower = (product.name || '').toLowerCase();
+  const categoryLower = (product.category || '').toLowerCase();
+
+  // Explicitly exclude INCUBADORAS
+  if (categoryLower.includes('incubadora') || nameLower.includes('incubadora')) {
+    return true;
+  }
+
+  const keywords = ['bebedero', 'comedero', 'puya', 'arete', 'aretes'];
+  return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
+};
+
+const is100gProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
+  if (!product) return false;
+  const nameL = (product.name || '').toLowerCase();
+  const catL = (product.category || '').toLowerCase();
+  const combined = `${nameL} ${catL}`;
+  return /100\s*(g|gr|gram|gramos)\b/i.test(combined) ||
+    combined.includes('100g') ||
+    combined.includes('100 g') ||
+    combined.includes('100gr') ||
+    combined.includes('100 gr') ||
+    combined.includes('100gramos') ||
+    combined.includes('100 gramos');
+};
+
+const getCriticalStockThreshold = (product: { name?: string; category?: string } | null | undefined): number => {
+  if (!product) return 5;
+  const nameL = (product.name || '').toLowerCase();
+  const catL = (product.category || '').toLowerCase();
+
+  const isSA = nameL.includes('sistemas agropecuarios') || catL.includes('sistemas agropecuarios');
+  const isNexlabet = nameL.includes('nexlabet');
+  const isOtherCritical = nameL.includes('broncobion max') || nameL.includes('avimdustrias mirex') || nameL.includes('forza');
+
+  if ((isSA && !isNexlabet) || isOtherCritical) {
+    return 120;
+  }
+
+  if (is100gProduct(product)) {
+    return 25;
+  }
+
+  return 5;
+};
+
+const isCriticalStock = (product: { name?: string; category?: string } | null | undefined, currentStock?: number): boolean => {
+  if (!product) return false;
+  const stock = currentStock !== undefined ? currentStock : ((product as any).stock || 0);
+  const threshold = getCriticalStockThreshold(product);
+  return stock <= threshold;
+};
+
+// Mutex de concurrencia para operaciones de stock en memoria
+const stockLockMap = new Map<string, Promise<void>>();
+
+async function acquireStockLocks(productIds: (string | undefined)[]): Promise<() => void> {
+  const validIds = Array.from(new Set(productIds.filter((id): id is string => Boolean(id)))).sort();
+  if (validIds.length === 0) return () => { };
+
+  const previousLocks = validIds.map(id => stockLockMap.get(id) || Promise.resolve());
+  await Promise.all(previousLocks);
+
+  let releaseCallback: () => void = () => { };
+  const newLock = new Promise<void>(resolve => {
+    releaseCallback = resolve;
+  });
+
+  for (const id of validIds) {
+    stockLockMap.set(id, newLock);
+  }
+
+  return () => {
+    releaseCallback();
+    for (const id of validIds) {
+      if (stockLockMap.get(id) === newLock) {
+        stockLockMap.delete(id);
+      }
+    }
+  };
+}
+
+// Devuelve al inventario las cantidades de una factura (al anularla o
+// rechazarla). Respeta variantes y omite productos externos. Se usa tanto
+// al cambiar el estado de la factura como al anular su DTE ante SAT.
+async function restaurarStockDeFactura(invoice: any) {
+  for (const item of (invoice.items || [])) {
+    const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+    const product = prods?.[0];
+    if (product && !product.is_external) {
+      let variantsToUpdate = product.variants ? [...product.variants] : [];
+      let variantObj = null;
+      if (item.variantId) {
+        const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+        if (varIndex !== -1) {
+          variantObj = variantsToUpdate[varIndex];
+        }
+      }
+
+      if (variantObj && variantObj.stock !== undefined) {
+        const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+        const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+        if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
+      } else {
+        const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+        if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
+      }
     }
   }
+}
+
+// ======== API ERROR WRAPPER ========
+const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+
+
+app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { force } = req.body;
+  await seedDatabase(!!force);
+  res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
+}));
+
+app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { invoiceId, items, client, sellerId } = req.body;
+  const dispatchId = `DISP-${Date.now()}`;
+  const dispatchRecord = {
+    id: dispatchId,
+    invoiceId,
+    items,
+    date: new Date().toISOString(),
+    client,
+    sellerId: sellerId || req.user.id
+  };
+  await supabase.from("dispatches").insert([dispatchRecord]);
+  res.json({ success: true, dispatchId });
+}));
+
+app.post("/api/invoices/:id/dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { error } = await supabase.from("invoices").update({ status: 'despachado' }).eq('id', id);
+  if (error) throw error;
+  await syncInvoiceToPermanentBackup(id);
+  res.json({ success: true });
+}));
+
+// ======== NOTIFICATIONS HELPERS ========
+const NOTIFICATIONS_FILE = path.join(process.cwd(), "notifications_local.json");
+const WAREHOUSE_CONFIG_FILE = path.join(process.cwd(), "warehouse_config.json");
+
+function readWarehouseConfig() {
+  try {
+    if (fs.existsSync(WAREHOUSE_CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(WAREHOUSE_CONFIG_FILE, "utf8"));
+    }
+  } catch (err) {
+    console.error("Error reading warehouse config:", err);
+  }
+  return { location: "", password: "123" };
+}
+
+function saveWarehouseConfig(config: any) {
+  try {
+    fs.writeFileSync(WAREHOUSE_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving warehouse config:", err);
+  }
+}
+
+// ======== PUSH NOTIFICATION SETUP & VAPID SETUP ========
+const DEFAULT_VAPID_PUBLIC = "BEnhoOXgIpOmZtjAZZnCXtG4ZdhnwBe1F1WOmAYKBs-nFKpzBKbzJheMa_uUTjE1Y_w8L5PE3sI-zWuj0ueQigw";
+const DEFAULT_VAPID_PRIVATE = "Y3DONuP5JCkC_L7xZjgZBwhmrlSn1Doja78LDTE0M-4";
+let vapidKeys: { publicKey: string; privateKey: string } = {
+  publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
+  privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
+};
+const VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
+const SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
+const FCM_TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
+const FIREBASE_SERVICE_ACCOUNT_FILE = path.join(process.cwd(), "firebase-service-account.json");
+
+let firebaseAdminApp: any = null;
+try {
+  let serviceAccount: any = null;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
+    serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  }
+  if (serviceAccount && serviceAccount.private_key) {
+    firebaseAdminApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: serviceAccount.project_id || "agricovet-29e17"
+    }, "agricovet-app-admin");
+    console.log(`[Firebase Admin] 🔥 Conectado exitosamente con FCM para el proyecto: ${serviceAccount.project_id}`);
+  }
+} catch (err: any) {
+  console.warn("[Firebase Admin] Init warning:", err.message || err);
+}
+
+if (fs.existsSync(VAPID_FILE)) {
+  try {
+    const fileKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+    if (fileKeys && fileKeys.publicKey && fileKeys.privateKey) {
+      vapidKeys = fileKeys;
+    }
+  } catch (err) {
+    console.error("Error reading stable VAPID file, using default:", err);
+  }
+} else {
+  try {
+    fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
+  } catch (err) {
+    console.warn("Notice: could not write VAPID file:", err);
+  }
+}
+
+try {
+  webpush.setVapidDetails(
+    "mailto:seseffff942@gmail.com",
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+} catch (err) {
+  console.error("Error configuring webpush VAPID details:", err);
+}
+
+function readPushSubscriptions(): any[] {
+  try {
+    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, "utf8"));
+    }
+  } catch (err) {
+    console.error("Error reading push subscriptions:", err);
+  }
+  return [];
+}
+
+function savePushSubscriptions(subs: any[]) {
+  try {
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(subs, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving push subscriptions:", err);
+  }
+}
+
+async function getPushSubscriptions(): Promise<any[]> {
+  const local = readPushSubscriptions();
+  const map = new Map<string, any>();
+  local.forEach(s => {
+    if (s && s.endpoint) map.set(s.endpoint, s);
+  });
 
   try {
-    webpush.setVapidDetails(
-      "mailto:seseffff942@gmail.com",
-      vapidKeys.publicKey,
-      vapidKeys.privateKey
-    );
-  } catch (err) {
-    console.error("Error configuring webpush VAPID details:", err);
-  }
-
-  function readPushSubscriptions(): any[] {
-    try {
-      if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
-        return JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading push subscriptions:", err);
-    }
-    return [];
-  }
-
-  function savePushSubscriptions(subs: any[]) {
-    try {
-      fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(subs, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving push subscriptions:", err);
-    }
-  }
-
-  async function getPushSubscriptions(): Promise<any[]> {
-    const local = readPushSubscriptions();
-    const map = new Map<string, any>();
-    local.forEach(s => {
-      if (s && s.endpoint) map.set(s.endpoint, s);
-    });
-
-    try {
-      const { data, error } = await supabase.from("push_subscriptions").select("*");
-      if (!error && Array.isArray(data)) {
-        data.forEach((row: any) => {
-          const sub = typeof row.subscription === 'string' ? JSON.parse(row.subscription) : (row.subscription || row);
-          if (sub && sub.endpoint) {
-            map.set(sub.endpoint, sub);
-          }
-        });
-      }
-    } catch (err) {
-      // Supabase table may not exist yet; local is used
-    }
-    return Array.from(map.values());
-  }
-
-  async function savePushSubscription(subscription: any) {
-    const current = readPushSubscriptions();
-    const filtered = current.filter(sub => sub.endpoint !== subscription.endpoint);
-    filtered.push(subscription);
-    savePushSubscriptions(filtered);
-
-    try {
-      const subId = Buffer.from(subscription.endpoint).toString('base64').substring(0, 100);
-      await supabase.from("push_subscriptions").upsert([{
-        id: subId,
-        endpoint: subscription.endpoint,
-        subscription: subscription,
-        updated_at: new Date().toISOString()
-      }], { onConflict: 'id' });
-    } catch (err) {
-      console.warn("Could not upsert push subscription to Supabase:", err);
-    }
-  }
-
-  async function removePushSubscription(endpoint: string) {
-    const current = readPushSubscriptions();
-    const filtered = current.filter(sub => sub.endpoint !== endpoint);
-    savePushSubscriptions(filtered);
-
-    try {
-      const subId = Buffer.from(endpoint).toString('base64').substring(0, 100);
-      await supabase.from("push_subscriptions").delete().eq('id', subId);
-    } catch (err) {}
-  }
-
-  function readFcmTokens(): string[] {
-    try {
-      if (fs.existsSync(FCM_TOKENS_FILE)) {
-        return JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, "utf8"));
-      }
-    } catch (err) {}
-    return [];
-  }
-
-  function saveFcmTokens(tokens: string[]) {
-    try {
-      fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
-    } catch (err) {}
-  }
-
-  async function getFcmTokens(): Promise<string[]> {
-    const local = readFcmTokens();
-    const tokenSet = new Set<string>(local);
-    try {
-      const { data, error } = await supabase.from("fcm_tokens").select("token");
-      if (!error && Array.isArray(data)) {
-        data.forEach((r: any) => { if (r?.token) tokenSet.add(r.token); });
-      }
-    } catch (e) {}
-    return Array.from(tokenSet);
-  }
-
-  async function registerFcmToken(token: string) {
-    if (!token || typeof token !== "string") return;
-    const tokens = readFcmTokens();
-    if (!tokens.includes(token)) {
-      tokens.push(token);
-      saveFcmTokens(tokens);
-    }
-    try {
-      await supabase.from("fcm_tokens").upsert([{ token, updated_at: new Date().toISOString() }], { onConflict: "token" });
-    } catch (e) {}
-  }
-
-  async function broadcastPushNotification(title: string, message: string, url: string = "/") {
-    const config = readWarehouseConfig();
-    if (config.isSilentModeActive) {
-      console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
-      return;
-    }
-    const subs = await getPushSubscriptions();
-    const payload = JSON.stringify({ title, message, url });
-    
-    // 1. Web Push (Navegadores / PWA)
-    if (subs.length > 0) {
-      const promises = subs.map(async (sub) => {
-        try {
-          await webpush.sendNotification(sub, payload, {
-            headers: {
-              'Urgency': 'high',
-            },
-            TTL: 86400, // 24 hours in seconds
-          });
-        } catch (err: any) {
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            await removePushSubscription(sub.endpoint);
-          } else {
-            console.error("Failed to send push to:", sub.endpoint, err.message || err);
-          }
+    const { data, error } = await supabase.from("push_subscriptions").select("*");
+    if (!error && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        const sub = typeof row.subscription === 'string' ? JSON.parse(row.subscription) : (row.subscription || row);
+        if (sub && sub.endpoint) {
+          map.set(sub.endpoint, sub);
         }
       });
-      await Promise.allSettled(promises);
-      console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
     }
+  } catch (err) {
+    // Supabase table may not exist yet; local is used
+  }
+  return Array.from(map.values());
+}
 
-    // 2. Multicast a todos los teléfonos Android con FCM Nativo (24/7 en segundo plano)
-    const fcmTokens = await getFcmTokens();
-    if (fcmTokens.length > 0 && firebaseAdminApp) {
+async function savePushSubscription(subscription: any) {
+  const current = readPushSubscriptions();
+  const filtered = current.filter(sub => sub.endpoint !== subscription.endpoint);
+  filtered.push(subscription);
+  savePushSubscriptions(filtered);
+
+  try {
+    const subId = Buffer.from(subscription.endpoint).toString('base64').substring(0, 100);
+    await supabase.from("push_subscriptions").upsert([{
+      id: subId,
+      endpoint: subscription.endpoint,
+      subscription: subscription,
+      updated_at: new Date().toISOString()
+    }], { onConflict: 'id' });
+  } catch (err) {
+    console.warn("Could not upsert push subscription to Supabase:", err);
+  }
+}
+
+async function removePushSubscription(endpoint: string) {
+  const current = readPushSubscriptions();
+  const filtered = current.filter(sub => sub.endpoint !== endpoint);
+  savePushSubscriptions(filtered);
+
+  try {
+    const subId = Buffer.from(endpoint).toString('base64').substring(0, 100);
+    await supabase.from("push_subscriptions").delete().eq('id', subId);
+  } catch (err) { }
+}
+
+function readFcmTokens(): string[] {
+  try {
+    if (fs.existsSync(FCM_TOKENS_FILE)) {
+      return JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, "utf8"));
+    }
+  } catch (err) { }
+  return [];
+}
+
+function saveFcmTokens(tokens: string[]) {
+  try {
+    fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
+  } catch (err) { }
+}
+
+async function getFcmTokens(): Promise<string[]> {
+  const local = readFcmTokens();
+  const tokenSet = new Set<string>(local);
+  try {
+    const { data, error } = await supabase.from("fcm_tokens").select("token");
+    if (!error && Array.isArray(data)) {
+      data.forEach((r: any) => { if (r?.token) tokenSet.add(r.token); });
+    }
+  } catch (e) { }
+  return Array.from(tokenSet);
+}
+
+async function registerFcmToken(token: string) {
+  if (!token || typeof token !== "string") return;
+  const tokens = readFcmTokens();
+  if (!tokens.includes(token)) {
+    tokens.push(token);
+    saveFcmTokens(tokens);
+  }
+  try {
+    await supabase.from("fcm_tokens").upsert([{ token, updated_at: new Date().toISOString() }], { onConflict: "token" });
+  } catch (e) { }
+}
+
+async function broadcastPushNotification(title: string, message: string, url: string = "/") {
+  const config = readWarehouseConfig();
+  if (config.isSilentModeActive) {
+    console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
+    return;
+  }
+  const subs = await getPushSubscriptions();
+  const payload = JSON.stringify({ title, message, url });
+
+  // 1. Web Push (Navegadores / PWA)
+  if (subs.length > 0) {
+    const promises = subs.map(async (sub) => {
       try {
-        const messaging = admin.messaging(firebaseAdminApp);
-        const fcmResponse = await messaging.sendEachForMulticast({
-          tokens: fcmTokens,
+        await webpush.sendNotification(sub, payload, {
+          headers: {
+            'Urgency': 'high',
+          },
+          TTL: 86400, // 24 hours in seconds
+        });
+      } catch (err: any) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await removePushSubscription(sub.endpoint);
+        } else {
+          console.error("Failed to send push to:", sub.endpoint, err.message || err);
+        }
+      }
+    });
+    await Promise.allSettled(promises);
+    console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
+  }
+
+  // 2. Multicast a todos los teléfonos Android con FCM Nativo (24/7 en segundo plano)
+  const fcmTokens = await getFcmTokens();
+  if (fcmTokens.length > 0 && firebaseAdminApp) {
+    try {
+      const messaging = admin.messaging(firebaseAdminApp);
+      const fcmResponse = await messaging.sendEachForMulticast({
+        tokens: fcmTokens,
+        notification: {
+          title: title || "Agricovet",
+          body: message || "",
+        },
+        android: {
+          priority: "high",
           notification: {
-            title: title || "Agricovet",
-            body: message || "",
-          },
-          android: {
+            sound: "whatsapp.wav",
+            channelId: "agricovet_orders_channel_v4",
             priority: "high",
-            notification: {
-              sound: "whatsapp.wav",
-              channelId: "agricovet_orders_channel_v4",
-              priority: "high",
-              defaultSound: false,
-              notificationCount: 1,
-              icon: "ic_stat_notification",
-              color: "#10b981"
-            }
-          },
-          data: {
-            title: String(title || "Agricovet"),
-            message: String(message || ""),
-            url: String(url || "/")
+            defaultSound: false,
+            notificationCount: 1,
+            icon: "ic_stat_notification",
+            color: "#10b981"
+          }
+        },
+        data: {
+          title: String(title || "Agricovet"),
+          message: String(message || ""),
+          url: String(url || "/")
+        }
+      });
+      console.log(`[FCM Android Push] 📲 Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
+
+      if (fcmResponse.failureCount > 0) {
+        const failedTokens: string[] = [];
+        fcmResponse.responses.forEach((resp, idx) => {
+          if (!resp.success && (resp.error?.code === 'messaging/invalid-registration-token' || resp.error?.code === 'messaging/registration-token-not-registered')) {
+            failedTokens.push(fcmTokens[idx]);
           }
         });
-        console.log(`[FCM Android Push] 📲 Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
-        
-        if (fcmResponse.failureCount > 0) {
-          const failedTokens: string[] = [];
-          fcmResponse.responses.forEach((resp, idx) => {
-            if (!resp.success && (resp.error?.code === 'messaging/invalid-registration-token' || resp.error?.code === 'messaging/registration-token-not-registered')) {
-              failedTokens.push(fcmTokens[idx]);
-            }
-          });
-          if (failedTokens.length > 0) {
-            const currentTokens = readFcmTokens().filter(t => !failedTokens.includes(t));
-            saveFcmTokens(currentTokens);
-          }
+        if (failedTokens.length > 0) {
+          const currentTokens = readFcmTokens().filter(t => !failedTokens.includes(t));
+          saveFcmTokens(currentTokens);
         }
-      } catch (fcmErr: any) {
-        console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
       }
+    } catch (fcmErr: any) {
+      console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
     }
   }
+}
 
-  function readLocalNotifications(): any[] {
-    try {
-      if (fs.existsSync(NOTIFICATIONS_FILE)) {
-        return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading local notifications:", err);
+function readLocalNotifications(): any[] {
+  try {
+    if (fs.existsSync(NOTIFICATIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, "utf8"));
     }
-    return [];
+  } catch (err) {
+    console.error("Error reading local notifications:", err);
+  }
+  return [];
+}
+
+function saveLocalNotifications(notifications: any[]) {
+  try {
+    fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving local notifications:", err);
+  }
+}
+
+async function createNotification(type: string, title: string, message: string, extra: any = {}) {
+  const ntfId = `ntf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = new Date().toISOString();
+  const ntf = {
+    id: ntfId,
+    type,
+    title,
+    message,
+    createdAt: nowIso,
+    created_at: nowIso,
+    productId: extra.productId || extra.product_id || null,
+    product_id: extra.productId || extra.product_id || null,
+    invoiceId: extra.invoiceId || extra.invoice_id || null,
+    invoice_id: extra.invoiceId || extra.invoice_id || null,
+    ...extra
+  };
+
+  // 1. Guardar localmente
+  try {
+    const local = readLocalNotifications();
+    local.unshift(ntf);
+    if (local.length > 200) local.length = 200;
+    saveLocalNotifications(local);
+  } catch (e) {
+    console.error("Error saving local notification:", e);
   }
 
-  function saveLocalNotifications(notifications: any[]) {
-    try {
-      fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving local notifications:", err);
-    }
-  }
-
-  async function createNotification(type: string, title: string, message: string, extra: any = {}) {
-    const ntfId = `ntf-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const nowIso = new Date().toISOString();
-    const ntf = {
+  // 2. Guardar en Supabase para sincronización en tiempo real con todos los dispositivos y la APK
+  try {
+    const payload: any = {
       id: ntfId,
       type,
       title,
       message,
       createdAt: nowIso,
       created_at: nowIso,
-      productId: extra.productId || extra.product_id || null,
-      product_id: extra.productId || extra.product_id || null,
-      invoiceId: extra.invoiceId || extra.invoice_id || null,
-      invoice_id: extra.invoiceId || extra.invoice_id || null,
-      ...extra
+      productId: ntf.productId,
+      product_id: ntf.product_id,
+      invoiceId: ntf.invoiceId,
+      invoice_id: ntf.invoice_id
     };
-
-    // 1. Guardar localmente
-    try {
-      const local = readLocalNotifications();
-      local.unshift(ntf);
-      if (local.length > 200) local.length = 200;
-      saveLocalNotifications(local);
-    } catch (e) {
-      console.error("Error saving local notification:", e);
-    }
-
-    // 2. Guardar en Supabase para sincronización en tiempo real con todos los dispositivos y la APK
-    try {
-      const payload: any = {
-        id: ntfId,
-        type,
-        title,
-        message,
-        createdAt: nowIso,
-        created_at: nowIso,
-        productId: ntf.productId,
-        product_id: ntf.product_id,
-        invoiceId: ntf.invoiceId,
-        invoice_id: ntf.invoice_id
-      };
-      await supabase.from("notifications").insert([payload]);
-    } catch (err) {
-      console.warn("Error inserting notification into Supabase:", err);
-    }
-
-    // 3. Emitir Push Notification a todos los teléfonos y navegadores suscritos
-    try {
-      await broadcastPushNotification(title, message, "/");
-    } catch (pushErr) {
-      console.warn("Error broadcasting push notification:", pushErr);
-    }
-
-    console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
-    return ntf;
+    await supabase.from("notifications").insert([payload]);
+  } catch (err) {
+    console.warn("Error inserting notification into Supabase:", err);
   }
 
-  // ======== API ROUTES ========
-
-  const verificationCodes: Record<string, string> = {};
-
-  const CLIENTS_FILE = path.join(process.cwd(), "clients_local.json");
-
-  function readLocalClients(): any[] {
-    try {
-      if (fs.existsSync(CLIENTS_FILE)) {
-        return JSON.parse(fs.readFileSync(CLIENTS_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading local clients:", err);
-    }
-    return [];
+  // 3. Emitir Push Notification a todos los teléfonos y navegadores suscritos
+  try {
+    await broadcastPushNotification(title, message, "/");
+  } catch (pushErr) {
+    console.warn("Error broadcasting push notification:", pushErr);
   }
 
-  function saveLocalClients(clients: any[]) {
-    try {
-      fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving local clients:", err);
+  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
+  return ntf;
+}
+
+// ======== API ROUTES ========
+
+const verificationCodes: Record<string, string> = {};
+
+const CLIENTS_FILE = path.join(process.cwd(), "clients_local.json");
+
+function readLocalClients(): any[] {
+  try {
+    if (fs.existsSync(CLIENTS_FILE)) {
+      return JSON.parse(fs.readFileSync(CLIENTS_FILE, "utf8"));
     }
+  } catch (err) {
+    console.error("Error reading local clients:", err);
   }
+  return [];
+}
 
-  function findMatchingClient(list: any[], name: string, companyName?: string, nit?: string, clientCode?: string, includeDeleted: boolean = false): any | null {
-    if (!list || list.length === 0) return null;
-    let normName = (name || '').trim().toLowerCase();
-    if (normName.startsWith('[deleted]')) {
-      normName = normName.replace(/\[deleted\]/gi, '').trim();
+function saveLocalClients(clients: any[]) {
+  try {
+    fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving local clients:", err);
+  }
+}
+
+function findMatchingClient(list: any[], name: string, companyName?: string, nit?: string, clientCode?: string, includeDeleted: boolean = false): any | null {
+  if (!list || list.length === 0) return null;
+  let normName = (name || '').trim().toLowerCase();
+  if (normName.startsWith('[deleted]')) {
+    normName = normName.replace(/\[deleted\]/gi, '').trim();
+  }
+  if (normName.includes(' - ')) {
+    normName = normName.split(' - ')[0].trim();
+  }
+  if (!normName) return null;
+
+  const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+  const targetNit = normNit(nit);
+  const targetCode = (clientCode || '').trim();
+
+  return list.find(c => {
+    if (!c || !c.name) return false;
+    const rawName = String(c.name).trim();
+    const isDel = c.isDeleted || c.is_deleted || rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)');
+    if (isDel && !includeDeleted) return false;
+    if (!isDel && includeDeleted) return false;
+
+    const cId = c.id ? String(c.id).trim() : '';
+    let cName = rawName.toLowerCase();
+    if (cName.startsWith('[deleted]')) {
+      cName = cName.replace(/\[deleted\]/gi, '').trim();
     }
-    if (normName.includes(' - ')) {
-      normName = normName.split(' - ')[0].trim();
+    if (cName.includes(' - ')) {
+      cName = cName.split(' - ')[0].trim();
     }
-    if (!normName) return null;
+    const cCode = (c.clientCode || c.client_code || '').trim();
+    const cNit = normNit(c.nit);
 
-    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
-    const targetNit = normNit(nit);
-    const targetCode = (clientCode || '').trim();
+    if (targetCode && cCode && targetCode === cCode) return true;
+    if (targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit) return true;
+    if (cName && normName && cName === normName) return true;
 
-    return list.find(c => {
-      if (!c || !c.name) return false;
-      const rawName = String(c.name).trim();
-      const isDel = c.isDeleted || c.is_deleted || rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)');
-      if (isDel && !includeDeleted) return false;
-      if (!isDel && includeDeleted) return false;
+    return false;
+  }) || null;
+}
 
-      const cId = c.id ? String(c.id).trim() : '';
-      let cName = rawName.toLowerCase();
-      if (cName.startsWith('[deleted]')) {
-        cName = cName.replace(/\[deleted\]/gi, '').trim();
-      }
-      if (cName.includes(' - ')) {
-        cName = cName.split(' - ')[0].trim();
-      }
-      const cCode = (c.clientCode || c.client_code || '').trim();
-      const cNit = normNit(c.nit);
+function addLocalClient(client: any) {
+  const clients = readLocalClients();
+  const existing = findMatchingClient(clients, client.name, client.companyName, client.nit, client.clientCode);
+  if (!existing) {
+    clients.push(client);
+    saveLocalClients(clients);
+  } else {
+    updateLocalClient(existing.id, client);
+  }
+  invalidateCache("clients");
+}
 
-      if (targetCode && cCode && targetCode === cCode) return true;
-      if (targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit) return true;
-      if (cName && normName && cName === normName) return true;
+function deduplicateClients(clientsList: any[]): any[] {
+  const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+  const result: any[] = [];
+
+  clientsList.forEach(c => {
+    if (!c || !c.name) return;
+    const cId = c.id ? String(c.id).trim() : '';
+    let cName = (c.name || '').toLowerCase().trim();
+    if (cName.includes(' - ')) cName = cName.split(' - ')[0].trim();
+    const cCode = (c.clientCode || c.client_code || '').trim();
+    const cNit = normNit(c.nit);
+
+    const existingIdx = result.findIndex(existing => {
+      if (!existing) return false;
+      const eId = existing.id ? String(existing.id).trim() : '';
+      let eName = (existing.name || '').toLowerCase().trim();
+      if (eName.includes(' - ')) eName = eName.split(' - ')[0].trim();
+      const eCode = (existing.clientCode || existing.client_code || '').trim();
+      const eNit = normNit(existing.nit);
+
+      if (cId && eId && cId.toLowerCase() === eId.toLowerCase()) return true;
+      if (cCode && eCode && cCode === eCode) return true;
+      if (cNit && eNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === eNit) return true;
+      if (cName && eName && cName === eName) return true;
 
       return false;
-    }) || null;
-  }
+    });
 
-  function addLocalClient(client: any) {
-    const clients = readLocalClients();
-    const existing = findMatchingClient(clients, client.name, client.companyName, client.nit, client.clientCode);
-    if (!existing) {
-      clients.push(client);
-      saveLocalClients(clients);
+    if (existingIdx === -1) {
+      result.push({ ...c });
     } else {
-      updateLocalClient(existing.id, client);
+      const existing = result[existingIdx];
+      result[existingIdx] = {
+        ...existing,
+        ...c,
+        name: c.name || existing.name,
+        companyName: c.companyName || existing.companyName,
+        nit: (c.nit && c.nit.toUpperCase() !== 'CF') ? c.nit : existing.nit,
+        phone: c.phone || existing.phone,
+        address: c.address || existing.address,
+        sellerId: c.sellerId || existing.sellerId,
+        clientCode: c.clientCode || existing.clientCode,
+        latitude: c.latitude !== undefined ? (c.latitude === null ? null : Number(c.latitude)) : existing.latitude,
+        longitude: c.longitude !== undefined ? (c.longitude === null ? null : Number(c.longitude)) : existing.longitude,
+        locationAddress: c.locationAddress !== undefined ? c.locationAddress : existing.locationAddress,
+        geotaggedAt: c.geotaggedAt !== undefined ? c.geotaggedAt : existing.geotaggedAt,
+        geotaggedBy: c.geotaggedBy !== undefined ? c.geotaggedBy : existing.geotaggedBy
+      };
     }
-    invalidateCache("clients");
+  });
+
+  return result;
+}
+
+function updateLocalClient(id: string, updates: any, oldData?: any) {
+  const clients = readLocalClients();
+  let updated = false;
+
+  const targetId = id ? String(id).trim() : '';
+  const oldName = (oldData?.name || updates?.oldName || '').trim().toLowerCase();
+  const oldCode = (oldData?.clientCode || updates?.oldClientCode || '').trim();
+  const newCode = (updates?.clientCode || '').trim();
+  const newName = (updates?.name || '').trim().toLowerCase();
+
+  const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+  const targetNit = normNit(updates?.nit || oldData?.nit);
+
+  const newClients = clients.map(c => {
+    if (!c) return c;
+    const cId = c.id ? String(c.id).trim() : '';
+    const cName = c.name ? String(c.name).trim().toLowerCase() : '';
+    let normCName = cName;
+    if (normCName.includes(' - ')) normCName = normCName.split(' - ')[0].trim();
+    const cCode = (c.clientCode || c.client_code || '').trim();
+    const cNit = normNit(c.nit);
+
+    const idMatch = targetId && cId && targetId.toLowerCase() === cId.toLowerCase();
+    const codeMatch = (newCode && cCode && newCode === cCode) || (oldCode && cCode && oldCode === cCode);
+    const nitMatch = targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit;
+    const nameMatch = (newName && (cName === newName || normCName === newName)) ||
+      (oldName && (cName === oldName || normCName === oldName));
+
+    if (idMatch || codeMatch || nitMatch || nameMatch) {
+      updated = true;
+      return { ...c, ...updates, id: c.id || targetId };
+    }
+    return c;
+  });
+
+  if (!updated) {
+    newClients.push({ id: targetId || `CLI-${Date.now()}`, ...updates });
   }
 
-  function deduplicateClients(clientsList: any[]): any[] {
-    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
-    const result: any[] = [];
+  const deduplicated = deduplicateClients(newClients);
+  saveLocalClients(deduplicated);
+  invalidateCache("clients");
+}
 
-    clientsList.forEach(c => {
-      if (!c || !c.name) return;
-      const cId = c.id ? String(c.id).trim() : '';
-      let cName = (c.name || '').toLowerCase().trim();
-      if (cName.includes(' - ')) cName = cName.split(' - ')[0].trim();
-      const cCode = (c.clientCode || c.client_code || '').trim();
-      const cNit = normNit(c.nit);
-
-      const existingIdx = result.findIndex(existing => {
-        if (!existing) return false;
-        const eId = existing.id ? String(existing.id).trim() : '';
-        let eName = (existing.name || '').toLowerCase().trim();
-        if (eName.includes(' - ')) eName = eName.split(' - ')[0].trim();
-        const eCode = (existing.clientCode || existing.client_code || '').trim();
-        const eNit = normNit(existing.nit);
-
-        if (cId && eId && cId.toLowerCase() === eId.toLowerCase()) return true;
-        if (cCode && eCode && cCode === eCode) return true;
-        if (cNit && eNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === eNit) return true;
-        if (cName && eName && cName === eName) return true;
-
-        return false;
-      });
-
-      if (existingIdx === -1) {
-        result.push({ ...c });
-      } else {
-        const existing = result[existingIdx];
-        result[existingIdx] = {
-          ...existing,
-          ...c,
-          name: c.name || existing.name,
-          companyName: c.companyName || existing.companyName,
-          nit: (c.nit && c.nit.toUpperCase() !== 'CF') ? c.nit : existing.nit,
-          phone: c.phone || existing.phone,
-          address: c.address || existing.address,
-          sellerId: c.sellerId || existing.sellerId,
-          clientCode: c.clientCode || existing.clientCode,
-          latitude: c.latitude !== undefined ? (c.latitude === null ? null : Number(c.latitude)) : existing.latitude,
-          longitude: c.longitude !== undefined ? (c.longitude === null ? null : Number(c.longitude)) : existing.longitude,
-          locationAddress: c.locationAddress !== undefined ? c.locationAddress : existing.locationAddress,
-          geotaggedAt: c.geotaggedAt !== undefined ? c.geotaggedAt : existing.geotaggedAt,
-          geotaggedBy: c.geotaggedBy !== undefined ? c.geotaggedBy : existing.geotaggedBy
-        };
+function getDeletedClientKeys(): Set<string> {
+  const current = new Set<string>();
+  try {
+    const pathsToTry = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
+    pathsToTry.forEach(fp => {
+      if (fs.existsSync(fp)) {
+        const raw = fs.readFileSync(fp, "utf-8");
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach(k => {
+            if (k) current.add(String(k).trim().toLowerCase());
+          });
+        }
       }
     });
+  } catch (e) { }
+  return current;
+}
 
-    return result;
-  }
-
-  function updateLocalClient(id: string, updates: any, oldData?: any) {
-    const clients = readLocalClients();
-    let updated = false;
-
-    const targetId = id ? String(id).trim() : '';
-    const oldName = (oldData?.name || updates?.oldName || '').trim().toLowerCase();
-    const oldCode = (oldData?.clientCode || updates?.oldClientCode || '').trim();
-    const newCode = (updates?.clientCode || '').trim();
-    const newName = (updates?.name || '').trim().toLowerCase();
-
-    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
-    const targetNit = normNit(updates?.nit || oldData?.nit);
-
-    const newClients = clients.map(c => {
-      if (!c) return c;
-      const cId = c.id ? String(c.id).trim() : '';
-      const cName = c.name ? String(c.name).trim().toLowerCase() : '';
-      let normCName = cName;
-      if (normCName.includes(' - ')) normCName = normCName.split(' - ')[0].trim();
-      const cCode = (c.clientCode || c.client_code || '').trim();
-      const cNit = normNit(c.nit);
-
-      const idMatch = targetId && cId && targetId.toLowerCase() === cId.toLowerCase();
-      const codeMatch = (newCode && cCode && newCode === cCode) || (oldCode && cCode && oldCode === cCode);
-      const nitMatch = targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit;
-      const nameMatch = (newName && (cName === newName || normCName === newName)) || 
-                        (oldName && (cName === oldName || normCName === oldName));
-
-      if (idMatch || codeMatch || nitMatch || nameMatch) {
-        updated = true;
-        return { ...c, ...updates, id: c.id || targetId };
+function addDeletedClientKeys(...keys: (string | undefined)[]) {
+  const current = getDeletedClientKeys();
+  keys.forEach(k => {
+    if (k) {
+      const str = String(k).trim();
+      const norm = str.toLowerCase();
+      if (norm && norm !== 'cf' && norm !== 'c/f' && norm !== 'consumidorfinal') {
+        current.add(norm);
+        if (norm.includes(' - ')) {
+          const parts = norm.split(' - ');
+          if (parts[0].trim()) current.add(parts[0].trim().toLowerCase());
+        }
       }
-      return c;
-    });
-
-    if (!updated) {
-      newClients.push({ id: targetId || `CLI-${Date.now()}`, ...updates });
     }
-
-    const deduplicated = deduplicateClients(newClients);
-    saveLocalClients(deduplicated);
-    invalidateCache("clients");
-  }
-
-  function getDeletedClientKeys(): Set<string> {
-    const current = new Set<string>();
+  });
+  const arr = Array.from(current);
+  const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
+  pathsToSave.forEach(fp => {
     try {
-      const pathsToTry = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
-      pathsToTry.forEach(fp => {
-        if (fs.existsSync(fp)) {
-          const raw = fs.readFileSync(fp, "utf-8");
-          const list = JSON.parse(raw);
-          if (Array.isArray(list)) {
-            list.forEach(k => {
-              if (k) current.add(String(k).trim().toLowerCase());
-            });
-          }
-        }
-      });
-    } catch (e) {}
-    return current;
-  }
+      fs.writeFileSync(fp, JSON.stringify(arr, null, 2));
+    } catch (e) { }
+  });
+}
 
-  function addDeletedClientKeys(...keys: (string | undefined)[]) {
-    const current = getDeletedClientKeys();
-    keys.forEach(k => {
-      if (k) {
-        const str = String(k).trim();
-        const norm = str.toLowerCase();
-        if (norm && norm !== 'cf' && norm !== 'c/f' && norm !== 'consumidorfinal') {
-          current.add(norm);
-          if (norm.includes(' - ')) {
-            const parts = norm.split(' - ');
-            if (parts[0].trim()) current.add(parts[0].trim().toLowerCase());
-          }
-        }
+function removeDeletedClientKey(...keys: (string | undefined)[]) {
+  const current = getDeletedClientKeys();
+  let changed = false;
+  keys.forEach(k => {
+    if (k) {
+      const norm = String(k).trim().toLowerCase();
+      if (norm && current.has(norm)) {
+        current.delete(norm);
+        changed = true;
       }
-    });
+    }
+  });
+  if (changed) {
     const arr = Array.from(current);
     const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
     pathsToSave.forEach(fp => {
       try {
         fs.writeFileSync(fp, JSON.stringify(arr, null, 2));
-      } catch (e) {}
+      } catch (e) { }
     });
   }
+}
 
-  function removeDeletedClientKey(...keys: (string | undefined)[]) {
-    const current = getDeletedClientKeys();
-    let changed = false;
-    keys.forEach(k => {
-      if (k) {
-        const norm = String(k).trim().toLowerCase();
-        if (norm && current.has(norm)) {
-          current.delete(norm);
-          changed = true;
-        }
-      }
-    });
-    if (changed) {
-      const arr = Array.from(current);
-      const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
-      pathsToSave.forEach(fp => {
-        try {
-          fs.writeFileSync(fp, JSON.stringify(arr, null, 2));
-        } catch (e) {}
-      });
-    }
+function isClientDeleted(c: any, deletedKeys?: Set<string>): boolean {
+  if (!c) return true;
+  const rawName = String(c.name || '').trim();
+  if (rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)')) return true;
+  if (c.isDeleted === true || c.is_deleted === true) return true;
+
+  const keys = deletedKeys || getDeletedClientKeys();
+  if (!keys || keys.size === 0) return false;
+
+  const cId = c.id ? String(c.id).trim().toLowerCase() : '';
+  const cName = rawName.toLowerCase();
+  let normName = cName;
+  if (normName.includes(' - ')) {
+    normName = normName.split(' - ')[0].trim();
   }
+  const cCode = (c.clientCode || c.client_code || c.clientcode || '').trim().toLowerCase();
+  const cNit = (c.nit || '').trim().toLowerCase();
 
-  function isClientDeleted(c: any, deletedKeys?: Set<string>): boolean {
-    if (!c) return true;
-    const rawName = String(c.name || '').trim();
-    if (rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)')) return true;
-    if (c.isDeleted === true || c.is_deleted === true) return true;
+  if (cId && keys.has(cId)) return true;
+  if (cCode && keys.has(cCode)) return true;
+  if (cName && keys.has(cName)) return true;
+  if (normName && keys.has(normName)) return true;
+  if (cNit && cNit !== 'cf' && cNit !== 'c/f' && cNit !== 'consumidorfinal' && keys.has(cNit)) return true;
 
-    const keys = deletedKeys || getDeletedClientKeys();
-    if (!keys || keys.size === 0) return false;
+  return false;
+}
 
-    const cId = c.id ? String(c.id).trim().toLowerCase() : '';
-    const cName = rawName.toLowerCase();
-    let normName = cName;
-    if (normName.includes(' - ')) {
-      normName = normName.split(' - ')[0].trim();
+function deleteLocalClient(id: string, name?: string, clientCode?: string, companyName?: string, nit?: string) {
+  addDeletedClientKeys(id, name, clientCode, nit);
+  const deletedKeys = getDeletedClientKeys();
+  const clients = readLocalClients();
+  const filtered = clients.filter(c => !isClientDeleted(c, deletedKeys));
+
+  saveLocalClients(filtered);
+  invalidateCache("clients");
+}
+
+// Helper to generate unique 4-digit client code
+async function generateUniqueClientCode() {
+  let code = '';
+  let isUnique = false;
+  let attempts = 0;
+
+  while (!isUnique && attempts < 50) {
+    code = Math.floor(1000 + Math.random() * 9000).toString();
+    // We check local cache first for speed, then we'd check DB if needed
+    const clients = readLocalClients();
+    const existing = clients.find(c => c.clientCode === code);
+    if (!existing) isUnique = true;
+    attempts++;
+  }
+  return code;
+}
+
+async function safeInsertClient(clientData: any) {
+  try {
+    // Auto-generate code if missing
+    if (!clientData.clientCode || clientData.clientCode.trim() === '') {
+      clientData.clientCode = await generateUniqueClientCode();
     }
-    const cCode = (c.clientCode || c.client_code || c.clientcode || '').trim().toLowerCase();
-    const cNit = (c.nit || '').trim().toLowerCase();
 
-    if (cId && keys.has(cId)) return true;
-    if (cCode && keys.has(cCode)) return true;
-    if (cName && keys.has(cName)) return true;
-    if (normName && keys.has(normName)) return true;
-    if (cNit && cNit !== 'cf' && cNit !== 'c/f' && cNit !== 'consumidorfinal' && keys.has(cNit)) return true;
+    // 1. Try standard formatted insertion with camelCase (matching supabase_schema.sql)
+    const { error } = await supabase.from("clients").insert([clientData]);
+    if (!error) return true;
+
+    console.warn("Primary Supabase client insert failed, trying fallbacks:", error.message);
+
+    // 2. Prep falling back object mapping standard snake_case alongside camelCase to cover both bases!
+    const payload: any = {
+      id: clientData.id,
+      name: clientData.name,
+      nit: clientData.nit || '',
+      phone: clientData.phone || '',
+      address: clientData.address || '',
+      companyName: clientData.companyName || '',
+      company_name: clientData.companyName || '',
+      createdAt: clientData.createdAt || clientData.created_at,
+      created_at: clientData.createdAt || clientData.created_at || new Date().toISOString(),
+      sellerId: clientData.sellerId || '',
+      seller_id: clientData.sellerId || '',
+      clientCode: clientData.clientCode,
+      isBlocked: clientData.isBlocked || false
+    };
+
+    const { error: errorWithFallbacks } = await supabase.from("clients").insert([payload]);
+    if (!errorWithFallbacks) return true;
+
+    console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
+
+    // 3. Incrementally prune potentially missing columns (like sellerId or createdAt)
+    let prunedPayload = { ...payload };
+    let needsRetry = false;
+
+    const errMsg = errorWithFallbacks.message;
+    if (errMsg.includes("sellerId") || errMsg.includes("column \"sellerId\"") || errMsg.includes("schema cache")) {
+      delete prunedPayload.sellerId;
+      needsRetry = true;
+    }
+    if (errMsg.includes("seller_id") || errMsg.includes("column \"seller_id\"")) {
+      delete prunedPayload.seller_id;
+      needsRetry = true;
+    }
+    if (errMsg.includes("createdAt") || errMsg.includes("column \"createdAt\"")) {
+      delete prunedPayload.createdAt;
+      needsRetry = true;
+    }
+    if (errMsg.includes("created_at") || errMsg.includes("column \"created_at\"")) {
+      delete prunedPayload.created_at;
+      needsRetry = true;
+    }
+    if (errMsg.includes("companyName") || errMsg.includes("column \"companyName\"")) {
+      delete prunedPayload.companyName;
+      needsRetry = true;
+    }
+    if (errMsg.includes("company_name") || errMsg.includes("column \"company_name\"")) {
+      delete prunedPayload.company_name;
+      needsRetry = true;
+    }
+
+    if (needsRetry) {
+      const { error: retryError } = await supabase.from("clients").insert([prunedPayload]);
+      if (!retryError) return true;
+      console.warn("Client pruned insert failed:", retryError.message);
+    }
+
+    // 4. Ultimate fallback to bare essentials: id, name, and basics which are guaranteed to exist
+    const bareClient: any = {
+      id: clientData.id,
+      name: clientData.name,
+      nit: clientData.nit || '',
+      phone: clientData.phone || '',
+      address: clientData.address || ''
+    };
+    const { error: bareError } = await supabase.from("clients").insert([bareClient]);
+    if (!bareError) return true;
+    console.error("Bare client backup insert failed:", bareError.message);
 
     return false;
+  } catch (e) {
+    console.error("Exception in safeInsertClient:", e);
+    return false;
   }
+}
 
-  function deleteLocalClient(id: string, name?: string, clientCode?: string, companyName?: string, nit?: string) {
-    addDeletedClientKeys(id, name, clientCode, nit);
-    const deletedKeys = getDeletedClientKeys();
-    const clients = readLocalClients();
-    const filtered = clients.filter(c => !isClientDeleted(c, deletedKeys));
+const PAYMENTS_FILE = path.join(process.cwd(), "payments_local.json");
 
-    saveLocalClients(filtered);
-    invalidateCache("clients");
-  }
-
-  // Helper to generate unique 4-digit client code
-  async function generateUniqueClientCode() {
-    let code = '';
-    let isUnique = false;
-    let attempts = 0;
-
-    while (!isUnique && attempts < 50) {
-      code = Math.floor(1000 + Math.random() * 9000).toString();
-      // We check local cache first for speed, then we'd check DB if needed
-      const clients = readLocalClients();
-      const existing = clients.find(c => c.clientCode === code);
-      if (!existing) isUnique = true;
-      attempts++;
+function readLocalPayments(): any[] {
+  try {
+    if (fs.existsSync(PAYMENTS_FILE)) {
+      return JSON.parse(fs.readFileSync(PAYMENTS_FILE, "utf8"));
     }
-    return code;
+  } catch (err) {
+    console.error("Error reading local payments:", err);
   }
+  return [];
+}
 
-  async function safeInsertClient(clientData: any) {
-    try {
-      // Auto-generate code if missing
-      if (!clientData.clientCode || clientData.clientCode.trim() === '') {
-        clientData.clientCode = await generateUniqueClientCode();
-      }
-
-      // 1. Try standard formatted insertion with camelCase (matching supabase_schema.sql)
-      const { error } = await supabase.from("clients").insert([clientData]);
-      if (!error) return true;
-
-      console.warn("Primary Supabase client insert failed, trying fallbacks:", error.message);
-
-      // 2. Prep falling back object mapping standard snake_case alongside camelCase to cover both bases!
-      const payload: any = {
-        id: clientData.id,
-        name: clientData.name,
-        nit: clientData.nit || '',
-        phone: clientData.phone || '',
-        address: clientData.address || '',
-        companyName: clientData.companyName || '',
-        company_name: clientData.companyName || '',
-        createdAt: clientData.createdAt || clientData.created_at,
-        created_at: clientData.createdAt || clientData.created_at || new Date().toISOString(),
-        sellerId: clientData.sellerId || '',
-        seller_id: clientData.sellerId || '',
-        clientCode: clientData.clientCode,
-        isBlocked: clientData.isBlocked || false
-      };
-
-      const { error: errorWithFallbacks } = await supabase.from("clients").insert([payload]);
-      if (!errorWithFallbacks) return true;
-
-      console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
-
-      // 3. Incrementally prune potentially missing columns (like sellerId or createdAt)
-      let prunedPayload = { ...payload };
-      let needsRetry = false;
-
-      const errMsg = errorWithFallbacks.message;
-      if (errMsg.includes("sellerId") || errMsg.includes("column \"sellerId\"") || errMsg.includes("schema cache")) {
-        delete prunedPayload.sellerId;
-        needsRetry = true;
-      }
-      if (errMsg.includes("seller_id") || errMsg.includes("column \"seller_id\"")) {
-        delete prunedPayload.seller_id;
-        needsRetry = true;
-      }
-      if (errMsg.includes("createdAt") || errMsg.includes("column \"createdAt\"")) {
-        delete prunedPayload.createdAt;
-        needsRetry = true;
-      }
-      if (errMsg.includes("created_at") || errMsg.includes("column \"created_at\"")) {
-        delete prunedPayload.created_at;
-        needsRetry = true;
-      }
-      if (errMsg.includes("companyName") || errMsg.includes("column \"companyName\"")) {
-        delete prunedPayload.companyName;
-        needsRetry = true;
-      }
-      if (errMsg.includes("company_name") || errMsg.includes("column \"company_name\"")) {
-        delete prunedPayload.company_name;
-        needsRetry = true;
-      }
-
-      if (needsRetry) {
-        const { error: retryError } = await supabase.from("clients").insert([prunedPayload]);
-        if (!retryError) return true;
-        console.warn("Client pruned insert failed:", retryError.message);
-      }
-
-      // 4. Ultimate fallback to bare essentials: id, name, and basics which are guaranteed to exist
-      const bareClient: any = {
-        id: clientData.id,
-        name: clientData.name,
-        nit: clientData.nit || '',
-        phone: clientData.phone || '',
-        address: clientData.address || ''
-      };
-      const { error: bareError } = await supabase.from("clients").insert([bareClient]);
-      if (!bareError) return true;
-      console.error("Bare client backup insert failed:", bareError.message);
-
-      return false;
-    } catch (e) {
-      console.error("Exception in safeInsertClient:", e);
-      return false;
-    }
+function saveLocalPayments(payments: any[]) {
+  try {
+    fs.writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving local payments:", err);
   }
+}
 
-  const PAYMENTS_FILE = path.join(process.cwd(), "payments_local.json");
-
-  function readLocalPayments(): any[] {
-    try {
-      if (fs.existsSync(PAYMENTS_FILE)) {
-        return JSON.parse(fs.readFileSync(PAYMENTS_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading local payments:", err);
-    }
-    return [];
+function addLocalPayment(payment: any) {
+  const payments = readLocalPayments();
+  const exists = payments.some(p => p.id === payment.id);
+  if (!exists) {
+    payments.push(payment);
+    saveLocalPayments(payments);
   }
+}
 
-  function saveLocalPayments(payments: any[]) {
-    try {
-      fs.writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving local payments:", err);
-    }
+function normalizePayment(p: any): any {
+  if (!p) return p;
+  let rUrl = p.receiptUrl || p.receipturl || p.receipt_url;
+  if (!rUrl && p.notes && (p.notes.startsWith("http") || p.notes.includes("data:image"))) {
+    rUrl = p.notes;
   }
+  return {
+    id: p.id,
+    invoiceId: p.invoiceId || p.invoiceid || p.invoice_id,
+    amount: typeof p.amount === "string" ? parseFloat(p.amount) : p.amount,
+    receiptUrl: rUrl,
+    date: p.date,
+    notes: p.notes,
+    recordedBy: p.recordedBy || p.recordedby || p.recorded_by || null
+  };
+}
 
-  function addLocalPayment(payment: any) {
-    const payments = readLocalPayments();
-    const exists = payments.some(p => p.id === payment.id);
-    if (!exists) {
-      payments.push(payment);
-      saveLocalPayments(payments);
-    }
-  }
-
-  function normalizePayment(p: any): any {
-    if (!p) return p;
-    let rUrl = p.receiptUrl || p.receipturl || p.receipt_url;
-    if (!rUrl && p.notes && (p.notes.startsWith("http") || p.notes.includes("data:image"))) {
-      rUrl = p.notes;
-    }
-    return {
-      id: p.id,
-      invoiceId: p.invoiceId || p.invoiceid || p.invoice_id,
-      amount: typeof p.amount === "string" ? parseFloat(p.amount) : p.amount,
-      receiptUrl: rUrl,
-      date: p.date,
-      notes: p.notes,
-      recordedBy: p.recordedBy || p.recordedby || p.recorded_by || null
+async function safeInsertPayment(payment: any) {
+  try {
+    const rUrl = payment.receiptUrl || payment.receipturl || payment.receipt_url;
+    const paymentToInsert: any = {
+      id: payment.id,
+      invoiceId: payment.invoiceId || payment.invoiceid || payment.invoice_id,
+      amount: payment.amount,
+      date: payment.date,
+      receiptUrl: rUrl || null,
+      notes: payment.notes || null
     };
+
+    const { error } = await supabase.from("payments").insert([paymentToInsert]);
+    if (!error) return true;
+
+    console.warn("Primary Supabase payment insert failed, trying falling back without receiptUrl:", error.message);
+
+    delete paymentToInsert.receiptUrl;
+    paymentToInsert.notes = rUrl || paymentToInsert.notes || null;
+    const { error: retryError } = await supabase.from("payments").insert([paymentToInsert]);
+    if (!retryError) return true;
+    console.error("Retry insert failed:", retryError.message);
+
+    return false;
+  } catch (err) {
+    console.error("Exception in safeInsertPayment:", err);
+    return false;
   }
+}
 
-  async function safeInsertPayment(payment: any) {
-    try {
-      const rUrl = payment.receiptUrl || payment.receipturl || payment.receipt_url;
-      const paymentToInsert: any = {
-        id: payment.id,
-        invoiceId: payment.invoiceId || payment.invoiceid || payment.invoice_id,
-        amount: payment.amount,
-        date: payment.date,
-        receiptUrl: rUrl || null,
-        notes: payment.notes || null
-      };
+// Los "respaldos permanentes" en JSON vienen del sistema original y estan
+// DESACTIVADOS por defecto por tres razones:
+//  1. En Vercel el sistema de archivos es efimero: nunca persistieron nada.
+//  2. Reescriben el archivo COMPLETO en cada venta/abono: cada vez mas
+//     lento a medida que crece el historial.
+//  3. Nada del sistema los lee. La base de datos es la fuente de verdad
+//     (los XML de FEL, por ejemplo, ya se guardan en fel_documentos).
+// Para activarlos en desarrollo: ENABLE_JSON_BACKUP=true en el .env
+const JSON_BACKUP_ENABLED = process.env.ENABLE_JSON_BACKUP === 'true';
 
-      const { error } = await supabase.from("payments").insert([paymentToInsert]);
-      if (!error) return true;
-
-      console.warn("Primary Supabase payment insert failed, trying falling back without receiptUrl:", error.message);
-
-      delete paymentToInsert.receiptUrl;
-      paymentToInsert.notes = rUrl || paymentToInsert.notes || null;
-      const { error: retryError } = await supabase.from("payments").insert([paymentToInsert]);
-      if (!retryError) return true;
-      console.error("Retry insert failed:", retryError.message);
-
-      return false;
-    } catch (err) {
-      console.error("Exception in safeInsertPayment:", err);
-      return false;
-    }
-  }
-
-  // Los "respaldos permanentes" en JSON vienen del sistema original y estan
-  // DESACTIVADOS por defecto por tres razones:
-  //  1. En Vercel el sistema de archivos es efimero: nunca persistieron nada.
-  //  2. Reescriben el archivo COMPLETO en cada venta/abono: cada vez mas
-  //     lento a medida que crece el historial.
-  //  3. Nada del sistema los lee. La base de datos es la fuente de verdad
-  //     (los XML de FEL, por ejemplo, ya se guardan en fel_documentos).
-  // Para activarlos en desarrollo: ENABLE_JSON_BACKUP=true en el .env
-  const JSON_BACKUP_ENABLED = process.env.ENABLE_JSON_BACKUP === 'true';
-
-  async function syncInvoiceToPermanentBackup(id: string, invoiceObj?: any) {
-    if (!JSON_BACKUP_ENABLED) return;
-    try {
-      const backupPath = path.join(process.cwd(), "invoices_permanent_backup.json");
-      let invoicesList: any[] = [];
-      if (fs.existsSync(backupPath)) {
-        try {
-          invoicesList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
-        } catch (e) {
-          console.error("Error reading invoices permanent backup file:", e);
-        }
-      }
-
-      let invoiceData = invoiceObj;
-      if (!invoiceData) {
-        const { data } = await supabase.from("invoices").select("*").eq('id', id).single();
-        invoiceData = data;
-      }
-
-      if (invoiceData) {
-        // Exclude old version to avoid duplicate
-        invoicesList = invoicesList.filter((inv: any) => inv.id !== id);
-        invoicesList.push(invoiceData);
-        fs.writeFileSync(backupPath, JSON.stringify(invoicesList, null, 2), "utf8");
-        console.log(`[Backup] Persisted invoice ${id} to invoices_permanent_backup.json`);
-      }
-    } catch (err: any) {
-      console.error(`Error syncing invoice ${id} to permanent backup:`, err.message);
-    }
-  }
-
-  async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
-    if (!JSON_BACKUP_ENABLED) return;
-    try {
-      const backupPath = path.join(process.cwd(), "payments_permanent_backup.json");
-      let paymentsList: any[] = [];
-      if (fs.existsSync(backupPath)) {
-        try {
-          paymentsList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
-        } catch (e) {
-          console.error("Error reading payments permanent backup file:", e);
-        }
-      }
-
-      let paymentData = paymentObj;
-      if (!paymentData) {
-        const { data } = await supabase.from("payments").select("*").eq('id', id).single();
-        paymentData = data;
-      }
-
-      if (paymentData) {
-        // Exclude old version to avoid duplicate
-        paymentsList = paymentsList.filter((p: any) => p.id !== id);
-        paymentsList.push(paymentData);
-        fs.writeFileSync(backupPath, JSON.stringify(paymentsList, null, 2), "utf8");
-        console.log(`[Backup] Persisted payment ${id} to payments_permanent_backup.json`);
-      }
-    } catch (err: any) {
-      console.error(`Error syncing payment ${id} to permanent backup:`, err.message);
-    }
-  }
-
-  async function fetchPaymentsFromSupabase(invoiceId: string): Promise<any[]> {
-    const filterValid = (list: any[]) => (list || [])
-      .filter((p: any) => p && (parseFloat(p.amount) > 0) && p.notes !== '[ELIMINADO]')
-      .map(normalizePayment);
-
-    // Try camelCase first:
-    try {
-      const { data, error } = await supabase.from("payments").select("*").eq("invoiceId", invoiceId);
-      if (!error && data) return filterValid(data);
-      
-      if (error) {
-        console.warn("Fetch payments eq('invoiceId') failed, trying fallback columns:", error.message);
-      }
-    } catch (err) {
-      console.error("Exception fetching payments with invoiceId:", err);
-    }
-
-    // Try lowercase 'invoiceid'
-    try {
-      const { data, error } = await supabase.from("payments").select("*").eq("invoiceid", invoiceId);
-      if (!error && data) return filterValid(data);
-    } catch (err) {}
-
-    // Try snake_case 'invoice_id'
-    try {
-      const { data, error } = await supabase.from("payments").select("*").eq("invoice_id", invoiceId);
-      if (!error && data) return filterValid(data);
-    } catch (err) {}
-
-    // Fallback: Select all and filter (Super resilient)
-    try {
-      const { data, error } = await supabase.from("payments").select("*");
-      if (!error && data) {
-        const filtered = data.filter((d: any) => {
-          const val = d.invoiceId || d.invoiceid || d.invoice_id;
-          return val === invoiceId;
-        });
-        return filterValid(filtered);
-      }
-    } catch (err) {}
-
-    return [];
-  }
-
-  // CLIENTS
-  app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const cached = getCachedData("clients");
-    if (cached) {
-      return res.json(cached);
-    }
-
-    const deletedKeys = getDeletedClientKeys();
-
-    let dbClients: any[] = [];
-    if (isNeonActive() && neonPool) {
+async function syncInvoiceToPermanentBackup(id: string, invoiceObj?: any) {
+  if (!JSON_BACKUP_ENABLED) return;
+  try {
+    const backupPath = path.join(process.cwd(), "invoices_permanent_backup.json");
+    let invoicesList: any[] = [];
+    if (fs.existsSync(backupPath)) {
       try {
-        dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
-      } catch (neErr) {
-        console.warn("Fetch clients Neon error:", neErr);
-      }
-    }
-
-    if (dbClients.length === 0) {
-      try {
-        const { data, error } = await supabase.from("clients").select("*");
-        if (!error && data) {
-          dbClients = data;
-        } else if (neonPool) {
-          dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
-        }
+        invoicesList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
       } catch (e) {
-        if (neonPool) {
-          dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
-        }
+        console.error("Error reading invoices permanent backup file:", e);
       }
     }
 
-    const localClients = readLocalClients();
+    let invoiceData = invoiceObj;
+    if (!invoiceData) {
+      const { data } = await supabase.from("invoices").select("*").eq('id', id).single();
+      invoiceData = data;
+    }
 
-    // Build sets of all deleted client markers from Supabase DB to prevent ghost re-inserts
-    const allDbDeletedNames = new Set<string>();
-    const allDbDeletedIds = new Set<string>();
+    if (invoiceData) {
+      // Exclude old version to avoid duplicate
+      invoicesList = invoicesList.filter((inv: any) => inv.id !== id);
+      invoicesList.push(invoiceData);
+      fs.writeFileSync(backupPath, JSON.stringify(invoicesList, null, 2), "utf8");
+      console.log(`[Backup] Persisted invoice ${id} to invoices_permanent_backup.json`);
+    }
+  } catch (err: any) {
+    console.error(`Error syncing invoice ${id} to permanent backup:`, err.message);
+  }
+}
 
-    dbClients.forEach(c => {
-      if (!c) return;
-      const rawName = String(c.name || '').trim();
-      const isDel = c.isDeleted || c.is_deleted || rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)');
-      if (isDel) {
-        if (c.id) allDbDeletedIds.add(String(c.id).trim().toLowerCase());
-        const cleanName = rawName.replace(/\[DELETED\]/gi, '').replace(/\(DELETED\)/gi, '').trim().toLowerCase();
-        if (cleanName) {
-          allDbDeletedNames.add(cleanName);
-          if (cleanName.includes(' - ')) {
-            allDbDeletedNames.add(cleanName.split(' - ')[0].trim());
-          }
+async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
+  if (!JSON_BACKUP_ENABLED) return;
+  try {
+    const backupPath = path.join(process.cwd(), "payments_permanent_backup.json");
+    let paymentsList: any[] = [];
+    if (fs.existsSync(backupPath)) {
+      try {
+        paymentsList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+      } catch (e) {
+        console.error("Error reading payments permanent backup file:", e);
+      }
+    }
+
+    let paymentData = paymentObj;
+    if (!paymentData) {
+      const { data } = await supabase.from("payments").select("*").eq('id', id).single();
+      paymentData = data;
+    }
+
+    if (paymentData) {
+      // Exclude old version to avoid duplicate
+      paymentsList = paymentsList.filter((p: any) => p.id !== id);
+      paymentsList.push(paymentData);
+      fs.writeFileSync(backupPath, JSON.stringify(paymentsList, null, 2), "utf8");
+      console.log(`[Backup] Persisted payment ${id} to payments_permanent_backup.json`);
+    }
+  } catch (err: any) {
+    console.error(`Error syncing payment ${id} to permanent backup:`, err.message);
+  }
+}
+
+async function fetchPaymentsFromSupabase(invoiceId: string): Promise<any[]> {
+  const filterValid = (list: any[]) => (list || [])
+    .filter((p: any) => p && (parseFloat(p.amount) > 0) && p.notes !== '[ELIMINADO]')
+    .map(normalizePayment);
+
+  // Try camelCase first:
+  try {
+    const { data, error } = await supabase.from("payments").select("*").eq("invoiceId", invoiceId);
+    if (!error && data) return filterValid(data);
+
+    if (error) {
+      console.warn("Fetch payments eq('invoiceId') failed, trying fallback columns:", error.message);
+    }
+  } catch (err) {
+    console.error("Exception fetching payments with invoiceId:", err);
+  }
+
+  // Try lowercase 'invoiceid'
+  try {
+    const { data, error } = await supabase.from("payments").select("*").eq("invoiceid", invoiceId);
+    if (!error && data) return filterValid(data);
+  } catch (err) { }
+
+  // Try snake_case 'invoice_id'
+  try {
+    const { data, error } = await supabase.from("payments").select("*").eq("invoice_id", invoiceId);
+    if (!error && data) return filterValid(data);
+  } catch (err) { }
+
+  // Fallback: Select all and filter (Super resilient)
+  try {
+    const { data, error } = await supabase.from("payments").select("*");
+    if (!error && data) {
+      const filtered = data.filter((d: any) => {
+        const val = d.invoiceId || d.invoiceid || d.invoice_id;
+        return val === invoiceId;
+      });
+      return filterValid(filtered);
+    }
+  } catch (err) { }
+
+  return [];
+}
+
+// CLIENTS
+app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const cached = getCachedData("clients");
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const deletedKeys = getDeletedClientKeys();
+
+  let dbClients: any[] = [];
+  if (isNeonActive() && neonPool) {
+    try {
+      dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
+    } catch (neErr) {
+      console.warn("Fetch clients Neon error:", neErr);
+    }
+  }
+
+  if (dbClients.length === 0) {
+    try {
+      const { data, error } = await supabase.from("clients").select("*");
+      if (!error && data) {
+        dbClients = data;
+      } else if (neonPool) {
+        dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
+      }
+    } catch (e) {
+      if (neonPool) {
+        dbClients = await queryNeon('SELECT * FROM public.clients ORDER BY name ASC');
+      }
+    }
+  }
+
+  const localClients = readLocalClients();
+
+  // Build sets of all deleted client markers from Supabase DB to prevent ghost re-inserts
+  const allDbDeletedNames = new Set<string>();
+  const allDbDeletedIds = new Set<string>();
+
+  dbClients.forEach(c => {
+    if (!c) return;
+    const rawName = String(c.name || '').trim();
+    const isDel = c.isDeleted || c.is_deleted || rawName.toUpperCase().includes('[DELETED]') || rawName.toUpperCase().includes('(DELETED)');
+    if (isDel) {
+      if (c.id) allDbDeletedIds.add(String(c.id).trim().toLowerCase());
+      const cleanName = rawName.replace(/\[DELETED\]/gi, '').replace(/\(DELETED\)/gi, '').trim().toLowerCase();
+      if (cleanName) {
+        allDbDeletedNames.add(cleanName);
+        if (cleanName.includes(' - ')) {
+          allDbDeletedNames.add(cleanName.split(' - ')[0].trim());
         }
       }
-    });
+    }
+  });
 
-    // Clean up localClients and dbClients from any deleted clients first
-    const validDbClients = dbClients.filter(c => !isClientDeleted(c, deletedKeys));
-    const validLocalClients = localClients.filter(c => {
-      if (isClientDeleted(c, deletedKeys)) return false;
-      if (!c || !c.name) return false;
+  // Clean up localClients and dbClients from any deleted clients first
+  const validDbClients = dbClients.filter(c => !isClientDeleted(c, deletedKeys));
+  const validLocalClients = localClients.filter(c => {
+    if (isClientDeleted(c, deletedKeys)) return false;
+    if (!c || !c.name) return false;
+    const cId = c.id ? String(c.id).trim().toLowerCase() : '';
+    let cName = String(c.name).trim().toLowerCase();
+    let baseName = cName;
+    if (cName.includes(' - ')) baseName = cName.split(' - ')[0].trim();
+
+    if (cId && allDbDeletedIds.has(cId)) return false;
+    if (cName && allDbDeletedNames.has(cName)) return false;
+    if (baseName && allDbDeletedNames.has(baseName)) return false;
+
+    return true;
+  });
+
+  const mergedList: any[] = [];
+
+  const findExistingIndex = (c: any) => {
+    if (!c) return -1;
+    const cId = c.id ? String(c.id).trim() : '';
+    let cName = (c.name || '').toLowerCase().trim();
+    if (cName.includes(' - ')) {
+      cName = cName.split(' - ')[0].trim();
+    }
+    const cCode = (c.clientCode || c.client_code || c.clientcode) ? String(c.clientCode || c.client_code || c.clientcode).trim() : '';
+
+    return mergedList.findIndex(existing => {
+      if (!existing) return false;
+      const eId = existing.id ? String(existing.id).trim() : '';
+      let eName = (existing.name || '').toLowerCase().trim();
+      if (eName.includes(' - ')) {
+        eName = eName.split(' - ')[0].trim();
+      }
+      const eCode = existing.clientCode ? String(existing.clientCode).trim() : '';
+
+      if (cId && eId && cId === eId) return true;
+      if (cCode && eCode && cCode === eCode) return true;
+      if (cName && eName && cName === eName) return true;
+
+      return false;
+    });
+  };
+
+  // 1. First add all valid Supabase DB clients (DB is primary source of truth)
+  validDbClients.forEach(c => {
+    if (!c || !c.name) return;
+    const name = c.name;
+    const company = c.companyName || c.company_name || c.companyname || '';
+    const code = c.clientCode || c.client_code || c.clientcode || '';
+    const id = c.id;
+
+    const dbFormatted = {
+      id: id,
+      sellerId: c.sellerId || c.seller_id || c.sellerid || '',
+      name: name,
+      companyName: company,
+      nit: c.nit || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      clientCode: code,
+      latitude: (c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
+      longitude: (c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
+      locationAddress: c.locationAddress || c.location_address || '',
+      geotaggedAt: c.geotaggedAt || c.geotagged_at || '',
+      geotaggedBy: c.geotaggedBy || c.geotagged_by || '',
+      isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
+      createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
+    };
+
+    const idx = findExistingIndex(dbFormatted);
+    if (idx === -1) {
+      mergedList.push(dbFormatted);
+    } else {
+      mergedList[idx] = { ...mergedList[idx], ...dbFormatted };
+    }
+  });
+
+  // 2. Supplement with validLocalClients
+  validLocalClients.forEach(c => {
+    if (!c || !c.name) return;
+    const idx = findExistingIndex(c);
+    if (idx === -1) {
+      mergedList.push({ ...c });
+    } else {
+      const dbObj = mergedList[idx];
+      mergedList[idx] = {
+        ...c,
+        ...dbObj,
+        id: dbObj.id || c.id,
+        name: dbObj.name || c.name,
+        companyName: dbObj.companyName !== undefined && dbObj.companyName !== '' ? dbObj.companyName : c.companyName,
+        phone: dbObj.phone || c.phone,
+        address: dbObj.address || c.address,
+        nit: dbObj.nit || c.nit,
+        sellerId: dbObj.sellerId || c.sellerId,
+        clientCode: dbObj.clientCode || c.clientCode,
+        latitude: dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined ? Number(c.latitude) : undefined),
+        longitude: dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined ? Number(c.longitude) : undefined),
+        locationAddress: dbObj.locationAddress || c.locationAddress,
+        geotaggedAt: dbObj.geotaggedAt || c.geotaggedAt,
+        geotaggedBy: dbObj.geotaggedBy || c.geotaggedBy,
+        isBlocked: dbObj.isBlocked !== undefined ? dbObj.isBlocked : c.isBlocked
+      };
+    }
+  });
+
+  // Sync 1: Local missing clients -> Supabase (ONLY for clients NEVER deleted anywhere)
+  const dbClientIds = new Set(validDbClients.map(c => c.id).filter(Boolean));
+  const dbClientNames = new Set(validDbClients.map(c => (c.name || '').toLowerCase().trim()).filter(Boolean));
+
+  validLocalClients.forEach(async (c) => {
+    if (c && c.name && !isClientDeleted(c, deletedKeys)) {
       const cId = c.id ? String(c.id).trim().toLowerCase() : '';
       let cName = String(c.name).trim().toLowerCase();
       let baseName = cName;
       if (cName.includes(' - ')) baseName = cName.split(' - ')[0].trim();
 
-      if (cId && allDbDeletedIds.has(cId)) return false;
-      if (cName && allDbDeletedNames.has(cName)) return false;
-      if (baseName && allDbDeletedNames.has(baseName)) return false;
+      const isDeletedInDb = (cId && allDbDeletedIds.has(cId)) || allDbDeletedNames.has(cName) || allDbDeletedNames.has(baseName);
+      const hasId = c.id && dbClientIds.has(c.id);
+      const hasName = dbClientNames.has(cName) || dbClientNames.has(baseName);
 
-      return true;
-    });
-
-    const mergedList: any[] = [];
-
-    const findExistingIndex = (c: any) => {
-      if (!c) return -1;
-      const cId = c.id ? String(c.id).trim() : '';
-      let cName = (c.name || '').toLowerCase().trim();
-      if (cName.includes(' - ')) {
-        cName = cName.split(' - ')[0].trim();
+      if (!isDeletedInDb && !hasId && !hasName) {
+        await safeInsertClient(c);
       }
-      const cCode = (c.clientCode || c.client_code || c.clientcode) ? String(c.clientCode || c.client_code || c.clientcode).trim() : '';
+    }
+  });
 
-      return mergedList.findIndex(existing => {
-        if (!existing) return false;
-        const eId = existing.id ? String(existing.id).trim() : '';
-        let eName = (existing.name || '').toLowerCase().trim();
-        if (eName.includes(' - ')) {
-          eName = eName.split(' - ')[0].trim();
-        }
-        const eCode = existing.clientCode ? String(existing.clientCode).trim() : '';
+  const finalClients = deduplicateClients(mergedList.filter(c => !isClientDeleted(c, deletedKeys)));
 
-        if (cId && eId && cId === eId) return true;
-        if (cCode && eCode && cCode === eCode) return true;
-        if (cName && eName && cName === eName) return true;
+  saveLocalClients(finalClients);
 
-        return false;
+  setCachedData("clients", finalClients);
+  res.json(finalClients);
+}));
+
+app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("clients");
+  const { id, name, companyName, nit, phone, address, sellerId } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
+  }
+
+  let nameToSave = name.trim();
+  let companyToSave = (companyName || '').trim();
+
+  if (nameToSave.includes(' - ') && !companyToSave) {
+    const parts = nameToSave.split(' - ');
+    nameToSave = parts[0].trim();
+    companyToSave = parts[1].trim();
+  }
+
+  const normName = nameToSave.toLowerCase();
+  const normCompany = companyToSave.toLowerCase();
+
+  // Fetch existing clients to check for duplicates
+  let existingList: any[] = [];
+  try {
+    const { data } = await supabase.from("clients").select("*");
+    if (data) existingList = data;
+  } catch (e) { }
+
+  const localList = readLocalClients();
+
+  // Validacion por NIT: no permitir dos clientes con el mismo NIT real.
+  // "CF" / "C/F" (consumidor final) es generico y SI puede repetirse.
+  const normalizarNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+  const nitNuevo = normalizarNit(nit);
+  const esConsumidorFinal = nitNuevo === '' || nitNuevo === 'CF' || nitNuevo === 'CONSUMIDORFINAL';
+  if (!esConsumidorFinal) {
+    const yaExiste = [...existingList, ...localList].find(
+      (c: any) => c && normalizarNit(c.nit) === nitNuevo
+    );
+    if (yaExiste) {
+      return res.status(409).json({
+        error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
+        clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
       });
+    }
+  }
+
+  const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, false);
+
+  if (matchedClient) {
+    console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
+
+    const updates: any = {};
+    if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+    if (!matchedClient.phone && phone) updates.phone = phone;
+    if (!matchedClient.address && address) updates.address = address;
+    if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+
+    const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+    if (!currentSeller && sellerId) updates.sellerId = sellerId;
+
+    if (Object.keys(updates).length > 0) {
+      updateLocalClient(matchedClient.id, updates);
+      try {
+        await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+      } catch (e) { }
+    }
+
+    return res.json({
+      success: true,
+      client: {
+        ...matchedClient,
+        nit: matchedClient.nit || nit || '',
+        phone: matchedClient.phone || phone || '',
+        address: matchedClient.address || address || '',
+        sellerId: currentSeller || sellerId || req.user.email
+      }
+    });
+  }
+
+  // Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
+  const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
+  if (deletedMatch) {
+    console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
+    removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+
+    const reactivatedPayload = {
+      name: nameToSave,
+      companyName: companyToSave || deletedMatch.companyName || '',
+      nit: nit || deletedMatch.nit || '',
+      phone: phone || deletedMatch.phone || '',
+      address: address || deletedMatch.address || '',
+      sellerId: sellerId || deletedMatch.sellerId || req.user.email,
+      isDeleted: false,
+      is_deleted: false,
+      isBlocked: false,
+      is_blocked: false
     };
 
-    // 1. First add all valid Supabase DB clients (DB is primary source of truth)
-    validDbClients.forEach(c => {
-      if (!c || !c.name) return;
-      const name = c.name;
-      const company = c.companyName || c.company_name || c.companyname || '';
-      const code = c.clientCode || c.client_code || c.clientcode || '';
-      const id = c.id;
+    updateLocalClient(deletedMatch.id, reactivatedPayload);
 
-      const dbFormatted = {
-        id: id,
-        sellerId: c.sellerId || c.seller_id || c.sellerid || '',
-        name: name,
-        companyName: company,
-        nit: c.nit || '',
-        phone: c.phone || '',
-        address: c.address || '',
-        clientCode: code,
-        latitude: (c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
-        longitude: (c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
-        locationAddress: c.locationAddress || c.location_address || '',
-        geotaggedAt: c.geotaggedAt || c.geotagged_at || '',
-        geotaggedBy: c.geotaggedBy || c.geotagged_by || '',
-        isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
-        createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
-      };
-
-      const idx = findExistingIndex(dbFormatted);
-      if (idx === -1) {
-        mergedList.push(dbFormatted);
-      } else {
-        mergedList[idx] = { ...mergedList[idx], ...dbFormatted };
-      }
-    });
-
-    // 2. Supplement with validLocalClients
-    validLocalClients.forEach(c => {
-      if (!c || !c.name) return;
-      const idx = findExistingIndex(c);
-      if (idx === -1) {
-        mergedList.push({ ...c });
-      } else {
-        const dbObj = mergedList[idx];
-        mergedList[idx] = {
-          ...c,
-          ...dbObj,
-          id: dbObj.id || c.id,
-          name: dbObj.name || c.name,
-          companyName: dbObj.companyName !== undefined && dbObj.companyName !== '' ? dbObj.companyName : c.companyName,
-          phone: dbObj.phone || c.phone,
-          address: dbObj.address || c.address,
-          nit: dbObj.nit || c.nit,
-          sellerId: dbObj.sellerId || c.sellerId,
-          clientCode: dbObj.clientCode || c.clientCode,
-          latitude: dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined ? Number(c.latitude) : undefined),
-          longitude: dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined ? Number(c.longitude) : undefined),
-          locationAddress: dbObj.locationAddress || c.locationAddress,
-          geotaggedAt: dbObj.geotaggedAt || c.geotaggedAt,
-          geotaggedBy: dbObj.geotaggedBy || c.geotaggedBy,
-          isBlocked: dbObj.isBlocked !== undefined ? dbObj.isBlocked : c.isBlocked
-        };
-      }
-    });
-
-    // Sync 1: Local missing clients -> Supabase (ONLY for clients NEVER deleted anywhere)
-    const dbClientIds = new Set(validDbClients.map(c => c.id).filter(Boolean));
-    const dbClientNames = new Set(validDbClients.map(c => (c.name || '').toLowerCase().trim()).filter(Boolean));
-
-    validLocalClients.forEach(async (c) => {
-      if (c && c.name && !isClientDeleted(c, deletedKeys)) {
-        const cId = c.id ? String(c.id).trim().toLowerCase() : '';
-        let cName = String(c.name).trim().toLowerCase();
-        let baseName = cName;
-        if (cName.includes(' - ')) baseName = cName.split(' - ')[0].trim();
-
-        const isDeletedInDb = (cId && allDbDeletedIds.has(cId)) || allDbDeletedNames.has(cName) || allDbDeletedNames.has(baseName);
-        const hasId = c.id && dbClientIds.has(c.id);
-        const hasName = dbClientNames.has(cName) || dbClientNames.has(baseName);
-
-        if (!isDeletedInDb && !hasId && !hasName) {
-           await safeInsertClient(c);
-        }
-      }
-    });
-
-    const finalClients = deduplicateClients(mergedList.filter(c => !isClientDeleted(c, deletedKeys)));
-
-    saveLocalClients(finalClients);
-
-    setCachedData("clients", finalClients);
-    res.json(finalClients);
-  }));
-
-  app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
-    invalidateCache("clients");
-    const { id, name, companyName, nit, phone, address, sellerId } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
-    }
-
-    let nameToSave = name.trim();
-    let companyToSave = (companyName || '').trim();
-
-    if (nameToSave.includes(' - ') && !companyToSave) {
-      const parts = nameToSave.split(' - ');
-      nameToSave = parts[0].trim();
-      companyToSave = parts[1].trim();
-    }
-
-    const normName = nameToSave.toLowerCase();
-    const normCompany = companyToSave.toLowerCase();
-
-    // Fetch existing clients to check for duplicates
-    let existingList: any[] = [];
     try {
-      const { data } = await supabase.from("clients").select("*");
-      if (data) existingList = data;
-    } catch (e) {}
-
-    const localList = readLocalClients();
-
-    // Validacion por NIT: no permitir dos clientes con el mismo NIT real.
-    // "CF" / "C/F" (consumidor final) es generico y SI puede repetirse.
-    const normalizarNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
-    const nitNuevo = normalizarNit(nit);
-    const esConsumidorFinal = nitNuevo === '' || nitNuevo === 'CF' || nitNuevo === 'CONSUMIDORFINAL';
-    if (!esConsumidorFinal) {
-      const yaExiste = [...existingList, ...localList].find(
-        (c: any) => c && normalizarNit(c.nit) === nitNuevo
-      );
-      if (yaExiste) {
-        return res.status(409).json({
-          error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
-          clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
-        });
-      }
-    }
-
-    const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, false);
-
-    if (matchedClient) {
-      console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
-      
-      const updates: any = {};
-      if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-      if (!matchedClient.phone && phone) updates.phone = phone;
-      if (!matchedClient.address && address) updates.address = address;
-      if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
-      
-      const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-      if (!currentSeller && sellerId) updates.sellerId = sellerId;
-
-      if (Object.keys(updates).length > 0) {
-        updateLocalClient(matchedClient.id, updates);
-        try {
-          await supabase.from("clients").update(updates).eq("id", matchedClient.id);
-        } catch (e) {}
-      }
-
-      return res.json({ 
-        success: true, 
-        client: {
-          ...matchedClient,
-          nit: matchedClient.nit || nit || '',
-          phone: matchedClient.phone || phone || '',
-          address: matchedClient.address || address || '',
-          sellerId: currentSeller || sellerId || req.user.email
-        } 
-      });
-    }
-
-    // Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
-    const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
-    if (deletedMatch) {
-      console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
-      removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
-
-      const reactivatedPayload = {
+      await supabase.from("clients").update({
         name: nameToSave,
-        companyName: companyToSave || deletedMatch.companyName || '',
+        company_name: companyToSave || deletedMatch.companyName || '',
         nit: nit || deletedMatch.nit || '',
         phone: phone || deletedMatch.phone || '',
         address: address || deletedMatch.address || '',
-        sellerId: sellerId || deletedMatch.sellerId || req.user.email,
-        isDeleted: false,
-        is_deleted: false,
-        isBlocked: false,
-        is_blocked: false
-      };
+        seller_id: sellerId || deletedMatch.sellerId || req.user.email
+      }).eq("id", deletedMatch.id);
+    } catch (e) { }
 
-      updateLocalClient(deletedMatch.id, reactivatedPayload);
-
-      try {
-        await supabase.from("clients").update({
-          name: nameToSave,
-          company_name: companyToSave || deletedMatch.companyName || '',
-          nit: nit || deletedMatch.nit || '',
-          phone: phone || deletedMatch.phone || '',
-          address: address || deletedMatch.address || '',
-          seller_id: sellerId || deletedMatch.sellerId || req.user.email
-        }).eq("id", deletedMatch.id);
-      } catch (e) {}
-
-      invalidateCache("clients");
-      return res.json({
-        success: true,
-        client: {
-          ...deletedMatch,
-          ...reactivatedPayload,
-          id: deletedMatch.id
-        }
-      });
-    }
-
-    const clientData = {
-      id: id || `CLI-${Date.now()}`,
-      sellerId: sellerId || req.user.email,
-      name: nameToSave,
-      companyName: companyToSave,
-      nit: nit || '',
-      phone: phone || '',
-      address: address || '',
-      createdAt: new Date().toISOString()
-    };
-
-    // Remove from blacklist if explicitly adding new client
-    removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
-
-    // Save locally
-    addLocalClient(clientData);
-
-    try {
-      await safeInsertClient(clientData);
-    } catch (e) {
-      console.error("Insert client catch error in Supabase (handled gracefully):", e);
-    }
-
-    res.json({ success: true, client: clientData });
-  }));
-  
-  app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("clients");
-    const { id } = req.params;
-    const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, oldName, oldClientCode, oldNit } = req.body;
-    
-    const updates: any = {};
-    if (name !== undefined) updates.name = name;
-    if (companyName !== undefined) updates.companyName = companyName;
-    if (nit !== undefined) updates.nit = nit;
-    if (phone !== undefined) updates.phone = phone;
-    if (address !== undefined) updates.address = address;
-    if (sellerId !== undefined) updates.sellerId = sellerId;
-    if (clientCode !== undefined) updates.clientCode = clientCode;
-    if (isBlocked !== undefined) updates.isBlocked = isBlocked;
-    
-    // Update local file first with full oldData context
-    updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
-    
-    // Update Supabase using all potential matching strategies
+    return res.json({
+      success: true,
+      client: {
+        ...deletedMatch,
+        ...reactivatedPayload,
+        id: deletedMatch.id
+      }
+    });
+  }
+
+  const clientData = {
+    id: id || `CLI-${Date.now()}`,
+    sellerId: sellerId || req.user.email,
+    name: nameToSave,
+    companyName: companyToSave,
+    nit: nit || '',
+    phone: phone || '',
+    address: address || '',
+    createdAt: new Date().toISOString()
+  };
+
+  // Remove from blacklist if explicitly adding new client
+  removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
+
+  // Save locally
+  addLocalClient(clientData);
+
+  try {
+    await safeInsertClient(clientData);
+  } catch (e) {
+    console.error("Insert client catch error in Supabase (handled gracefully):", e);
+  }
+
+  res.json({ success: true, client: clientData });
+}));
+
+app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("clients");
+  const { id } = req.params;
+  const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, oldName, oldClientCode, oldNit } = req.body;
+
+  const updates: any = {};
+  if (name !== undefined) updates.name = name;
+  if (companyName !== undefined) updates.companyName = companyName;
+  if (nit !== undefined) updates.nit = nit;
+  if (phone !== undefined) updates.phone = phone;
+  if (address !== undefined) updates.address = address;
+  if (sellerId !== undefined) updates.sellerId = sellerId;
+  if (clientCode !== undefined) updates.clientCode = clientCode;
+  if (isBlocked !== undefined) updates.isBlocked = isBlocked;
+
+  // Update local file first with full oldData context
+  updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
+
+  // Update Supabase using all potential matching strategies
+  try {
+    const snakeUpdates: any = {};
+    if (updates.name !== undefined) snakeUpdates.name = updates.name;
+    if (updates.companyName !== undefined) snakeUpdates.company_name = updates.companyName;
+    if (updates.nit !== undefined) snakeUpdates.nit = updates.nit;
+    if (updates.phone !== undefined) snakeUpdates.phone = updates.phone;
+    if (updates.address !== undefined) snakeUpdates.address = updates.address;
+    if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
+    if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
+    if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
+
+    let updatedInDb = false;
+
+    // 1. Try by id (string and number)
     try {
-      const snakeUpdates: any = {};
-      if (updates.name !== undefined) snakeUpdates.name = updates.name;
-      if (updates.companyName !== undefined) snakeUpdates.company_name = updates.companyName;
-      if (updates.nit !== undefined) snakeUpdates.nit = updates.nit;
-      if (updates.phone !== undefined) snakeUpdates.phone = updates.phone;
-      if (updates.address !== undefined) snakeUpdates.address = updates.address;
-      if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
-      if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
-      if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
+      const res1 = await supabase.from("clients").update(updates).eq("id", id).select("*");
+      if (!res1.error && res1.data && res1.data.length > 0) updatedInDb = true;
+      if (!updatedInDb && !isNaN(Number(id))) {
+        const res1num = await supabase.from("clients").update(updates).eq("id", Number(id)).select("*");
+        if (!res1num.error && res1num.data && res1num.data.length > 0) updatedInDb = true;
+      }
+    } catch (e) { }
 
-      let updatedInDb = false;
-
-      // 1. Try by id (string and number)
+    if (!updatedInDb) {
       try {
-        const res1 = await supabase.from("clients").update(updates).eq("id", id).select("*");
-        if (!res1.error && res1.data && res1.data.length > 0) updatedInDb = true;
+        const res2 = await supabase.from("clients").update(snakeUpdates).eq("id", id).select("*");
+        if (!res2.error && res2.data && res2.data.length > 0) updatedInDb = true;
         if (!updatedInDb && !isNaN(Number(id))) {
-          const res1num = await supabase.from("clients").update(updates).eq("id", Number(id)).select("*");
-          if (!res1num.error && res1num.data && res1num.data.length > 0) updatedInDb = true;
+          const res2num = await supabase.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
+          if (!res2num.error && res2num.data && res2num.data.length > 0) updatedInDb = true;
         }
-      } catch (e) {}
+      } catch (e) { }
+    }
 
+    // 2. Try by client_code / clientCode
+    const codeToTry = clientCode || oldClientCode;
+    if (!updatedInDb && codeToTry) {
+      try {
+        const resCode = await supabase.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
+        if (!resCode.error && resCode.data && resCode.data.length > 0) updatedInDb = true;
+      } catch (e) { }
       if (!updatedInDb) {
         try {
-          const res2 = await supabase.from("clients").update(snakeUpdates).eq("id", id).select("*");
-          if (!res2.error && res2.data && res2.data.length > 0) updatedInDb = true;
-          if (!updatedInDb && !isNaN(Number(id))) {
-            const res2num = await supabase.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
-            if (!res2num.error && res2num.data && res2num.data.length > 0) updatedInDb = true;
-          }
-        } catch (e) {}
+          const resCodeCamel = await supabase.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
+          if (!resCodeCamel.error && resCodeCamel.data && resCodeCamel.data.length > 0) updatedInDb = true;
+        } catch (e) { }
       }
+    }
 
-      // 2. Try by client_code / clientCode
-      const codeToTry = clientCode || oldClientCode;
-      if (!updatedInDb && codeToTry) {
-        try {
-          const resCode = await supabase.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
-          if (!resCode.error && resCode.data && resCode.data.length > 0) updatedInDb = true;
-        } catch (e) {}
-        if (!updatedInDb) {
-          try {
-            const resCodeCamel = await supabase.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
-            if (!resCodeCamel.error && resCodeCamel.data && resCodeCamel.data.length > 0) updatedInDb = true;
-          } catch (e) {}
+    // 3. Try by nit (if not CF)
+    const nitToTry = nit || oldNit;
+    if (!updatedInDb && nitToTry && String(nitToTry).toUpperCase() !== 'CF') {
+      try {
+        const resNit = await supabase.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
+        if (!resNit.error && resNit.data && resNit.data.length > 0) updatedInDb = true;
+      } catch (e) { }
+    }
+
+    // 4. Try by name (oldName first, then new name)
+    const namesToTry = [oldName, name].filter(Boolean);
+    for (const n of namesToTry) {
+      if (updatedInDb) break;
+      try {
+        const resName = await supabase.from("clients").update(snakeUpdates).eq("name", n).select("*");
+        if (!resName.error && resName.data && resName.data.length > 0) {
+          updatedInDb = true;
+          break;
         }
-      }
-
-      // 3. Try by nit (if not CF)
-      const nitToTry = nit || oldNit;
-      if (!updatedInDb && nitToTry && String(nitToTry).toUpperCase() !== 'CF') {
+      } catch (e) { }
+      if (!updatedInDb) {
         try {
-          const resNit = await supabase.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
-          if (!resNit.error && resNit.data && resNit.data.length > 0) updatedInDb = true;
-        } catch (e) {}
-      }
-
-      // 4. Try by name (oldName first, then new name)
-      const namesToTry = [oldName, name].filter(Boolean);
-      for (const n of namesToTry) {
-        if (updatedInDb) break;
-        try {
-          const resName = await supabase.from("clients").update(snakeUpdates).eq("name", n).select("*");
-          if (!resName.error && resName.data && resName.data.length > 0) {
+          const resNameIlike = await supabase.from("clients").update(snakeUpdates).ilike("name", n).select("*");
+          if (!resNameIlike.error && resNameIlike.data && resNameIlike.data.length > 0) {
             updatedInDb = true;
             break;
           }
-        } catch (e) {}
-        if (!updatedInDb) {
-          try {
-            const resNameIlike = await supabase.from("clients").update(snakeUpdates).ilike("name", n).select("*");
-            if (!resNameIlike.error && resNameIlike.data && resNameIlike.data.length > 0) {
-              updatedInDb = true;
-              break;
-            }
-          } catch (e) {}
-        }
+        } catch (e) { }
       }
-
-      invalidateCache("clients");
-      res.json({ success: true, client: { id, ...updates } });
-    } catch (e) {
-      console.error("Exception updating client in supabase:", e);
-      invalidateCache("clients");
-      res.json({ success: true, client: { id, ...updates } });
     }
-  }));
 
-  app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
     invalidateCache("clients");
-    const { id } = req.params;
-    const { name, clientCode, companyName, nit } = req.query;
+    res.json({ success: true, client: { id, ...updates } });
+  } catch (e) {
+    console.error("Exception updating client in supabase:", e);
+    invalidateCache("clients");
+    res.json({ success: true, client: { id, ...updates } });
+  }
+}));
 
-    const idStr = id ? String(id).trim() : '';
-    let targetName = name ? String(name).trim() : '';
-    let targetCode = clientCode ? String(clientCode).trim() : '';
-    let targetCompany = companyName ? String(companyName).trim() : '';
-    let targetNit = nit ? String(nit).trim() : '';
+app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("clients");
+  const { id } = req.params;
+  const { name, clientCode, companyName, nit } = req.query;
 
-    // Look up existing client in local list and Supabase DB to extract full fields if missing
-    try {
-      const localClients = readLocalClients();
-      let dbClientsForDel: any[] = [];
-      try {
-        const { data } = await supabase.from("clients").select("*");
-        if (data) dbClientsForDel = data;
-      } catch (e) {}
+  const idStr = id ? String(id).trim() : '';
+  let targetName = name ? String(name).trim() : '';
+  let targetCode = clientCode ? String(clientCode).trim() : '';
+  let targetCompany = companyName ? String(companyName).trim() : '';
+  let targetNit = nit ? String(nit).trim() : '';
 
-      const allClients = [...localClients, ...dbClientsForDel];
-      const matched = allClients.find((c: any) => {
-        if (!c) return false;
-        if (idStr && String(c.id).trim().toLowerCase() === idStr.toLowerCase()) return true;
-        if (targetCode && (c.clientCode || c.client_code) && String(c.clientCode || c.client_code).trim().toLowerCase() === targetCode.toLowerCase()) return true;
-        if (targetName && c.name && String(c.name).trim().toLowerCase() === targetName.toLowerCase()) return true;
-        return false;
-      });
-
-      if (matched) {
-        if (!targetName && matched.name) targetName = String(matched.name).trim();
-        if (!targetCode && (matched.clientCode || matched.client_code)) targetCode = String(matched.clientCode || matched.client_code).trim();
-        if (!targetCompany && (matched.companyName || matched.company_name)) targetCompany = String(matched.companyName || matched.company_name).trim();
-        if (!targetNit && matched.nit) targetNit = String(matched.nit).trim();
-      }
-    } catch (e) {}
-
-    // 1. Mark as deleted in local list and blacklisted keys
-    deleteLocalClient(idStr, targetName, targetCode, targetCompany, targetNit);
-
-    // 2. Soft-delete and Hard-delete in Supabase DB safely without letting single column errors block execution
-    const cleanDeleteName = targetName ? `[DELETED] ${targetName}` : `[DELETED] ${idStr}`;
-    const softDeletePayload = {
-      name: cleanDeleteName
-    };
-
-    // Helper for safe execution
-    const safeSupabaseUpdate = async (conditionField: string, value: any) => {
-      if (!value) return;
-      try {
-        await supabase.from("clients").update(softDeletePayload).eq(conditionField, value);
-      } catch (e) {}
-    };
-
-    const safeSupabaseDelete = async (conditionField: string, value: any) => {
-      if (!value) return;
-      try {
-        await supabase.from("clients").delete().eq(conditionField, value);
-      } catch (e) {}
-    };
-
-    const safeSupabaseIlikeDelete = async (conditionField: string, value: string) => {
-      if (!value) return;
-      try {
-        await supabase.from("clients").delete().ilike(conditionField, value);
-      } catch (e) {}
-    };
-
-    try {
-      // Step A: Soft-delete attempts in Supabase
-      if (idStr) {
-        await safeSupabaseUpdate("id", idStr);
-        if (!isNaN(Number(idStr))) {
-          await safeSupabaseUpdate("id", Number(idStr));
-        }
-      }
-      if (targetCode) {
-        await safeSupabaseUpdate("clientCode", targetCode);
-      }
-      if (targetName) {
-        await safeSupabaseUpdate("name", targetName);
-        if (targetName.includes(' - ')) {
-          const parts = targetName.split(' - ');
-          await safeSupabaseUpdate("name", parts[0].trim());
-        }
-      }
-      if (targetNit && targetNit.toUpperCase() !== 'CF') {
-        await safeSupabaseUpdate("nit", targetNit);
-      }
-
-      // Step B: Hard-delete attempts in Supabase
-      if (idStr) {
-        await safeSupabaseDelete("id", idStr);
-        if (!isNaN(Number(idStr))) {
-          await safeSupabaseDelete("id", Number(idStr));
-        }
-      }
-      if (targetCode) {
-        await safeSupabaseDelete("clientCode", targetCode);
-      }
-      if (targetName) {
-        await safeSupabaseIlikeDelete("name", targetName);
-        await safeSupabaseDelete("name", targetName);
-        if (targetName.includes(' - ')) {
-          const parts = targetName.split(' - ');
-          await safeSupabaseIlikeDelete("name", parts[0].trim());
-        }
-      }
-      if (targetNit && targetNit.toUpperCase() !== 'CF') {
-        await safeSupabaseDelete("nit", targetNit);
-      }
-
-      invalidateCache("clients");
-      res.json({ success: true, message: "Cliente eliminado correctamente." });
-    } catch (e) {
-      console.error("Exception deleting client in Supabase:", e);
-      invalidateCache("clients");
-      res.json({ success: true, message: "Cliente eliminado en almacenamiento local." });
-    }
-  }));
-
-  // Migration endpoint to generate codes for all clients
-  app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let dbClients: any[] = [];
+  // Look up existing client in local list and Supabase DB to extract full fields if missing
+  try {
+    const localClients = readLocalClients();
+    let dbClientsForDel: any[] = [];
     try {
       const { data } = await supabase.from("clients").select("*");
-      if (data) dbClients = data;
-    } catch (e) {}
+      if (data) dbClientsForDel = data;
+    } catch (e) { }
 
-    const localClients = readLocalClients();
-    
-    // Combine all clients by ID
-    const clientMap = new Map<string, any>();
-    localClients.forEach(c => {
-      if (c && c.id) clientMap.set(c.id, { ...c });
-    });
-    dbClients.forEach(c => {
-      if (c && c.id) {
-        const existing = clientMap.get(c.id) || {};
-        clientMap.set(c.id, {
-          ...existing,
-          id: c.id,
-          name: c.name || existing.name,
-          clientCode: c.clientCode || c.client_code || c.clientcode || existing.clientCode || ''
-        });
-      }
+    const allClients = [...localClients, ...dbClientsForDel];
+    const matched = allClients.find((c: any) => {
+      if (!c) return false;
+      if (idStr && String(c.id).trim().toLowerCase() === idStr.toLowerCase()) return true;
+      if (targetCode && (c.clientCode || c.client_code) && String(c.clientCode || c.client_code).trim().toLowerCase() === targetCode.toLowerCase()) return true;
+      if (targetName && c.name && String(c.name).trim().toLowerCase() === targetName.toLowerCase()) return true;
+      return false;
     });
 
-    const allClients = Array.from(clientMap.values());
-    let updatedCount = 0;
-    const usedCodes = new Set(allClients.map(c => c.clientCode).filter(Boolean));
+    if (matched) {
+      if (!targetName && matched.name) targetName = String(matched.name).trim();
+      if (!targetCode && (matched.clientCode || matched.client_code)) targetCode = String(matched.clientCode || matched.client_code).trim();
+      if (!targetCompany && (matched.companyName || matched.company_name)) targetCompany = String(matched.companyName || matched.company_name).trim();
+      if (!targetNit && matched.nit) targetNit = String(matched.nit).trim();
+    }
+  } catch (e) { }
 
-    for (const client of allClients) {
-      if (!client.clientCode || String(client.clientCode).trim() === '') {
-        let code = '';
-        let unique = false;
-        let attempts = 0;
-        while (!unique && attempts < 100) {
-          code = Math.floor(1000 + Math.random() * 9000).toString();
-          if (!usedCodes.has(code)) unique = true;
-          attempts++;
-        }
-        
-        if (unique) {
-          client.clientCode = code;
-          usedCodes.add(code);
-          
-          // Update local
-          updateLocalClient(client.id, { clientCode: code });
-          // Update Supabase
-          try {
-            await supabase.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
-          } catch (err) {}
-          updatedCount++;
-        }
+  // 1. Mark as deleted in local list and blacklisted keys
+  deleteLocalClient(idStr, targetName, targetCode, targetCompany, targetNit);
+
+  // 2. Soft-delete and Hard-delete in Supabase DB safely without letting single column errors block execution
+  const cleanDeleteName = targetName ? `[DELETED] ${targetName}` : `[DELETED] ${idStr}`;
+  const softDeletePayload = {
+    name: cleanDeleteName
+  };
+
+  // Helper for safe execution
+  const safeSupabaseUpdate = async (conditionField: string, value: any) => {
+    if (!value) return;
+    try {
+      await supabase.from("clients").update(softDeletePayload).eq(conditionField, value);
+    } catch (e) { }
+  };
+
+  const safeSupabaseDelete = async (conditionField: string, value: any) => {
+    if (!value) return;
+    try {
+      await supabase.from("clients").delete().eq(conditionField, value);
+    } catch (e) { }
+  };
+
+  const safeSupabaseIlikeDelete = async (conditionField: string, value: string) => {
+    if (!value) return;
+    try {
+      await supabase.from("clients").delete().ilike(conditionField, value);
+    } catch (e) { }
+  };
+
+  try {
+    // Step A: Soft-delete attempts in Supabase
+    if (idStr) {
+      await safeSupabaseUpdate("id", idStr);
+      if (!isNaN(Number(idStr))) {
+        await safeSupabaseUpdate("id", Number(idStr));
       }
+    }
+    if (targetCode) {
+      await safeSupabaseUpdate("clientCode", targetCode);
+    }
+    if (targetName) {
+      await safeSupabaseUpdate("name", targetName);
+      if (targetName.includes(' - ')) {
+        const parts = targetName.split(' - ');
+        await safeSupabaseUpdate("name", parts[0].trim());
+      }
+    }
+    if (targetNit && targetNit.toUpperCase() !== 'CF') {
+      await safeSupabaseUpdate("nit", targetNit);
+    }
+
+    // Step B: Hard-delete attempts in Supabase
+    if (idStr) {
+      await safeSupabaseDelete("id", idStr);
+      if (!isNaN(Number(idStr))) {
+        await safeSupabaseDelete("id", Number(idStr));
+      }
+    }
+    if (targetCode) {
+      await safeSupabaseDelete("clientCode", targetCode);
+    }
+    if (targetName) {
+      await safeSupabaseIlikeDelete("name", targetName);
+      await safeSupabaseDelete("name", targetName);
+      if (targetName.includes(' - ')) {
+        const parts = targetName.split(' - ');
+        await safeSupabaseIlikeDelete("name", parts[0].trim());
+      }
+    }
+    if (targetNit && targetNit.toUpperCase() !== 'CF') {
+      await safeSupabaseDelete("nit", targetNit);
     }
 
     invalidateCache("clients");
-    res.json({ success: true, updatedCount });
-  }));
+    res.json({ success: true, message: "Cliente eliminado correctamente." });
+  } catch (e) {
+    console.error("Exception deleting client in Supabase:", e);
+    invalidateCache("clients");
+    res.json({ success: true, message: "Cliente eliminado en almacenamiento local." });
+  }
+}));
 
-  // ======== CLIENT VISITS & CHECKPOINTS ========
-  const VISITS_FILE = path.join(process.cwd(), "client_visits_local.json");
+// Migration endpoint to generate codes for all clients
+app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let dbClients: any[] = [];
+  try {
+    const { data } = await supabase.from("clients").select("*");
+    if (data) dbClients = data;
+  } catch (e) { }
 
-  function readLocalVisits(): any[] {
-    try {
-      if (fs.existsSync(VISITS_FILE)) {
-        return JSON.parse(fs.readFileSync(VISITS_FILE, "utf8"));
+  const localClients = readLocalClients();
+
+  // Combine all clients by ID
+  const clientMap = new Map<string, any>();
+  localClients.forEach(c => {
+    if (c && c.id) clientMap.set(c.id, { ...c });
+  });
+  dbClients.forEach(c => {
+    if (c && c.id) {
+      const existing = clientMap.get(c.id) || {};
+      clientMap.set(c.id, {
+        ...existing,
+        id: c.id,
+        name: c.name || existing.name,
+        clientCode: c.clientCode || c.client_code || c.clientcode || existing.clientCode || ''
+      });
+    }
+  });
+
+  const allClients = Array.from(clientMap.values());
+  let updatedCount = 0;
+  const usedCodes = new Set(allClients.map(c => c.clientCode).filter(Boolean));
+
+  for (const client of allClients) {
+    if (!client.clientCode || String(client.clientCode).trim() === '') {
+      let code = '';
+      let unique = false;
+      let attempts = 0;
+      while (!unique && attempts < 100) {
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+        if (!usedCodes.has(code)) unique = true;
+        attempts++;
       }
-    } catch (err) {
-      console.error("Error reading local client visits:", err);
+
+      if (unique) {
+        client.clientCode = code;
+        usedCodes.add(code);
+
+        // Update local
+        updateLocalClient(client.id, { clientCode: code });
+        // Update Supabase
+        try {
+          await supabase.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
+        } catch (err) { }
+        updatedCount++;
+      }
     }
-    return [];
   }
 
-  function saveLocalVisits(visits: any[]) {
-    try {
-      fs.writeFileSync(VISITS_FILE, JSON.stringify(visits, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving local client visits:", err);
+  invalidateCache("clients");
+  res.json({ success: true, updatedCount });
+}));
+
+// ======== CLIENT VISITS & CHECKPOINTS ========
+const VISITS_FILE = path.join(process.cwd(), "client_visits_local.json");
+
+function readLocalVisits(): any[] {
+  try {
+    if (fs.existsSync(VISITS_FILE)) {
+      return JSON.parse(fs.readFileSync(VISITS_FILE, "utf8"));
     }
+  } catch (err) {
+    console.error("Error reading local client visits:", err);
+  }
+  return [];
+}
+
+function saveLocalVisits(visits: any[]) {
+  try {
+    fs.writeFileSync(VISITS_FILE, JSON.stringify(visits, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving local client visits:", err);
+  }
+}
+
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 0;
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(Math.max(0, Math.min(1, a))), Math.sqrt(Math.max(0, 1 - a)));
+
+  const dist = Math.round(R * c);
+  return isNaN(dist) ? 0 : Math.max(0, dist);
+}
+
+// Update client GPS location
+app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { latitude, longitude, locationAddress } = req.body;
+
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ error: "Coordenadas de latitud y longitud requeridas." });
   }
 
-  function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 0;
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(Math.max(0, Math.min(1, a))), Math.sqrt(Math.max(0, 1 - a)));
-
-    const dist = Math.round(R * c);
-    return isNaN(dist) ? 0 : Math.max(0, dist);
+  const latNum = parseFloat(latitude);
+  const lngNum = parseFloat(longitude);
+  if (isNaN(latNum) || isNaN(lngNum)) {
+    return res.status(400).json({ error: "Coordenadas inválidas." });
   }
 
-  // Update client GPS location
-  app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { latitude, longitude, locationAddress } = req.body;
+  const nowIso = new Date().toISOString();
+  const updaterName = req.user?.name || req.user?.email || 'Usuario';
 
-    if (latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ error: "Coordenadas de latitud y longitud requeridas." });
-    }
+  const locationUpdates = {
+    latitude: latNum,
+    longitude: lngNum,
+    locationAddress: locationAddress || '',
+    geotaggedAt: nowIso,
+    geotaggedBy: updaterName
+  };
 
-    const latNum = parseFloat(latitude);
-    const lngNum = parseFloat(longitude);
-    if (isNaN(latNum) || isNaN(lngNum)) {
-      return res.status(400).json({ error: "Coordenadas inválidas." });
-    }
+  // Update in local client store
+  try {
+    updateLocalClient(id, locationUpdates);
+  } catch (e) {
+    console.warn("Could not update local client location:", e);
+  }
 
-    const nowIso = new Date().toISOString();
-    const updaterName = req.user?.name || req.user?.email || 'Usuario';
-
-    const locationUpdates = {
+  // Update in Supabase (handle both string id and numeric id)
+  try {
+    const sbUpdate = {
       latitude: latNum,
       longitude: lngNum,
+      location_address: locationAddress || '',
       locationAddress: locationAddress || '',
+      geotagged_at: nowIso,
       geotaggedAt: nowIso,
+      geotagged_by: updaterName,
       geotaggedBy: updaterName
     };
-
-    // Update in local client store
-    try {
-      updateLocalClient(id, locationUpdates);
-    } catch (e) {
-      console.warn("Could not update local client location:", e);
+    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    if (resStr.error && !isNaN(Number(id))) {
+      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
     }
+  } catch (err: any) {
+    console.warn("Supabase update client location error:", err?.message || err);
+  }
 
-    // Update in Supabase (handle both string id and numeric id)
-    try {
-      const sbUpdate = {
-        latitude: latNum,
-        longitude: lngNum,
-        location_address: locationAddress || '',
-        locationAddress: locationAddress || '',
-        geotagged_at: nowIso,
-        geotaggedAt: nowIso,
-        geotagged_by: updaterName,
-        geotaggedBy: updaterName
-      };
-      const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
-      if (resStr.error && !isNaN(Number(id))) {
-        await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
-      }
-    } catch (err: any) {
-      console.warn("Supabase update client location error:", err?.message || err);
-    }
+  invalidateCache("clients");
+  res.json({ success: true, client: { id, ...locationUpdates } });
+}));
 
-    invalidateCache("clients");
-    res.json({ success: true, client: { id, ...locationUpdates } });
-  }));
+// Delete / Reset client GPS location
+app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
 
-  // Delete / Reset client GPS location
-  app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
+  const locationUpdates = {
+    latitude: null,
+    longitude: null,
+    locationAddress: null,
+    geotaggedAt: null,
+    geotaggedBy: null
+  };
 
-    const locationUpdates = {
+  // Update in local client store
+  try {
+    updateLocalClient(id, locationUpdates);
+  } catch (e) {
+    console.warn("Could not clear local client location:", e);
+  }
+
+  // Update in Supabase
+  try {
+    const sbUpdate = {
       latitude: null,
       longitude: null,
+      location_address: null,
       locationAddress: null,
+      geotagged_at: null,
       geotaggedAt: null,
+      geotagged_by: null,
       geotaggedBy: null
     };
-
-    // Update in local client store
-    try {
-      updateLocalClient(id, locationUpdates);
-    } catch (e) {
-      console.warn("Could not clear local client location:", e);
+    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    if (resStr.error && !isNaN(Number(id))) {
+      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
     }
+  } catch (err: any) {
+    console.warn("Supabase clear client location error:", err?.message || err);
+  }
 
-    // Update in Supabase
-    try {
-      const sbUpdate = {
-        latitude: null,
-        longitude: null,
-        location_address: null,
-        locationAddress: null,
-        geotagged_at: null,
-        geotaggedAt: null,
-        geotagged_by: null,
-        geotaggedBy: null
-      };
-      const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
-      if (resStr.error && !isNaN(Number(id))) {
-        await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
-      }
-    } catch (err: any) {
-      console.warn("Supabase clear client location error:", err?.message || err);
+  invalidateCache("clients");
+  res.json({ success: true, message: "Ubicación GPS eliminada con éxito.", client: { id, ...locationUpdates } });
+}));
+
+// Fetch visit checkpoints (Strict multi-role security)
+app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { sellerId, clientId, date, startDate, endDate } = req.query;
+  const userRole = req.user?.role;
+  const userId = req.user?.id ? String(req.user.id).trim() : '';
+  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+
+  let visits: any[] = [];
+  try {
+    const { data, error } = await supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
+    if (!error && data && data.length > 0) {
+      visits = data;
     }
+  } catch (e) { }
 
-    invalidateCache("clients");
-    res.json({ success: true, message: "Ubicación GPS eliminada con éxito.", client: { id, ...locationUpdates } });
+  // Fallback to local visits if empty or table does not exist
+  if (visits.length === 0) {
+    visits = readLocalVisits();
+  }
+
+  // Normalize all visit records
+  const normalizedVisits = visits.map((v: any) => ({
+    id: v.id,
+    clientId: String(v.clientId || v.client_id || ''),
+    clientName: v.clientName || v.client_name || '',
+    clientCode: v.clientCode || v.client_code || '',
+    companyName: v.companyName || v.company_name || '',
+    sellerId: String(v.sellerId || v.seller_id || ''),
+    sellerName: v.sellerName || v.seller_name || '',
+    sellerEmail: v.sellerEmail || v.seller_email || '',
+    latitude: v.latitude,
+    longitude: v.longitude,
+    accuracy: v.accuracy,
+    distanceMeters: v.distanceMeters ?? v.distance_meters,
+    visitType: v.visitType || v.visit_type || 'rutina',
+    notes: v.notes || '',
+    photoUrl: v.photoUrl || v.photo_url || '',
+    routeId: v.routeId || v.route_id,
+    createdAt: v.createdAt || v.created_at
   }));
 
-  // Fetch visit checkpoints (Strict multi-role security)
-  app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { sellerId, clientId, date, startDate, endDate } = req.query;
-    const userRole = req.user?.role;
-    const userId = req.user?.id ? String(req.user.id).trim() : '';
-    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+  // Apply strict filtering
+  let filtered = normalizedVisits;
 
-    let visits: any[] = [];
-    try {
-      const { data, error } = await supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
-      if (!error && data && data.length > 0) {
-        visits = data;
-      }
-    } catch (e) {}
+  // Strict Seller Isolation: Sellers ONLY see their own visits
+  if (userRole === 'seller') {
+    filtered = filtered.filter(v => {
+      const vSellerId = String(v.sellerId || '').trim();
+      const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+      const vSellerName = String(v.sellerName || '').trim().toLowerCase();
 
-    // Fallback to local visits if empty or table does not exist
-    if (visits.length === 0) {
-      visits = readLocalVisits();
-    }
+      return (
+        (userId && vSellerId === userId) ||
+        (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
+        (userName && vSellerName === userName)
+      );
+    });
+  } else if (sellerId && sellerId !== 'all') {
+    filtered = filtered.filter(v => {
+      const vSellerId = String(v.sellerId || '').trim().toLowerCase();
+      const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+      const vSellerName = String(v.sellerName || '').trim().toLowerCase();
+      const target = String(sellerId).trim().toLowerCase();
 
-    // Normalize all visit records
-    const normalizedVisits = visits.map((v: any) => ({
-      id: v.id,
-      clientId: String(v.clientId || v.client_id || ''),
-      clientName: v.clientName || v.client_name || '',
-      clientCode: v.clientCode || v.client_code || '',
-      companyName: v.companyName || v.company_name || '',
-      sellerId: String(v.sellerId || v.seller_id || ''),
-      sellerName: v.sellerName || v.seller_name || '',
-      sellerEmail: v.sellerEmail || v.seller_email || '',
-      latitude: v.latitude,
-      longitude: v.longitude,
-      accuracy: v.accuracy,
-      distanceMeters: v.distanceMeters ?? v.distance_meters,
-      visitType: v.visitType || v.visit_type || 'rutina',
-      notes: v.notes || '',
-      photoUrl: v.photoUrl || v.photo_url || '',
-      routeId: v.routeId || v.route_id,
-      createdAt: v.createdAt || v.created_at
-    }));
+      return vSellerId === target || vSellerEmail === target || vSellerName === target;
+    });
+  }
 
-    // Apply strict filtering
-    let filtered = normalizedVisits;
+  if (clientId) {
+    filtered = filtered.filter(v => String(v.clientId) === String(clientId));
+  }
+  if (date) {
+    filtered = filtered.filter(v => (v.createdAt || '').startsWith(String(date)));
+  }
+  if (startDate && endDate) {
+    filtered = filtered.filter(v => {
+      const vDate = (v.createdAt || '').split('T')[0];
+      return vDate >= String(startDate) && vDate <= String(endDate);
+    });
+  }
 
-    // Strict Seller Isolation: Sellers ONLY see their own visits
-    if (userRole === 'seller') {
-      filtered = filtered.filter(v => {
-        const vSellerId = String(v.sellerId || '').trim();
-        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
+  // Sort newest first
+  filtered.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-        return (
-          (userId && vSellerId === userId) ||
-          (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
-          (userName && vSellerName === userName)
-        );
-      });
-    } else if (sellerId && sellerId !== 'all') {
-      filtered = filtered.filter(v => {
-        const vSellerId = String(v.sellerId || '').trim().toLowerCase();
-        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
-        const target = String(sellerId).trim().toLowerCase();
+  res.json(filtered);
+}));
 
-        return vSellerId === target || vSellerEmail === target || vSellerName === target;
-      });
-    }
+// Create a new visit checkpoint
+app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const {
+    clientId,
+    clientName,
+    clientCode,
+    companyName,
+    latitude,
+    longitude,
+    accuracy,
+    visitType,
+    notes,
+    photoUrl
+  } = req.body;
 
-    if (clientId) {
-      filtered = filtered.filter(v => String(v.clientId) === String(clientId));
-    }
-    if (date) {
-      filtered = filtered.filter(v => (v.createdAt || '').startsWith(String(date)));
-    }
-    if (startDate && endDate) {
-      filtered = filtered.filter(v => {
-        const vDate = (v.createdAt || '').split('T')[0];
-        return vDate >= String(startDate) && vDate <= String(endDate);
-      });
-    }
+  if (!clientId && !clientName) {
+    return res.status(400).json({ error: "Identificación de cliente requerida." });
+  }
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ error: "Coordenadas GPS requeridas para el checkpoint." });
+  }
 
-    // Sort newest first
-    filtered.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const latNum = parseFloat(latitude);
+  const lngNum = parseFloat(longitude);
+  const nowIso = new Date().toISOString();
 
-    res.json(filtered);
-  }));
-
-  // Create a new visit checkpoint
-  app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const {
-      clientId,
-      clientName,
-      clientCode,
-      companyName,
-      latitude,
-      longitude,
-      accuracy,
-      visitType,
-      notes,
-      photoUrl
-    } = req.body;
-
-    if (!clientId && !clientName) {
-      return res.status(400).json({ error: "Identificación de cliente requerida." });
-    }
-    if (latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ error: "Coordenadas GPS requeridas para el checkpoint." });
-    }
-
-    const latNum = parseFloat(latitude);
-    const lngNum = parseFloat(longitude);
-    const nowIso = new Date().toISOString();
-
-    // Check if client has registered location to calculate distance
-    let calculatedDistance: number | undefined = undefined;
-    try {
-      const localClients = readLocalClients();
-      const targetClient = localClients.find((c: any) => c.id === clientId || c.name === clientName);
-      if (targetClient && targetClient.latitude && targetClient.longitude) {
-        calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
-      } else {
-        // If client had no GPS yet, auto-geotag them on first visit!
-        if (clientId) {
-          updateLocalClient(clientId, {
-            latitude: latNum,
-            longitude: lngNum,
-            geotaggedAt: nowIso,
-            geotaggedBy: req.user?.name || req.user?.email
-          });
-        }
-      }
-
-      // Update client lastVisitAt
-      if (clientId) {
-        updateLocalClient(clientId, { lastVisitAt: nowIso });
-        try {
-          await supabase.from("clients").update({
-            last_visit_at: nowIso,
-            lastVisitAt: nowIso
-          }).eq("id", clientId);
-        } catch (e) {}
-      }
-    } catch (e) {}
-
-    // Find or create active route session for this seller (Strict single active route)
-    const sellerIdStr = req.user?.id || '';
-    const sellerNameStr = req.user?.name || 'Vendedor';
-    const sellerEmailStr = req.user?.email || '';
-
-    let routes = readLocalRoutes();
-    let activeRoute = routes.find((r: any) => 
-      r.status === 'active' && 
-      (r.sellerId === sellerIdStr || r.sellerEmail === sellerEmailStr || (sellerIdStr && r.sellerId === sellerIdStr))
-    );
-
-    if (!activeRoute) {
-      // Auto-start active route on first visit
-      activeRoute = {
-        id: `route_${sellerIdStr || 'seller'}_${Date.now()}`,
-        sellerId: sellerIdStr,
-        sellerName: sellerNameStr,
-        sellerEmail: sellerEmailStr,
-        status: 'active',
-        startedAt: nowIso,
-        finishedAt: null,
-        startLatitude: latNum,
-        startLongitude: lngNum,
-        endLatitude: null,
-        endLongitude: null,
-        totalStops: 1,
-        totalDistanceKm: 0,
-        totalDurationMins: 0,
-        notes: 'Jornada iniciada automáticamente con primera visita.'
-      };
-      routes.unshift(activeRoute);
+  // Check if client has registered location to calculate distance
+  let calculatedDistance: number | undefined = undefined;
+  try {
+    const localClients = readLocalClients();
+    const targetClient = localClients.find((c: any) => c.id === clientId || c.name === clientName);
+    if (targetClient && targetClient.latitude && targetClient.longitude) {
+      calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
     } else {
-      activeRoute.totalStops = (activeRoute.totalStops || 0) + 1;
+      // If client had no GPS yet, auto-geotag them on first visit!
+      if (clientId) {
+        updateLocalClient(clientId, {
+          latitude: latNum,
+          longitude: lngNum,
+          geotaggedAt: nowIso,
+          geotaggedBy: req.user?.name || req.user?.email
+        });
+      }
     }
-    saveLocalRoutes(routes);
 
-    try {
-      await supabase.from("seller_routes").upsert([activeRoute]);
-    } catch (e) {}
+    // Update client lastVisitAt
+    if (clientId) {
+      updateLocalClient(clientId, { lastVisitAt: nowIso });
+      try {
+        await supabase.from("clients").update({
+          last_visit_at: nowIso,
+          lastVisitAt: nowIso
+        }).eq("id", clientId);
+      } catch (e) { }
+    }
+  } catch (e) { }
 
-    const newVisit = {
-      id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      clientId: clientId || '',
-      clientName: clientName || '',
-      clientCode: clientCode || '',
-      companyName: companyName || '',
+  // Find or create active route session for this seller (Strict single active route)
+  const sellerIdStr = req.user?.id || '';
+  const sellerNameStr = req.user?.name || 'Vendedor';
+  const sellerEmailStr = req.user?.email || '';
+
+  let routes = readLocalRoutes();
+  let activeRoute = routes.find((r: any) =>
+    r.status === 'active' &&
+    (r.sellerId === sellerIdStr || r.sellerEmail === sellerEmailStr || (sellerIdStr && r.sellerId === sellerIdStr))
+  );
+
+  if (!activeRoute) {
+    // Auto-start active route on first visit
+    activeRoute = {
+      id: `route_${sellerIdStr || 'seller'}_${Date.now()}`,
       sellerId: sellerIdStr,
       sellerName: sellerNameStr,
       sellerEmail: sellerEmailStr,
-      routeId: activeRoute.id,
-      latitude: latNum,
-      longitude: lngNum,
-      accuracy: accuracy ? parseFloat(accuracy) : undefined,
-      distanceMeters: calculatedDistance,
-      visitType: visitType || 'rutina',
-      notes: notes || '',
-      photoUrl: photoUrl || '',
-      createdAt: nowIso
+      status: 'active',
+      startedAt: nowIso,
+      finishedAt: null,
+      startLatitude: latNum,
+      startLongitude: lngNum,
+      endLatitude: null,
+      endLongitude: null,
+      totalStops: 1,
+      totalDistanceKm: 0,
+      totalDurationMins: 0,
+      notes: 'Jornada iniciada automáticamente con primera visita.'
+    };
+    routes.unshift(activeRoute);
+  } else {
+    activeRoute.totalStops = (activeRoute.totalStops || 0) + 1;
+  }
+  saveLocalRoutes(routes);
+
+  try {
+    await supabase.from("seller_routes").upsert([activeRoute]);
+  } catch (e) { }
+
+  const newVisit = {
+    id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    clientId: clientId || '',
+    clientName: clientName || '',
+    clientCode: clientCode || '',
+    companyName: companyName || '',
+    sellerId: sellerIdStr,
+    sellerName: sellerNameStr,
+    sellerEmail: sellerEmailStr,
+    routeId: activeRoute.id,
+    latitude: latNum,
+    longitude: lngNum,
+    accuracy: accuracy ? parseFloat(accuracy) : undefined,
+    distanceMeters: calculatedDistance,
+    visitType: visitType || 'rutina',
+    notes: notes || '',
+    photoUrl: photoUrl || '',
+    createdAt: nowIso
+  };
+
+  // Save locally
+  const currentVisits = readLocalVisits();
+  currentVisits.unshift(newVisit);
+  saveLocalVisits(currentVisits);
+
+  // Save in Supabase
+  try {
+    const sbPayload: Record<string, any> = {
+      id: newVisit.id,
+      clientId: newVisit.clientId,
+      client_id: newVisit.clientId,
+      clientName: newVisit.clientName,
+      client_name: newVisit.clientName,
+      clientCode: newVisit.clientCode,
+      client_code: newVisit.clientCode,
+      companyName: newVisit.companyName,
+      company_name: newVisit.companyName,
+      sellerId: newVisit.sellerId,
+      seller_id: newVisit.sellerId,
+      sellerName: newVisit.sellerName,
+      seller_name: newVisit.sellerName,
+      sellerEmail: newVisit.sellerEmail,
+      seller_email: newVisit.sellerEmail,
+      latitude: newVisit.latitude,
+      longitude: newVisit.longitude,
+      accuracy: newVisit.accuracy,
+      distanceMeters: newVisit.distanceMeters,
+      distance_meters: newVisit.distanceMeters,
+      visitType: newVisit.visitType,
+      visit_type: newVisit.visitType,
+      notes: newVisit.notes,
+      photoUrl: newVisit.photoUrl,
+      photo_url: newVisit.photoUrl,
+      createdAt: newVisit.createdAt,
+      created_at: newVisit.createdAt
     };
 
-    // Save locally
-    const currentVisits = readLocalVisits();
-    currentVisits.unshift(newVisit);
-    saveLocalVisits(currentVisits);
-
-    // Save in Supabase
-    try {
-      const sbPayload: Record<string, any> = {
-        id: newVisit.id,
-        clientId: newVisit.clientId,
-        client_id: newVisit.clientId,
-        clientName: newVisit.clientName,
-        client_name: newVisit.clientName,
-        clientCode: newVisit.clientCode,
-        client_code: newVisit.clientCode,
-        companyName: newVisit.companyName,
-        company_name: newVisit.companyName,
-        sellerId: newVisit.sellerId,
-        seller_id: newVisit.sellerId,
-        sellerName: newVisit.sellerName,
-        seller_name: newVisit.sellerName,
-        sellerEmail: newVisit.sellerEmail,
-        seller_email: newVisit.sellerEmail,
-        latitude: newVisit.latitude,
-        longitude: newVisit.longitude,
-        accuracy: newVisit.accuracy,
-        distanceMeters: newVisit.distanceMeters,
-        distance_meters: newVisit.distanceMeters,
-        visitType: newVisit.visitType,
-        visit_type: newVisit.visitType,
-        notes: newVisit.notes,
-        photoUrl: newVisit.photoUrl,
-        photo_url: newVisit.photoUrl,
-        createdAt: newVisit.createdAt,
-        created_at: newVisit.createdAt
-      };
-
-      const { error } = await supabase.from("client_visits").insert([sbPayload]);
-      if (error) {
-        console.warn("Supabase visit insert error:", error.message);
-      }
-    } catch (err: any) {
-      console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
+    const { error } = await supabase.from("client_visits").insert([sbPayload]);
+    if (error) {
+      console.warn("Supabase visit insert error:", error.message);
     }
-
-    res.json({ success: true, visit: newVisit, activeRoute });
-  }));
-
-  // ======== SELLER ROUTES & SHIFT SESSIONS (SINGLE ACTIVE ROUTE PER SELLER) ========
-  const SELLER_ROUTES_FILE = path.join(process.cwd(), "seller_routes_local.json");
-
-  function readLocalRoutes(): any[] {
-    try {
-      if (fs.existsSync(SELLER_ROUTES_FILE)) {
-        return JSON.parse(fs.readFileSync(SELLER_ROUTES_FILE, "utf8"));
-      }
-    } catch (err) {
-      console.error("Error reading local seller routes:", err);
-    }
-    return [];
+  } catch (err: any) {
+    console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
   }
 
-  function saveLocalRoutes(routes: any[]) {
-    try {
-      fs.writeFileSync(SELLER_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf8");
-    } catch (err) {
-      console.error("Error saving local seller routes:", err);
+  res.json({ success: true, visit: newVisit, activeRoute });
+}));
+
+// ======== SELLER ROUTES & SHIFT SESSIONS (SINGLE ACTIVE ROUTE PER SELLER) ========
+const SELLER_ROUTES_FILE = path.join(process.cwd(), "seller_routes_local.json");
+
+function readLocalRoutes(): any[] {
+  try {
+    if (fs.existsSync(SELLER_ROUTES_FILE)) {
+      return JSON.parse(fs.readFileSync(SELLER_ROUTES_FILE, "utf8"));
     }
+  } catch (err) {
+    console.error("Error reading local seller routes:", err);
   }
+  return [];
+}
 
-  // Get all routes (history & active) with strict role isolation
-  app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { sellerId, status } = req.query;
-    const userRole = req.user?.role;
-    const userId = req.user?.id ? String(req.user.id).trim() : '';
-    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+function saveLocalRoutes(routes: any[]) {
+  try {
+    fs.writeFileSync(SELLER_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving local seller routes:", err);
+  }
+}
 
-    let routes: any[] = [];
-    try {
-      let query = supabase.from("seller_routes").select("*").order("started_at", { ascending: false });
-      if (userRole === 'seller') {
-        if (userId) query = query.eq("seller_id", userId);
-      } else if (sellerId && sellerId !== 'all') {
-        query = query.eq("seller_id", sellerId);
-      }
-      if (status) query = query.eq("status", status);
+// Get all routes (history & active) with strict role isolation
+app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { sellerId, status } = req.query;
+  const userRole = req.user?.role;
+  const userId = req.user?.id ? String(req.user.id).trim() : '';
+  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
 
-      const { data, error } = await query;
-      if (!error && data && data.length > 0) {
-        routes = data.map((r: any) => ({
-          id: r.id,
-          sellerId: r.seller_id || r.sellerId,
-          sellerName: r.seller_name || r.sellerName,
-          sellerEmail: r.seller_email || r.sellerEmail,
-          status: r.status,
-          startedAt: r.started_at || r.startedAt,
-          finishedAt: r.finished_at || r.finishedAt,
-          startLatitude: r.start_latitude ?? r.startLatitude,
-          startLongitude: r.start_longitude ?? r.startLongitude,
-          endLatitude: r.end_latitude ?? r.endLatitude,
-          endLongitude: r.end_longitude ?? r.endLongitude,
-          totalStops: r.total_stops ?? r.totalStops ?? 0,
-          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
-          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
-          notes: r.notes || '',
-          createdAt: r.created_at || r.createdAt
-        }));
-      }
-    } catch (e) {}
-
-    if (routes.length === 0) {
-      routes = readLocalRoutes();
-    }
-
-    // Role filtering
-    let filtered = routes;
+  let routes: any[] = [];
+  try {
+    let query = supabase.from("seller_routes").select("*").order("started_at", { ascending: false });
     if (userRole === 'seller') {
-      filtered = filtered.filter(r => {
-        const rSellerId = String(r.sellerId || r.seller_id || '').trim();
-        const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
-        const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
-        return (
-          (userId && rSellerId === userId) ||
-          (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
-          (userName && rSellerName === userName)
-        );
-      });
+      if (userId) query = query.eq("seller_id", userId);
     } else if (sellerId && sellerId !== 'all') {
-      filtered = filtered.filter(r => {
-        const target = String(sellerId).trim().toLowerCase();
-        const rSellerId = String(r.sellerId || r.seller_id || '').trim().toLowerCase();
-        const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
-        const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
-        return rSellerId === target || rSellerEmail === target || rSellerName === target;
-      });
+      query = query.eq("seller_id", sellerId);
     }
+    if (status) query = query.eq("status", status);
 
-    if (status) {
-      filtered = filtered.filter(r => r.status === status);
+    const { data, error } = await query;
+    if (!error && data && data.length > 0) {
+      routes = data.map((r: any) => ({
+        id: r.id,
+        sellerId: r.seller_id || r.sellerId,
+        sellerName: r.seller_name || r.sellerName,
+        sellerEmail: r.seller_email || r.sellerEmail,
+        status: r.status,
+        startedAt: r.started_at || r.startedAt,
+        finishedAt: r.finished_at || r.finishedAt,
+        startLatitude: r.start_latitude ?? r.startLatitude,
+        startLongitude: r.start_longitude ?? r.startLongitude,
+        endLatitude: r.end_latitude ?? r.endLatitude,
+        endLongitude: r.end_longitude ?? r.endLongitude,
+        totalStops: r.total_stops ?? r.totalStops ?? 0,
+        totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+        totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+        notes: r.notes || '',
+        createdAt: r.created_at || r.createdAt
+      }));
     }
+  } catch (e) { }
 
-    // Sort newest first
-    filtered.sort((a, b) => new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime());
+  if (routes.length === 0) {
+    routes = readLocalRoutes();
+  }
 
-    res.json(filtered);
-  }));
-
-  // Get active route for current user
-  app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const userId = req.user?.id ? String(req.user.id).trim() : '';
-    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
-
-    const routes = readLocalRoutes();
-    const activeRoute = routes.find((r: any) => {
-      if (r.status !== 'active') return false;
+  // Role filtering
+  let filtered = routes;
+  if (userRole === 'seller') {
+    filtered = filtered.filter(r => {
       const rSellerId = String(r.sellerId || r.seller_id || '').trim();
       const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
       const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
@@ -2947,1410 +2909,1447 @@ if (!process.env.VERCEL) {
         (userName && rSellerName === userName)
       );
     });
-
-    res.json({ success: true, route: activeRoute || null });
-  }));
-
-  // Start a new route session (enforce only 1 active route)
-  app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const userId = req.user?.id ? String(req.user.id).trim() : '';
-    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-    const userName = req.user?.name || 'Vendedor';
-    const { startLatitude, startLongitude, notes } = req.body;
-
-    const routes = readLocalRoutes();
-    // Check if an active route already exists
-    const existingActive = routes.find((r: any) => {
-      if (r.status !== 'active') return false;
-      const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+  } else if (sellerId && sellerId !== 'all') {
+    filtered = filtered.filter(r => {
+      const target = String(sellerId).trim().toLowerCase();
+      const rSellerId = String(r.sellerId || r.seller_id || '').trim().toLowerCase();
       const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
-      return (userId && rSellerId === userId) || (userEmail && rSellerEmail === userEmail);
+      const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+      return rSellerId === target || rSellerEmail === target || rSellerName === target;
     });
+  }
 
-    if (existingActive) {
-      return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
+  if (status) {
+    filtered = filtered.filter(r => r.status === status);
+  }
+
+  // Sort newest first
+  filtered.sort((a, b) => new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime());
+
+  res.json(filtered);
+}));
+
+// Get active route for current user
+app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const userId = req.user?.id ? String(req.user.id).trim() : '';
+  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+
+  const routes = readLocalRoutes();
+  const activeRoute = routes.find((r: any) => {
+    if (r.status !== 'active') return false;
+    const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+    const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+    const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+    return (
+      (userId && rSellerId === userId) ||
+      (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
+      (userName && rSellerName === userName)
+    );
+  });
+
+  res.json({ success: true, route: activeRoute || null });
+}));
+
+// Start a new route session (enforce only 1 active route)
+app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const userId = req.user?.id ? String(req.user.id).trim() : '';
+  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+  const userName = req.user?.name || 'Vendedor';
+  const { startLatitude, startLongitude, notes } = req.body;
+
+  const routes = readLocalRoutes();
+  // Check if an active route already exists
+  const existingActive = routes.find((r: any) => {
+    if (r.status !== 'active') return false;
+    const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+    const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+    return (userId && rSellerId === userId) || (userEmail && rSellerEmail === userEmail);
+  });
+
+  if (existingActive) {
+    return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
+  }
+
+  const nowIso = new Date().toISOString();
+  const newRoute = {
+    id: `route_${userId || 'seller'}_${Date.now()}`,
+    sellerId: userId,
+    sellerName: userName,
+    sellerEmail: userEmail,
+    status: 'active',
+    startedAt: nowIso,
+    finishedAt: null,
+    startLatitude: startLatitude ? parseFloat(startLatitude) : null,
+    startLongitude: startLongitude ? parseFloat(startLongitude) : null,
+    endLatitude: null,
+    endLongitude: null,
+    totalStops: 0,
+    totalDistanceKm: 0,
+    totalDurationMins: 0,
+    notes: notes || 'Jornada iniciada en terreno.',
+    createdAt: nowIso
+  };
+
+  routes.unshift(newRoute);
+  saveLocalRoutes(routes);
+
+  try {
+    await supabase.from("seller_routes").insert([{
+      id: newRoute.id,
+      seller_id: newRoute.sellerId,
+      seller_name: newRoute.sellerName,
+      seller_email: newRoute.sellerEmail,
+      status: newRoute.status,
+      started_at: newRoute.startedAt,
+      start_latitude: newRoute.startLatitude,
+      start_longitude: newRoute.startLongitude,
+      total_stops: 0,
+      total_distance_km: 0,
+      total_duration_mins: 0,
+      notes: newRoute.notes
+    }]);
+  } catch (e) { }
+
+  res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+}));
+
+// Finish/Archive an active route session into history
+app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { endLatitude, endLongitude, notes } = req.body;
+  const nowIso = new Date().toISOString();
+
+  const routes = readLocalRoutes();
+  const routeIndex = routes.findIndex((r: any) => r.id === id);
+  if (routeIndex === -1) {
+    return res.status(404).json({ error: "Ruta no encontrada." });
+  }
+
+  const targetRoute = routes[routeIndex];
+  const visits = readLocalVisits().filter((v: any) => v.routeId === id || (v.sellerId === targetRoute.sellerId && (v.createdAt || '').startsWith((targetRoute.startedAt || '').split('T')[0])));
+
+  // Calculate total stops and duration
+  const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
+  const endTime = new Date(nowIso).getTime();
+  const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1000 * 60)));
+
+  // Calculate total route distance
+  let totalKm = 0;
+  const sortedVisits = [...visits].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  for (let i = 1; i < sortedVisits.length; i++) {
+    const p1 = sortedVisits[i - 1];
+    const p2 = sortedVisits[i];
+    if (p1.latitude && p1.longitude && p2.latitude && p2.longitude) {
+      totalKm += (calculateDistanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude) / 1000);
     }
+  }
 
-    const nowIso = new Date().toISOString();
-    const newRoute = {
-      id: `route_${userId || 'seller'}_${Date.now()}`,
-      sellerId: userId,
-      sellerName: userName,
-      sellerEmail: userEmail,
-      status: 'active',
-      startedAt: nowIso,
-      finishedAt: null,
-      startLatitude: startLatitude ? parseFloat(startLatitude) : null,
-      startLongitude: startLongitude ? parseFloat(startLongitude) : null,
-      endLatitude: null,
-      endLongitude: null,
-      totalStops: 0,
-      totalDistanceKm: 0,
-      totalDurationMins: 0,
-      notes: notes || 'Jornada iniciada en terreno.',
-      createdAt: nowIso
-    };
+  targetRoute.status = 'completed';
+  targetRoute.finishedAt = nowIso;
+  targetRoute.endLatitude = endLatitude ? parseFloat(endLatitude) : (sortedVisits[sortedVisits.length - 1]?.latitude || null);
+  targetRoute.endLongitude = endLongitude ? parseFloat(endLongitude) : (sortedVisits[sortedVisits.length - 1]?.longitude || null);
+  targetRoute.totalStops = sortedVisits.length;
+  targetRoute.totalDistanceKm = Math.round(totalKm * 10) / 10;
+  targetRoute.totalDurationMins = totalDurationMins;
+  if (notes) targetRoute.notes = notes;
 
-    routes.unshift(newRoute);
-    saveLocalRoutes(routes);
+  routes[routeIndex] = targetRoute;
+  saveLocalRoutes(routes);
 
-    try {
-      await supabase.from("seller_routes").insert([{
-        id: newRoute.id,
-        seller_id: newRoute.sellerId,
-        seller_name: newRoute.sellerName,
-        seller_email: newRoute.sellerEmail,
-        status: newRoute.status,
-        started_at: newRoute.startedAt,
-        start_latitude: newRoute.startLatitude,
-        start_longitude: newRoute.startLongitude,
-        total_stops: 0,
-        total_distance_km: 0,
-        total_duration_mins: 0,
-        notes: newRoute.notes
-      }]);
-    } catch (e) {}
+  try {
+    await supabase.from("seller_routes").upsert([{
+      id: targetRoute.id,
+      seller_id: targetRoute.sellerId,
+      seller_name: targetRoute.sellerName,
+      seller_email: targetRoute.sellerEmail,
+      status: 'completed',
+      started_at: targetRoute.startedAt,
+      finished_at: targetRoute.finishedAt,
+      start_latitude: targetRoute.startLatitude,
+      start_longitude: targetRoute.startLongitude,
+      end_latitude: targetRoute.endLatitude,
+      end_longitude: targetRoute.endLongitude,
+      total_stops: targetRoute.totalStops,
+      total_distance_km: targetRoute.totalDistanceKm,
+      total_duration_mins: targetRoute.totalDurationMins,
+      notes: targetRoute.notes
+    }]);
+  } catch (e) { }
 
-    res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
-  }));
+  res.json({ success: true, message: "Ruta finalizada y archivada en historial con éxito.", route: targetRoute });
+}));
 
-  // Finish/Archive an active route session into history
-  app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { endLatitude, endLongitude, notes } = req.body;
-    const nowIso = new Date().toISOString();
+// Visit frequency & stats endpoint (Strict multi-role security)
+app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const userRole = req.user?.role;
+  const userId = req.user?.id ? String(req.user.id).trim() : '';
+  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
+  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
 
-    const routes = readLocalRoutes();
-    const routeIndex = routes.findIndex((r: any) => r.id === id);
-    if (routeIndex === -1) {
-      return res.status(404).json({ error: "Ruta no encontrada." });
+  let allVisits = readLocalVisits();
+  try {
+    const { data } = await supabase.from("client_visits").select("*");
+    if (data && data.length > 0) {
+      // Merge with local visits
+      const map = new Map<string, any>();
+      allVisits.forEach((v: any) => map.set(v.id, v));
+      data.forEach((v: any) => map.set(v.id, {
+        id: v.id,
+        clientId: v.clientId || v.client_id,
+        clientName: v.clientName || v.client_name,
+        clientCode: v.clientCode || v.client_code,
+        sellerId: v.sellerId || v.seller_id,
+        sellerName: v.sellerName || v.seller_name,
+        sellerEmail: v.sellerEmail || v.seller_email,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        visitType: v.visitType || v.visit_type || 'rutina',
+        notes: v.notes,
+        createdAt: v.createdAt || v.created_at
+      }));
+      allVisits = Array.from(map.values());
     }
+  } catch (e) { }
 
-    const targetRoute = routes[routeIndex];
-    const visits = readLocalVisits().filter((v: any) => v.routeId === id || (v.sellerId === targetRoute.sellerId && (v.createdAt || '').startsWith((targetRoute.startedAt || '').split('T')[0])));
+  // Strict Seller Isolation for Stats
+  if (userRole === 'seller') {
+    allVisits = allVisits.filter(v => {
+      const vSellerId = String(v.sellerId || v.seller_id || '').trim();
+      const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
+      const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
 
-    // Calculate total stops and duration
-    const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
-    const endTime = new Date(nowIso).getTime();
-    const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1000 * 60)));
+      return (
+        (userId && vSellerId === userId) ||
+        (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
+        (userName && vSellerName === userName)
+      );
+    });
+  }
 
-    // Calculate total route distance
-    let totalKm = 0;
-    const sortedVisits = [...visits].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    for (let i = 1; i < sortedVisits.length; i++) {
-      const p1 = sortedVisits[i - 1];
-      const p2 = sortedVisits[i];
-      if (p1.latitude && p1.longitude && p2.latitude && p2.longitude) {
-        totalKm += (calculateDistanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude) / 1000);
-      }
-    }
+  const todayStr = new Date().toISOString().split('T')[0];
+  const currentMonthPrefix = todayStr.substring(0, 7);
 
-    targetRoute.status = 'completed';
-    targetRoute.finishedAt = nowIso;
-    targetRoute.endLatitude = endLatitude ? parseFloat(endLatitude) : (sortedVisits[sortedVisits.length - 1]?.latitude || null);
-    targetRoute.endLongitude = endLongitude ? parseFloat(endLongitude) : (sortedVisits[sortedVisits.length - 1]?.longitude || null);
-    targetRoute.totalStops = sortedVisits.length;
-    targetRoute.totalDistanceKm = Math.round(totalKm * 10) / 10;
-    targetRoute.totalDurationMins = totalDurationMins;
-    if (notes) targetRoute.notes = notes;
+  const todayVisits = allVisits.filter(v => (v.createdAt || '').startsWith(todayStr));
+  const monthVisits = allVisits.filter(v => (v.createdAt || '').startsWith(currentMonthPrefix));
 
-    routes[routeIndex] = targetRoute;
-    saveLocalRoutes(routes);
+  const activeSellerIds = new Set(monthVisits.map(v => v.sellerId).filter(Boolean));
+  const visitedClientIds = new Set(monthVisits.map(v => v.clientId).filter(Boolean));
 
-    try {
-      await supabase.from("seller_routes").upsert([{
-        id: targetRoute.id,
-        seller_id: targetRoute.sellerId,
-        seller_name: targetRoute.sellerName,
-        seller_email: targetRoute.sellerEmail,
-        status: 'completed',
-        started_at: targetRoute.startedAt,
-        finished_at: targetRoute.finishedAt,
-        start_latitude: targetRoute.startLatitude,
-        start_longitude: targetRoute.startLongitude,
-        end_latitude: targetRoute.endLatitude,
-        end_longitude: targetRoute.endLongitude,
-        total_stops: targetRoute.totalStops,
-        total_distance_km: targetRoute.totalDistanceKm,
-        total_duration_mins: targetRoute.totalDurationMins,
-        notes: targetRoute.notes
-      }]);
-    } catch (e) {}
+  const localClients = readLocalClients();
+  const validClients = localClients.filter(c => c && c.name && !c.isDeleted);
+  const unvisitedClientsCount = Math.max(0, validClients.length - visitedClientIds.size);
 
-    res.json({ success: true, message: "Ruta finalizada y archivada en historial con éxito.", route: targetRoute });
-  }));
+  // Group rankings by seller
+  const sellerMap = new Map<string, { sellerId: string; sellerName: string; todayVisits: number; monthVisits: number; lastVisitAt?: string }>();
 
-  // Visit frequency & stats endpoint (Strict multi-role security)
-  app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const userRole = req.user?.role;
-    const userId = req.user?.id ? String(req.user.id).trim() : '';
-    const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-    const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
-
-    let allVisits = readLocalVisits();
-    try {
-      const { data } = await supabase.from("client_visits").select("*");
-      if (data && data.length > 0) {
-        // Merge with local visits
-        const map = new Map<string, any>();
-        allVisits.forEach((v: any) => map.set(v.id, v));
-        data.forEach((v: any) => map.set(v.id, {
-          id: v.id,
-          clientId: v.clientId || v.client_id,
-          clientName: v.clientName || v.client_name,
-          clientCode: v.clientCode || v.client_code,
-          sellerId: v.sellerId || v.seller_id,
-          sellerName: v.sellerName || v.seller_name,
-          sellerEmail: v.sellerEmail || v.seller_email,
-          latitude: v.latitude,
-          longitude: v.longitude,
-          visitType: v.visitType || v.visit_type || 'rutina',
-          notes: v.notes,
-          createdAt: v.createdAt || v.created_at
-        }));
-        allVisits = Array.from(map.values());
-      }
-    } catch (e) {}
-
-    // Strict Seller Isolation for Stats
-    if (userRole === 'seller') {
-      allVisits = allVisits.filter(v => {
-        const vSellerId = String(v.sellerId || v.seller_id || '').trim();
-        const vSellerEmail = String(v.sellerEmail || v.seller_email || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || v.seller_name || '').trim().toLowerCase();
-
-        return (
-          (userId && vSellerId === userId) ||
-          (userEmail && (vSellerEmail === userEmail || vSellerId === userEmail)) ||
-          (userName && vSellerName === userName)
-        );
+  allVisits.forEach((v: any) => {
+    const sId = v.sellerId || 'desconocido';
+    const sName = v.sellerName || 'Vendedor';
+    if (!sellerMap.has(sId)) {
+      sellerMap.set(sId, {
+        sellerId: sId,
+        sellerName: sName,
+        todayVisits: 0,
+        monthVisits: 0,
+        lastVisitAt: v.createdAt
       });
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const currentMonthPrefix = todayStr.substring(0, 7);
-
-    const todayVisits = allVisits.filter(v => (v.createdAt || '').startsWith(todayStr));
-    const monthVisits = allVisits.filter(v => (v.createdAt || '').startsWith(currentMonthPrefix));
-
-    const activeSellerIds = new Set(monthVisits.map(v => v.sellerId).filter(Boolean));
-    const visitedClientIds = new Set(monthVisits.map(v => v.clientId).filter(Boolean));
-
-    const localClients = readLocalClients();
-    const validClients = localClients.filter(c => c && c.name && !c.isDeleted);
-    const unvisitedClientsCount = Math.max(0, validClients.length - visitedClientIds.size);
-
-    // Group rankings by seller
-    const sellerMap = new Map<string, { sellerId: string; sellerName: string; todayVisits: number; monthVisits: number; lastVisitAt?: string }>();
-
-    allVisits.forEach((v: any) => {
-      const sId = v.sellerId || 'desconocido';
-      const sName = v.sellerName || 'Vendedor';
-      if (!sellerMap.has(sId)) {
-        sellerMap.set(sId, {
-          sellerId: sId,
-          sellerName: sName,
-          todayVisits: 0,
-          monthVisits: 0,
-          lastVisitAt: v.createdAt
-        });
-      }
-
-      const item = sellerMap.get(sId)!;
-      if ((v.createdAt || '').startsWith(todayStr)) item.todayVisits++;
-      if ((v.createdAt || '').startsWith(currentMonthPrefix)) item.monthVisits++;
-      if (!item.lastVisitAt || new Date(v.createdAt).getTime() > new Date(item.lastVisitAt).getTime()) {
-        item.lastVisitAt = v.createdAt;
-      }
-    });
-
-    const sellerRankings = Array.from(sellerMap.values()).sort((a, b) => b.monthVisits - a.monthVisits);
-
-    // Sort recent visits newest first
-    const recentVisits = [...allVisits]
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-      .slice(0, 25);
-
-    res.json({
-      totalVisitsToday: todayVisits.length,
-      totalVisitsMonth: monthVisits.length,
-      activeSellersCount: activeSellerIds.size,
-      clientsVisitedCount: visitedClientIds.size,
-      unvisitedClientsCount,
-      sellerRankings,
-      recentVisits
-    });
-  }));
-
-  // AUTH
-  app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
-    const { email: identifierInput, password: tokenProvidedInput } = req.body;
-    const identifier = (identifierInput || '').trim();
-    const tokenProvided = (tokenProvidedInput || '').trim();
-    const cleanToken = tokenProvided.toUpperCase();
-    let foundUser: any = null;
-    let matchedTokenRecord: any = null;
-
-    if (!identifier && !tokenProvided) {
-      return res.status(400).json({ error: "Ingresa tu Código de Vendedor / Correo y Token de Acceso" });
+    const item = sellerMap.get(sId)!;
+    if ((v.createdAt || '').startsWith(todayStr)) item.todayVisits++;
+    if ((v.createdAt || '').startsWith(currentMonthPrefix)) item.monthVisits++;
+    if (!item.lastVisitAt || new Date(v.createdAt).getTime() > new Date(item.lastVisitAt).getTime()) {
+      item.lastVisitAt = v.createdAt;
     }
+  });
 
-    // 1. Primero intentar encontrar el token directamente en login_tokens si existe
-    if (cleanToken) {
-      try {
-        const { data: directTokens, error: dtErr } = await supabase
-          .from("login_tokens")
-          .select("*")
-          .eq("token", cleanToken)
-          .is("usedAt", null);
+  const sellerRankings = Array.from(sellerMap.values()).sort((a, b) => b.monthVisits - a.monthVisits);
 
-        if (!dtErr && directTokens && directTokens.length > 0) {
-          const validToken = directTokens.find(t => {
-            const exp = t.expiresAt ? new Date(t.expiresAt) : null;
-            return !exp || exp > new Date();
-          });
-          if (validToken) {
-            matchedTokenRecord = validToken;
-            const targetUserId = validToken.userId || (validToken as any).user_id;
-            if (targetUserId) {
-              const { data: userFromToken } = await supabase
-                .from("users")
-                .select("*")
-                .eq("id", targetUserId);
-              if (userFromToken && userFromToken.length > 0) {
-                foundUser = userFromToken[0];
-              }
+  // Sort recent visits newest first
+  const recentVisits = [...allVisits]
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, 25);
+
+  res.json({
+    totalVisitsToday: todayVisits.length,
+    totalVisitsMonth: monthVisits.length,
+    activeSellersCount: activeSellerIds.size,
+    clientsVisitedCount: visitedClientIds.size,
+    unvisitedClientsCount,
+    sellerRankings,
+    recentVisits
+  });
+}));
+
+// AUTH
+app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
+  const { email: identifierInput, password: tokenProvidedInput } = req.body;
+  const identifier = (identifierInput || '').trim();
+  const tokenProvided = (tokenProvidedInput || '').trim();
+  const cleanToken = tokenProvided.toUpperCase();
+  let foundUser: any = null;
+  let matchedTokenRecord: any = null;
+
+  if (!identifier && !tokenProvided) {
+    return res.status(400).json({ error: "Ingresa tu Código de Vendedor / Correo y Token de Acceso" });
+  }
+
+  // 1. Primero intentar encontrar el token directamente en login_tokens si existe
+  if (cleanToken) {
+    try {
+      const { data: directTokens, error: dtErr } = await supabase
+        .from("login_tokens")
+        .select("*")
+        .eq("token", cleanToken)
+        .is("usedAt", null);
+
+      if (!dtErr && directTokens && directTokens.length > 0) {
+        const validToken = directTokens.find(t => {
+          const exp = t.expiresAt ? new Date(t.expiresAt) : null;
+          return !exp || exp > new Date();
+        });
+        if (validToken) {
+          matchedTokenRecord = validToken;
+          const targetUserId = validToken.userId || (validToken as any).user_id;
+          if (targetUserId) {
+            const { data: userFromToken } = await supabase
+              .from("users")
+              .select("*")
+              .eq("id", targetUserId);
+            if (userFromToken && userFromToken.length > 0) {
+              foundUser = userFromToken[0];
             }
           }
         }
-      } catch (e) {
-        console.warn("Direct token check failed:", e);
       }
+    } catch (e) {
+      console.warn("Direct token check failed:", e);
+    }
+  }
+
+  // 2. Si no se obtuvo el usuario por token directo, buscar por identificador (sellerCode, email, name, id)
+  if (!foundUser && identifier) {
+    try {
+      // a) Por sellerCode
+      const { data: byCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+      if (byCode && byCode.length > 0) {
+        foundUser = byCode[0];
+      }
+
+      // b) Por email
+      if (!foundUser) {
+        const { data: byEmail } = await supabase.from("users").select("*").ilike("email", identifier);
+        if (byEmail && byEmail.length > 0) {
+          foundUser = byEmail[0];
+        }
+      }
+
+      // c) Por id
+      if (!foundUser) {
+        const { data: byId } = await supabase.from("users").select("*").eq("id", identifier);
+        if (byId && byId.length > 0) {
+          foundUser = byId[0];
+        }
+      }
+
+      // d) Por nombre
+      if (!foundUser) {
+        const { data: byName } = await supabase.from("users").select("*").ilike("name", `%${identifier}%`);
+        if (byName && byName.length > 0) {
+          foundUser = byName[0];
+        }
+      }
+    } catch (e) {
+      console.warn("DB error in login user search:", e);
     }
 
-    // 2. Si no se obtuvo el usuario por token directo, buscar por identificador (sellerCode, email, name, id)
-    if (!foundUser && identifier) {
+    // Fallback a Neon PostgreSQL si Supabase falló o no se encontró
+    if (!foundUser && neonPool) {
       try {
-        // a) Por sellerCode
-        const { data: byCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
-        if (byCode && byCode.length > 0) {
-          foundUser = byCode[0];
-        }
-
-        // b) Por email
-        if (!foundUser) {
-          const { data: byEmail } = await supabase.from("users").select("*").ilike("email", identifier);
-          if (byEmail && byEmail.length > 0) {
-            foundUser = byEmail[0];
-          }
-        }
-
-        // c) Por id
-        if (!foundUser) {
-          const { data: byId } = await supabase.from("users").select("*").eq("id", identifier);
-          if (byId && byId.length > 0) {
-            foundUser = byId[0];
-          }
-        }
-
-        // d) Por nombre
-        if (!foundUser) {
-          const { data: byName } = await supabase.from("users").select("*").ilike("name", `%${identifier}%`);
-          if (byName && byName.length > 0) {
-            foundUser = byName[0];
-          }
-        }
-      } catch (e) {
-        console.warn("DB error in login user search:", e);
-      }
-
-      // Fallback a Neon PostgreSQL si Supabase falló o no se encontró
-      if (!foundUser && neonPool) {
-        try {
-          const client = await neonPool.connect();
-          const nRes = await client.query(
-            `SELECT * FROM public.users 
+        const client = await neonPool.connect();
+        const nRes = await client.query(
+          `SELECT * FROM public.users 
              WHERE LOWER("sellerCode") = LOWER($1) 
                 OR LOWER(email) = LOWER($1) 
                 OR id = $1 
                 OR LOWER(name) LIKE LOWER($2)
              LIMIT 1`,
-            [identifier, `%${identifier}%`]
-          );
-          client.release();
-          if (nRes.rows && nRes.rows.length > 0) {
-            foundUser = nRes.rows[0];
-            console.log(`[AUTH] Usuario encontrado en Neon Respaldo: ${foundUser.email || foundUser.name}`);
-          }
-        } catch (nErr) {
-          console.warn("Neon fallback search error:", nErr);
-        }
-      }
-
-      // Fallback local memory list
-      if (!foundUser) {
-        foundUser = initialDb.users.find(u => 
-          (u as any).sellerCode?.toLowerCase() === identifier.toLowerCase() ||
-          u.email?.toLowerCase() === identifier.toLowerCase() ||
-          u.id?.toLowerCase() === identifier.toLowerCase() ||
-          u.name?.toLowerCase().includes(identifier.toLowerCase())
+          [identifier, `%${identifier}%`]
         );
-      }
-    }
-
-    if (!foundUser) {
-      return res.status(401).json({ error: "Usuario o Código de Vendedor no encontrado en el sistema." });
-    }
-
-    // Validación de rol para inicio de sesión por correo: SOLO administradores
-    if (identifier.includes('@') && foundUser.role !== 'admin' && foundUser.email?.toLowerCase() !== 'seseffff942@gmail.com') {
-      return res.status(400).json({ 
-        error: "El inicio de sesión por correo es exclusivo para Administradores. Por favor, ingresa con tu CÓDIGO DE VENDEDOR." 
-      });
-    }
-    
-    // 3. Validar coincidencia de token / credencial
-    let isMatch = false;
-
-    // a) Si ya coincidió con un registro válido de token
-    if (matchedTokenRecord) {
-      isMatch = true;
-      try {
-        await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", matchedTokenRecord.id);
-      } catch (e) {}
-    }
-
-    // b) Buscar tokens dinámicos asignados a este usuario
-    if (!isMatch && cleanToken && foundUser.id) {
-      try {
-        const { data: tokens, error: tokenErr } = await supabase
-          .from("login_tokens")
-          .select("*")
-          .eq("userId", foundUser.id)
-          .eq("token", cleanToken)
-          .is("usedAt", null);
-
-        if (!tokenErr && tokens && tokens.length > 0) {
-          const tokenData = tokens[0];
-          const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
-          if (!expiresAt || expiresAt > new Date()) {
-            isMatch = true;
-            try {
-              await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
-            } catch (e) {}
-          }
+        client.release();
+        if (nRes.rows && nRes.rows.length > 0) {
+          foundUser = nRes.rows[0];
+          console.log(`[AUTH] Usuario encontrado en Neon Respaldo: ${foundUser.email || foundUser.name}`);
         }
-      } catch (tokenCheckErr) {
-        console.error("Error checking token for user:", tokenCheckErr);
+      } catch (nErr) {
+        console.warn("Neon fallback search error:", nErr);
       }
     }
 
-    // c) Claves maestras / códigos predeterminados (123, 1521, sellerCode del usuario)
-    if (!isMatch) {
-      if (tokenProvided === '123' || tokenProvided === '1521' || (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode))) {
-        isMatch = true;
-      }
+    // Fallback local memory list
+    if (!foundUser) {
+      foundUser = initialDb.users.find(u =>
+        (u as any).sellerCode?.toLowerCase() === identifier.toLowerCase() ||
+        u.email?.toLowerCase() === identifier.toLowerCase() ||
+        u.id?.toLowerCase() === identifier.toLowerCase() ||
+        u.name?.toLowerCase().includes(identifier.toLowerCase())
+      );
     }
+  }
 
-    // d) Contraseña directa o hash de bcrypt
-    if (!isMatch && foundUser.password) {
-      if (foundUser.password.startsWith('$2')) {
-        isMatch = await bcrypt.compare(tokenProvided, foundUser.password);
-      } else {
-        isMatch = foundUser.password === tokenProvided;
-      }
-    }
-    
-    if (!isMatch) {
-      return res.status(401).json({ error: "Token de acceso inválido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador." });
-    }
-    
-    const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
-    
-    const userToReturn = { ...foundUser };
-    delete userToReturn.password;
-    res.json({ user: userToReturn, token });
-  }));
+  if (!foundUser) {
+    return res.status(401).json({ error: "Usuario o Código de Vendedor no encontrado en el sistema." });
+  }
 
-  app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { userId, expiryHours } = req.body;
-    if (!userId) return res.status(400).json({ error: "userId is required" });
+  // Validación de rol para inicio de sesión por correo: SOLO administradores
+  if (identifier.includes('@') && foundUser.role !== 'admin' && foundUser.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+    return res.status(400).json({
+      error: "El inicio de sesión por correo es exclusivo para Administradores. Por favor, ingresa con tu CÓDIGO DE VENDEDOR."
+    });
+  }
 
-    const hours = parseInt(expiryHours) || 24; // Default 24h if not provided
-    
-    // Generate random 6 character token
-    const token = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const id = `lt_${Date.now()}`;
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + hours);
+  // 3. Validar coincidencia de token / credencial
+  let isMatch = false;
 
-    const { error } = await supabase.from("login_tokens").insert([{
-      id,
-      userId,
-      token,
-      createdAt: new Date().toISOString(),
-      expiresAt: expiresAt.toISOString()
-    }]);
+  // a) Si ya coincidió con un registro válido de token
+  if (matchedTokenRecord) {
+    isMatch = true;
+    try {
+      await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", matchedTokenRecord.id);
+    } catch (e) { }
+  }
 
-    if (error) throw new Error(error.message);
-    res.json({ token });
-  }));
+  // b) Buscar tokens dinámicos asignados a este usuario
+  if (!isMatch && cleanToken && foundUser.id) {
+    try {
+      const { data: tokens, error: tokenErr } = await supabase
+        .from("login_tokens")
+        .select("*")
+        .eq("userId", foundUser.id)
+        .eq("token", cleanToken)
+        .is("usedAt", null);
 
-  app.post("/api/admin/force-logout", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ error: "userId is required" });
-
-    // Update the force_logout_at timestamp to "now"
-    // This will invalidate all sessions issued before this moment in requireAuth
-    const { error } = await supabase
-      .from("users")
-      .update({ force_logout_at: new Date().toISOString() })
-      .eq("id", userId);
-
-    if (error) {
-      console.error("Force logout error:", error);
-      return res.status(500).json({ error: "Error al cerrar sesión forzada" });
-    }
-
-    res.json({ success: true, message: "Sesión cerrada exitosamente para el usuario" });
-  }));
-
-  app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-          return res.status(401).json({ error: "No token provided" });
-      }
-      const token = authHeader.split(' ')[1];
-      try {
-          const payload = jwt.verify(token, JWT_SECRET) as any;
-          let user = null;
+      if (!tokenErr && tokens && tokens.length > 0) {
+        const tokenData = tokens[0];
+        const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
+        if (!expiresAt || expiresAt > new Date()) {
+          isMatch = true;
           try {
-            const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
-            if (users && users.length > 0) {
-              user = users[0];
-            }
-          } catch (e) {
-            console.warn("DB error in me reference, using local fallback:", e);
-          }
-
-          if (!user) {
-            user = initialDb.users.find(u => u.id === payload.id);
-          }
-
-          if (!user) return res.status(401).json({ error: "User not found" });
-          
-          const userToReturn = { ...user };
-          delete userToReturn.password;
-          res.json({ user: userToReturn });
-      } catch (e) {
-          return res.status(401).json({ error: "Invalid or expired token" });
+            await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+          } catch (e) { }
+        }
       }
-  }));
-
-  app.post("/api/auth/register-intent", async (req, res) => {
-    return res.status(400).json({ 
-      error: "El registro público por correo está desactivado. Los miembros del equipo deben ser creados desde el Panel de Administración y acceder mediante Código de Vendedor / Administrador y Token de Acceso." 
-    });
-  });
-
-  app.post("/api/auth/register", asyncHandler(async (req: any, res: any) => {
-    return res.status(400).json({ 
-      error: "El registro por correo está desactivado. Para acceder, solicita un Código de Vendedor / Administrador y un Token de Acceso a tu Administrador." 
-    });
-  }));
-
-  app.put("/api/users/:id/password", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await supabase.from("users").update({ password: hashedPassword }).eq('id', id);
-    res.json({ success: true });
-  }));
-
-  // USERS
-  // IMPERSONATE
-  app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "userId es requerido" });
+    } catch (tokenCheckErr) {
+      console.error("Error checking token for user:", tokenCheckErr);
     }
+  }
 
-    // Only allow user seseffff942@gmail.com to impersonate
-    if (req.user?.email !== 'seseffff942@gmail.com') {
-      return res.status(403).json({ error: "No tienes permisos para suplantar identidades." });
+  // c) Claves maestras / códigos predeterminados (123, 1521, sellerCode del usuario)
+  if (!isMatch) {
+    if (tokenProvided === '123' || tokenProvided === '1521' || (foundUser.sellerCode && tokenProvided === String(foundUser.sellerCode))) {
+      isMatch = true;
     }
+  }
 
+  // d) Contraseña directa o hash de bcrypt
+  if (!isMatch && foundUser.password) {
+    if (foundUser.password.startsWith('$2')) {
+      isMatch = await bcrypt.compare(tokenProvided, foundUser.password);
+    } else {
+      isMatch = foundUser.password === tokenProvided;
+    }
+  }
+
+  if (!isMatch) {
+    return res.status(401).json({ error: "Token de acceso inválido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador." });
+  }
+
+  const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
+
+  const userToReturn = { ...foundUser };
+  delete userToReturn.password;
+  res.json({ user: userToReturn, token });
+}));
+
+app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { userId, expiryHours } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId is required" });
+
+  const hours = parseInt(expiryHours) || 24; // Default 24h if not provided
+
+  // Generate random 6 character token
+  const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const id = `lt_${Date.now()}`;
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + hours);
+
+  const { error } = await supabase.from("login_tokens").insert([{
+    id,
+    userId,
+    token,
+    createdAt: new Date().toISOString(),
+    expiresAt: expiresAt.toISOString()
+  }]);
+
+  if (error) throw new Error(error.message);
+  res.json({ token });
+}));
+
+app.post("/api/admin/force-logout", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId is required" });
+
+  // Update the force_logout_at timestamp to "now"
+  // This will invalidate all sessions issued before this moment in requireAuth
+  const { error } = await supabase
+    .from("users")
+    .update({ force_logout_at: new Date().toISOString() })
+    .eq("id", userId);
+
+  if (error) {
+    console.error("Force logout error:", error);
+    return res.status(500).json({ error: "Error al cerrar sesión forzada" });
+  }
+
+  res.json({ success: true, message: "Sesión cerrada exitosamente para el usuario" });
+}));
+
+app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as any;
     let user = null;
-    const { data: users } = await supabase.from("users").select("*").eq("id", userId);
-    if (users && users.length > 0) {
-      user = users[0];
+    try {
+      const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+      if (users && users.length > 0) {
+        user = users[0];
+      }
+    } catch (e) {
+      console.warn("DB error in me reference, using local fallback:", e);
     }
 
     if (!user) {
-      return res.status(404).json({ error: "Usuario a suplantar no encontrado" });
+      user = initialDb.users.find(u => u.id === payload.id);
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user });
-  }));
+    if (!user) return res.status(401).json({ error: "User not found" });
 
-  // ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
-  let lastDispatchedCorteKey = '';
+    const userToReturn = { ...user };
+    delete userToReturn.password;
+    res.json({ user: userToReturn });
+  } catch (e) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}));
 
-  async function checkAndDispatchDailySales(options?: { 
-    corteHora?: string; 
-    threshold?: number; 
-    webhookUrl?: string; 
-    sendToWebhook?: boolean; 
-    targetSellerEmail?: string;
-    targetSellerEmails?: string[];
-  }) {
-    const SALES_THRESHOLD = Number(options?.threshold) || 8750;
-    const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte";
-    const sendToWebhook = options?.sendToWebhook !== false;
+app.post("/api/auth/register-intent", async (req, res) => {
+  return res.status(400).json({
+    error: "El registro público por correo está desactivado. Los miembros del equipo deben ser creados desde el Panel de Administración y acceder mediante Código de Vendedor / Administrador y Token de Acceso."
+  });
+});
 
-    const now = new Date();
-    const gtOffset = -6 * 60; // UTC-6 Guatemala
-    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const gtNow = new Date(utcMs + (gtOffset * 60000));
-    const year = gtNow.getFullYear();
-    const month = String(gtNow.getMonth() + 1).padStart(2, "0");
-    const day = String(gtNow.getDate()).padStart(2, "0");
-    const hour = gtNow.getHours();
-    const todayLabel = `${year}-${month}-${day}`;
-    const startOfDay = `${todayLabel}T00:00:00`;
-    const endOfDay = `${todayLabel}T23:59:59`;
+app.post("/api/auth/register", asyncHandler(async (req: any, res: any) => {
+  return res.status(400).json({
+    error: "El registro por correo está desactivado. Para acceder, solicita un Código de Vendedor / Administrador y un Token de Acceso a tu Administrador."
+  });
+}));
 
-    const corte = options?.corteHora || (hour >= 16 ? '17:00' : '12:00');
-    const esCierre = corte === '17:00' || hour >= 16;
+app.put("/api/users/:id/password", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { password } = req.body;
+  const hashedPassword = await bcrypt.hash(password, 10);
+  await supabase.from("users").update({ password: hashedPassword }).eq('id', id);
+  res.json({ success: true });
+}));
 
-    const { data: invoicesData, error: invErr } = await supabase
-      .from("invoices")
-      .select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId")
-      .gte("date", startOfDay)
-      .lte("date", endOfDay);
-
-    if (invErr) {
-      console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
-      return { error: `Error al consultar facturas: ${invErr.message}` };
-    }
-
-    function formatTelefonoDestinatario(rawPhone: string | null | undefined): string {
-      if (!rawPhone) return "";
-      const digits = String(rawPhone).replace(/\D/g, "");
-      if (!digits) return "";
-      if (digits.length === 8) return `502${digits}`;
-      if (digits.startsWith("502") && digits.length === 11) return digits;
-      return digits;
-    }
-
-    const { data: allUsersData } = await supabase
-      .from("users")
-      .select("id, name, email, phone, role, sellerCode");
-
-    const users = (allUsersData || []).filter((u: any) => u && u.role !== "system" && u.email);
-
-    // Vendedores / Administradores objetivos (Permite selección dinámica o lista por defecto)
-    let targetUsers: any[] = [];
-    if (Array.isArray(options?.targetSellerEmails) && options.targetSellerEmails.length > 0) {
-      const allowed = new Set(options.targetSellerEmails.map((e: any) => String(e).toLowerCase().trim()));
-      targetUsers = users.filter((u: any) => {
-        const email = (u.email || "").toLowerCase().trim();
-        const id = (u.id || "").toLowerCase().trim();
-        const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
-        return allowed.has(email) || allowed.has(id) || allowed.has(code);
-      });
-    } else if (options?.targetSellerEmail) {
-      const target = options.targetSellerEmail.toLowerCase().trim();
-      targetUsers = users.filter((u: any) => {
-        const email = (u.email || "").toLowerCase().trim();
-        const id = (u.id || "").toLowerCase().trim();
-        const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
-        return email === target || id === target || code === target;
-      });
-    } else {
-      targetUsers = users.filter((u: any) => {
-        const email = (u.email || "").toLowerCase().trim();
-        const role = (u.role || "").toLowerCase();
-        return (
-          email === "seseffff942@gmail.com" ||
-          email === "jerickottoniel@gmail.com" ||
-          email === "gruasytransportesali@gmail.com" ||
-          email === "limalopez22@gmail.com" ||
-          role === "seller" ||
-          role === "admin"
-        );
-      });
-    }
-
-    // Deduplicar usuarios por email
-    const uniqueTargetUsers: any[] = [];
-    const seenEmails = new Set<string>();
-    targetUsers.forEach((u: any) => {
-      const email = (u.email || "").toLowerCase();
-      if (!seenEmails.has(email)) {
-        seenEmails.add(email);
-        uniqueTargetUsers.push(u);
-      }
-    });
-
-    const results: any[] = [];
-    const allReports: any[] = [];
-
-    for (const seller of uniqueTargetUsers) {
-      const sellerEmail = (seller.email || "").toLowerCase();
-      const sellerIdKeys = [
-        sellerEmail,
-        seller.id ? seller.id.toLowerCase() : null,
-        seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
-        seller.name ? seller.name.toLowerCase() : null
-      ].filter(Boolean);
-
-      const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
-      const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
-      const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
-
-      const destinatarios = [{
-        nombreDestinatario: sellerDisplayName,
-        telefono: sellerPhoneClean,
-        numero: sellerPhoneClean,
-        email: seller.email,
-        rol: seller.role || "seller"
-      }].filter((d: any) => Boolean(d.telefono));
-
-      let cantidadVendida = 0;
-      let cantidadFacturas = 0;
-      const ventas: any[] = [];
-
-      for (const inv of invoicesData || []) {
-        if (!inv || inv.status === 'cancelled' || inv.status === 'rejected') continue;
-        const sId = (inv.sellerId || "").toLowerCase();
-        if (sellerIdKeys.includes(sId) || sId === sellerEmail || (inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase())) {
-          const amount = Number(inv.totalAmount) || 0;
-          cantidadVendida += amount;
-          cantidadFacturas += 1;
-
-          let horaVenta = "";
-          if (inv.date) {
-            try {
-              const d = new Date(inv.date);
-              horaVenta = d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit" });
-            } catch {
-              horaVenta = inv.date;
-            }
-          }
-
-          const productos = (inv.items || []).map((item: any) => ({
-            producto: item.productName || item.name || "Producto",
-            cantidad: item.quantity || 1,
-            precioUnitario: item.price || 0,
-            subtotal: item.total || 0,
-          }));
-
-          ventas.push({
-            id: inv.id,
-            folio: inv.folio || "",
-            cliente: inv.clientName || "Cliente",
-            nit: inv.nit || "CF",
-            monto: amount,
-            tipo: inv.invoice_type || "contado",
-            estado: inv.status || "completado",
-            hora: horaVenta,
-            productos,
-          });
-        }
-      }
-
-      cantidadVendida = Math.round(cantidadVendida * 100) / 100;
-      const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
-      const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
-
-      const payload = {
-        fecha: todayLabel,
-        corte,
-        tipoCorte: esCierre ? 'cierre' : 'mediodia',
-        tipoReporte: esCierre ? 'cierre' : 'mediodia',
-        tipo: esCierre ? 'cierre' : 'mediodia',
-        esCierre,
-        hora: corte,
-        horaCorte: corte,
-        corteHora: corte,
-        titulo: esCierre ? `Cierre del Día (5:00 PM) - ${sellerDisplayName}` : `Corte de Mediodía (12:00 PM) - ${sellerDisplayName}`,
-        vendedor: sellerDisplayName,
-        nombreDestinatario: sellerDisplayName,
-        email: seller.email,
-        numero: sellerPhoneClean,
-        telefono: sellerPhoneClean,
-        cantidadVendida,
-        cantidadFaltante,
-        alcanzoMeta,
-        umbral: SALES_THRESHOLD,
-        cantidadFacturas,
-        mensaje: alcanzoMeta
-          ? `¡Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
-          : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
-        destinatarios,
-        ventas,
-      };
-
-      allReports.push(payload);
-
-      let webhookResult: any = null;
-      if (sendToWebhook) {
-        console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
-        try {
-          const webhookRes = await fetch(N8N_WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          const resText = await webhookRes.text().catch(() => "");
-          webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-          console.log(`[AUTO-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
-        } catch (err: any) {
-          webhookResult = { error: err.message, ok: false };
-          console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
-        }
-      }
-
-      results.push({
-        vendedor: sellerDisplayName,
-        email: seller.email,
-        telefono: sellerPhoneClean,
-        cantidadVendida,
-        cantidadFacturas,
-        webhookResult,
-        payload
-      });
-    }
-
-    return {
-      success: true,
-      totalVendedores: uniqueTargetUsers.length,
-      corte,
-      fecha: todayLabel,
-      data: allReports[0] || null,
-      reports: allReports,
-      results
-    };
+// USERS
+// IMPERSONATE
+app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "userId es requerido" });
   }
 
-  // Iniciar programador en segundo plano para cortes a las 12:00 PM y 5:00 PM (Hora Guatemala UTC-6)
-  function initAutoDailySalesCron() {
-    console.log('[AUTO-SALES-CRON] ⏰ Programador automático activo para cortes de 12:00 PM y 5:00 PM (Guatemala).');
-    setInterval(async () => {
-      try {
-        const now = new Date();
-        const gtOffset = -6 * 60; // UTC-6 Guatemala
-        const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const gtNow = new Date(utcMs + (gtOffset * 60000));
-
-        const year = gtNow.getFullYear();
-        const month = String(gtNow.getMonth() + 1).padStart(2, "0");
-        const day = String(gtNow.getDate()).padStart(2, "0");
-        const hour = gtNow.getHours();
-        const minute = gtNow.getMinutes();
-        const todayDateStr = `${year}-${month}-${day}`;
-
-        // 12:00 PM en punto
-        if (hour === 12 && minute === 0) {
-          const corteKey = `${todayDateStr}_12:00`;
-          if (lastDispatchedCorteKey !== corteKey) {
-            lastDispatchedCorteKey = corteKey;
-            console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
-            await checkAndDispatchDailySales({ corteHora: '12:00' });
-          }
-        }
-
-        // 5:00 PM en punto (17:00)
-        if (hour === 17 && minute === 0) {
-          const corteKey = `${todayDateStr}_17:00`;
-          if (lastDispatchedCorteKey !== corteKey) {
-            lastDispatchedCorteKey = corteKey;
-            console.log(`[AUTO-SALES-CRON] 🕔 Disparando corte automático de las 5:00 PM para ${todayDateStr}`);
-            await checkAndDispatchDailySales({ corteHora: '17:00' });
-          }
-        }
-      } catch (e: any) {
-        console.warn('[AUTO-SALES-CRON] Error en ciclo cron:', e?.message || e);
-      }
-    }, 25000); // Revisa cada 25 segundos
+  // Only allow user seseffff942@gmail.com to impersonate
+  if (req.user?.email !== 'seseffff942@gmail.com') {
+    return res.status(403).json({ error: "No tienes permisos para suplantar identidades." });
   }
 
-  initAutoDailySalesCron();
+  let user = null;
+  const { data: users } = await supabase.from("users").select("*").eq("id", userId);
+  if (users && users.length > 0) {
+    user = users[0];
+  }
 
-  app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any) => {
-    const result: any = await checkAndDispatchDailySales(req.body);
-    if (result?.error) {
-      return res.status(500).json(result);
-    }
-    return res.json(result);
-  }));
+  if (!user) {
+    return res.status(404).json({ error: "Usuario a suplantar no encontrado" });
+  }
 
-  app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
-    try {
-      const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
-      if (error) {
-        // Fallback if sellerCode column is missing
-        if (error.message.includes('sellerCode')) {
-          const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
-          if (errFallback) throw new Error(errFallback.message);
-          return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
-        }
-        throw new Error(error.message);
-      }
-      res.json((users || []).filter((u: any) => u.role !== 'system'));
-    } catch (err: any) {
-      console.error("Error fetching users:", err);
-      res.status(500).json({ error: err.message });
-    }
-  }));
+  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, user });
+}));
 
-  app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { email, name, role, photo, phone, sellerCode, password } = req.body;
-    
-    // Check if exists ONLY if email is provided
-    if (email && email.trim() !== '') {
-      const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
-      if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
-    }
+// ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
+let lastDispatchedCorteKey = '';
 
-    if (sellerCode) {
-      const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
-      if (existingCode && existingCode.length > 0) return res.status(400).json({ error: "El código de vendedor ya está en uso" });
-    }
+async function checkAndDispatchDailySales(options?: {
+  corteHora?: string;
+  threshold?: number;
+  webhookUrl?: string;
+  sendToWebhook?: boolean;
+  targetSellerEmail?: string;
+  targetSellerEmails?: string[];
+}) {
+  const SALES_THRESHOLD = Number(options?.threshold) || 8750;
+  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
 
-    let finalSellerCode = sellerCode;
-    if (!finalSellerCode || finalSellerCode.trim() === '') {
-      let code = '';
-      let unique = false;
-      let attempts = 0;
-      const { data: allUsers } = await supabase.from("users").select("sellerCode");
-      const usedCodes = new Set((allUsers || []).map((u: any) => u.sellerCode).filter(Boolean));
+  const now = new Date();
+  const gtOffset = -6 * 60; // UTC-6 Guatemala
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const gtNow = new Date(utcMs + (gtOffset * 60000));
+  const year = gtNow.getFullYear();
+  const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+  const day = String(gtNow.getDate()).padStart(2, "0");
+  const hour = gtNow.getHours();
+  const todayLabel = `${year}-${month}-${day}`;
+  const startOfDay = `${todayLabel}T00:00:00`;
+  const endOfDay = `${todayLabel}T23:59:59`;
 
-      while (!unique && attempts < 50) {
-        code = Math.floor(1000 + Math.random() * 9000).toString();
-        if (!usedCodes.has(code)) unique = true;
-        attempts++;
-      }
-      finalSellerCode = code;
-    }
+  const corte = options?.corteHora || (hour >= 16 ? '17:00' : '12:00');
+  const esCierre = corte === '17:00' || hour >= 16;
 
-    const id = `u_${Date.now()}`;
-    const hashedPassword = password ? await bcrypt.hash(password, 10) : '';
-    const newUser = { id, email: email || null, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
-    
-    const { error } = await supabase.from("users").insert([newUser]);
-    if (error) throw new Error(error.message);
-    
-    res.json({ id, email, name, role, photo, phone, sellerCode: finalSellerCode });
-  }));
+  const { data: invoicesData, error: invErr } = await supabase
+    .from("invoices")
+    .select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId")
+    .gte("date", startOfDay)
+    .lte("date", endOfDay);
 
-  app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { name, email, role, phone, sellerCode, password } = req.body;
+  if (invErr) {
+    console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
+    return { error: `Error al consultar facturas: ${invErr.message}` };
+  }
 
-    if (email && email.trim() !== '') {
-      const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
-      if (existing && existing.length > 0 && existing[0].id !== id) {
-        return res.status(400).json({ error: "El correo ya está registrado" });
-      }
-    }
+  function formatTelefonoDestinatario(rawPhone: string | null | undefined): string {
+    if (!rawPhone) return "";
+    const digits = String(rawPhone).replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length === 8) return `502${digits}`;
+    if (digits.startsWith("502") && digits.length === 11) return digits;
+    return digits;
+  }
 
-    if (sellerCode) {
-      const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
-      if (existingCode && existingCode.length > 0 && existingCode[0].id !== id) {
-        return res.status(400).json({ error: "El código de vendedor ya está en uso" });
-      }
-    }
+  const { data: allUsersData } = await supabase
+    .from("users")
+    .select("id, name, email, phone, role, sellerCode");
 
-    const updates: any = { name, email: email || null, role, phone, sellerCode };
-    if (password) {
-      updates.password = await bcrypt.hash(password, 10);
-    }
+  const users = (allUsersData || []).filter((u: any) => u && u.role !== "system" && u.email);
 
-    const { error } = await supabase.from("users").update(updates).eq("id", id);
-    if (error) throw new Error(error.message);
-
-    res.json({ success: true, user: { id, name, email: email || null, role, phone, sellerCode } });
-  }));
-
-  app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    if (!req.file) throw new Error("No file uploaded");
-    
-    const base64 = req.file.buffer.toString('base64');
-    const photoUrl = `data:${req.file.mimetype};base64,${base64}`;
-
-    await supabase.from("users").update({ photo: photoUrl }).eq('id', id);
-    res.json({ success: true, photo: photoUrl });
-  }));
-
-  // OFFICE INVENTORY
-  app.get("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { data, error } = await supabase.from("office_inventory").select("*");
-    if (error) {
-      console.warn("Office inventory fetch error (probably table missing):", error);
-      return res.json([]);
-    }
-    const formattedData = (data || []).map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      quantity: Number(item.quantity || 0),
-      unitPrice: Number(item.unit_price || 0),
-      location: item.location,
-      status: item.status
-    }));
-    res.json(formattedData);
-  }));
-
-  app.post("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
-    console.log("CREATE office item Payload:", req.body);
-    const payload = {
-      name: req.body.name,
-      category: req.body.category,
-      quantity: req.body.quantity,
-      unit_price: req.body.unitPrice,
-      location: req.body.location,
-      status: req.body.status
-    };
-    const { data, error } = await supabase.from("office_inventory").insert([payload]).select().single();
-    if (error) {
-      console.error("Error creating office item:", error);
-      return res.status(500).json({ error: 'Error saving item: ' + error.message });
-    }
-    res.json({
-      id: data.id,
-      name: data.name,
-      category: data.category,
-      quantity: Number(data.quantity),
-      unitPrice: Number(data.unit_price),
-      location: data.location,
-      status: data.status
+  // Vendedores / Administradores objetivos (Permite selección dinámica o lista por defecto)
+  let targetUsers: any[] = [];
+  if (Array.isArray(options?.targetSellerEmails) && options.targetSellerEmails.length > 0) {
+    const allowed = new Set(options.targetSellerEmails.map((e: any) => String(e).toLowerCase().trim()));
+    targetUsers = users.filter((u: any) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const id = (u.id || "").toLowerCase().trim();
+      const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+      return allowed.has(email) || allowed.has(id) || allowed.has(code);
     });
-  }));
-
-  app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    console.log("UPDATE office item ID:", id, "Payload:", req.body);
-    const payload = {
-      name: req.body.name,
-      category: req.body.category,
-      quantity: req.body.quantity,
-      unit_price: req.body.unitPrice,
-      location: req.body.location,
-      status: req.body.status
-    };
-    const { data, error } = await supabase.from("office_inventory").update(payload).eq('id', id).select().single();
-    if (error) {
-      console.error("Error updating office item:", error);
-      return res.status(500).json({ error: 'Error updating item: ' + error.message });
-    }
-    res.json({
-      id: data.id,
-      name: data.name,
-      category: data.category,
-      quantity: Number(data.quantity),
-      unitPrice: Number(data.unit_price),
-      location: data.location,
-      status: data.status
+  } else if (options?.targetSellerEmail) {
+    const target = options.targetSellerEmail.toLowerCase().trim();
+    targetUsers = users.filter((u: any) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const id = (u.id || "").toLowerCase().trim();
+      const code = (u.sellerCode ? String(u.sellerCode) : "").toLowerCase().trim();
+      return email === target || id === target || code === target;
     });
-  }));
-
-  app.delete("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    console.log("DELETE office item ID:", id);
-    const { error } = await supabase.from("office_inventory").delete().eq('id', id);
-    if (error) {
-      console.error("Error deleting office item:", error);
-      return res.status(500).json({ error: 'Error deleting item: ' + error.message });
-    }
-    res.json({ success: true });
-  }));
-
-  // INVENTORY
-  app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
-
-    const cached = getCachedData("products");
-    if (cached) {
-      // Strip costPrice for non-owners even from cache
-      if (!isOwner) {
-        return res.json(cached.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-      }
-      return res.json(cached);
-    }
-
-    let products: any[] = [];
-    if (isNeonActive() && neonPool) {
-      try {
-        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
-      } catch (neErr) {
-        console.warn("Fetch products Neon error:", neErr);
-      }
-    }
-
-    if (products.length === 0) {
-      try {
-        const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
-        if (!error && data) {
-          products = data;
-        } else if (neonPool) {
-          products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
-        }
-      } catch (err) {
-        if (neonPool) {
-          products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
-        }
-      }
-    }
-
-    // Normalize: map DB snake_case to camelCase aliases for frontend
-    const normalized = (products || []).map((p: any) => ({
-      ...p,
-      costPrice: p.cost_price || 0,
-      hiddenFromSales: p.hidden_from_sales || false
-    }));
-    setCachedData("products", normalized);
-
-    if (!isOwner) {
-      return res.json(normalized.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
-    }
-    res.json(normalized);
-  }));
-
-  app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    invalidateCache("products");
-    const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
-    
-    if (name) {
-      const trimmedName = name.trim();
-      const { data: existingProducts } = await supabase.from("products").select("id, name").ilike("name", trimmedName);
-      if (existingProducts && existingProducts.length > 0) {
-        return res.status(409).json({ error: `Ya existe un producto con el nombre "${trimmedName}". No se admiten duplicados.` });
-      }
-    }
-
-    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
-    const id = `p${Date.now()}`;
-    const product: any = { 
-      id, name, category, price, 
-      stock: is_external ? 0 : stock, 
-      image: image || null, 
-      description: description || null, 
-      variants: variants || null,
-      is_external: is_external || false
-    };
-    
-    // Only include specifications if it exists and we're fairly sure the column exists
-    if (specifications !== undefined && specifications !== null) {
-      product.specifications = specifications;
-    }
-
-    // Campos exclusivos del dueño y admin: visibilidad en ventas para admins, costo para el dueño
-    const isAdmin = req.user && (req.user.role === 'admin' || isOwner);
-    if (isOwner) {
-      if (costPrice !== undefined) product.cost_price = costPrice;
-    }
-    if (isAdmin) {
-      if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
-    }
-
-    const { error } = await supabase.from("products").insert([product]);
-    if (error) {
-       // Fallback: if specifications, variants, is_external, or new columns caused error, retry without them
-       const isColumnError = error.message.includes("specifications") || 
-                             error.message.includes("variants") || 
-                             error.message.includes("is_external") || 
-                             error.message.includes("isExternalInventory") ||
-                             error.message.includes("cost_price") ||
-                             error.message.includes("hidden_from_sales");
-       if (isColumnError) {
-         const retryProduct = { ...product };
-         delete retryProduct.variants;
-         delete retryProduct.specifications;
-         delete retryProduct.is_external;
-         delete retryProduct.cost_price;
-         delete retryProduct.hidden_from_sales;
-         delete (retryProduct as any).isExternalInventory;
-
-         const { error: err2 } = await supabase.from("products").insert([retryProduct]);
-         if (err2) throw new Error(err2.message);
-         return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
-       }
-       throw new Error(error.message);
-    }
-    res.json(product);
-  }));
-
-  app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    invalidateCache("products");
-    const { id } = req.params;
-    const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
-    const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
-    const isAdmin = req.user.role === 'admin' || isOwner;
-    
-    // Si no es admin, solo permitimos actualizar la descripción si estaba vacía
-    if (!isAdmin) {
-      if (stock !== undefined || price !== undefined || name !== undefined || image !== undefined || category !== undefined || variants !== undefined || specifications !== undefined || is_external !== undefined) {
-        return res.status(403).json({ error: "Solo los administradores pueden editar datos básicos del producto." });
-      }
-      
-      const { data: results } = await supabase.from("products").select("description").eq('id', id);
-      const existing = results?.[0];
-      if (existing && existing.description) {
-        return res.status(403).json({ error: "Solo los administradores pueden modificar descripciones existentes." });
-      }
-    }
-
-    const updates: any = {};
-    if (stock !== undefined) updates.stock = stock;
-    if (price !== undefined) updates.price = price;
-    if (name !== undefined) updates.name = name;
-    if (image !== undefined) updates.image = image;
-    if (description !== undefined) updates.description = description;
-    if (category !== undefined) updates.category = category;
-    if (variants !== undefined) updates.variants = variants;
-    if (specifications !== undefined) updates.specifications = specifications;
-    if (is_external !== undefined) updates.is_external = is_external;
-    
-    if (isOwner) {
-      if (costPrice !== undefined) updates.cost_price = costPrice;
-    }
-    if (isAdmin) {
-      if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
-    }
-    
-    const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
-    const originalProduct = results?.[0];
-    
-    if (checkError || !originalProduct) {
-      return res.status(404).json({ error: "Producto no encontrado o error en la base de datos" });
-    }
-
-    const hasUpdates = Object.keys(updates).length > 0;
-    if (!hasUpdates) {
-      return res.json({ ...originalProduct, ...updates });
-    }
-
-    let { data, error } = await supabase.from("products").update(updates).eq('id', id).select();
-    
-    if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales"))) {
-      console.warn("Update failed, retrying granular fallback:", error.message);
-      
-      const retryUpdates = { ...updates };
-      if (error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
-        delete retryUpdates.is_external;
-        delete retryUpdates.isExternalInventory;
-      }
-      if (error.message.includes("specifications")) {
-        delete retryUpdates.specifications;
-      }
-      if (error.message.includes("cost_price")) {
-        delete retryUpdates.cost_price;
-      }
-      if (error.message.includes("hidden_from_sales")) {
-        delete retryUpdates.hidden_from_sales;
-      }
-
-      if (Object.keys(retryUpdates).length > 0) {
-        const { data: retryData, error: retryError } = await supabase.from("products").update(retryUpdates).eq('id', id).select();
-        data = retryData;
-        error = retryError;
-      } else {
-        return res.json(originalProduct);
-      }
-    }
-
-    if (error || !data || data.length === 0) {
-      return res.status(500).json({ error: error?.message || "No se pudo actualizar el producto" });
-    }
-
-    const updatedProduct = data[0];
-
-    // STOCK UPDATES NOTIFICATION
-    if (originalProduct && stock !== undefined && originalProduct.stock !== stock && !doesNotNeedStock(originalProduct)) {
-      const diff = stock - originalProduct.stock;
-      if (diff > 0) {
-        await createNotification('restock', '📦 Ingreso de Stock', `+${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
-      } else if (stock === 0) {
-        await createNotification('out_of_stock', '🚨 Producto Agotado', `⚠️ ${originalProduct.name} se ha quedado sin existencias (0 uds).`, { productId: id });
-      } else if (isCriticalStock(originalProduct, stock)) {
-        await createNotification('low_stock', '⚠️ Alerta de Stock Crítico', `Solo quedan ${stock} uds de ${originalProduct.name} (Mínimo: ${getCriticalStockThreshold(originalProduct)} uds)`, { productId: id });
-      } else {
-        await createNotification('low_stock', '📉 Reducción de Stock', `-${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
-      }
-    }
-
-    // PRICE UPDATES NOTIFICATION
-    if (originalProduct && price !== undefined && originalProduct.price !== price) {
-      await createNotification('price_changed', '🏷️ Precio Actualizado', `${originalProduct.name}: Q${originalProduct.price} ➔ Q${price}`, { productId: id });
-    }
-
-    res.json(updatedProduct);
-  }));
-
-  // NOTIFICATIONS API
-  app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let dbNotifs: any[] = [];
-    try {
-      const { data, error } = await supabase.from("notifications").select("*").order('createdAt', { ascending: false }).limit(60);
-      if (!error && data) {
-        dbNotifs = data;
-      }
-    } catch (e) {}
-
-    const localPoints = readLocalNotifications();
-    const mergedMap = new Map<string, any>();
-
-    // Load local ones first so they acts as base
-    localPoints.forEach(n => {
-      if (n && n.id) {
-        mergedMap.set(n.id, n);
-      }
+  } else {
+    targetUsers = users.filter((u: any) => {
+      const email = (u.email || "").toLowerCase().trim();
+      const role = (u.role || "").toLowerCase();
+      return (
+        email === "seseffff942@gmail.com" ||
+        email === "jerickottoniel@gmail.com" ||
+        email === "gruasytransportesali@gmail.com" ||
+        email === "limalopez22@gmail.com" ||
+        role === "seller" ||
+        role === "admin"
+      );
     });
+  }
 
-    // Supplementary feed from supabase (matching camelCase/snake_case)
-    dbNotifs.forEach(n => {
-      if (n && n.id) {
-        mergedMap.set(n.id, {
-          id: n.id,
-          type: n.type,
-          title: n.title,
-          message: n.message,
-          createdAt: n.createdAt || n.created_at || new Date().toISOString(),
-          productId: n.productId || n.product_id || null,
-          invoiceId: n.invoiceId || n.invoice_id || null
+  // Deduplicar usuarios por email
+  const uniqueTargetUsers: any[] = [];
+  const seenEmails = new Set<string>();
+  targetUsers.forEach((u: any) => {
+    const email = (u.email || "").toLowerCase();
+    if (!seenEmails.has(email)) {
+      seenEmails.add(email);
+      uniqueTargetUsers.push(u);
+    }
+  });
+
+  const results: any[] = [];
+  const allReports: any[] = [];
+
+  for (const seller of uniqueTargetUsers) {
+    const sellerEmail = (seller.email || "").toLowerCase();
+    const sellerIdKeys = [
+      sellerEmail,
+      seller.id ? seller.id.toLowerCase() : null,
+      seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
+      seller.name ? seller.name.toLowerCase() : null
+    ].filter(Boolean);
+
+    const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
+    const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
+    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+
+    const destinatarios = [{
+      nombreDestinatario: sellerDisplayName,
+      telefono: sellerPhoneClean,
+      numero: sellerPhoneClean,
+      email: seller.email,
+      rol: seller.role || "seller"
+    }].filter((d: any) => Boolean(d.telefono));
+
+    let cantidadVendida = 0;
+    let cantidadFacturas = 0;
+    const ventas: any[] = [];
+
+    for (const inv of invoicesData || []) {
+      if (!inv || inv.status === 'cancelled' || inv.status === 'rejected') continue;
+      const sId = (inv.sellerId || "").toLowerCase();
+      if (sellerIdKeys.includes(sId) || sId === sellerEmail || (inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase())) {
+        const amount = Number(inv.totalAmount) || 0;
+        cantidadVendida += amount;
+        cantidadFacturas += 1;
+
+        let horaVenta = "";
+        if (inv.date) {
+          try {
+            const d = new Date(inv.date);
+            horaVenta = d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit" });
+          } catch {
+            horaVenta = inv.date;
+          }
+        }
+
+        const productos = (inv.items || []).map((item: any) => ({
+          producto: item.productName || item.name || "Producto",
+          cantidad: item.quantity || 1,
+          precioUnitario: item.price || 0,
+          subtotal: item.total || 0,
+        }));
+
+        ventas.push({
+          id: inv.id,
+          folio: inv.folio || "",
+          cliente: inv.clientName || "Cliente",
+          nit: inv.nit || "CF",
+          monto: amount,
+          tipo: inv.invoice_type || "contado",
+          estado: inv.status || "completado",
+          hora: horaVenta,
+          productos,
         });
       }
-    });
-
-    const finalNotifs = Array.from(mergedMap.values());
-    finalNotifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    res.json(finalNotifs.slice(0, 100));
-  }));
-
-  app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    try {
-      await supabase.from("notifications").delete().eq('id', id);
-    } catch (e) {}
-    const local = readLocalNotifications().filter(n => n.id !== id);
-    saveLocalNotifications(local);
-    res.json({ success: true });
-  }));
-
-  app.delete("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
-    try {
-      await supabase.from("notifications").delete().neq('id', 'clear-trigger');
-    } catch (e) {}
-    saveLocalNotifications([]);
-    res.json({ success: true });
-  }));
-
-  // PUSH NOTIFICATION PUBLIC KEY
-  app.get("/api/push/public-key", asyncHandler(async (req: any, res: any) => {
-    res.json({ publicKey: vapidKeys.publicKey });
-  }));
-
-  // PUSH NOTIFICATION SUBSCRIBE
-  app.post("/api/push/subscribe", asyncHandler(async (req: any, res: any) => {
-    const subscription = req.body;
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: "Suscripción inválida" });
     }
 
-    await savePushSubscription(subscription);
+    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+    const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
+    const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
 
-    res.json({ success: true, message: "Suscripción guardada con éxito" });
-  }));
+    const payload = {
+      fecha: todayLabel,
+      corte,
+      tipoCorte: esCierre ? 'cierre' : 'mediodia',
+      tipoReporte: esCierre ? 'cierre' : 'mediodia',
+      tipo: esCierre ? 'cierre' : 'mediodia',
+      esCierre,
+      hora: corte,
+      horaCorte: corte,
+      corteHora: corte,
+      titulo: esCierre ? `Cierre del Día (5:00 PM) - ${sellerDisplayName}` : `Corte de Mediodía (12:00 PM) - ${sellerDisplayName}`,
+      vendedor: sellerDisplayName,
+      nombreDestinatario: sellerDisplayName,
+      email: seller.email,
+      numero: sellerPhoneClean,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFaltante,
+      alcanzoMeta,
+      umbral: SALES_THRESHOLD,
+      cantidadFacturas,
+      mensaje: alcanzoMeta
+        ? `¡Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).`
+        : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
+      destinatarios,
+      ventas,
+    };
 
-  // PUSH NOTIFICATION TEST
-  app.post("/api/push/test", asyncHandler(async (req: any, res: any) => {
-    const { title, message } = req.body;
-    const resolvedTitle = title || "Prueba de Agricovet 🔔";
-    const resolvedMessage = message || "¡Las notificaciones Push funcionan con vibración tipo WhatsApp!";
-    await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
-    res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
-  }));
+    allReports.push(payload);
 
-  // FCM TOKEN REGISTER (ANDROID NATIVE 24/7 PUSH)
-  app.post("/api/fcm/register", asyncHandler(async (req: any, res: any) => {
-    const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ error: "FCM token requerido" });
-    }
-    await registerFcmToken(token);
-    res.json({ success: true, message: "FCM token registrado correctamente" });
-  }));
-
-  // ==========================================
-  // RUTAS DEL BOTÓN DE PÁNICO Y ESTADO DE BD (GLOBALES)
-  // ==========================================
-
-  app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
-    let supabaseHealthy = false;
-    let neonHealthy = false;
-
-    // Obtener modo global persistido desde Neon DB
-    const currentMode = await fetchGlobalDbModeFromDb();
-
-    // Test Supabase con timeout robusto de 6s para evitar falsas alarmas por latencia normal
-    try {
-      const sbPromise = supabase.from("users").select("id").limit(1);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
-      const { error } = await Promise.race([sbPromise, timeoutPromise]) as any;
-      supabaseHealthy = !error;
-    } catch (e) {
-      supabaseHealthy = false;
-    }
-
-    // Test Neon con timeout de 6s
-    if (neonPool) {
+    let webhookResult: any = null;
+    if (sendToWebhook) {
+      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
       try {
-        const neonPromise = neonPool.query("SELECT 1;");
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
-        await Promise.race([neonPromise, timeoutPromise]);
-        neonHealthy = true;
-      } catch (e) {
-        neonHealthy = false;
+        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const resText = await webhookRes.text().catch(() => "");
+        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+        console.log(`[AUTO-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+      } catch (err: any) {
+        webhookResult = { error: err.message, ok: false };
+        console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
       }
     }
 
-    res.json({
-      activeMode: currentMode,
-      supabaseHealthy,
-      neonHealthy,
-      neonConfigured: Boolean(neonPool)
+    results.push({
+      vendedor: sellerDisplayName,
+      email: seller.email,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFacturas,
+      webhookResult,
+      payload
     });
-  }));
+  }
 
-  app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
-    const { mode } = req.body;
-    if (mode === "supabase" || mode === "neon") {
-      await persistGlobalDbMode(mode);
-      console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
-      return res.json({ success: true, activeMode: mode });
-    }
-    res.status(400).json({ error: "Modo no válido. Usa 'supabase' o 'neon'." });
-  }));
+  return {
+    success: true,
+    totalVendedores: uniqueTargetUsers.length,
+    corte,
+    fecha: todayLabel,
+    data: allReports[0] || null,
+    reports: allReports,
+    results
+  };
+}
 
-  app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
-    if (!neonPool) {
-      return res.status(500).json({ error: "Neon no está configurado" });
-    }
-
-    const client = await neonPool.connect();
-    let usersSynced = 0;
-    let productsSynced = 0;
-
+// Iniciar programador en segundo plano para cortes a las 12:00 PM y 5:00 PM (Hora Guatemala UTC-6)
+function initAutoDailySalesCron() {
+  console.log('[AUTO-SALES-CRON] ⏰ Programador automático activo para cortes de 12:00 PM y 5:00 PM (Guatemala).');
+  setInterval(async () => {
     try {
-      const { data: users } = await supabase.from("users").select("*");
-      if (users && users.length > 0) {
-        for (const u of users) {
-          await client.query(`
+      const now = new Date();
+      const gtOffset = -6 * 60; // UTC-6 Guatemala
+      const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const gtNow = new Date(utcMs + (gtOffset * 60000));
+
+      const year = gtNow.getFullYear();
+      const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+      const day = String(gtNow.getDate()).padStart(2, "0");
+      const hour = gtNow.getHours();
+      const minute = gtNow.getMinutes();
+      const todayDateStr = `${year}-${month}-${day}`;
+
+      // 12:00 PM en punto
+      if (hour === 12 && minute === 0) {
+        const corteKey = `${todayDateStr}_12:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: '12:00' });
+        }
+      }
+
+      // 5:00 PM en punto (17:00)
+      if (hour === 17 && minute === 0) {
+        const corteKey = `${todayDateStr}_17:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] 🕔 Disparando corte automático de las 5:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: '17:00' });
+        }
+      }
+    } catch (e: any) {
+      console.warn('[AUTO-SALES-CRON] Error en ciclo cron:', e?.message || e);
+    }
+  }, 25000); // Revisa cada 25 segundos
+}
+
+initAutoDailySalesCron();
+
+app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any) => {
+  const result: any = await checkAndDispatchDailySales(req.body);
+  if (result?.error) {
+    return res.status(500).json(result);
+  }
+  return res.json(result);
+}));
+
+app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
+    if (error) {
+      // Fallback if sellerCode column is missing
+      if (error.message.includes('sellerCode')) {
+        const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
+        if (errFallback) throw new Error(errFallback.message);
+        return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
+      }
+      throw new Error(error.message);
+    }
+    res.json((users || []).filter((u: any) => u.role !== 'system'));
+  } catch (err: any) {
+    console.error("Error fetching users:", err);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { email, name, role, photo, phone, sellerCode, password } = req.body;
+
+  // Check if exists ONLY if email is provided
+  if (email && email.trim() !== '') {
+    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
+  }
+
+  if (sellerCode) {
+    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    if (existingCode && existingCode.length > 0) return res.status(400).json({ error: "El código de vendedor ya está en uso" });
+  }
+
+  let finalSellerCode = sellerCode;
+  if (!finalSellerCode || finalSellerCode.trim() === '') {
+    let code = '';
+    let unique = false;
+    let attempts = 0;
+    const { data: allUsers } = await supabase.from("users").select("sellerCode");
+    const usedCodes = new Set((allUsers || []).map((u: any) => u.sellerCode).filter(Boolean));
+
+    while (!unique && attempts < 50) {
+      code = Math.floor(1000 + Math.random() * 9000).toString();
+      if (!usedCodes.has(code)) unique = true;
+      attempts++;
+    }
+    finalSellerCode = code;
+  }
+
+  const id = `u_${Date.now()}`;
+  const hashedPassword = password ? await bcrypt.hash(password, 10) : '';
+  const newUser = { id, email: email || null, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
+
+  const { error } = await supabase.from("users").insert([newUser]);
+  if (error) throw new Error(error.message);
+
+  res.json({ id, email, name, role, photo, phone, sellerCode: finalSellerCode });
+}));
+
+app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { name, email, role, phone, sellerCode, password } = req.body;
+
+  if (email && email.trim() !== '') {
+    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    if (existing && existing.length > 0 && existing[0].id !== id) {
+      return res.status(400).json({ error: "El correo ya está registrado" });
+    }
+  }
+
+  if (sellerCode) {
+    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    if (existingCode && existingCode.length > 0 && existingCode[0].id !== id) {
+      return res.status(400).json({ error: "El código de vendedor ya está en uso" });
+    }
+  }
+
+  const updates: any = { name, email: email || null, role, phone, sellerCode };
+  if (password) {
+    updates.password = await bcrypt.hash(password, 10);
+  }
+
+  const { error } = await supabase.from("users").update(updates).eq("id", id);
+  if (error) throw new Error(error.message);
+
+  res.json({ success: true, user: { id, name, email: email || null, role, phone, sellerCode } });
+}));
+
+app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  if (!req.file) throw new Error("No file uploaded");
+
+  const base64 = req.file.buffer.toString('base64');
+  const photoUrl = `data:${req.file.mimetype};base64,${base64}`;
+
+  await supabase.from("users").update({ photo: photoUrl }).eq('id', id);
+  res.json({ success: true, photo: photoUrl });
+}));
+
+// OFFICE INVENTORY
+app.get("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { data, error } = await supabase.from("office_inventory").select("*");
+  if (error) {
+    console.warn("Office inventory fetch error (probably table missing):", error);
+    return res.json([]);
+  }
+  const formattedData = (data || []).map((item: any) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    quantity: Number(item.quantity || 0),
+    unitPrice: Number(item.unit_price || 0),
+    location: item.location,
+    status: item.status
+  }));
+  res.json(formattedData);
+}));
+
+app.post("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
+  console.log("CREATE office item Payload:", req.body);
+  const payload = {
+    name: req.body.name,
+    category: req.body.category,
+    quantity: req.body.quantity,
+    unit_price: req.body.unitPrice,
+    location: req.body.location,
+    status: req.body.status
+  };
+  const { data, error } = await supabase.from("office_inventory").insert([payload]).select().single();
+  if (error) {
+    console.error("Error creating office item:", error);
+    return res.status(500).json({ error: 'Error saving item: ' + error.message });
+  }
+  res.json({
+    id: data.id,
+    name: data.name,
+    category: data.category,
+    quantity: Number(data.quantity),
+    unitPrice: Number(data.unit_price),
+    location: data.location,
+    status: data.status
+  });
+}));
+
+app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  console.log("UPDATE office item ID:", id, "Payload:", req.body);
+  const payload = {
+    name: req.body.name,
+    category: req.body.category,
+    quantity: req.body.quantity,
+    unit_price: req.body.unitPrice,
+    location: req.body.location,
+    status: req.body.status
+  };
+  const { data, error } = await supabase.from("office_inventory").update(payload).eq('id', id).select().single();
+  if (error) {
+    console.error("Error updating office item:", error);
+    return res.status(500).json({ error: 'Error updating item: ' + error.message });
+  }
+  res.json({
+    id: data.id,
+    name: data.name,
+    category: data.category,
+    quantity: Number(data.quantity),
+    unitPrice: Number(data.unit_price),
+    location: data.location,
+    status: data.status
+  });
+}));
+
+app.delete("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  console.log("DELETE office item ID:", id);
+  const { error } = await supabase.from("office_inventory").delete().eq('id', id);
+  if (error) {
+    console.error("Error deleting office item:", error);
+    return res.status(500).json({ error: 'Error deleting item: ' + error.message });
+  }
+  res.json({ success: true });
+}));
+
+// INVENTORY
+app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
+
+  const cached = getCachedData("products");
+  if (cached) {
+    // Strip costPrice for non-owners even from cache
+    if (!isOwner) {
+      return res.json(cached.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+    }
+    return res.json(cached);
+  }
+
+  let products: any[] = [];
+  if (isNeonActive() && neonPool) {
+    try {
+      products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+    } catch (neErr) {
+      console.warn("Fetch products Neon error:", neErr);
+    }
+  }
+
+  if (products.length === 0) {
+    try {
+      const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
+      if (!error && data) {
+        products = data;
+      } else if (neonPool) {
+        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+      }
+    } catch (err) {
+      if (neonPool) {
+        products = await queryNeon("SELECT id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales FROM public.products ORDER BY name ASC");
+      }
+    }
+  }
+
+  // Normalize: map DB snake_case to camelCase aliases for frontend
+  const normalized = (products || []).map((p: any) => ({
+    ...p,
+    costPrice: p.cost_price || 0,
+    hiddenFromSales: p.hidden_from_sales || false
+  }));
+  setCachedData("products", normalized);
+
+  if (!isOwner) {
+    return res.json(normalized.map((p: any) => { const { cost_price, costPrice, ...rest } = p; return rest; }));
+  }
+  res.json(normalized);
+}));
+
+app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("products");
+  const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
+
+  if (name) {
+    const trimmedName = name.trim();
+    const { data: existingProducts } = await supabase.from("products").select("id, name").ilike("name", trimmedName);
+    if (existingProducts && existingProducts.length > 0) {
+      return res.status(409).json({ error: `Ya existe un producto con el nombre "${trimmedName}". No se admiten duplicados.` });
+    }
+  }
+
+  const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
+  const id = `p${Date.now()}`;
+  const product: any = {
+    id, name, category, price,
+    stock: is_external ? 0 : stock,
+    image: image || null,
+    description: description || null,
+    variants: variants || null,
+    is_external: is_external || false
+  };
+
+  // Only include specifications if it exists and we're fairly sure the column exists
+  if (specifications !== undefined && specifications !== null) {
+    product.specifications = specifications;
+  }
+
+  // Campos exclusivos del dueño y admin: visibilidad en ventas para admins, costo para el dueño
+  const isAdmin = req.user && (req.user.role === 'admin' || isOwner);
+  if (isOwner) {
+    if (costPrice !== undefined) product.cost_price = costPrice;
+  }
+  if (isAdmin) {
+    if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
+  }
+
+  const { error } = await supabase.from("products").insert([product]);
+  if (error) {
+    // Fallback: if specifications, variants, is_external, or new columns caused error, retry without them
+    const isColumnError = error.message.includes("specifications") ||
+      error.message.includes("variants") ||
+      error.message.includes("is_external") ||
+      error.message.includes("isExternalInventory") ||
+      error.message.includes("cost_price") ||
+      error.message.includes("hidden_from_sales");
+    if (isColumnError) {
+      const retryProduct = { ...product };
+      delete retryProduct.variants;
+      delete retryProduct.specifications;
+      delete retryProduct.is_external;
+      delete retryProduct.cost_price;
+      delete retryProduct.hidden_from_sales;
+      delete (retryProduct as any).isExternalInventory;
+
+      const { error: err2 } = await supabase.from("products").insert([retryProduct]);
+      if (err2) throw new Error(err2.message);
+      return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
+    }
+    throw new Error(error.message);
+  }
+  res.json(product);
+}));
+
+app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("products");
+  const { id } = req.params;
+  const { stock, price, name, image, description, category, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
+  const isOwner = req.user && (req.user.email === 'seseffff942@gmail.com' || req.user.email === 'limalopez22@gmail.com' || req.user.role === 'admin');
+  const isAdmin = req.user.role === 'admin' || isOwner;
+
+  // Si no es admin, solo permitimos actualizar la descripción si estaba vacía
+  if (!isAdmin) {
+    if (stock !== undefined || price !== undefined || name !== undefined || image !== undefined || category !== undefined || variants !== undefined || specifications !== undefined || is_external !== undefined) {
+      return res.status(403).json({ error: "Solo los administradores pueden editar datos básicos del producto." });
+    }
+
+    const { data: results } = await supabase.from("products").select("description").eq('id', id);
+    const existing = results?.[0];
+    if (existing && existing.description) {
+      return res.status(403).json({ error: "Solo los administradores pueden modificar descripciones existentes." });
+    }
+  }
+
+  const updates: any = {};
+  if (stock !== undefined) updates.stock = stock;
+  if (price !== undefined) updates.price = price;
+  if (name !== undefined) updates.name = name;
+  if (image !== undefined) updates.image = image;
+  if (description !== undefined) updates.description = description;
+  if (category !== undefined) updates.category = category;
+  if (variants !== undefined) updates.variants = variants;
+  if (specifications !== undefined) updates.specifications = specifications;
+  if (is_external !== undefined) updates.is_external = is_external;
+
+  if (isOwner) {
+    if (costPrice !== undefined) updates.cost_price = costPrice;
+  }
+  if (isAdmin) {
+    if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
+  }
+
+  const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
+  const originalProduct = results?.[0];
+
+  if (checkError || !originalProduct) {
+    return res.status(404).json({ error: "Producto no encontrado o error en la base de datos" });
+  }
+
+  const hasUpdates = Object.keys(updates).length > 0;
+  if (!hasUpdates) {
+    return res.json({ ...originalProduct, ...updates });
+  }
+
+  let { data, error } = await supabase.from("products").update(updates).eq('id', id).select();
+
+  if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales"))) {
+    console.warn("Update failed, retrying granular fallback:", error.message);
+
+    const retryUpdates = { ...updates };
+    if (error.message.includes("is_external") || error.message.includes("isExternalInventory")) {
+      delete retryUpdates.is_external;
+      delete retryUpdates.isExternalInventory;
+    }
+    if (error.message.includes("specifications")) {
+      delete retryUpdates.specifications;
+    }
+    if (error.message.includes("cost_price")) {
+      delete retryUpdates.cost_price;
+    }
+    if (error.message.includes("hidden_from_sales")) {
+      delete retryUpdates.hidden_from_sales;
+    }
+
+    if (Object.keys(retryUpdates).length > 0) {
+      const { data: retryData, error: retryError } = await supabase.from("products").update(retryUpdates).eq('id', id).select();
+      data = retryData;
+      error = retryError;
+    } else {
+      return res.json(originalProduct);
+    }
+  }
+
+  if (error || !data || data.length === 0) {
+    return res.status(500).json({ error: error?.message || "No se pudo actualizar el producto" });
+  }
+
+  const updatedProduct = data[0];
+
+  // STOCK UPDATES NOTIFICATION
+  if (originalProduct && stock !== undefined && originalProduct.stock !== stock && !doesNotNeedStock(originalProduct)) {
+    const diff = stock - originalProduct.stock;
+    if (diff > 0) {
+      await createNotification('restock', '📦 Ingreso de Stock', `+${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
+    } else if (stock === 0) {
+      await createNotification('out_of_stock', '🚨 Producto Agotado', `⚠️ ${originalProduct.name} se ha quedado sin existencias (0 uds).`, { productId: id });
+    } else if (isCriticalStock(originalProduct, stock)) {
+      await createNotification('low_stock', '⚠️ Alerta de Stock Crítico', `Solo quedan ${stock} uds de ${originalProduct.name} (Mínimo: ${getCriticalStockThreshold(originalProduct)} uds)`, { productId: id });
+    } else {
+      await createNotification('low_stock', '📉 Reducción de Stock', `-${Math.abs(diff)} uds • ${originalProduct.name} (Stock: ${stock} uds)`, { productId: id });
+    }
+  }
+
+  // PRICE UPDATES NOTIFICATION
+  if (originalProduct && price !== undefined && originalProduct.price !== price) {
+    await createNotification('price_changed', '🏷️ Precio Actualizado', `${originalProduct.name}: Q${originalProduct.price} ➔ Q${price}`, { productId: id });
+  }
+
+  res.json(updatedProduct);
+}));
+
+// NOTIFICATIONS API
+app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let dbNotifs: any[] = [];
+  try {
+    const { data, error } = await supabase.from("notifications").select("*").order('createdAt', { ascending: false }).limit(60);
+    if (!error && data) {
+      dbNotifs = data;
+    }
+  } catch (e) { }
+
+  const localPoints = readLocalNotifications();
+  const mergedMap = new Map<string, any>();
+
+  // Load local ones first so they acts as base
+  localPoints.forEach(n => {
+    if (n && n.id) {
+      mergedMap.set(n.id, n);
+    }
+  });
+
+  // Supplementary feed from supabase (matching camelCase/snake_case)
+  dbNotifs.forEach(n => {
+    if (n && n.id) {
+      mergedMap.set(n.id, {
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        createdAt: n.createdAt || n.created_at || new Date().toISOString(),
+        productId: n.productId || n.product_id || null,
+        invoiceId: n.invoiceId || n.invoice_id || null
+      });
+    }
+  });
+
+  const finalNotifs = Array.from(mergedMap.values());
+  finalNotifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  res.json(finalNotifs.slice(0, 100));
+}));
+
+app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    await supabase.from("notifications").delete().eq('id', id);
+  } catch (e) { }
+  const local = readLocalNotifications().filter(n => n.id !== id);
+  saveLocalNotifications(local);
+  res.json({ success: true });
+}));
+
+app.delete("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    await supabase.from("notifications").delete().neq('id', 'clear-trigger');
+  } catch (e) { }
+  saveLocalNotifications([]);
+  res.json({ success: true });
+}));
+
+// PUSH NOTIFICATION PUBLIC KEY
+app.get("/api/push/public-key", asyncHandler(async (req: any, res: any) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+}));
+
+// PUSH NOTIFICATION SUBSCRIBE
+app.post("/api/push/subscribe", asyncHandler(async (req: any, res: any) => {
+  const subscription = req.body;
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: "Suscripción inválida" });
+  }
+
+  await savePushSubscription(subscription);
+
+  res.json({ success: true, message: "Suscripción guardada con éxito" });
+}));
+
+// PUSH NOTIFICATION TEST
+app.post("/api/push/test", asyncHandler(async (req: any, res: any) => {
+  const { title, message } = req.body;
+  const resolvedTitle = title || "Prueba de Agricovet 🔔";
+  const resolvedMessage = message || "¡Las notificaciones Push funcionan con vibración tipo WhatsApp!";
+  await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
+  res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
+}));
+
+// FCM TOKEN REGISTER (ANDROID NATIVE 24/7 PUSH)
+app.post("/api/fcm/register", asyncHandler(async (req: any, res: any) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(400).json({ error: "FCM token requerido" });
+  }
+  await registerFcmToken(token);
+  res.json({ success: true, message: "FCM token registrado correctamente" });
+}));
+
+// ==========================================
+// RUTAS DEL BOTÓN DE PÁNICO Y ESTADO DE BD (GLOBALES)
+// ==========================================
+
+app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
+  let supabaseHealthy = false;
+  let neonHealthy = false;
+
+  // Obtener modo global persistido desde Neon DB
+  const currentMode = await fetchGlobalDbModeFromDb();
+
+  // Test Supabase con timeout robusto de 6s para evitar falsas alarmas por latencia normal
+  try {
+    const sbPromise = supabase.from("users").select("id").limit(1);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
+    const { error } = await Promise.race([sbPromise, timeoutPromise]) as any;
+    supabaseHealthy = !error;
+  } catch (e) {
+    supabaseHealthy = false;
+  }
+
+  // Test Neon con timeout de 6s
+  if (neonPool) {
+    try {
+      const neonPromise = neonPool.query("SELECT 1;");
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
+      await Promise.race([neonPromise, timeoutPromise]);
+      neonHealthy = true;
+    } catch (e) {
+      neonHealthy = false;
+    }
+  }
+
+  res.json({
+    activeMode: currentMode,
+    supabaseHealthy,
+    neonHealthy,
+    neonConfigured: Boolean(neonPool)
+  });
+}));
+
+app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
+  const { mode } = req.body;
+  if (mode === "supabase" || mode === "neon") {
+    await persistGlobalDbMode(mode);
+    console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
+    return res.json({ success: true, activeMode: mode });
+  }
+  res.status(400).json({ error: "Modo no válido. Usa 'supabase' o 'neon'." });
+}));
+
+app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
+  if (!neonPool) {
+    return res.status(500).json({ error: "Neon no está configurado" });
+  }
+
+  const client = await neonPool.connect();
+  let usersSynced = 0;
+  let productsSynced = 0;
+
+  try {
+    const { data: users } = await supabase.from("users").select("*");
+    if (users && users.length > 0) {
+      for (const u of users) {
+        await client.query(`
             INSERT INTO public.users (id, name, email, role, password, photo, phone, "sellerCode")
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (id) DO UPDATE SET
@@ -4362,14 +4361,14 @@ if (!process.env.VERCEL) {
               phone = EXCLUDED.phone,
               "sellerCode" = EXCLUDED."sellerCode";
           `, [u.id, u.name, u.email, u.role, u.password || '123', u.photo, u.phone, u.sellerCode]);
-          usersSynced++;
-        }
+        usersSynced++;
       }
+    }
 
-      const { data: products } = await supabase.from("products").select("*");
-      if (products && products.length > 0) {
-        for (const p of products) {
-          await client.query(`
+    const { data: products } = await supabase.from("products").select("*");
+    if (products && products.length > 0) {
+      for (const p of products) {
+        await client.query(`
             INSERT INTO public.products (id, name, category, stock, price, description, image, variants, specifications)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET
@@ -4382,84 +4381,251 @@ if (!process.env.VERCEL) {
               variants = EXCLUDED.variants,
               specifications = EXCLUDED.specifications;
           `, [p.id, p.name, p.category, p.stock, p.price, p.description, p.image, JSON.stringify(p.variants || null), JSON.stringify(p.specifications || null)]);
-          productsSynced++;
-        }
+        productsSynced++;
       }
-      return res.json({ success: true, usersSynced, productsSynced });
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
-    } finally {
-      client.release();
     }
-  }));
+    return res.json({ success: true, usersSynced, productsSynced });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}));
 
-  // WAREHOUSE CONFIG API
-  app.get("/api/app-logo", asyncHandler(async (req: any, res: any) => {
-    const config = readWarehouseConfig();
-    if (!config.logoUrl) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
-        if (sysRow && sysRow.photo) {
-          config.logoUrl = sysRow.photo;
-          saveWarehouseConfig(config);
-        }
-      } catch (e) {}
-    }
-    res.json({ logoUrl: config.logoUrl || "/agricovet.png" });
-  }));
-
-  app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"), asyncHandler(async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image file provided" });
-    }
+// WAREHOUSE CONFIG API
+app.get("/api/app-logo", asyncHandler(async (req: any, res: any) => {
+  const config = readWarehouseConfig();
+  if (!config.logoUrl) {
     try {
-      try {
-        const { data: buckets } = await supabase.storage.listBuckets();
-        if (buckets && !buckets.find(b => b.name === 'productos')) {
-          await supabase.storage.createBucket('productos', { public: true });
-        }
-      } catch (bucketErr) {
-        console.warn("Could not check/create bucket:", bucketErr);
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      if (sysRow && sysRow.photo) {
+        config.logoUrl = sysRow.photo;
+        saveWarehouseConfig(config);
       }
+    } catch (e) { }
+  }
+  res.json({ logoUrl: config.logoUrl || "/agricovet.png" });
+}));
 
-      let buffer = req.file.buffer;
-      let contentType = 'image/png';
-      let fileName = `logo-${Date.now()}.png`;
-
-      try {
-        buffer = await sharp(req.file.buffer)
-          .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-          .png()
-          .toBuffer();
-      } catch (sharpError) {
-        console.warn("Sharp logo optimization failed:", sharpError);
-        contentType = req.file.mimetype;
-        const ext = req.file.originalname ? path.extname(req.file.originalname) : '.png';
-        fileName = `logo-${Date.now()}${ext}`;
+app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"), asyncHandler(async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No image file provided" });
+  }
+  try {
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (buckets && !buckets.find(b => b.name === 'productos')) {
+        await supabase.storage.createBucket('productos', { public: true });
       }
+    } catch (bucketErr) {
+      console.warn("Could not check/create bucket:", bucketErr);
+    }
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+    let buffer = req.file.buffer;
+    let contentType = 'image/png';
+    let fileName = `logo-${Date.now()}.png`;
+
+    try {
+      buffer = await sharp(req.file.buffer)
+        .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer();
+    } catch (sharpError) {
+      console.warn("Sharp logo optimization failed:", sharpError);
+      contentType = req.file.mimetype;
+      const ext = req.file.originalname ? path.extname(req.file.originalname) : '.png';
+      fileName = `logo-${Date.now()}${ext}`;
+    }
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: contentType,
+        upsert: true
+      });
+
+    let logoUrl = '';
+    if (uploadError) {
+      console.error("Storage logo upload error, failing back to base64:", uploadError);
+      logoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    } else {
+      const { data: publicUrlData } = supabase.storage
         .from('productos')
-        .upload(fileName, buffer, {
-          contentType: contentType,
-          upsert: true
-        });
+        .getPublicUrl(fileName);
+      logoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+    }
 
-      let logoUrl = '';
-      if (uploadError) {
-        console.error("Storage logo upload error, failing back to base64:", uploadError);
-        logoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        logoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+    const config = readWarehouseConfig();
+    config.logoUrl = logoUrl;
+    saveWarehouseConfig(config);
+
+    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
+    if (existing) {
+      await supabase.from("users").update({
+        photo: logoUrl,
+        name: "App Logo Configuration",
+        email: "system-logo@agricovet.com",
+        role: "system"
+      }).eq("id", "sys-logo-config");
+    } else {
+      await supabase.from("users").insert([{
+        id: "sys-logo-config",
+        name: "App Logo Configuration",
+        email: "system-logo@agricovet.com",
+        role: "system",
+        password: "",
+        photo: logoUrl,
+        phone: ""
+      }]);
+    }
+
+    res.json({ success: true, logoUrl });
+  } catch (error: any) {
+    console.error("Logo upload error:", error);
+    res.status(500).json({ error: "Error subiendo el logo", details: error.message });
+  }
+}));
+
+app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("signature"), asyncHandler(async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No image file provided" });
+  }
+  try {
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (buckets && !buckets.find(b => b.name === 'productos')) {
+        await supabase.storage.createBucket('productos', { public: true });
       }
+    } catch (bucketErr) {
+      console.warn("Could not check/create bucket:", bucketErr);
+    }
 
-      const config = readWarehouseConfig();
-      config.logoUrl = logoUrl;
-      saveWarehouseConfig(config);
+    let buffer = req.file.buffer;
+    let contentType = req.file.mimetype;
+    let fileName = `signature-${Date.now()}.png`;
 
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: contentType,
+        upsert: true
+      });
+
+    let signatureUrl = '';
+    if (uploadError) {
+      console.error("Storage signature upload error, failing back to base64:", uploadError);
+      signatureUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    } else {
+      const { data: publicUrlData } = supabase.storage
+        .from('productos')
+        .getPublicUrl(fileName);
+      signatureUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+    }
+
+    const config = readWarehouseConfig();
+    config.signatureUrl = signatureUrl;
+    saveWarehouseConfig(config);
+
+    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
+    if (existing) {
+      await supabase.from("users").update({
+        photo: signatureUrl,
+        name: "App Signature Configuration",
+        email: "system-signature@agricovet.com",
+        role: "system"
+      }).eq("id", "sys-signature-config");
+    } else {
+      await supabase.from("users").insert([{
+        id: "sys-signature-config",
+        name: "App Signature Configuration",
+        email: "system-signature@agricovet.com",
+        role: "system",
+        password: "",
+        photo: signatureUrl,
+        phone: ""
+      }]);
+    }
+
+    res.json({ success: true, signatureUrl });
+  } catch (error: any) {
+    console.error("Signature upload error:", error);
+    res.status(500).json({ error: "Error subiendo la firma", details: error.message });
+  }
+}));
+
+app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const config = readWarehouseConfig();
+  if (!config.logoUrl) {
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      if (sysRow && sysRow.photo) {
+        config.logoUrl = sysRow.photo;
+        saveWarehouseConfig(config);
+      }
+    } catch (e) { }
+  }
+  if (!config.signatureUrl) {
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      if (sysRow && sysRow.photo) {
+        config.signatureUrl = sysRow.photo;
+        saveWarehouseConfig(config);
+      }
+    } catch (e) { }
+  }
+  res.json({
+    location: config.location,
+    isSilentModeActive: !!config.isSilentModeActive,
+    logoUrl: config.logoUrl || "/agricovet.png",
+    signatureUrl: config.signatureUrl || ""
+  });
+}));
+
+app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { password } = req.body;
+  const config = readWarehouseConfig();
+  if (!config.logoUrl) {
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      if (sysRow && sysRow.photo) {
+        config.logoUrl = sysRow.photo;
+        saveWarehouseConfig(config);
+      }
+    } catch (e) { }
+  }
+  if (!config.signatureUrl) {
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      if (sysRow && sysRow.photo) {
+        config.signatureUrl = sysRow.photo;
+        saveWarehouseConfig(config);
+      }
+    } catch (e) { }
+  }
+  if (password === config.password) {
+    res.json({
+      success: true,
+      location: config.location,
+      isSilentModeActive: !!config.isSilentModeActive,
+      logoUrl: config.logoUrl || "/agricovet.png",
+      signatureUrl: config.signatureUrl || ""
+    });
+  } else {
+    res.status(403).json({ success: false, error: "Contraseña incorrecta" });
+  }
+}));
+
+app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { location, password, isSilentModeActive, logoUrl, signatureUrl } = req.body;
+  const config = readWarehouseConfig();
+
+  if (location !== undefined) config.location = location;
+  if (password !== undefined) config.password = password;
+  if (isSilentModeActive !== undefined) config.isSilentModeActive = isSilentModeActive;
+
+  if (logoUrl !== undefined) {
+    config.logoUrl = logoUrl;
+    try {
       const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
       if (existing) {
         await supabase.from("users").update({
@@ -4479,54 +4645,14 @@ if (!process.env.VERCEL) {
           phone: ""
         }]);
       }
-
-      res.json({ success: true, logoUrl });
-    } catch (error: any) {
-      console.error("Logo upload error:", error);
-      res.status(500).json({ error: "Error subiendo el logo", details: error.message });
+    } catch (e) {
+      console.error("Failed to sync logoUrl to Supabase:", e);
     }
-  }));
+  }
 
-  app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("signature"), asyncHandler(async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image file provided" });
-    }
+  if (signatureUrl !== undefined) {
+    config.signatureUrl = signatureUrl;
     try {
-      try {
-        const { data: buckets } = await supabase.storage.listBuckets();
-        if (buckets && !buckets.find(b => b.name === 'productos')) {
-          await supabase.storage.createBucket('productos', { public: true });
-        }
-      } catch (bucketErr) {
-        console.warn("Could not check/create bucket:", bucketErr);
-      }
-
-      let buffer = req.file.buffer;
-      let contentType = req.file.mimetype;
-      let fileName = `signature-${Date.now()}.png`;
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('productos')
-        .upload(fileName, buffer, {
-          contentType: contentType,
-          upsert: true
-        });
-
-      let signatureUrl = '';
-      if (uploadError) {
-        console.error("Storage signature upload error, failing back to base64:", uploadError);
-        signatureUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        signatureUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      }
-
-      const config = readWarehouseConfig();
-      config.signatureUrl = signatureUrl;
-      saveWarehouseConfig(config);
-
       const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
       if (existing) {
         await supabase.from("users").update({
@@ -4546,170 +4672,43 @@ if (!process.env.VERCEL) {
           phone: ""
         }]);
       }
+    } catch (e) {
+      console.error("Failed to sync signatureUrl to Supabase:", e);
+    }
+  }
 
-      res.json({ success: true, signatureUrl });
-    } catch (error: any) {
-      console.error("Signature upload error:", error);
-      res.status(500).json({ error: "Error subiendo la firma", details: error.message });
-    }
-  }));
-
-  app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const config = readWarehouseConfig();
-    if (!config.logoUrl) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
-        if (sysRow && sysRow.photo) {
-          config.logoUrl = sysRow.photo;
-          saveWarehouseConfig(config);
-        }
-      } catch (e) {}
-    }
-    if (!config.signatureUrl) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
-        if (sysRow && sysRow.photo) {
-          config.signatureUrl = sysRow.photo;
-          saveWarehouseConfig(config);
-        }
-      } catch (e) {}
-    }
-    res.json({ 
-      location: config.location, 
-      isSilentModeActive: !!config.isSilentModeActive, 
+  saveWarehouseConfig(config);
+  res.json({
+    success: true,
+    config: {
+      location: config.location,
+      isSilentModeActive: config.isSilentModeActive,
       logoUrl: config.logoUrl || "/agricovet.png",
-      signatureUrl: config.signatureUrl || "" 
-    });
-  }));
+      signatureUrl: config.signatureUrl || ""
+    }
+  });
+}));
 
-  app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { password } = req.body;
-    const config = readWarehouseConfig();
-    if (!config.logoUrl) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
-        if (sysRow && sysRow.photo) {
-          config.logoUrl = sysRow.photo;
-          saveWarehouseConfig(config);
+app.post("/api/warehouse-config/notify-share", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const config = readWarehouseConfig();
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (emailUser && emailPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: emailUser,
+          pass: emailPass
         }
-      } catch (e) {}
-    }
-    if (!config.signatureUrl) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
-        if (sysRow && sysRow.photo) {
-          config.signatureUrl = sysRow.photo;
-          saveWarehouseConfig(config);
-        }
-      } catch (e) {}
-    }
-    if (password === config.password) {
-      res.json({ 
-        success: true, 
-        location: config.location, 
-        isSilentModeActive: !!config.isSilentModeActive, 
-        logoUrl: config.logoUrl || "/agricovet.png",
-        signatureUrl: config.signatureUrl || "" 
       });
-    } else {
-      res.status(403).json({ success: false, error: "Contraseña incorrecta" });
-    }
-  }));
 
-  app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { location, password, isSilentModeActive, logoUrl, signatureUrl } = req.body;
-    const config = readWarehouseConfig();
-    
-    if (location !== undefined) config.location = location;
-    if (password !== undefined) config.password = password;
-    if (isSilentModeActive !== undefined) config.isSilentModeActive = isSilentModeActive;
-    
-    if (logoUrl !== undefined) {
-      config.logoUrl = logoUrl;
-      try {
-        const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
-        if (existing) {
-          await supabase.from("users").update({
-            photo: logoUrl,
-            name: "App Logo Configuration",
-            email: "system-logo@agricovet.com",
-            role: "system"
-          }).eq("id", "sys-logo-config");
-        } else {
-          await supabase.from("users").insert([{
-            id: "sys-logo-config",
-            name: "App Logo Configuration",
-            email: "system-logo@agricovet.com",
-            role: "system",
-            password: "",
-            photo: logoUrl,
-            phone: ""
-          }]);
-        }
-      } catch (e) {
-        console.error("Failed to sync logoUrl to Supabase:", e);
-      }
-    }
-    
-    if (signatureUrl !== undefined) {
-      config.signatureUrl = signatureUrl;
-      try {
-        const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
-        if (existing) {
-          await supabase.from("users").update({
-            photo: signatureUrl,
-            name: "App Signature Configuration",
-            email: "system-signature@agricovet.com",
-            role: "system"
-          }).eq("id", "sys-signature-config");
-        } else {
-          await supabase.from("users").insert([{
-            id: "sys-signature-config",
-            name: "App Signature Configuration",
-            email: "system-signature@agricovet.com",
-            role: "system",
-            password: "",
-            photo: signatureUrl,
-            phone: ""
-          }]);
-        }
-      } catch (e) {
-        console.error("Failed to sync signatureUrl to Supabase:", e);
-      }
-    }
-    
-    saveWarehouseConfig(config);
-    res.json({ 
-      success: true, 
-      config: { 
-        location: config.location, 
-        isSilentModeActive: config.isSilentModeActive, 
-        logoUrl: config.logoUrl || "/agricovet.png",
-        signatureUrl: config.signatureUrl || ""
-      } 
-    });
-  }));
-
-  app.post("/api/warehouse-config/notify-share", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const config = readWarehouseConfig();
-    const emailUser = process.env.EMAIL_USER;
-    const emailPass = process.env.EMAIL_PASS;
-
-    if (emailUser && emailPass) {
-        try {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: emailUser,
-                    pass: emailPass
-                }
-            });
-
-            await transporter.sendMail({
-                from: `"Sistema Agricovet" <${emailUser}>`,
-                to: emailUser, // Notify the admin
-                subject: `⚠️ Alerta: Ubicación de Bodega Compartida`,
-                html: `
+      await transporter.sendMail({
+        from: `"Sistema Agricovet" <${emailUser}>`,
+        to: emailUser, // Notify the admin
+        subject: `⚠️ Alerta: Ubicación de Bodega Compartida`,
+        html: `
                     <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 600px;">
                         <h2 style="color: #0d9488;">Alerta de Seguridad</h2>
                         <p>Se ha detectado que la ubicación de la bodega ha sido compartida por un usuario.</p>
@@ -4722,347 +4721,347 @@ if (!process.env.VERCEL) {
                         <p style="color: #64748b; font-size: 14px;">Este correo es informativo. Si no reconoces esta actividad, por favor revisa los permisos de usuario.</p>
                     </div>
                 `
-            });
-        } catch (e) {
-            console.error("Error sending share notification email:", e);
-        }
+      });
+    } catch (e) {
+      console.error("Error sending share notification email:", e);
+    }
+  }
+
+  res.json({ success: true });
+}));
+
+app.delete("/api/products/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("products");
+  const { id } = req.params;
+  const { error } = await supabase.from("products").delete().eq('id', id);
+  if (error) {
+    console.error("Error deleting product:", error);
+    return res.status(500).json({ error: error.message });
+  }
+  res.json({ success: true });
+}));
+
+app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
+  invalidateCache("products");
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: "No image file provided" });
+
+  try {
+    // Ensure bucket exists (best effort)
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (buckets && !buckets.find(b => b.name === 'productos')) {
+        await supabase.storage.createBucket('productos', { public: true });
+      }
+    } catch (bucketErr) {
+      console.warn("Could not check/create bucket:", bucketErr);
     }
 
-    res.json({ success: true });
-  }));
-
-  app.delete("/api/products/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    invalidateCache("products");
-    const { id } = req.params;
-    const { error } = await supabase.from("products").delete().eq('id', id);
-    if (error) {
-      console.error("Error deleting product:", error);
-      return res.status(500).json({ error: error.message });
-    }
-    res.json({ success: true });
-  }));
-
-  app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("image"), asyncHandler(async (req: any, res: any) => {
-    invalidateCache("products");
-    const { id } = req.params;
-    if (!req.file) return res.status(400).json({ error: "No image file provided" });
+    // Optimize using sharp (best effort)
+    let buffer = req.file.buffer;
+    let contentType = 'image/jpeg';
+    let fileName = `${id}-${Date.now()}.jpg`;
 
     try {
-      // Ensure bucket exists (best effort)
-      try {
-        const { data: buckets } = await supabase.storage.listBuckets();
-        if (buckets && !buckets.find(b => b.name === 'productos')) {
-          await supabase.storage.createBucket('productos', { public: true });
-        }
-      } catch (bucketErr) {
-        console.warn("Could not check/create bucket:", bucketErr);
-      }
+      buffer = await sharp(req.file.buffer)
+        .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+    } catch (sharpError) {
+      console.warn("Sharp optimization failed, using original upload buffer:", sharpError);
+      buffer = req.file.buffer;
+      contentType = req.file.mimetype;
+      const ext = req.file.originalname ? path.extname(req.file.originalname) : '.jpg';
+      fileName = `${id}-${Date.now()}${ext}`;
+    }
 
-      // Optimize using sharp (best effort)
-      let buffer = req.file.buffer;
-      let contentType = 'image/jpeg';
-      let fileName = `${id}-${Date.now()}.jpg`;
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: contentType,
+        upsert: true
+      });
 
+    let imageUrl = '';
+    if (uploadError) {
+      console.error("Storage upload error, failing back to base64:", uploadError);
+      // If storage fails, we use base64
+      let base64Buffer = req.file.buffer;
       try {
-        buffer = await sharp(req.file.buffer)
-          .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 80 })
+        base64Buffer = await sharp(req.file.buffer)
+          .resize(400, 400, { fit: 'inside' })
+          .jpeg({ quality: 60 })
           .toBuffer();
-      } catch (sharpError) {
-        console.warn("Sharp optimization failed, using original upload buffer:", sharpError);
-        buffer = req.file.buffer;
-        contentType = req.file.mimetype;
-        const ext = req.file.originalname ? path.extname(req.file.originalname) : '.jpg';
-        fileName = `${id}-${Date.now()}${ext}`;
+      } catch (e) {
+        console.warn("Sharp fallback resize failed, using original full buffer for base64:", e);
       }
-      
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      imageUrl = `data:${req.file.mimetype};base64,${base64Buffer.toString('base64')}`;
+    } else {
+      const { data: publicUrlData } = supabase.storage
         .from('productos')
-        .upload(fileName, buffer, {
-          contentType: contentType,
-          upsert: true
-        });
-
-      let imageUrl = '';
-      if (uploadError) {
-        console.error("Storage upload error, failing back to base64:", uploadError);
-        // If storage fails, we use base64
-        let base64Buffer = req.file.buffer;
-        try {
-          base64Buffer = await sharp(req.file.buffer)
-            .resize(400, 400, { fit: 'inside' })
-            .jpeg({ quality: 60 })
-            .toBuffer();
-        } catch (e) {
-          console.warn("Sharp fallback resize failed, using original full buffer for base64:", e);
-        }
-        imageUrl = `data:${req.file.mimetype};base64,${base64Buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      }
-
-      // Update Product in DB
-      const { error: dbError } = await supabase.from("products").update({ image: imageUrl }).eq('id', id);
-      if (dbError) {
-        console.error("DB update error:", dbError);
-        return res.status(500).json({ error: `Error en base de datos: ${dbError.message}` });
-      }
-      
-      res.json({ success: true, image: imageUrl });
-    } catch (error: any) {
-      console.error("Image processing error:", error);
-      res.status(500).json({ error: "Error procesando la imagen", details: error.message });
-    }
-  }));
-
-  // OFFERS
-  app.get("/api/offers", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const cached = getCachedData("offers");
-    if (cached) {
-      return res.json(cached);
+        .getPublicUrl(fileName);
+      imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
 
-    let { data: offers, error } = await supabase.from("offers").select("*");
-    if (error) {
-      if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
-        offers = [];
-      } else {
-        throw new Error(error.message);
-      }
+    // Update Product in DB
+    const { error: dbError } = await supabase.from("products").update({ image: imageUrl }).eq('id', id);
+    if (dbError) {
+      console.error("DB update error:", dbError);
+      return res.status(500).json({ error: `Error en base de datos: ${dbError.message}` });
     }
-    offers = offers || [];
-    
-    // Merge extra fields to bypass schema cache issues
-    try {
-      if (fs.existsSync("offers_extra.json")) {
-        const extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
-        offers.forEach((o: any) => {
-          if (extra[o.id]) {
-            o.price = extra[o.id].price;
-            o.sellerPrices = extra[o.id].sellerPrices;
-          }
-        });
-      }
-    } catch(e) {}
 
-    setCachedData("offers", offers);
-    res.json(offers);
-  }));
+    res.json({ success: true, image: imageUrl });
+  } catch (error: any) {
+    console.error("Image processing error:", error);
+    res.status(500).json({ error: "Error procesando la imagen", details: error.message });
+  }
+}));
 
-  app.post("/api/offers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    invalidateCache("offers");
-    const id = `o${Date.now()}`;
-    // Extract strictly needed fields to prevent mass assignment
-    const { title, description, badge, startsAt, endsAt, appliesTo, price, sellerPrices, photoUrl } = req.body;
-    const offer: any = { id, title, description, badge, startsAt, endsAt, appliesTo, photoUrl };
-    
-    // Extra fields to save locally to avoid schema cache "buyQty/price not found" errors
-    const offerPrice = price;
-    const offerSellerPrices = sellerPrices;
-    
-    const { error } = await supabase.from("offers").insert([offer]);
-    if (error) {
-      console.error("Supabase insert error for offers:", error);
+// OFFERS
+app.get("/api/offers", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const cached = getCachedData("offers");
+  if (cached) {
+    return res.json(cached);
+  }
+
+  let { data: offers, error } = await supabase.from("offers").select("*");
+  if (error) {
+    if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
+      offers = [];
+    } else {
       throw new Error(error.message);
     }
-    
-    // Save extra data locally
-    try {
-      let extra: any = {};
-      if (fs.existsSync("offers_extra.json")) {
-        extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
-      }
-      extra[id] = { price: offerPrice, sellerPrices: offerSellerPrices };
-      fs.writeFileSync("offers_extra.json", JSON.stringify(extra));
-    } catch(e) {}
-    
-    offer.price = offerPrice;
-    offer.sellerPrices = offerSellerPrices;
-    res.json(offer);
-  }));
+  }
+  offers = offers || [];
 
-  // SALES & INVOICES
-  app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    try {
-      // 0. Backup current active day's data before clearing
-      let currentInvoices: any[] = [];
-      let currentPayments: any[] = [];
-      try {
-        const { data: invs } = await supabase.from("invoices").select("*");
-        if (invs) currentInvoices = invs;
-        const { data: pmts } = await supabase.from("payments").select("*");
-        if (pmts) currentPayments = pmts;
-      } catch (dbErr) {
-        console.error("Error fetching data for archive preparation:", dbErr);
-      }
-
-      // Sync fetched invoices & payments to permanent archival backups
-      for (const inv of currentInvoices) {
-        await syncInvoiceToPermanentBackup(inv.id, inv);
-      }
-      for (const pmt of currentPayments) {
-        await syncPaymentToPermanentBackup(pmt.id, pmt);
-      }
-
-      // Write timestamped dated backup
-      try {
-        const backupsDir = path.join(process.cwd(), "backups");
-        if (!fs.existsSync(backupsDir)) {
-          fs.mkdirSync(backupsDir, { recursive: true });
+  // Merge extra fields to bypass schema cache issues
+  try {
+    if (fs.existsSync("offers_extra.json")) {
+      const extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
+      offers.forEach((o: any) => {
+        if (extra[o.id]) {
+          o.price = extra[o.id].price;
+          o.sellerPrices = extra[o.id].sellerPrices;
         }
-        
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const backupFileName = `sales_backup_${timestamp}.json`;
-        const backupData = {
-          clearedAt: new Date().toISOString(),
-          invoicesCount: currentInvoices.length,
-          paymentsCount: currentPayments.length,
-          invoices: currentInvoices,
-          payments: currentPayments
-        };
-        
-        fs.writeFileSync(path.join(backupsDir, backupFileName), JSON.stringify(backupData, null, 2), "utf8");
-        console.log(`[Backup] Previous day archived successfully to ${backupFileName}`);
-      } catch (err: any) {
-        console.error("Error creating dated backup file:", err.message);
+      });
+    }
+  } catch (e) { }
+
+  setCachedData("offers", offers);
+  res.json(offers);
+}));
+
+app.post("/api/offers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  invalidateCache("offers");
+  const id = `o${Date.now()}`;
+  // Extract strictly needed fields to prevent mass assignment
+  const { title, description, badge, startsAt, endsAt, appliesTo, price, sellerPrices, photoUrl } = req.body;
+  const offer: any = { id, title, description, badge, startsAt, endsAt, appliesTo, photoUrl };
+
+  // Extra fields to save locally to avoid schema cache "buyQty/price not found" errors
+  const offerPrice = price;
+  const offerSellerPrices = sellerPrices;
+
+  const { error } = await supabase.from("offers").insert([offer]);
+  if (error) {
+    console.error("Supabase insert error for offers:", error);
+    throw new Error(error.message);
+  }
+
+  // Save extra data locally
+  try {
+    let extra: any = {};
+    if (fs.existsSync("offers_extra.json")) {
+      extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
+    }
+    extra[id] = { price: offerPrice, sellerPrices: offerSellerPrices };
+    fs.writeFileSync("offers_extra.json", JSON.stringify(extra));
+  } catch (e) { }
+
+  offer.price = offerPrice;
+  offer.sellerPrices = offerSellerPrices;
+  res.json(offer);
+}));
+
+// SALES & INVOICES
+app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  try {
+    // 0. Backup current active day's data before clearing
+    let currentInvoices: any[] = [];
+    let currentPayments: any[] = [];
+    try {
+      const { data: invs } = await supabase.from("invoices").select("*");
+      if (invs) currentInvoices = invs;
+      const { data: pmts } = await supabase.from("payments").select("*");
+      if (pmts) currentPayments = pmts;
+    } catch (dbErr) {
+      console.error("Error fetching data for archive preparation:", dbErr);
+    }
+
+    // Sync fetched invoices & payments to permanent archival backups
+    for (const inv of currentInvoices) {
+      await syncInvoiceToPermanentBackup(inv.id, inv);
+    }
+    for (const pmt of currentPayments) {
+      await syncPaymentToPermanentBackup(pmt.id, pmt);
+    }
+
+    // Write timestamped dated backup
+    try {
+      const backupsDir = path.join(process.cwd(), "backups");
+      if (!fs.existsSync(backupsDir)) {
+        fs.mkdirSync(backupsDir, { recursive: true });
       }
 
-      /* Local JSON files are preserved for persistence by request
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const backupFileName = `sales_backup_${timestamp}.json`;
+      const backupData = {
+        clearedAt: new Date().toISOString(),
+        invoicesCount: currentInvoices.length,
+        paymentsCount: currentPayments.length,
+        invoices: currentInvoices,
+        payments: currentPayments
+      };
+
+      fs.writeFileSync(path.join(backupsDir, backupFileName), JSON.stringify(backupData, null, 2), "utf8");
+      console.log(`[Backup] Previous day archived successfully to ${backupFileName}`);
+    } catch (err: any) {
+      console.error("Error creating dated backup file:", err.message);
+    }
+
+    /* Local JSON files are preserved for persistence by request
+    try {
+      const localFiles = ['payments_local.json', 'payments.json'];
+      localFiles.forEach(file => {
+        const filePath = path.resolve(process.cwd(), file);
+        if (fs.existsSync(filePath)) {
+          fs.writeFileSync(filePath, JSON.stringify([], null, 2), "utf8");
+        }
+      });
+    } catch (e) {
+      console.error("Error clearing local payment files:", e);
+    }
+    */
+
+    // 2. Archive payments/abonos in Supabase instead of deleting
+    try {
+      const { error: arcPayErr } = await supabase.from("payments").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
+      if (arcPayErr && (arcPayErr.code === '42703' || arcPayErr.message.includes('is_archived'))) {
+        console.log("Archive payments failed (likely column missing), skipping DB clear to protect data.");
+      }
+    } catch (e) { }
+
+    // 3. Archive invoices in Supabase instead of deleting
+    try {
+      const { error: arcInvErr } = await supabase.from("invoices").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
+      if (arcInvErr && (arcInvErr.code === '42703' || arcInvErr.message.includes('is_archived'))) {
+        console.log("Archive invoices failed (likely column missing), skipping DB clear to protect data.");
+      }
+    } catch (e) { }
+
+    res.json({ success: true, archivedCount: currentInvoices.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+}));
+
+app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
+  isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
+
+  // Prohibir venta si no hay productos
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "No se puede realizar una venta sin productos." });
+  }
+
+  // Prohibir números negativos y validar existencia de datos mínimos
+  for (const item of items) {
+    if (item.quantity === undefined || parseFloat(item.quantity) <= 0) {
+      return res.status(400).json({ error: "La cantidad de cada producto debe ser mayor a cero. No se permiten números negativos u operar sin cantidades." });
+    }
+    if (item.price === undefined || parseFloat(item.price) < 0) {
+      return res.status(400).json({ error: "El precio de venta de cada producto no puede ser negativo." });
+    }
+  }
+
+  const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
+
+  // Auto-register client if not exists
+  if (client) {
+    let nameToSave = client.trim();
+    let companyToSave = '';
+    if (client.includes(' - ')) {
+      const parts = client.split(' - ');
+      nameToSave = parts[0].trim();
+      companyToSave = parts[1].trim();
+    }
+
+    const normName = nameToSave.toLowerCase();
+    const normCompany = companyToSave.toLowerCase();
+
+    let existingList: any[] = [];
+    try {
+      const { data } = await supabase.from("clients").select("*");
+      if (data) existingList = data;
+    } catch (e) { }
+
+    const localList = readLocalClients();
+    const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
+
+    if (matchedClient) {
+      console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
+
+      const updates: any = {};
+      if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+      if (!matchedClient.phone && phone) updates.phone = phone;
+      if (!matchedClient.address && address) updates.address = address;
+      if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+
+      const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+      if (!currentSeller && (sellerId || saleOwner)) {
+        updates.sellerId = sellerId || saleOwner;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateLocalClient(matchedClient.id, updates);
+        try {
+          await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+        } catch (e) { }
+      }
+    } else {
+      const clientData = {
+        id: `CLI-${Date.now()}`,
+        sellerId: sellerId || saleOwner,
+        name: nameToSave,
+        companyName: companyToSave,
+        nit: nit || '',
+        phone: phone || '',
+        address: address || '',
+        createdAt: new Date().toISOString()
+      };
+
+      addLocalClient(clientData);
       try {
-        const localFiles = ['payments_local.json', 'payments.json'];
-        localFiles.forEach(file => {
-          const filePath = path.resolve(process.cwd(), file);
-          if (fs.existsSync(filePath)) {
-            fs.writeFileSync(filePath, JSON.stringify([], null, 2), "utf8");
-          }
-        });
+        await safeInsertClient(clientData);
       } catch (e) {
-        console.error("Error clearing local payment files:", e);
+        console.error("Auto-register client insert failed:", e);
       }
-      */
-
-      // 2. Archive payments/abonos in Supabase instead of deleting
-      try {
-        const { error: arcPayErr } = await supabase.from("payments").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
-        if (arcPayErr && (arcPayErr.code === '42703' || arcPayErr.message.includes('is_archived'))) {
-           console.log("Archive payments failed (likely column missing), skipping DB clear to protect data.");
-        }
-      } catch (e) {}
-      
-      // 3. Archive invoices in Supabase instead of deleting
-      try {
-        const { error: arcInvErr } = await supabase.from("invoices").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
-        if (arcInvErr && (arcInvErr.code === '42703' || arcInvErr.message.includes('is_archived'))) {
-           console.log("Archive invoices failed (likely column missing), skipping DB clear to protect data.");
-        }
-      } catch (e) {}
-      
-      res.json({ success: true, archivedCount: currentInvoices.length });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
     }
-  }));
+  }
 
-  app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client, nit, phone, address, items, isOwed, invoiceType, creditDays, debtAlert, customDate, notes, transportMethod, sellerPaysShipping, sellerSignature } = req.body;
-    isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
+  let total = 0;
+  const processedItems: any[] = [];
+  let requiresAuth = debtAlert === true;
+  const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  let invoice: any = null;
 
-    // Prohibir venta si no hay productos
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "No se puede realizar una venta sin productos." });
-    }
+  // Mutex de concurrencia: bloquea los productos de esta venta para evitar condiciones de carrera
+  const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
+  const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
 
-    // Prohibir números negativos y validar existencia de datos mínimos
+  try {
     for (const item of items) {
-      if (item.quantity === undefined || parseFloat(item.quantity) <= 0) {
-        return res.status(400).json({ error: "La cantidad de cada producto debe ser mayor a cero. No se permiten números negativos u operar sin cantidades." });
-      }
-      if (item.price === undefined || parseFloat(item.price) < 0) {
-        return res.status(400).json({ error: "El precio de venta de cada producto no puede ser negativo." });
-      }
-    }
-
-    const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
-
-    // Auto-register client if not exists
-    if (client) {
-       let nameToSave = client.trim();
-       let companyToSave = '';
-       if (client.includes(' - ')) {
-         const parts = client.split(' - ');
-         nameToSave = parts[0].trim();
-         companyToSave = parts[1].trim();
-       }
-
-       const normName = nameToSave.toLowerCase();
-       const normCompany = companyToSave.toLowerCase();
-
-       let existingList: any[] = [];
-       try {
-         const { data } = await supabase.from("clients").select("*");
-         if (data) existingList = data;
-       } catch (e) {}
-
-       const localList = readLocalClients();
-       const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
-
-       if (matchedClient) {
-         console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
-         
-         const updates: any = {};
-         if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-         if (!matchedClient.phone && phone) updates.phone = phone;
-         if (!matchedClient.address && address) updates.address = address;
-         if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
-         
-         const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-         if (!currentSeller && (sellerId || saleOwner)) {
-           updates.sellerId = sellerId || saleOwner;
-         }
-
-         if (Object.keys(updates).length > 0) {
-           updateLocalClient(matchedClient.id, updates);
-           try {
-             await supabase.from("clients").update(updates).eq("id", matchedClient.id);
-           } catch (e) {}
-         }
-       } else {
-         const clientData = {
-           id: `CLI-${Date.now()}`,
-           sellerId: sellerId || saleOwner,
-           name: nameToSave,
-           companyName: companyToSave,
-           nit: nit || '',
-           phone: phone || '',
-           address: address || '',
-           createdAt: new Date().toISOString()
-         };
-
-         addLocalClient(clientData);
-         try {
-           await safeInsertClient(clientData);
-         } catch (e) {
-           console.error("Auto-register client insert failed:", e);
-         }
-       }
-    }
-
-    let total = 0;
-    const processedItems: any[] = [];
-    let requiresAuth = debtAlert === true;
-    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    let invoice: any = null;
-
-    // Mutex de concurrencia: bloquea los productos de esta venta para evitar condiciones de carrera
-    const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
-    const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
-
-    try {
-      for (const item of items) {
       let product;
       if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
         product = {
@@ -5079,7 +5078,7 @@ if (!process.env.VERCEL) {
         if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
         product = products[0];
       }
-      
+
       const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
 
       const isExemptFromStock = doesNotNeedStock(product);
@@ -5091,10 +5090,10 @@ if (!process.env.VERCEL) {
         if (item.variantId) {
           const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
           if (varIndex !== -1) {
-             variantObj = variantsToUpdate[varIndex];
-             if (variantObj.stock !== undefined) {
-               currentStock = parseFloat(variantObj.stock || 0);
-             }
+            variantObj = variantsToUpdate[varIndex];
+            if (variantObj.stock !== undefined) {
+              currentStock = parseFloat(variantObj.stock || 0);
+            }
           }
         }
 
@@ -5102,7 +5101,7 @@ if (!process.env.VERCEL) {
           requiresAuth = true;
           item.isStockAlert = true;
         }
-        
+
         const newStock = currentStock - parseFloat(item.quantity);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
@@ -5140,20 +5139,20 @@ if (!process.env.VERCEL) {
         }
 
         if (variantObj && variantObj.stock !== undefined) {
-           const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-           variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-           const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
-           if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
+          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+          variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
+          if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
         } else {
-           const { error: sErr } = await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
-           if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+          const { error: sErr } = await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
+          if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
         }
 
         if (!isExemptFromStock) {
-           deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
+          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
         }
       }
-      
+
       if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
         requiresAuth = true;
       }
@@ -5164,7 +5163,7 @@ if (!process.env.VERCEL) {
     }
 
     const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    
+
     // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
     invalidateCache("folio_map");
     const currentFolioMap = await getFolioMap(true);
@@ -5178,7 +5177,7 @@ if (!process.env.VERCEL) {
         const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
         startFromConfig = cfg.startFrom || 1;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
     while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
@@ -5198,15 +5197,15 @@ if (!process.env.VERCEL) {
     if (requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }
-    
+
     // Regla estricta de negocio:
     // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
     // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
     const isUserAdmin = req.user && req.user.role === 'admin';
     const saleExactTimestamp = (isUserAdmin && customDate)
       ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
-          ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
-          : new Date(customDate).toISOString())
+        ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+        : new Date(customDate).toISOString())
       : new Date().toISOString();
 
     // Try to insert with updated schema mapping
@@ -5231,9 +5230,9 @@ if (!process.env.VERCEL) {
     invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
     invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
     if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
-    
+
     let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
-    
+
     if (insertError) {
       console.warn("Primary insert invoice error:", insertError.message);
       // Fallback 1: try old schema names
@@ -5245,18 +5244,18 @@ if (!process.env.VERCEL) {
       fallbackInvoice1['phone'] = phone || "";
       fallbackInvoice1['address'] = address || "";
       fallbackInvoice1['folio'] = String(assignedFolio);
-      
+
       const { error: retryError1 } = await supabase.from("invoices").insert([fallbackInvoice1]);
       if (retryError1) {
-          // Fallback 2: bare minimum
-          const bareInvoice = { ...fallbackInvoice1 };
-          delete bareInvoice['phone'];
-          delete bareInvoice['address'];
-          // Si la base no tuviera la columna `nit`, se descarta igual que las
-          // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
-          delete bareInvoice['nit'];
-          const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
-          if(retryError2) throw new Error(retryError2.message);
+        // Fallback 2: bare minimum
+        const bareInvoice = { ...fallbackInvoice1 };
+        delete bareInvoice['phone'];
+        delete bareInvoice['address'];
+        // Si la base no tuviera la columna `nit`, se descarta igual que las
+        // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
+        delete bareInvoice['nit'];
+        const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
+        if (retryError2) throw new Error(retryError2.message);
       }
     }
 
@@ -5265,1712 +5264,1712 @@ if (!process.env.VERCEL) {
 
     invalidateCache("products");
     invalidateCache("folio_map");
-    } catch (err: any) {
-      // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
-      if (deductedStockRecords.length > 0) {
-        console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
-        for (const ded of deductedStockRecords) {
-          try {
-            const { data: pList } = await supabase.from("products").select("stock, variants").eq('id', ded.productId);
-            const p = pList?.[0];
-            if (p) {
-              if (ded.variantId && p.variants) {
-                const vars = [...p.variants];
-                const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
-                if (vIdx !== -1) {
-                  vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                  await supabase.from("products").update({ variants: vars }).eq('id', ded.productId);
-                }
-              } else {
-                await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
-              }
-            }
-          } catch (rbErr: any) {
-            console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
-          }
-        }
-        invalidateCache("products");
-      }
-      throw err;
-    } finally {
-      releaseStockLocks();
-    }
-
-    try {
-      const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
-      const invoiceUrl = `${baseUrl}/#billing`;
-
-      // WhatsApp API Notification a Admins
-      // Encontrar admins y notificar únicamente a los administradores
-      const { data: admins } = await supabase.from("users").select("name, phone").eq("role", "admin");
-      if (admins && admins.length > 0) {
-          const itemSummary = processedItems && processedItems.length > 0 
-              ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
-              : "Sin productos";
-          const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-          const totalFormatted = `Q. ${total.toFixed(2)}`;
-          const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
-          
-          const folioMap = await getFolioMap();
-          const folioVal = String(folioMap[String(id)] || 1);
-
-          for (const admin of admins) {
-              if (admin.phone) {
-                  const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
-
-                  console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
-                  internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
-                      admin.name || "Sergio",
-                      client,
-                      itemSummaryTruncated,
-                      totalFormatted,
-                      zone,
-                      folioVal
-                  ]).then(result => {
-                       if (!result.success) {
-                           console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
-                       } else {
-                           console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
-                       }
-                  }).catch(err => {
-                      console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
-                  });
-              }
-          }
-      }
-    } catch(e) {
-        console.error("Notification block error:", e);
-    }
-
-    // CREATE UI NOTIFICATION
-    await createNotification('new_order', '🛒 ¡Nuevo Pedido!', `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
-
-    let returnInvoice = { ...invoice };
-    const rawNotes = returnInvoice.notes || "";
-    
-    // Better flag extraction
-    const flags = rawNotes.split("|||");
-    let tempNit = flags[0].trim();
-    let realNotes = "";
-    
-    flags.slice(1).forEach(flag => {
-      const idx = flag.indexOf(":");
-      if (idx === -1) return;
-      const key = flag.substring(0, idx);
-      const value = flag.substring(idx + 1);
-
-      if (key === "AUTH") {
-        (returnInvoice as any).authStatus = value;
-      } else if (key === "DEBT") {
-        (returnInvoice as any).hasDebtAlert = value === "true";
-      } else if (key === "CREDIT") {
-        (returnInvoice as any).creditDays = parseInt(value);
-      } else if (key === "TYPE") {
-        (returnInvoice as any).invoiceType = value;
-      } else if (key === "OBS") {
-        realNotes = value;
-      } else if (key === "TRANS") {
-        (returnInvoice as any).transportMethod = value;
-      } else if (key === "PAYSHIP") {
-        (returnInvoice as any).sellerPaysShipping = value === "true";
-      } else if (key === "EDITED") {
-        (returnInvoice as any).isEdited = value === "true";
-      } else if (key === "SCAN_CLIENT") {
-        (returnInvoice as any).scanClient = value;
-      } else if (key === "SCAN_DATE") {
-        (returnInvoice as any).scanDate = value;
-      } else if (key === "SELLER_SIG") {
-        (returnInvoice as any).sellerSignature = value;
-      } else if (key === "ADMIN_SIG") {
-        (returnInvoice as any).adminSignature = value;
-      } else if (key === "REVIEWED_BY") {
-        (returnInvoice as any).reviewedBy = value;
-      }
-    });
-
-    if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
-        returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
-        returnInvoice.nit = returnInvoice.nit || "";
-    } else {
-        returnInvoice.nit = returnInvoice.nit || tempNit;
-        returnInvoice.notes = realNotes;
-    }
-
-    const folioMap = await getFolioMap();
-
-    res.json({
-      ...returnInvoice,
-      isOwed: true,
-      folio: folioMap[returnInvoice.id] || 1,
-      client: returnInvoice.client || returnInvoice.clientName || client,
-      nit: returnInvoice.nit || '',
-      phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
-      address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
-    });
-  }));
-
-  app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId, customDate, date } = req.body;
-    isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
-    
-    // Fetch old invoice
-    const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
-    if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
-    const oldInvoice = invoices[0];
-    
-    if (oldInvoice.status === 'cancelled' || oldInvoice.status === 'rejected') {
-        return res.status(400).json({ error: "Factura anulada, no se puede editar." });
-    }
-
-    let finalNotes = notes || oldInvoice.notes || "";
-    if (sellerSignature) {
-      finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
-    }
-
-    // 1. Validate all new products exist and calculate new total
-    let total = 0;
-    let needsAuth = false;
-    let formattedItems = [];
-    for (const item of items) {
-      let prod;
-      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
-        prod = {
-          id: item.productId,
-          name: 'COSTO DE ENVIO',
-          price: item.price !== undefined ? parseFloat(item.price) : 26,
-          stock: 999999,
-          is_external: true,
-          variants: []
-        };
-      } else {
-        const { data: products } = await supabase.from("products").select("stock, price, name, is_external, variants").eq('id', item.productId);
-        prod = products?.[0];
-      }
-      if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
-      
-      let variantsToUpdate = prod.variants ? [...prod.variants] : [];
-      let variantObj = null;
-      let currentStock = parseFloat(prod.stock || 0);
-      
-      if (item.variantId) {
-         const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-         if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-            if (variantObj.stock !== undefined) {
-               currentStock = parseFloat(variantObj.stock || 0);
-            }
-         }
-      }
-
-      let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
-      if (!item.isAuthorized && (item.price < prod.price || isStockAlert)) needsAuth = true;
-
-      total += item.price * item.quantity;
-      formattedItems.push({
-        ...item,
-        isStockAlert,
-        productName: prod.name,
-        originalPrice: prod.price,
-        total: item.price * item.quantity
-      });
-    }
-
-    // 2. Apply net stock changes
-    const netStockChanges: Record<string, { total: number, variants: Record<string, number> }> = {};
-    for (const old of oldInvoice.items) {
-       if (!netStockChanges[old.productId]) netStockChanges[old.productId] = { total: 0, variants: {} };
-       if (old.variantId) {
-          netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + parseFloat(old.quantity);
-       } else {
-          netStockChanges[old.productId].total += parseFloat(old.quantity);
-       }
-    }
-    for (const newItem of items) {
-       if (newItem.productId?.startsWith('shipping-') || newItem.productName === 'COSTO DE ENVIO' || newItem.productId === 'shipping-cost') continue;
-       if (!netStockChanges[newItem.productId]) netStockChanges[newItem.productId] = { total: 0, variants: {} };
-       if (newItem.variantId) {
-          netStockChanges[newItem.productId].variants[newItem.variantId] = (netStockChanges[newItem.productId].variants[newItem.variantId] || 0) - parseFloat(newItem.quantity);
-       } else {
-          netStockChanges[newItem.productId].total -= parseFloat(newItem.quantity);
-       }
-    }
-
-    const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
-    try {
-      for (const [prodId, changes] of Object.entries(netStockChanges)) {
-         const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq('id', prodId);
-         const p = pData?.[0];
-         if (!p || p.is_external) continue;
-         let varsToUpdate = p.variants ? [...p.variants] : [];
-         for (const [varId, netDiff] of Object.entries(changes.variants)) {
-            if (netDiff === 0) continue;
-            const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
-            if (vIdx !== -1) {
-               varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
-            }
-         }
-         if (Object.keys(changes.variants).length > 0) {
-            await supabase.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
-         } else if (changes.total !== 0) {
-            await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
-         }
-      }
-    } finally {
-      releaseEditStockLocks();
-    }
-
-    let baseNotesParts = (oldInvoice.notes || '').split("|||");
-    let oldNit = baseNotesParts[0].trim();
-    
-    // Parse old flags except OBS, AUTH and signatures because we re-set them
-    let keepFlags = baseNotesParts.slice(1).filter((f: string) => !f.startsWith("AUTH:") && !f.startsWith("OBS:") && !f.startsWith("SELLER_SIG:") && !f.startsWith("ADMIN_SIG:") && !f.startsWith("REVIEWED_BY:"));
-    
-    let safeNotes = notes !== undefined ? String(notes).replace(/\|\|\|/g, " - ") : "";
-    let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
-    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-
-    let effectiveNit = (nit !== undefined && nit !== null) ? String(nit).trim() : oldNit;
-    let reconstructedBaseNotes = effectiveNit + obsFlag + sellerSigFlag;
-    for(const f of keepFlags) {
-      reconstructedBaseNotes += "|||" + f;
-    }
-
-    // Ensure current folio is locked permanently so date changes never alter or shift folios
-    if (!reconstructedBaseNotes.includes("|||FOLIO:")) {
-      const currentFolioMap = await getFolioMap();
-      const existingFolio = currentFolioMap[String(oldInvoice.id)];
-      if (existingFolio) {
-        reconstructedBaseNotes += `|||FOLIO:${existingFolio}`;
-      }
-    }
-
-    if (!reconstructedBaseNotes.includes("|||EDITED:true")) {
-        reconstructedBaseNotes += "|||EDITED:true";
-    }
-
-    let newNotes = reconstructedBaseNotes;
-    invalidateCache("folio_map");
-    if (needsAuth) {
-        newNotes += "|||AUTH:pending";
-    } else {
-        newNotes += "|||AUTH:authorized"; // Mark authorized if no issue
-    }
-
-    const isUserAdmin = req.user && req.user.role === 'admin';
-    const targetDate = isUserAdmin ? (customDate || date) : null;
-    const updatedDataRaw: any = {
-        notes: newNotes,
-        items: formattedItems,
-        totalAmount: total,
-        status: isOwed ? 'pending' : (oldInvoice.paidAmount >= total ? 'paid' : (oldInvoice.status === 'sent' ? 'sent' : 'pending'))
-    };
-    if (targetDate) {
-      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
-        ? new Date(`${targetDate}T12:00:00-06:00`).toISOString()
-        : (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
-    }
-    updatedDataRaw['clientName'] = client;
-    updatedDataRaw['customerPhone'] = phone || '';
-    updatedDataRaw['deliveryAddress'] = address || '';
-    updatedDataRaw['nit'] = effectiveNit;
-    updatedDataRaw['customerNit'] = effectiveNit;
-
-    const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq('id', id);
-    if (updateError) {
-        console.warn("Primary update invoice error:", updateError.message);
-        const fallbackData = { ...updatedDataRaw };
-        delete fallbackData['clientName'];
-        delete fallbackData['customerPhone'];
-        delete fallbackData['deliveryAddress'];
-        delete fallbackData['customerNit'];
-        fallbackData['client'] = client;
-        fallbackData['phone'] = phone || '';
-        fallbackData['address'] = address || '';
-        fallbackData['nit'] = effectiveNit;
-
-        const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq('id', id);
-        if (retryError1) {
-             const bareData = { ...fallbackData };
-             delete bareData['phone'];
-             delete bareData['address'];
-             delete bareData['nit'];
-             await supabase.from("invoices").update(bareData).eq('id', id);
-        }
-    }
-
-    // Auto sync NIT to clients table if client exists
-    if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
-      try {
-        const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
-        if (matchedClients && matchedClients.length > 0) {
-          for (const mc of matchedClients) {
-            await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
-            updateLocalClient(mc.id, { nit: effectiveNit });
-          }
-        }
-      } catch (e) {
-        console.warn("Could not sync client NIT:", e);
-      }
-    }
-
-    const updatedData = { ...updatedDataRaw, client, nit: effectiveNit, phone, address };
-    await syncInvoiceToPermanentBackup(id);
-    
-    invalidateCache("products");
-    invalidateCache("folio_map");
-
-    let returnInvoice = { ...oldInvoice, ...updatedData };
-    if (returnInvoice.notes.includes("|||AUTH:")) {
-      const parts = returnInvoice.notes.split("|||AUTH:");
-      returnInvoice.notes = parts[0];
-      (returnInvoice as any).authStatus = parts[1];
-    }
-
-    const folioMap = await getFolioMap();
-
-    res.json({
-      ...returnInvoice,
-      isOwed: true,
-      folio: folioMap[returnInvoice.id] || 1,
-      client: returnInvoice.client || returnInvoice.clientName || client,
-      nit: effectiveNit || returnInvoice.nit || '',
-      phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
-      address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
-    });
-  }));
-
-  app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { nit, client, phone, address } = req.body;
-    
-    const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
-    if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
-    const oldInvoice = invoices[0];
-    
-    let baseNotesParts = (oldInvoice.notes || '').split("|||");
-    let effectiveNit = nit !== undefined ? String(nit).trim() : baseNotesParts[0].trim();
-    let otherFlags = baseNotesParts.slice(1).join("|||");
-    let newNotes = effectiveNit + (otherFlags ? "|||" + otherFlags : "");
-    
-    const updatePayload: any = {
-      notes: newNotes
-    };
-    if (nit !== undefined) {
-      updatePayload.nit = effectiveNit;
-      updatePayload.customerNit = effectiveNit;
-    }
-    if (client !== undefined) {
-      updatePayload.clientName = client.trim();
-      updatePayload.client = client.trim();
-    }
-    if (phone !== undefined) {
-      updatePayload.customerPhone = phone.trim();
-      updatePayload.phone = phone.trim();
-    }
-    if (address !== undefined) {
-      updatePayload.deliveryAddress = address.trim();
-      updatePayload.address = address.trim();
-    }
-    
-    const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq('id', id);
-    if (updateError) {
-      const fallback = { notes: newNotes };
-      await supabase.from("invoices").update(fallback).eq('id', id);
-    }
-    
-    await syncInvoiceToPermanentBackup(id);
-    
-    if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
-      try {
-        const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
-        if (matchedClients && matchedClients.length > 0) {
-          for (const mc of matchedClients) {
-            await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
-            updateLocalClient(mc.id, { nit: effectiveNit });
-          }
-        }
-      } catch (e) {}
-    }
-    
-    res.json({ success: true, nit: effectiveNit, client, phone, address });
-  }));
-
-  app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { adminSignature, reviewedBy } = req.body;
-    
-    const { data: invoices } = await supabase.from("invoices").select("notes").eq('id', id);
-    if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
-    
-    let currentNotes = invoices[0].notes || "";
-    currentNotes = updateTagInNotes(currentNotes, "ADMIN_SIG", adminSignature);
-    currentNotes = updateTagInNotes(currentNotes, "REVIEWED_BY", reviewedBy);
-    currentNotes = updateTagInNotes(currentNotes, "AUTH", "authorized");
-    
-    const { error } = await supabase.from("invoices").update({ notes: currentNotes }).eq('id', id);
-    if (error) throw error;
-    
-    res.json({ success: true });
-  }));
-
-
-  app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { creditDays } = req.body;
-    
-    try {
-      const { data, error: selectError } = await supabase.from("invoices").select("notes").eq('id', id).single();
-      if (selectError) console.error("Select error:", selectError);
-      if (data) {
-         let notes = data.notes || "";
-         if (notes.includes("|||CREDIT:")) {
-            const parts = notes.split("|||CREDIT:");
-            let rest = parts[1].replace(/^\d+/, ''); // remove the old number
-            notes = parts[0] + "|||CREDIT:" + creditDays + rest;
-         } else {
-            if (notes.includes("|||AUTH:")) {
-               const authParts = notes.split("|||AUTH:");
-               notes = authParts[0] + "|||CREDIT:" + creditDays + "|||AUTH:" + authParts[1];
-            } else {
-               notes = notes + "|||CREDIT:" + creditDays;
-            }
-         }
-         const { error: updateError } = await supabase.from("invoices").update({ notes }).eq('id', id);
-         if (updateError) console.error("Update error:", updateError); await syncInvoiceToPermanentBackup(id);
-      }
-    } catch(e) {
-      console.error("Catch error:", e);
-    }
-    
-    res.json({ success: true });
-  }));
-
-  app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { itemIndex, newPrice } = req.body;
-    
-    const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
-    if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
-    const invoice: any = invoices[0];
-    if (invoice.status === 'paid' || invoice.status === 'cancelled') {
-        return res.status(400).json({ error: "Cannot edit this invoice." });
-    }
-    
-    if (invoice.items[itemIndex]) {
-        invoice.items[itemIndex].price = newPrice;
-        invoice.items[itemIndex].total = invoice.items[itemIndex].quantity * newPrice;
-    }
-    
-    const newTotalAmount = invoice.items.reduce((acc: number, item: any) => acc + item.total, 0);
-    invoice.totalAmount = newTotalAmount;
-    
-    await supabase.from("invoices").update({
-        items: invoice.items,
-        totalAmount: newTotalAmount
-    }).eq('id', id);
-    await syncInvoiceToPermanentBackup(id);
-    
-    res.json(invoice);
-  }));
-
-  app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate, sellerId } = req.body;
-    
-    const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
-    if (!invoice) return res.status(404).json({ error: "No encontrada" });
-
-    // PROTECCION FISCAL: no dejar anular/rechazar por la via normal una factura
-    // que tiene un DTE certificado ante SAT. Anularla solo aqui dejaria la venta
-    // cancelada en el sistema pero el documento seguiria VALIDO ante SAT. Debe
-    // pasar por la anulacion FEL (que anula ante SAT y ademas cancela la factura
-    // y restaura el stock). Ver POST /api/invoices/:id/fel/anular.
-    if ((status === 'cancelled' || status === 'rejected')
-        && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-      const docFel: any = await felServicio.obtenerDocumentoPorFactura(supabase, id);
-      if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
-        return res.status(409).json({
-          error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
-                 "Para anularla, usa \"Anular documento ante SAT\" en el panel FEL: ese proceso " +
-                 "anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.",
-          requiereAnulacionFel: true,
-        });
-      }
-    }
-
-    let updateData: any = { status };
-
-    if (status !== invoice.status) {
-        if (status === 'pending') {
-           updateData.paidAmount = 0;
-        } else if (status === 'paid') {
-           updateData.paidAmount = invoice.totalAmount;
-        }
-    }
-
-    if (status === 'cancelled' || status === 'rejected') {
-      if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-          await restaurarStockDeFactura(invoice);
-      }
-    }
-
-    if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
-        const { data: inv } = await supabase.from("invoices").select("notes").eq('id', id).single();
-        if (inv) {
-            let notes = inv.notes || "";
-            if (guideNumber) {
-              notes = updateTagInNotes(notes, "TRACKING", guideNumber);
-            }
-            if (folio !== undefined) {
-              const parsedFolio = parseInt(folio);
-              if (!isNaN(parsedFolio)) {
-                // Determine current assigned folios using getFolioMap()
-                const currentMap = await getFolioMap();
-                const previousFolio = currentMap[String(id)];
-
-                // Only perform sequential cascading shifting if the folio assignment is actually changing
-                if (previousFolio !== parsedFolio) {
-                  console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-                  
-                  // Query all active (non-archived) invoices excluding the current invoice
-                  const { data: otherInvoices } = await supabase
-                    .from("invoices")
-                    .select("id, notes, status")
-                    .eq("is_archived", false)
-                    .neq("id", id);
-                  
-                  if (otherInvoices && otherInvoices.length > 0) {
-                    const updates = [];
-                    for (const otherInv of otherInvoices) {
-                      // Skip cancelled/rejected invoices
-                      if (otherInv.status === 'cancelled' || otherInv.status === 'rejected') {
-                        continue;
-                      }
-                      
-                      const otherCurrentFolio = currentMap[String(otherInv.id)];
-                      if (otherCurrentFolio !== undefined && otherCurrentFolio >= parsedFolio) {
-                        const otherNewFolio = otherCurrentFolio + 1;
-                        let otherNotes = otherInv.notes || "";
-                        otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
-                        
-                        updates.push({
-                          id: otherInv.id,
-                          notes: otherNotes
-                        });
-                      }
-                    }
-                    
-                    if (updates.length > 0) {
-                      console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
-                      for (const update of updates) {
-                        await supabase.from("invoices").update({ notes: update.notes }).eq('id', update.id);
-                        await syncInvoiceToPermanentBackup(update.id);
-                      }
-                    }
-                  }
-                }
-              }
-              notes = updateTagInNotes(notes, "FOLIO", folio);
-            }
-
-            if (deliveryLetterUrl) {
-              notes = updateTagInNotes(notes, "DELIVERY_LETTER", deliveryLetterUrl);
-            }
-
-            if (shippingGuideUrl) {
-              notes = updateTagInNotes(notes, "SHIPPING_GUIDE", shippingGuideUrl);
-            }
-            
-            if (clientName) {
-              notes = updateTagInNotes(notes, "SCAN_CLIENT", clientName);
-            }
-
-            if (shippingDate) {
-              notes = updateTagInNotes(notes, "SCAN_DATE", shippingDate);
-            }
-
-            updateData.notes = notes;
-            if (sellerId !== undefined) { updateData.sellerId = sellerId; }
-            await supabase.from("invoices").update(updateData).eq('id', id);
-            invalidateCache("folio_map");
-            invalidateCache("products");
-            await syncInvoiceToPermanentBackup(id);
-            return res.json({ success: true, guideNumber, folio });
-        }
-    }
-
-    await supabase.from("invoices").update(updateData).eq('id', id);
-    invalidateCache("folio_map");
-    invalidateCache("products");
-    await syncInvoiceToPermanentBackup(id);
-    res.json({ success: true });
-  }));
-
-  app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
-    if (!invoice) {
-      return res.status(404).json({ error: "La factura no existe" });
-    }
-    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
-      return res.status(403).json({ error: "No autorizado para archivar esta factura" });
-    }
-    await supabase.from("invoices").update({ is_archived: true }).eq('id', id);
-    invalidateCache("folio_map");
-    await syncInvoiceToPermanentBackup(id);
-    res.json({ success: true });
-  }));
-
-  app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
-    if (!invoice) {
-      return res.status(404).json({ error: "La factura no existe" });
-    }
-    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
-      return res.status(403).json({ error: "No autorizado para eliminar esta factura" });
-    }
-    if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-      for (const item of invoice.items) {
-         const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
-         const product = prods?.[0];
-         if (product && !product.is_external) {
-            let variantsToUpdate = product.variants ? [...product.variants] : [];
-            let variantObj = null;
-            if (item.variantId) {
-              const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-              if (varIndex !== -1) {
-                 variantObj = variantsToUpdate[varIndex];
-              }
-            }
-            if (variantObj && variantObj.stock !== undefined) {
-               const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-               variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-               const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
-               if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-            } else {
-               const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
-               if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-            }
-         }
-      }
-    }
-    await supabase.from("invoices").delete().eq('id', id);
-    invalidateCache("folio_map");
-    invalidateCache("products");
-    res.json({ success: true });
-  }));
-
-  app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let { sellerId, client } = req.query;
-    
-    // If searching by client, we allow a global search even for sellers to facilitate debt checking accurately
-    if (sellerId === 'global') {
-      sellerId = undefined;
-    } else if (req.user.role !== 'admin' && !client) {
-      if (!sellerId) {
-        sellerId = req.user.email; // Enforce their own email if omitted
-      } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
-        return res.status(403).json({ error: "No autorizado para ver estas facturas" });
-      }
-    }
-    
-    const fetchInvoices = async () => {
-      if (isNeonActive() && neonPool) {
+  } catch (err: any) {
+    // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
+    if (deductedStockRecords.length > 0) {
+      console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
+      for (const ded of deductedStockRecords) {
         try {
-          let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
-          const params: any[] = [];
-          if (sellerId) {
-            params.push(sellerId);
-            sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
-          }
-          sql += ' ORDER BY date DESC, id DESC';
-          const rows = await queryNeon(sql, params);
-          return { data: rows, error: null };
-        } catch (neErr) {
-          console.warn("Fetch invoices Neon error:", neErr);
-        }
-      }
-
-      let allInvoices: any[] = [];
-      let page = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-      let useFallback = false;
-
-      while (hasMore) {
-        let query = supabase.from("invoices").select("*");
-        if (!useFallback) {
-          query = query.eq('is_archived', false);
-        }
-        if (sellerId) {
-          query = query.eq('sellerId', sellerId);
-        }
-        const res = await query
-          .order("date", { ascending: false })
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-        if (res.error) {
-          if (!useFallback && (res.error.code === '42703' || res.error.message?.includes('is_archived'))) {
-            useFallback = true;
-            page = 0;
-            allInvoices = [];
-            continue;
-          }
-          if (neonPool) {
-            try {
-              let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
-              const params: any[] = [];
-              if (sellerId) {
-                params.push(sellerId);
-                sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+          const { data: pList } = await supabase.from("products").select("stock, variants").eq('id', ded.productId);
+          const p = pList?.[0];
+          if (p) {
+            if (ded.variantId && p.variants) {
+              const vars = [...p.variants];
+              const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
+              if (vIdx !== -1) {
+                vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
+                await supabase.from("products").update({ variants: vars }).eq('id', ded.productId);
               }
-              sql += ' ORDER BY date DESC, id DESC';
-              const rows = await queryNeon(sql, params);
-              return { data: rows, error: null };
-            } catch (neErr2) {}
-          }
-          return res;
-        }
-
-        const data = res.data || [];
-        allInvoices = allInvoices.concat(data);
-        if (data.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      }
-
-      return { data: allInvoices, error: null };
-    };
-    
-    const { data: invoices, error } = await fetchInvoices();
-    if (error) {
-      if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist') || error.code === '42703') {
-        return res.json([]);
-      }
-      throw new Error(error.message);
-    }
-    
-    // Only query getFolioMap if at least one invoice in this batch lacks an explicit folio
-    const needsFolioMap = invoices.some((inv: any) => {
-      const hasDirectFolio = inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '';
-      const hasNoteFolio = inv.notes && inv.notes.includes("|||FOLIO:");
-      return !hasDirectFolio && !hasNoteFolio;
-    });
-
-    const folioMap = needsFolioMap ? await getFolioMap() : {};
-
-    const parsedInvoices = invoices.map((inv: any) => {
-       const mappedInv = { ...inv };
-       const rawNotes = mappedInv.notes || "";
-       if (rawNotes.includes("|||")) {
-           const flags = rawNotes.split("|||");
-           let potentialNit = flags[0].trim();
-           if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               mappedInv.notes = potentialNit;
-               mappedInv.nit = ""; // Force clear nit if it was actually notes
-           } else {
-               mappedInv.nit = mappedInv.nit || potentialNit;
-               mappedInv.notes = ""; // Reset since nit is now assigned
-           }
-           flags.slice(1).forEach((flag: string) => {
-               const idx = flag.indexOf(':');
-               if (idx !== -1) {
-                   const key = flag.substring(0, idx);
-                   const value = flag.substring(idx + 1);
-                   if (key === "AUTH") {
-                       mappedInv.authStatus = value;
-                   } else if (key === "DEBT") {
-                       mappedInv.hasDebtAlert = value === "true"; // Debt alert mapping
-                   } else if (key === "CREDIT") {
-                       const val = parseInt(value, 10);
-                       if (!isNaN(val)) mappedInv.creditDays = val;
-                   } else if (key === "TYPE") {
-                       mappedInv.invoiceType = value;
-                   } else if (key === "TRACKING") {
-                       mappedInv.trackingNumber = value;
-                   } else if (key === "DELIVERY_LETTER") {
-                       mappedInv.deliveryLetterUrl = value;
-                   } else if (key === "SHIPPING_GUIDE") {
-                       mappedInv.shippingGuideUrl = value;
-                   } else if (key === "SCAN_CLIENT") {
-                       mappedInv.scanClient = value;
-                   } else if (key === "SCAN_DATE") {
-                       mappedInv.scanDate = value;
-                   } else if (key === "OBS") {
-                       mappedInv.notes = value;
-                   } else if (key === "EDITED") {
-                       mappedInv.isEdited = value === "true";
-                    } else if (key === "SELLER_SIG") {
-                        mappedInv.sellerSignature = value;
-                    } else if (key === "ADMIN_SIG") {
-                        mappedInv.adminSignature = value;
-                    } else if (key === "REVIEWED_BY") {
-                        mappedInv.reviewedBy = value;
-                   }
-               }
-           });
-       } else {
-           // Older legacy notes that just had NIT
-           let potentialNit = rawNotes.trim();
-           if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
-               mappedInv.notes = potentialNit;
-               mappedInv.nit = "";
-           } else {
-               mappedInv.nit = mappedInv.nit || potentialNit;
-               mappedInv.notes = "";
-           }
-       }
-       
-       if (mappedInv.nit && (mappedInv.nit.length > 25 || mappedInv.nit.toLowerCase().includes("enviar") || mappedInv.nit.toLowerCase().includes("entrega") || mappedInv.nit.toLowerCase().includes("nota"))) {
-           mappedInv.notes = mappedInv.notes ? mappedInv.notes + " " + mappedInv.nit : mappedInv.nit;
-           mappedInv.nit = "";
-       }
-       
-       return {
-         ...mappedInv,
-         folio: (function() {
-             if (mappedInv.folio !== undefined && mappedInv.folio !== null && String(mappedInv.folio).trim() !== '') {
-               const strVal = String(mappedInv.folio).trim();
-               const num = parseInt(strVal, 10);
-               return !isNaN(num) && num > 0 ? num : strVal;
-             }
-             const m = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
-             return m ? parseInt(m[1], 10) : (folioMap[String(mappedInv.id)] || 1);
-         })(),
-         client: mappedInv.client || mappedInv.clientName || '',
-         nit: mappedInv.nit || '',
-         phone: mappedInv.phone || mappedInv.customerPhone || '',
-         address: mappedInv.address || mappedInv.deliveryAddress || '',
-         trackingNumber: mappedInv.trackingNumber
-       };
-    });
-
-    // In-memory robust filtering for both "client" and "clientName" schema columns
-    let filteredInvoices = parsedInvoices;
-    if (client) {
-      const clientLower = String(client).toLowerCase().trim();
-      filteredInvoices = parsedInvoices.filter((inv: any) => {
-        const nameVal = String(inv.client || inv.clientName || '').toLowerCase().trim();
-        // Allow partial matches or complete matches
-        return nameVal.includes(clientLower) || clientLower.includes(nameVal);
-      });
-      console.log(`Filtered invoices for client "${client}": found ${filteredInvoices.length} results.`);
-    }
-
-    filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    // Strip heavy base64 fields from list response to reduce payload (~7MB savings)
-    // These are only needed when viewing/printing a single invoice
-    const lightInvoices = filteredInvoices.map((inv: any) => {
-      const { sellerSignature, adminSignature, customer_signature, admin_signature, seller_signature, pdfBase64, ...rest } = inv;
-      return rest;
-    });
-
-    res.json(lightInvoices);
-  }));
-
-  app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    let folioConfig = { resetDate: null, startFrom: 1 };
-    const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-    if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-      try {
-        folioConfig = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-      } catch (err) {}
-    }
-    try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
-      if (sysRow && sysRow.photo) {
-        folioConfig = JSON.parse(sysRow.photo);
-      }
-    } catch (e) {}
-    res.json(folioConfig);
-  }));
-
-  app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { resetDate, startFrom } = req.body;
-    const config = {
-      resetDate: resetDate || new Date().toISOString(),
-      startFrom: startFrom !== undefined ? parseInt(startFrom, 10) : 1
-    };
-
-    // Save locally
-    const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-    try {
-      fs.writeFileSync(FOLIO_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
-    } catch(err) {}
-
-    // Save in Supabase
-    try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-folio-config").single();
-      if (existing) {
-        await supabase.from("users").update({
-          photo: JSON.stringify(config),
-          name: "Folio Configuration",
-          email: "system-folio@agricovet.com",
-          role: "system"
-        }).eq("id", "sys-folio-config");
-      } else {
-        await supabase.from("users").insert([{
-          id: "sys-folio-config",
-          name: "Folio Configuration",
-          email: "system-folio@agricovet.com",
-          role: "system",
-          password: "",
-          photo: JSON.stringify(config),
-          phone: ""
-        }]);
-      }
-    } catch (e) {
-      console.error("Failed to save folio config to Supabase:", e);
-    }
-
-    res.json({ success: true, config });
-    invalidateCache("folio_map");
-  }));
-
-  app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let excludedIds: string[] = [];
-    const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
-    if (fs.existsSync(EXCLUDED_FILE)) {
-      try {
-        excludedIds = JSON.parse(fs.readFileSync(EXCLUDED_FILE, "utf-8"));
-      } catch (err) {}
-    }
-    try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-critical-config").single();
-      if (sysRow && sysRow.photo) {
-        const parsed = JSON.parse(sysRow.photo);
-        if (Array.isArray(parsed)) {
-          excludedIds = parsed;
-        }
-      }
-    } catch (e) {}
-    if (!Array.isArray(excludedIds)) excludedIds = [];
-    res.json({ excludedIds });
-  }));
-
-  app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { excludedIds } = req.body;
-    const list = Array.isArray(excludedIds) ? excludedIds : [];
-    
-    // Save locally
-    const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
-    try {
-      fs.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
-    } catch (err) {}
-
-    // Save in Supabase
-    try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-critical-config").single();
-      if (existing) {
-        await supabase.from("users").update({
-          photo: JSON.stringify(list),
-          name: "Critical Stock Exclusions",
-          email: "system-critical@agricovet.com",
-          role: "system"
-        }).eq("id", "sys-critical-config");
-      } else {
-        await supabase.from("users").insert([{
-          id: "sys-critical-config",
-          name: "Critical Stock Exclusions",
-          email: "system-critical@agricovet.com",
-          role: "system",
-          password: "",
-          photo: JSON.stringify(list),
-          phone: ""
-        }]);
-      }
-    } catch (e) {
-      console.error("Failed to save critical stock exclusions to Supabase:", e);
-    }
-
-    res.json({ success: true, excludedIds: list });
-  }));
-
-  app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let template = "";
-    const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
-    if (fs.existsSync(TEMPLATE_FILE)) {
-      try {
-        template = fs.readFileSync(TEMPLATE_FILE, "utf-8");
-      } catch (err) {}
-    }
-    if (!template) {
-      try {
-        const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-print-template").single();
-        if (sysRow && sysRow.photo) {
-          template = sysRow.photo;
-        }
-      } catch (e) {}
-    }
-    res.json({ template });
-  }));
-
-  app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { template } = req.body;
-    
-    // Save locally
-    const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
-    try {
-      fs.writeFileSync(TEMPLATE_FILE, template || "", "utf8");
-    } catch(err) {}
-
-    // Save in Supabase
-    try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-print-template").single();
-      if (existing) {
-        await supabase.from("users").update({
-          photo: template || "",
-          name: "Print Template Configuration",
-          email: "system-print-template@agricovet.com",
-          role: "system"
-        }).eq("id", "sys-print-template");
-      } else {
-        await supabase.from("users").insert([{
-          id: "sys-print-template",
-          name: "Print Template Configuration",
-          email: "system-print-template@agricovet.com",
-          role: "system",
-          password: "",
-          photo: template || "",
-          phone: ""
-        }]);
-      }
-    } catch (e) {
-      console.error("Failed to save print template to Supabase:", e);
-    }
-
-    res.json({ success: true });
-  }));
-
-  app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { status } = req.body; // 'authorized', 'rejected', or 'pending'
-    
-    try {
-      const { data: rawData, error: selectErr } = await supabase.from("invoices").select("*").eq('id', id).single();
-      if (selectErr) {
-        console.error("Error fetching invoice in auth endpoint:", JSON.stringify(selectErr));
-        return res.status(400).json({ error: "Fallo al obtener la factura: " + selectErr.message });
-      }
-      if (rawData) {
-         const data = rawData as any;
-         let notes = data.notes || "";
-         if (status === 'pending') {
-            notes = notes.split("|||AUTH:")[0]; // Strip auth info to reset
-         } else {
-            if (notes.includes("|||AUTH:")) {
-                notes = notes.split("|||AUTH:")[0] + "|||AUTH:" + status;
             } else {
-                notes = notes + "|||AUTH:" + status;
+              await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
             }
-         }
-         const { error: updateErr } = await supabase.from("invoices").update({ notes }).eq('id', id);
-         if (updateErr) {
-            console.error("Error updating invoice auth status notes:", updateErr);
-            return res.status(400).json({ error: "Fallo al actualizar estado de autorización: " + updateErr.message });
-         }
-
-         if (status === 'rejected') {
-            await createNotification('sale_rejected', 'Venta Rechazada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido rechazada por el administrador.`, { invoiceId: id });
-         } else if (status === 'authorized') {
-            await createNotification('sale_authorized', 'Venta Autorizada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido autorizada por el administrador.`, { invoiceId: id });
-         }
-
-         // Enviar notificación a vendedor
-         try {
-             const sellerId = data.sellerId;
-             const clientName = data.clientName || data.client || "el cliente";
-             if (sellerId) {
-                let seller = null;
-                const { data: sellerDataByEmail } = await supabase.from("users").select("name, phone").eq("email", sellerId).single();
-                if (sellerDataByEmail) seller = sellerDataByEmail;
-                else {
-                    const { data: sellerDataById } = await supabase.from("users").select("name, phone").eq("id", sellerId).single();
-                    if (sellerDataById) seller = sellerDataById;
-                }
-                
-                if (seller && seller.phone) {
-                    const actionText = status === 'rejected' ? 'RECHAZADO' : 'AUTORIZADO';
-                    const message = `Hola ${seller.name},\n\nTu pedido para *${clientName}* ha sido *${actionText}* por un administrador.`;
-                    
-                    if (status === 'rejected') {
-                        // Notify seller
-                        internalSendWhatsApp(seller.phone, message, "alert_rechazo_factura", "es_MX", [
-                            { name: "w_pedido", value: id },
-                            { name: "w_vendedor", value: seller.name },
-                            { name: "w_cliente", value: clientName }
-                        ]).catch(e => console.warn("Error notifying seller:", e.message));
-
-                        // Notify client too if phone exists
-                        const clientPhone = data.phone || data.customerPhone;
-                        if (clientPhone) {
-                            const clientMsg = `Hola *${clientName}*, tu pedido ${id} ha sido rechazado.`;
-                            internalSendWhatsApp(clientPhone, clientMsg, "alert_rechazo_factura", "es_MX", [
-                                { name: "w_pedido", value: id },
-                                { name: "w_vendedor", value: seller.name || "Ventas" },
-                                { name: "w_cliente", value: clientName }
-                            ]).catch(e => console.warn("Error notifying client:", e.message));
-                        }
-                    } else {
-                        internalSendWhatsApp(seller.phone, message).catch(e => console.warn("Error notifying seller:", e.message));
-                    }
-                } else {
-                    console.log("Seller has no associated phone or info not found:", { sellerId, found: !!seller });
-                }
-            }
-         } catch (notifyErr) {
-             console.error("Error intentando notificar:", notifyErr);
-         }
+          }
+        } catch (rbErr: any) {
+          console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+        }
       }
-    } catch(e: any) {
-      console.error("Catch error in auth endpoint:", e);
-      return res.status(500).json({ error: "Error interno en autorización: " + e.message });
+      invalidateCache("products");
     }
-    
-    res.json({ success: true, status });
-  }));
+    throw err;
+  } finally {
+    releaseStockLocks();
+  }
 
-  // PAYMENTS (Abonos)
-  app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { amount, notes } = req.body;
-    const numAmount = parseFloat(amount);
-    
-    const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
-    if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
-    const invoice: any = invoices[0];
-    
-    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email && invoice.sellerId !== req.user.id) {
-       return res.status(403).json({ error: "No autorizado para abonar a esta factura" });
+  try {
+    const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
+    const invoiceUrl = `${baseUrl}/#billing`;
+
+    // WhatsApp API Notification a Admins
+    // Encontrar admins y notificar únicamente a los administradores
+    const { data: admins } = await supabase.from("users").select("name, phone").eq("role", "admin");
+    if (admins && admins.length > 0) {
+      const itemSummary = processedItems && processedItems.length > 0
+        ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
+        : "Sin productos";
+      const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+      const totalFormatted = `Q. ${total.toFixed(2)}`;
+      const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+
+      const folioMap = await getFolioMap();
+      const folioVal = String(folioMap[String(id)] || 1);
+
+      for (const admin of admins) {
+        if (admin.phone) {
+          const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
+
+          console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
+          internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
+            admin.name || "Sergio",
+            client,
+            itemSummaryTruncated,
+            totalFormatted,
+            zone,
+            folioVal
+          ]).then(result => {
+            if (!result.success) {
+              console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
+            } else {
+              console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
+            }
+          }).catch(err => {
+            console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Notification block error:", e);
+  }
+
+  // CREATE UI NOTIFICATION
+  await createNotification('new_order', '🛒 ¡Nuevo Pedido!', `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
+
+  let returnInvoice = { ...invoice };
+  const rawNotes = returnInvoice.notes || "";
+
+  // Better flag extraction
+  const flags = rawNotes.split("|||");
+  let tempNit = flags[0].trim();
+  let realNotes = "";
+
+  flags.slice(1).forEach(flag => {
+    const idx = flag.indexOf(":");
+    if (idx === -1) return;
+    const key = flag.substring(0, idx);
+    const value = flag.substring(idx + 1);
+
+    if (key === "AUTH") {
+      (returnInvoice as any).authStatus = value;
+    } else if (key === "DEBT") {
+      (returnInvoice as any).hasDebtAlert = value === "true";
+    } else if (key === "CREDIT") {
+      (returnInvoice as any).creditDays = parseInt(value);
+    } else if (key === "TYPE") {
+      (returnInvoice as any).invoiceType = value;
+    } else if (key === "OBS") {
+      realNotes = value;
+    } else if (key === "TRANS") {
+      (returnInvoice as any).transportMethod = value;
+    } else if (key === "PAYSHIP") {
+      (returnInvoice as any).sellerPaysShipping = value === "true";
+    } else if (key === "EDITED") {
+      (returnInvoice as any).isEdited = value === "true";
+    } else if (key === "SCAN_CLIENT") {
+      (returnInvoice as any).scanClient = value;
+    } else if (key === "SCAN_DATE") {
+      (returnInvoice as any).scanDate = value;
+    } else if (key === "SELLER_SIG") {
+      (returnInvoice as any).sellerSignature = value;
+    } else if (key === "ADMIN_SIG") {
+      (returnInvoice as any).adminSignature = value;
+    } else if (key === "REVIEWED_BY") {
+      (returnInvoice as any).reviewedBy = value;
+    }
+  });
+
+  if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
+    returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
+    returnInvoice.nit = returnInvoice.nit || "";
+  } else {
+    returnInvoice.nit = returnInvoice.nit || tempNit;
+    returnInvoice.notes = realNotes;
+  }
+
+  const folioMap = await getFolioMap();
+
+  res.json({
+    ...returnInvoice,
+    isOwed: true,
+    folio: folioMap[returnInvoice.id] || 1,
+    client: returnInvoice.client || returnInvoice.clientName || client,
+    nit: returnInvoice.nit || '',
+    phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
+    address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
+  });
+}));
+
+app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId, customDate, date } = req.body;
+  isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
+
+  // Fetch old invoice
+  const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
+  if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+  const oldInvoice = invoices[0];
+
+  if (oldInvoice.status === 'cancelled' || oldInvoice.status === 'rejected') {
+    return res.status(400).json({ error: "Factura anulada, no se puede editar." });
+  }
+
+  let finalNotes = notes || oldInvoice.notes || "";
+  if (sellerSignature) {
+    finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
+  }
+
+  // 1. Validate all new products exist and calculate new total
+  let total = 0;
+  let needsAuth = false;
+  let formattedItems = [];
+  for (const item of items) {
+    let prod;
+    if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+      prod = {
+        id: item.productId,
+        name: 'COSTO DE ENVIO',
+        price: item.price !== undefined ? parseFloat(item.price) : 26,
+        stock: 999999,
+        is_external: true,
+        variants: []
+      };
+    } else {
+      const { data: products } = await supabase.from("products").select("stock, price, name, is_external, variants").eq('id', item.productId);
+      prod = products?.[0];
+    }
+    if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
+
+    let variantsToUpdate = prod.variants ? [...prod.variants] : [];
+    let variantObj = null;
+    let currentStock = parseFloat(prod.stock || 0);
+
+    if (item.variantId) {
+      const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+      if (varIndex !== -1) {
+        variantObj = variantsToUpdate[varIndex];
+        if (variantObj.stock !== undefined) {
+          currentStock = parseFloat(variantObj.stock || 0);
+        }
+      }
     }
 
-    const pendingBalance = invoice.totalAmount - invoice.paidAmount;
-    if (numAmount > pendingBalance) {
-      return res.status(400).json({ error: "El abono excede el saldo pendiente" });
-    }
+    let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
+    if (!item.isAuthorized && (item.price < prod.price || isStockAlert)) needsAuth = true;
 
-    let receiptUrl = null;
-    if (req.file) {
+    total += item.price * item.quantity;
+    formattedItems.push({
+      ...item,
+      isStockAlert,
+      productName: prod.name,
+      originalPrice: prod.price,
+      total: item.price * item.quantity
+    });
+  }
+
+  // 2. Apply net stock changes
+  const netStockChanges: Record<string, { total: number, variants: Record<string, number> }> = {};
+  for (const old of oldInvoice.items) {
+    if (!netStockChanges[old.productId]) netStockChanges[old.productId] = { total: 0, variants: {} };
+    if (old.variantId) {
+      netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + parseFloat(old.quantity);
+    } else {
+      netStockChanges[old.productId].total += parseFloat(old.quantity);
+    }
+  }
+  for (const newItem of items) {
+    if (newItem.productId?.startsWith('shipping-') || newItem.productName === 'COSTO DE ENVIO' || newItem.productId === 'shipping-cost') continue;
+    if (!netStockChanges[newItem.productId]) netStockChanges[newItem.productId] = { total: 0, variants: {} };
+    if (newItem.variantId) {
+      netStockChanges[newItem.productId].variants[newItem.variantId] = (netStockChanges[newItem.productId].variants[newItem.variantId] || 0) - parseFloat(newItem.quantity);
+    } else {
+      netStockChanges[newItem.productId].total -= parseFloat(newItem.quantity);
+    }
+  }
+
+  const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
+  try {
+    for (const [prodId, changes] of Object.entries(netStockChanges)) {
+      const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq('id', prodId);
+      const p = pData?.[0];
+      if (!p || p.is_external) continue;
+      let varsToUpdate = p.variants ? [...p.variants] : [];
+      for (const [varId, netDiff] of Object.entries(changes.variants)) {
+        if (netDiff === 0) continue;
+        const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
+        if (vIdx !== -1) {
+          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
+        }
+      }
+      if (Object.keys(changes.variants).length > 0) {
+        await supabase.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
+      } else if (changes.total !== 0) {
+        await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
+      }
+    }
+  } finally {
+    releaseEditStockLocks();
+  }
+
+  let baseNotesParts = (oldInvoice.notes || '').split("|||");
+  let oldNit = baseNotesParts[0].trim();
+
+  // Parse old flags except OBS, AUTH and signatures because we re-set them
+  let keepFlags = baseNotesParts.slice(1).filter((f: string) => !f.startsWith("AUTH:") && !f.startsWith("OBS:") && !f.startsWith("SELLER_SIG:") && !f.startsWith("ADMIN_SIG:") && !f.startsWith("REVIEWED_BY:"));
+
+  let safeNotes = notes !== undefined ? String(notes).replace(/\|\|\|/g, " - ") : "";
+  let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
+  let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
+
+  let effectiveNit = (nit !== undefined && nit !== null) ? String(nit).trim() : oldNit;
+  let reconstructedBaseNotes = effectiveNit + obsFlag + sellerSigFlag;
+  for (const f of keepFlags) {
+    reconstructedBaseNotes += "|||" + f;
+  }
+
+  // Ensure current folio is locked permanently so date changes never alter or shift folios
+  if (!reconstructedBaseNotes.includes("|||FOLIO:")) {
+    const currentFolioMap = await getFolioMap();
+    const existingFolio = currentFolioMap[String(oldInvoice.id)];
+    if (existingFolio) {
+      reconstructedBaseNotes += `|||FOLIO:${existingFolio}`;
+    }
+  }
+
+  if (!reconstructedBaseNotes.includes("|||EDITED:true")) {
+    reconstructedBaseNotes += "|||EDITED:true";
+  }
+
+  let newNotes = reconstructedBaseNotes;
+  invalidateCache("folio_map");
+  if (needsAuth) {
+    newNotes += "|||AUTH:pending";
+  } else {
+    newNotes += "|||AUTH:authorized"; // Mark authorized if no issue
+  }
+
+  const isUserAdmin = req.user && req.user.role === 'admin';
+  const targetDate = isUserAdmin ? (customDate || date) : null;
+  const updatedDataRaw: any = {
+    notes: newNotes,
+    items: formattedItems,
+    totalAmount: total,
+    status: isOwed ? 'pending' : (oldInvoice.paidAmount >= total ? 'paid' : (oldInvoice.status === 'sent' ? 'sent' : 'pending'))
+  };
+  if (targetDate) {
+    updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+      ? new Date(`${targetDate}T12:00:00-06:00`).toISOString()
+      : (/^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString());
+  }
+  updatedDataRaw['clientName'] = client;
+  updatedDataRaw['customerPhone'] = phone || '';
+  updatedDataRaw['deliveryAddress'] = address || '';
+  updatedDataRaw['nit'] = effectiveNit;
+  updatedDataRaw['customerNit'] = effectiveNit;
+
+  const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq('id', id);
+  if (updateError) {
+    console.warn("Primary update invoice error:", updateError.message);
+    const fallbackData = { ...updatedDataRaw };
+    delete fallbackData['clientName'];
+    delete fallbackData['customerPhone'];
+    delete fallbackData['deliveryAddress'];
+    delete fallbackData['customerNit'];
+    fallbackData['client'] = client;
+    fallbackData['phone'] = phone || '';
+    fallbackData['address'] = address || '';
+    fallbackData['nit'] = effectiveNit;
+
+    const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq('id', id);
+    if (retryError1) {
+      const bareData = { ...fallbackData };
+      delete bareData['phone'];
+      delete bareData['address'];
+      delete bareData['nit'];
+      await supabase.from("invoices").update(bareData).eq('id', id);
+    }
+  }
+
+  // Auto sync NIT to clients table if client exists
+  if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
+    try {
+      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      if (matchedClients && matchedClients.length > 0) {
+        for (const mc of matchedClients) {
+          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          updateLocalClient(mc.id, { nit: effectiveNit });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not sync client NIT:", e);
+    }
+  }
+
+  const updatedData = { ...updatedDataRaw, client, nit: effectiveNit, phone, address };
+  await syncInvoiceToPermanentBackup(id);
+
+  invalidateCache("products");
+  invalidateCache("folio_map");
+
+  let returnInvoice = { ...oldInvoice, ...updatedData };
+  if (returnInvoice.notes.includes("|||AUTH:")) {
+    const parts = returnInvoice.notes.split("|||AUTH:");
+    returnInvoice.notes = parts[0];
+    (returnInvoice as any).authStatus = parts[1];
+  }
+
+  const folioMap = await getFolioMap();
+
+  res.json({
+    ...returnInvoice,
+    isOwed: true,
+    folio: folioMap[returnInvoice.id] || 1,
+    client: returnInvoice.client || returnInvoice.clientName || client,
+    nit: effectiveNit || returnInvoice.nit || '',
+    phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
+    address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
+  });
+}));
+
+app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { nit, client, phone, address } = req.body;
+
+  const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
+  if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+  const oldInvoice = invoices[0];
+
+  let baseNotesParts = (oldInvoice.notes || '').split("|||");
+  let effectiveNit = nit !== undefined ? String(nit).trim() : baseNotesParts[0].trim();
+  let otherFlags = baseNotesParts.slice(1).join("|||");
+  let newNotes = effectiveNit + (otherFlags ? "|||" + otherFlags : "");
+
+  const updatePayload: any = {
+    notes: newNotes
+  };
+  if (nit !== undefined) {
+    updatePayload.nit = effectiveNit;
+    updatePayload.customerNit = effectiveNit;
+  }
+  if (client !== undefined) {
+    updatePayload.clientName = client.trim();
+    updatePayload.client = client.trim();
+  }
+  if (phone !== undefined) {
+    updatePayload.customerPhone = phone.trim();
+    updatePayload.phone = phone.trim();
+  }
+  if (address !== undefined) {
+    updatePayload.deliveryAddress = address.trim();
+    updatePayload.address = address.trim();
+  }
+
+  const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq('id', id);
+  if (updateError) {
+    const fallback = { notes: newNotes };
+    await supabase.from("invoices").update(fallback).eq('id', id);
+  }
+
+  await syncInvoiceToPermanentBackup(id);
+
+  if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
+    try {
+      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      if (matchedClients && matchedClients.length > 0) {
+        for (const mc of matchedClients) {
+          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          updateLocalClient(mc.id, { nit: effectiveNit });
+        }
+      }
+    } catch (e) { }
+  }
+
+  res.json({ success: true, nit: effectiveNit, client, phone, address });
+}));
+
+app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { adminSignature, reviewedBy } = req.body;
+
+  const { data: invoices } = await supabase.from("invoices").select("notes").eq('id', id);
+  if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
+
+  let currentNotes = invoices[0].notes || "";
+  currentNotes = updateTagInNotes(currentNotes, "ADMIN_SIG", adminSignature);
+  currentNotes = updateTagInNotes(currentNotes, "REVIEWED_BY", reviewedBy);
+  currentNotes = updateTagInNotes(currentNotes, "AUTH", "authorized");
+
+  const { error } = await supabase.from("invoices").update({ notes: currentNotes }).eq('id', id);
+  if (error) throw error;
+
+  res.json({ success: true });
+}));
+
+
+app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { creditDays } = req.body;
+
+  try {
+    const { data, error: selectError } = await supabase.from("invoices").select("notes").eq('id', id).single();
+    if (selectError) console.error("Select error:", selectError);
+    if (data) {
+      let notes = data.notes || "";
+      if (notes.includes("|||CREDIT:")) {
+        const parts = notes.split("|||CREDIT:");
+        let rest = parts[1].replace(/^\d+/, ''); // remove the old number
+        notes = parts[0] + "|||CREDIT:" + creditDays + rest;
+      } else {
+        if (notes.includes("|||AUTH:")) {
+          const authParts = notes.split("|||AUTH:");
+          notes = authParts[0] + "|||CREDIT:" + creditDays + "|||AUTH:" + authParts[1];
+        } else {
+          notes = notes + "|||CREDIT:" + creditDays;
+        }
+      }
+      const { error: updateError } = await supabase.from("invoices").update({ notes }).eq('id', id);
+      if (updateError) console.error("Update error:", updateError); await syncInvoiceToPermanentBackup(id);
+    }
+  } catch (e) {
+    console.error("Catch error:", e);
+  }
+
+  res.json({ success: true });
+}));
+
+app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { itemIndex, newPrice } = req.body;
+
+  const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
+  if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
+  const invoice: any = invoices[0];
+  if (invoice.status === 'paid' || invoice.status === 'cancelled') {
+    return res.status(400).json({ error: "Cannot edit this invoice." });
+  }
+
+  if (invoice.items[itemIndex]) {
+    invoice.items[itemIndex].price = newPrice;
+    invoice.items[itemIndex].total = invoice.items[itemIndex].quantity * newPrice;
+  }
+
+  const newTotalAmount = invoice.items.reduce((acc: number, item: any) => acc + item.total, 0);
+  invoice.totalAmount = newTotalAmount;
+
+  await supabase.from("invoices").update({
+    items: invoice.items,
+    totalAmount: newTotalAmount
+  }).eq('id', id);
+  await syncInvoiceToPermanentBackup(id);
+
+  res.json(invoice);
+}));
+
+app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate, sellerId } = req.body;
+
+  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  if (!invoice) return res.status(404).json({ error: "No encontrada" });
+
+  // PROTECCION FISCAL: no dejar anular/rechazar por la via normal una factura
+  // que tiene un DTE certificado ante SAT. Anularla solo aqui dejaria la venta
+  // cancelada en el sistema pero el documento seguiria VALIDO ante SAT. Debe
+  // pasar por la anulacion FEL (que anula ante SAT y ademas cancela la factura
+  // y restaura el stock). Ver POST /api/invoices/:id/fel/anular.
+  if ((status === 'cancelled' || status === 'rejected')
+    && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+    const docFel: any = await felServicio.obtenerDocumentoPorFactura(supabase, id);
+    if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
+      return res.status(409).json({
+        error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
+          "Para anularla, usa \"Anular documento ante SAT\" en el panel FEL: ese proceso " +
+          "anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.",
+        requiereAnulacionFel: true,
+      });
+    }
+  }
+
+  let updateData: any = { status };
+
+  if (status !== invoice.status) {
+    if (status === 'pending') {
+      updateData.paidAmount = 0;
+    } else if (status === 'paid') {
+      updateData.paidAmount = invoice.totalAmount;
+    }
+  }
+
+  if (status === 'cancelled' || status === 'rejected') {
+    if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+      await restaurarStockDeFactura(invoice);
+    }
+  }
+
+  if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
+    const { data: inv } = await supabase.from("invoices").select("notes").eq('id', id).single();
+    if (inv) {
+      let notes = inv.notes || "";
+      if (guideNumber) {
+        notes = updateTagInNotes(notes, "TRACKING", guideNumber);
+      }
+      if (folio !== undefined) {
+        const parsedFolio = parseInt(folio);
+        if (!isNaN(parsedFolio)) {
+          // Determine current assigned folios using getFolioMap()
+          const currentMap = await getFolioMap();
+          const previousFolio = currentMap[String(id)];
+
+          // Only perform sequential cascading shifting if the folio assignment is actually changing
+          if (previousFolio !== parsedFolio) {
+            console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
+
+            // Query all active (non-archived) invoices excluding the current invoice
+            const { data: otherInvoices } = await supabase
+              .from("invoices")
+              .select("id, notes, status")
+              .eq("is_archived", false)
+              .neq("id", id);
+
+            if (otherInvoices && otherInvoices.length > 0) {
+              const updates = [];
+              for (const otherInv of otherInvoices) {
+                // Skip cancelled/rejected invoices
+                if (otherInv.status === 'cancelled' || otherInv.status === 'rejected') {
+                  continue;
+                }
+
+                const otherCurrentFolio = currentMap[String(otherInv.id)];
+                if (otherCurrentFolio !== undefined && otherCurrentFolio >= parsedFolio) {
+                  const otherNewFolio = otherCurrentFolio + 1;
+                  let otherNotes = otherInv.notes || "";
+                  otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
+
+                  updates.push({
+                    id: otherInv.id,
+                    notes: otherNotes
+                  });
+                }
+              }
+
+              if (updates.length > 0) {
+                console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
+                for (const update of updates) {
+                  await supabase.from("invoices").update({ notes: update.notes }).eq('id', update.id);
+                  await syncInvoiceToPermanentBackup(update.id);
+                }
+              }
+            }
+          }
+        }
+        notes = updateTagInNotes(notes, "FOLIO", folio);
+      }
+
+      if (deliveryLetterUrl) {
+        notes = updateTagInNotes(notes, "DELIVERY_LETTER", deliveryLetterUrl);
+      }
+
+      if (shippingGuideUrl) {
+        notes = updateTagInNotes(notes, "SHIPPING_GUIDE", shippingGuideUrl);
+      }
+
+      if (clientName) {
+        notes = updateTagInNotes(notes, "SCAN_CLIENT", clientName);
+      }
+
+      if (shippingDate) {
+        notes = updateTagInNotes(notes, "SCAN_DATE", shippingDate);
+      }
+
+      updateData.notes = notes;
+      if (sellerId !== undefined) { updateData.sellerId = sellerId; }
+      await supabase.from("invoices").update(updateData).eq('id', id);
+      invalidateCache("folio_map");
+      invalidateCache("products");
+      await syncInvoiceToPermanentBackup(id);
+      return res.json({ success: true, guideNumber, folio });
+    }
+  }
+
+  await supabase.from("invoices").update(updateData).eq('id', id);
+  invalidateCache("folio_map");
+  invalidateCache("products");
+  await syncInvoiceToPermanentBackup(id);
+  res.json({ success: true });
+}));
+
+app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  if (!invoice) {
+    return res.status(404).json({ error: "La factura no existe" });
+  }
+  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
+    return res.status(403).json({ error: "No autorizado para archivar esta factura" });
+  }
+  await supabase.from("invoices").update({ is_archived: true }).eq('id', id);
+  invalidateCache("folio_map");
+  await syncInvoiceToPermanentBackup(id);
+  res.json({ success: true });
+}));
+
+app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  if (!invoice) {
+    return res.status(404).json({ error: "La factura no existe" });
+  }
+  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
+    return res.status(403).json({ error: "No autorizado para eliminar esta factura" });
+  }
+  if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+    for (const item of invoice.items) {
+      const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+      const product = prods?.[0];
+      if (product && !product.is_external) {
+        let variantsToUpdate = product.variants ? [...product.variants] : [];
+        let variantObj = null;
+        if (item.variantId) {
+          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+          if (varIndex !== -1) {
+            variantObj = variantsToUpdate[varIndex];
+          }
+        }
+        if (variantObj && variantObj.stock !== undefined) {
+          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+          variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+          if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
+        } else {
+          const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+          if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
+        }
+      }
+    }
+  }
+  await supabase.from("invoices").delete().eq('id', id);
+  invalidateCache("folio_map");
+  invalidateCache("products");
+  res.json({ success: true });
+}));
+
+app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let { sellerId, client } = req.query;
+
+  // If searching by client, we allow a global search even for sellers to facilitate debt checking accurately
+  if (sellerId === 'global') {
+    sellerId = undefined;
+  } else if (req.user.role !== 'admin' && !client) {
+    if (!sellerId) {
+      sellerId = req.user.email; // Enforce their own email if omitted
+    } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
+      return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+    }
+  }
+
+  const fetchInvoices = async () => {
+    if (isNeonActive() && neonPool) {
       try {
-        // Optimize using sharp for swift cellular/mobile uploads and lower database footprint
-        const buffer = await sharp(req.file.buffer)
-          .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-
-        const fileName = `boletas/boleta-${id}-${Date.now()}.jpg`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('productos')
-          .upload(fileName, buffer, {
-            contentType: 'image/jpeg',
-            upsert: true
-          });
-
-        if (!uploadError) {
-          const { data: publicUrlData } = supabase.storage
-            .from('productos')
-            .getPublicUrl(fileName);
-          receiptUrl = publicUrlData.publicUrl;
-        } else {
-          console.error("Payment receipt upload to Supabase storage error, failing back directly to base64:", uploadError);
-          receiptUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+        let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+        const params: any[] = [];
+        if (sellerId) {
+          params.push(sellerId);
+          sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
         }
-      } catch (err) {
-        console.error("Error optimizing or uploading payment receipt, using base64 fallback:", err);
-        receiptUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        sql += ' ORDER BY date DESC, id DESC';
+        const rows = await queryNeon(sql, params);
+        return { data: rows, error: null };
+      } catch (neErr) {
+        console.warn("Fetch invoices Neon error:", neErr);
       }
     }
 
-    let newPaidAmount = parseFloat(invoice.paidAmount || 0) + numAmount;
-    let newStatus = invoice.status;
-    if (newPaidAmount >= invoice.totalAmount) {
-      newStatus = 'paid';
+    let allInvoices: any[] = [];
+    let page = 0;
+    const PAGE_SIZE = 1000;
+    let hasMore = true;
+    let useFallback = false;
+
+    while (hasMore) {
+      let query = supabase.from("invoices").select("*");
+      if (!useFallback) {
+        query = query.eq('is_archived', false);
+      }
+      if (sellerId) {
+        query = query.eq('sellerId', sellerId);
+      }
+      const res = await query
+        .order("date", { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (res.error) {
+        if (!useFallback && (res.error.code === '42703' || res.error.message?.includes('is_archived'))) {
+          useFallback = true;
+          page = 0;
+          allInvoices = [];
+          continue;
+        }
+        if (neonPool) {
+          try {
+            let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+            const params: any[] = [];
+            if (sellerId) {
+              params.push(sellerId);
+              sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+            }
+            sql += ' ORDER BY date DESC, id DESC';
+            const rows = await queryNeon(sql, params);
+            return { data: rows, error: null };
+          } catch (neErr2) { }
+        }
+        return res;
+      }
+
+      const data = res.data || [];
+      allInvoices = allInvoices.concat(data);
+      if (data.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        page++;
+      }
     }
 
-    try {
-      await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
-    } catch (e) {
-      console.error("Error updating invoice in Supabase handled gracefully:", e);
-    }
-    
-    invoice.paidAmount = newPaidAmount;
-    invoice.status = newStatus;
+    return { data: allInvoices, error: null };
+  };
 
-    const paymentId = `PAY-${Date.now()}`;
-    const payment = {
-      id: paymentId,
-      invoiceId: id,
-      amount: numAmount,
-      receiptUrl,
-      notes: notes ? String(notes).trim() : null,
-      date: new Date().toISOString(),
-      recordedBy: req.user.email
+  const { data: invoices, error } = await fetchInvoices();
+  if (error) {
+    if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist') || error.code === '42703') {
+      return res.json([]);
+    }
+    throw new Error(error.message);
+  }
+
+  // Only query getFolioMap if at least one invoice in this batch lacks an explicit folio
+  const needsFolioMap = invoices.some((inv: any) => {
+    const hasDirectFolio = inv.folio !== undefined && inv.folio !== null && String(inv.folio).trim() !== '';
+    const hasNoteFolio = inv.notes && inv.notes.includes("|||FOLIO:");
+    return !hasDirectFolio && !hasNoteFolio;
+  });
+
+  const folioMap = needsFolioMap ? await getFolioMap() : {};
+
+  const parsedInvoices = invoices.map((inv: any) => {
+    const mappedInv = { ...inv };
+    const rawNotes = mappedInv.notes || "";
+    if (rawNotes.includes("|||")) {
+      const flags = rawNotes.split("|||");
+      let potentialNit = flags[0].trim();
+      if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
+        mappedInv.notes = potentialNit;
+        mappedInv.nit = ""; // Force clear nit if it was actually notes
+      } else {
+        mappedInv.nit = mappedInv.nit || potentialNit;
+        mappedInv.notes = ""; // Reset since nit is now assigned
+      }
+      flags.slice(1).forEach((flag: string) => {
+        const idx = flag.indexOf(':');
+        if (idx !== -1) {
+          const key = flag.substring(0, idx);
+          const value = flag.substring(idx + 1);
+          if (key === "AUTH") {
+            mappedInv.authStatus = value;
+          } else if (key === "DEBT") {
+            mappedInv.hasDebtAlert = value === "true"; // Debt alert mapping
+          } else if (key === "CREDIT") {
+            const val = parseInt(value, 10);
+            if (!isNaN(val)) mappedInv.creditDays = val;
+          } else if (key === "TYPE") {
+            mappedInv.invoiceType = value;
+          } else if (key === "TRACKING") {
+            mappedInv.trackingNumber = value;
+          } else if (key === "DELIVERY_LETTER") {
+            mappedInv.deliveryLetterUrl = value;
+          } else if (key === "SHIPPING_GUIDE") {
+            mappedInv.shippingGuideUrl = value;
+          } else if (key === "SCAN_CLIENT") {
+            mappedInv.scanClient = value;
+          } else if (key === "SCAN_DATE") {
+            mappedInv.scanDate = value;
+          } else if (key === "OBS") {
+            mappedInv.notes = value;
+          } else if (key === "EDITED") {
+            mappedInv.isEdited = value === "true";
+          } else if (key === "SELLER_SIG") {
+            mappedInv.sellerSignature = value;
+          } else if (key === "ADMIN_SIG") {
+            mappedInv.adminSignature = value;
+          } else if (key === "REVIEWED_BY") {
+            mappedInv.reviewedBy = value;
+          }
+        }
+      });
+    } else {
+      // Older legacy notes that just had NIT
+      let potentialNit = rawNotes.trim();
+      if (potentialNit.length > 25 || potentialNit.toLowerCase().includes("enviar") || potentialNit.toLowerCase().includes("entrega") || potentialNit.toLowerCase().includes("nota")) {
+        mappedInv.notes = potentialNit;
+        mappedInv.nit = "";
+      } else {
+        mappedInv.nit = mappedInv.nit || potentialNit;
+        mappedInv.notes = "";
+      }
+    }
+
+    if (mappedInv.nit && (mappedInv.nit.length > 25 || mappedInv.nit.toLowerCase().includes("enviar") || mappedInv.nit.toLowerCase().includes("entrega") || mappedInv.nit.toLowerCase().includes("nota"))) {
+      mappedInv.notes = mappedInv.notes ? mappedInv.notes + " " + mappedInv.nit : mappedInv.nit;
+      mappedInv.nit = "";
+    }
+
+    return {
+      ...mappedInv,
+      folio: (function () {
+        if (mappedInv.folio !== undefined && mappedInv.folio !== null && String(mappedInv.folio).trim() !== '') {
+          const strVal = String(mappedInv.folio).trim();
+          const num = parseInt(strVal, 10);
+          return !isNaN(num) && num > 0 ? num : strVal;
+        }
+        const m = rawNotes.match(/\|\|\|FOLIO:(\d+)/);
+        return m ? parseInt(m[1], 10) : (folioMap[String(mappedInv.id)] || 1);
+      })(),
+      client: mappedInv.client || mappedInv.clientName || '',
+      nit: mappedInv.nit || '',
+      phone: mappedInv.phone || mappedInv.customerPhone || '',
+      address: mappedInv.address || mappedInv.deliveryAddress || '',
+      trackingNumber: mappedInv.trackingNumber
     };
-    
-    // Always save locally to ensure 100% data preservation across app container rebuilds and devices
-    addLocalPayment(payment);
+  });
 
-    const clientNamePay = invoice.clientName || invoice.client || "Cliente";
-    await createNotification('payment_received', 'Pago Recibido', `Se registró un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId });
-
-    try {
-      await safeInsertPayment(payment);
-    } catch (e) {
-      console.error("Error inserting payment in Supabase handled gracefully:", e);
-    }
-
-    // Capture in permanent archival backups
-    await syncInvoiceToPermanentBackup(id, invoice);
-    await syncPaymentToPermanentBackup(paymentId, payment);
-
-    res.json({ invoice, payment });
-  }));
-
-  app.get("/api/invoices/:id/payments", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    let payments: any[] = [];
-    try {
-      payments = await fetchPaymentsFromSupabase(id);
-    } catch (e) {
-      console.error("Fetch payments supabase catch error:", e);
-    }
-    
-    // Feed and merge local payments
-    const localPayments = readLocalPayments().filter(p => p.invoiceId === id).map(normalizePayment);
-    const dbPaymentIds = new Set(payments.map(p => p.id));
-
-    // Upload missing local payments to Supabase
-    localPayments.forEach(async (p) => {
-      if (p && p.id && !dbPaymentIds.has(p.id)) {
-        await safeInsertPayment(p);
-      }
+  // In-memory robust filtering for both "client" and "clientName" schema columns
+  let filteredInvoices = parsedInvoices;
+  if (client) {
+    const clientLower = String(client).toLowerCase().trim();
+    filteredInvoices = parsedInvoices.filter((inv: any) => {
+      const nameVal = String(inv.client || inv.clientName || '').toLowerCase().trim();
+      // Allow partial matches or complete matches
+      return nameVal.includes(clientLower) || clientLower.includes(nameVal);
     });
+    console.log(`Filtered invoices for client "${client}": found ${filteredInvoices.length} results.`);
+  }
 
-    const mergedMap = new Map<string, any>();
+  filteredInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    localPayments.forEach(p => {
-      if (p && p.id) {
+  // Strip heavy base64 fields from list response to reduce payload (~7MB savings)
+  // These are only needed when viewing/printing a single invoice
+  const lightInvoices = filteredInvoices.map((inv: any) => {
+    const { sellerSignature, adminSignature, customer_signature, admin_signature, seller_signature, pdfBase64, ...rest } = inv;
+    return rest;
+  });
+
+  res.json(lightInvoices);
+}));
+
+app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  let folioConfig = { resetDate: null, startFrom: 1 };
+  const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+  if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+    try {
+      folioConfig = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+    } catch (err) { }
+  }
+  try {
+    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    if (sysRow && sysRow.photo) {
+      folioConfig = JSON.parse(sysRow.photo);
+    }
+  } catch (e) { }
+  res.json(folioConfig);
+}));
+
+app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { resetDate, startFrom } = req.body;
+  const config = {
+    resetDate: resetDate || new Date().toISOString(),
+    startFrom: startFrom !== undefined ? parseInt(startFrom, 10) : 1
+  };
+
+  // Save locally
+  const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+  try {
+    fs.writeFileSync(FOLIO_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+  } catch (err) { }
+
+  // Save in Supabase
+  try {
+    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-folio-config").single();
+    if (existing) {
+      await supabase.from("users").update({
+        photo: JSON.stringify(config),
+        name: "Folio Configuration",
+        email: "system-folio@agricovet.com",
+        role: "system"
+      }).eq("id", "sys-folio-config");
+    } else {
+      await supabase.from("users").insert([{
+        id: "sys-folio-config",
+        name: "Folio Configuration",
+        email: "system-folio@agricovet.com",
+        role: "system",
+        password: "",
+        photo: JSON.stringify(config),
+        phone: ""
+      }]);
+    }
+  } catch (e) {
+    console.error("Failed to save folio config to Supabase:", e);
+  }
+
+  res.json({ success: true, config });
+  invalidateCache("folio_map");
+}));
+
+app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let excludedIds: string[] = [];
+  const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
+  if (fs.existsSync(EXCLUDED_FILE)) {
+    try {
+      excludedIds = JSON.parse(fs.readFileSync(EXCLUDED_FILE, "utf-8"));
+    } catch (err) { }
+  }
+  try {
+    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-critical-config").single();
+    if (sysRow && sysRow.photo) {
+      const parsed = JSON.parse(sysRow.photo);
+      if (Array.isArray(parsed)) {
+        excludedIds = parsed;
+      }
+    }
+  } catch (e) { }
+  if (!Array.isArray(excludedIds)) excludedIds = [];
+  res.json({ excludedIds });
+}));
+
+app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { excludedIds } = req.body;
+  const list = Array.isArray(excludedIds) ? excludedIds : [];
+
+  // Save locally
+  const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
+  try {
+    fs.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
+  } catch (err) { }
+
+  // Save in Supabase
+  try {
+    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-critical-config").single();
+    if (existing) {
+      await supabase.from("users").update({
+        photo: JSON.stringify(list),
+        name: "Critical Stock Exclusions",
+        email: "system-critical@agricovet.com",
+        role: "system"
+      }).eq("id", "sys-critical-config");
+    } else {
+      await supabase.from("users").insert([{
+        id: "sys-critical-config",
+        name: "Critical Stock Exclusions",
+        email: "system-critical@agricovet.com",
+        role: "system",
+        password: "",
+        photo: JSON.stringify(list),
+        phone: ""
+      }]);
+    }
+  } catch (e) {
+    console.error("Failed to save critical stock exclusions to Supabase:", e);
+  }
+
+  res.json({ success: true, excludedIds: list });
+}));
+
+app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let template = "";
+  const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
+  if (fs.existsSync(TEMPLATE_FILE)) {
+    try {
+      template = fs.readFileSync(TEMPLATE_FILE, "utf-8");
+    } catch (err) { }
+  }
+  if (!template) {
+    try {
+      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-print-template").single();
+      if (sysRow && sysRow.photo) {
+        template = sysRow.photo;
+      }
+    } catch (e) { }
+  }
+  res.json({ template });
+}));
+
+app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { template } = req.body;
+
+  // Save locally
+  const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
+  try {
+    fs.writeFileSync(TEMPLATE_FILE, template || "", "utf8");
+  } catch (err) { }
+
+  // Save in Supabase
+  try {
+    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-print-template").single();
+    if (existing) {
+      await supabase.from("users").update({
+        photo: template || "",
+        name: "Print Template Configuration",
+        email: "system-print-template@agricovet.com",
+        role: "system"
+      }).eq("id", "sys-print-template");
+    } else {
+      await supabase.from("users").insert([{
+        id: "sys-print-template",
+        name: "Print Template Configuration",
+        email: "system-print-template@agricovet.com",
+        role: "system",
+        password: "",
+        photo: template || "",
+        phone: ""
+      }]);
+    }
+  } catch (e) {
+    console.error("Failed to save print template to Supabase:", e);
+  }
+
+  res.json({ success: true });
+}));
+
+app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'authorized', 'rejected', or 'pending'
+
+  try {
+    const { data: rawData, error: selectErr } = await supabase.from("invoices").select("*").eq('id', id).single();
+    if (selectErr) {
+      console.error("Error fetching invoice in auth endpoint:", JSON.stringify(selectErr));
+      return res.status(400).json({ error: "Fallo al obtener la factura: " + selectErr.message });
+    }
+    if (rawData) {
+      const data = rawData as any;
+      let notes = data.notes || "";
+      if (status === 'pending') {
+        notes = notes.split("|||AUTH:")[0]; // Strip auth info to reset
+      } else {
+        if (notes.includes("|||AUTH:")) {
+          notes = notes.split("|||AUTH:")[0] + "|||AUTH:" + status;
+        } else {
+          notes = notes + "|||AUTH:" + status;
+        }
+      }
+      const { error: updateErr } = await supabase.from("invoices").update({ notes }).eq('id', id);
+      if (updateErr) {
+        console.error("Error updating invoice auth status notes:", updateErr);
+        return res.status(400).json({ error: "Fallo al actualizar estado de autorización: " + updateErr.message });
+      }
+
+      if (status === 'rejected') {
+        await createNotification('sale_rejected', 'Venta Rechazada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido rechazada por el administrador.`, { invoiceId: id });
+      } else if (status === 'authorized') {
+        await createNotification('sale_authorized', 'Venta Autorizada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido autorizada por el administrador.`, { invoiceId: id });
+      }
+
+      // Enviar notificación a vendedor
+      try {
+        const sellerId = data.sellerId;
+        const clientName = data.clientName || data.client || "el cliente";
+        if (sellerId) {
+          let seller = null;
+          const { data: sellerDataByEmail } = await supabase.from("users").select("name, phone").eq("email", sellerId).single();
+          if (sellerDataByEmail) seller = sellerDataByEmail;
+          else {
+            const { data: sellerDataById } = await supabase.from("users").select("name, phone").eq("id", sellerId).single();
+            if (sellerDataById) seller = sellerDataById;
+          }
+
+          if (seller && seller.phone) {
+            const actionText = status === 'rejected' ? 'RECHAZADO' : 'AUTORIZADO';
+            const message = `Hola ${seller.name},\n\nTu pedido para *${clientName}* ha sido *${actionText}* por un administrador.`;
+
+            if (status === 'rejected') {
+              // Notify seller
+              internalSendWhatsApp(seller.phone, message, "alert_rechazo_factura", "es_MX", [
+                { name: "w_pedido", value: id },
+                { name: "w_vendedor", value: seller.name },
+                { name: "w_cliente", value: clientName }
+              ]).catch(e => console.warn("Error notifying seller:", e.message));
+
+              // Notify client too if phone exists
+              const clientPhone = data.phone || data.customerPhone;
+              if (clientPhone) {
+                const clientMsg = `Hola *${clientName}*, tu pedido ${id} ha sido rechazado.`;
+                internalSendWhatsApp(clientPhone, clientMsg, "alert_rechazo_factura", "es_MX", [
+                  { name: "w_pedido", value: id },
+                  { name: "w_vendedor", value: seller.name || "Ventas" },
+                  { name: "w_cliente", value: clientName }
+                ]).catch(e => console.warn("Error notifying client:", e.message));
+              }
+            } else {
+              internalSendWhatsApp(seller.phone, message).catch(e => console.warn("Error notifying seller:", e.message));
+            }
+          } else {
+            console.log("Seller has no associated phone or info not found:", { sellerId, found: !!seller });
+          }
+        }
+      } catch (notifyErr) {
+        console.error("Error intentando notificar:", notifyErr);
+      }
+    }
+  } catch (e: any) {
+    console.error("Catch error in auth endpoint:", e);
+    return res.status(500).json({ error: "Error interno en autorización: " + e.message });
+  }
+
+  res.json({ success: true, status });
+}));
+
+// PAYMENTS (Abonos)
+app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { amount, notes } = req.body;
+  const numAmount = parseFloat(amount);
+
+  const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
+  if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
+  const invoice: any = invoices[0];
+
+  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email && invoice.sellerId !== req.user.id) {
+    return res.status(403).json({ error: "No autorizado para abonar a esta factura" });
+  }
+
+  const pendingBalance = invoice.totalAmount - invoice.paidAmount;
+  if (numAmount > pendingBalance) {
+    return res.status(400).json({ error: "El abono excede el saldo pendiente" });
+  }
+
+  let receiptUrl = null;
+  if (req.file) {
+    try {
+      // Optimize using sharp for swift cellular/mobile uploads and lower database footprint
+      const buffer = await sharp(req.file.buffer)
+        .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      const fileName = `boletas/boleta-${id}-${Date.now()}.jpg`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('productos')
+        .upload(fileName, buffer, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+
+      if (!uploadError) {
+        const { data: publicUrlData } = supabase.storage
+          .from('productos')
+          .getPublicUrl(fileName);
+        receiptUrl = publicUrlData.publicUrl;
+      } else {
+        console.error("Payment receipt upload to Supabase storage error, failing back directly to base64:", uploadError);
+        receiptUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+      }
+    } catch (err) {
+      console.error("Error optimizing or uploading payment receipt, using base64 fallback:", err);
+      receiptUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    }
+  }
+
+  let newPaidAmount = parseFloat(invoice.paidAmount || 0) + numAmount;
+  let newStatus = invoice.status;
+  if (newPaidAmount >= invoice.totalAmount) {
+    newStatus = 'paid';
+  }
+
+  try {
+    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+  } catch (e) {
+    console.error("Error updating invoice in Supabase handled gracefully:", e);
+  }
+
+  invoice.paidAmount = newPaidAmount;
+  invoice.status = newStatus;
+
+  const paymentId = `PAY-${Date.now()}`;
+  const payment = {
+    id: paymentId,
+    invoiceId: id,
+    amount: numAmount,
+    receiptUrl,
+    notes: notes ? String(notes).trim() : null,
+    date: new Date().toISOString(),
+    recordedBy: req.user.email
+  };
+
+  // Always save locally to ensure 100% data preservation across app container rebuilds and devices
+  addLocalPayment(payment);
+
+  const clientNamePay = invoice.clientName || invoice.client || "Cliente";
+  await createNotification('payment_received', 'Pago Recibido', `Se registró un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId });
+
+  try {
+    await safeInsertPayment(payment);
+  } catch (e) {
+    console.error("Error inserting payment in Supabase handled gracefully:", e);
+  }
+
+  // Capture in permanent archival backups
+  await syncInvoiceToPermanentBackup(id, invoice);
+  await syncPaymentToPermanentBackup(paymentId, payment);
+
+  res.json({ invoice, payment });
+}));
+
+app.get("/api/invoices/:id/payments", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  let payments: any[] = [];
+  try {
+    payments = await fetchPaymentsFromSupabase(id);
+  } catch (e) {
+    console.error("Fetch payments supabase catch error:", e);
+  }
+
+  // Feed and merge local payments
+  const localPayments = readLocalPayments().filter(p => p.invoiceId === id).map(normalizePayment);
+  const dbPaymentIds = new Set(payments.map(p => p.id));
+
+  // Upload missing local payments to Supabase
+  localPayments.forEach(async (p) => {
+    if (p && p.id && !dbPaymentIds.has(p.id)) {
+      await safeInsertPayment(p);
+    }
+  });
+
+  const mergedMap = new Map<string, any>();
+
+  localPayments.forEach(p => {
+    if (p && p.id) {
+      mergedMap.set(p.id, p);
+    }
+  });
+
+  payments.forEach(p => {
+    if (p && p.id) {
+      const existing = mergedMap.get(p.id);
+      if (existing) {
+        mergedMap.set(p.id, {
+          ...existing,
+          ...p,
+          receiptUrl: p.receiptUrl || existing.receiptUrl
+        });
+      } else {
         mergedMap.set(p.id, p);
       }
-    });
+    }
+  });
 
-    payments.forEach(p => {
-      if (p && p.id) {
-        const existing = mergedMap.get(p.id);
-        if (existing) {
-          mergedMap.set(p.id, {
-            ...existing,
-            ...p,
-            receiptUrl: p.receiptUrl || existing.receiptUrl
-          });
-        } else {
-          mergedMap.set(p.id, p);
-        }
+  res.json(Array.from(mergedMap.values()));
+}));
+
+app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id, paymentId } = req.params;
+
+  // 1. Find the payment to get its amount
+  let paymentAmount = 0;
+  try {
+    const { data: pmtData } = await supabase.from("payments").select("*").eq('id', paymentId);
+    if (pmtData && pmtData.length > 0) {
+      paymentAmount = parseFloat(pmtData[0].amount || 0);
+    }
+  } catch (e) { }
+
+  // Fallback if not found in db query
+  if (!paymentAmount) {
+    const localPmts = readLocalPayments();
+    const match = localPmts.find(p => p.id === paymentId);
+    if (match) paymentAmount = parseFloat(match.amount || 0);
+  }
+
+  // 2. Delete payment from Supabase (with RLS fallback)
+  try {
+    const { error: delErr } = await supabase.from("payments").delete().eq('id', paymentId);
+    if (delErr) {
+      console.warn("Hard delete payment failed (RLS), falling back to zeroing:", delErr.message);
+      await supabase.from("payments").update({ amount: 0, notes: '[ELIMINADO]' }).eq('id', paymentId);
+    }
+  } catch (e) {
+    console.warn("Delete payment error in supabase:", e);
+  }
+
+  // Also remove from local storage/backups
+  try {
+    const localPayments = readLocalPayments().filter(p => p.id !== paymentId);
+    fs.writeFileSync(path.join(process.cwd(), 'payments_local.json'), JSON.stringify(localPayments, null, 2), 'utf8');
+  } catch (e) { }
+
+  // 3. Update parent invoice balance
+  const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").eq('id', id);
+  if (invErr || !invoices || invoices.length === 0) {
+    return res.json({ success: true, deletedPaymentId: paymentId });
+  }
+
+  const invoice: any = invoices[0];
+  const currentPaid = parseFloat(invoice.paidAmount || 0);
+  const newPaidAmount = Math.max(0, currentPaid - paymentAmount);
+  let newStatus = invoice.status;
+  if (newPaidAmount < invoice.totalAmount && (newStatus === 'paid' || !newStatus)) {
+    newStatus = 'pending';
+  }
+
+  try {
+    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+  } catch (e) {
+    console.error("Error updating invoice on payment delete:", e);
+  }
+
+  invoice.paidAmount = newPaidAmount;
+  invoice.status = newStatus;
+
+  await syncInvoiceToPermanentBackup(id, invoice);
+
+  res.json({ success: true, invoice, deletedPaymentId: paymentId, restoredAmount: paymentAmount });
+}));
+
+app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  let payments: any[] = [];
+  try {
+    const { data, error } = await supabase.from("payments").select("*");
+    if (error) {
+      if (error.code !== '42P01' && !error.message.includes('schema cache') && !error.message.includes('does not exist')) {
+        console.error("Fetch all payments supabase error:", error.message);
       }
-    });
-
-    res.json(Array.from(mergedMap.values()));
-  }));
-
-  app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id, paymentId } = req.params;
-
-    // 1. Find the payment to get its amount
-    let paymentAmount = 0;
-    try {
-      const { data: pmtData } = await supabase.from("payments").select("*").eq('id', paymentId);
-      if (pmtData && pmtData.length > 0) {
-        paymentAmount = parseFloat(pmtData[0].amount || 0);
-      }
-    } catch (e) {}
-
-    // Fallback if not found in db query
-    if (!paymentAmount) {
-      const localPmts = readLocalPayments();
-      const match = localPmts.find(p => p.id === paymentId);
-      if (match) paymentAmount = parseFloat(match.amount || 0);
+    } else if (data) {
+      payments = data.map(normalizePayment);
     }
+  } catch (e) {
+    console.error("Fetch all payments supabase catch error:", e);
+  }
 
-    // 2. Delete payment from Supabase (with RLS fallback)
-    try {
-      const { error: delErr } = await supabase.from("payments").delete().eq('id', paymentId);
-      if (delErr) {
-        console.warn("Hard delete payment failed (RLS), falling back to zeroing:", delErr.message);
-        await supabase.from("payments").update({ amount: 0, notes: '[ELIMINADO]' }).eq('id', paymentId);
-      }
-    } catch (e) {
-      console.warn("Delete payment error in supabase:", e);
+  // Merge with local payment file
+  const localPayments = readLocalPayments().map(normalizePayment);
+  const mergedMap = new Map<string, any>();
+
+  localPayments.forEach(p => {
+    if (p && p.id) {
+      mergedMap.set(p.id, p);
     }
+  });
 
-    // Also remove from local storage/backups
-    try {
-      const localPayments = readLocalPayments().filter(p => p.id !== paymentId);
-      fs.writeFileSync(path.join(process.cwd(), 'payments_local.json'), JSON.stringify(localPayments, null, 2), 'utf8');
-    } catch (e) {}
-
-    // 3. Update parent invoice balance
-    const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").eq('id', id);
-    if (invErr || !invoices || invoices.length === 0) {
-      return res.json({ success: true, deletedPaymentId: paymentId });
-    }
-
-    const invoice: any = invoices[0];
-    const currentPaid = parseFloat(invoice.paidAmount || 0);
-    const newPaidAmount = Math.max(0, currentPaid - paymentAmount);
-    let newStatus = invoice.status;
-    if (newPaidAmount < invoice.totalAmount && (newStatus === 'paid' || !newStatus)) {
-      newStatus = 'pending';
-    }
-
-    try {
-      await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
-    } catch (e) {
-      console.error("Error updating invoice on payment delete:", e);
-    }
-
-    invoice.paidAmount = newPaidAmount;
-    invoice.status = newStatus;
-
-    await syncInvoiceToPermanentBackup(id, invoice);
-
-    res.json({ success: true, invoice, deletedPaymentId: paymentId, restoredAmount: paymentAmount });
-  }));
-
-  app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    let payments: any[] = [];
-    try {
-      const { data, error } = await supabase.from("payments").select("*");
-      if (error) {
-        if (error.code !== '42P01' && !error.message.includes('schema cache') && !error.message.includes('does not exist')) {
-          console.error("Fetch all payments supabase error:", error.message);
-        }
-      } else if (data) {
-        payments = data.map(normalizePayment);
-      }
-    } catch (e) {
-      console.error("Fetch all payments supabase catch error:", e);
-    }
-
-    // Merge with local payment file
-    const localPayments = readLocalPayments().map(normalizePayment);
-    const mergedMap = new Map<string, any>();
-
-    localPayments.forEach(p => {
-      if (p && p.id) {
+  payments.forEach(p => {
+    if (p && p.id) {
+      const existing = mergedMap.get(p.id);
+      if (existing) {
+        mergedMap.set(p.id, {
+          ...existing,
+          ...p,
+          receiptUrl: p.receiptUrl || existing.receiptUrl
+        });
+      } else {
         mergedMap.set(p.id, p);
       }
-    });
+    }
+  });
 
-    payments.forEach(p => {
-      if (p && p.id) {
-        const existing = mergedMap.get(p.id);
-        if (existing) {
-          mergedMap.set(p.id, {
-            ...existing,
-            ...p,
-            receiptUrl: p.receiptUrl || existing.receiptUrl
-          });
-        } else {
-          mergedMap.set(p.id, p);
-        }
+  res.json(Array.from(mergedMap.values()));
+}));
+
+// BUSINESS DEBTS & SUPPLIERS CUSTOM FIELDS (Admin only)
+const debtsFile = path.resolve(process.cwd(), 'business-debts.json');
+const readDebts = async () => {
+  try {
+    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-debts-store').single();
+    if (!error && data && data.photo) {
+      const parsed = JSON.parse(data.photo);
+      if (Array.isArray(parsed)) {
+        try { fs.writeFileSync(debtsFile, data.photo, 'utf-8'); } catch { }
+        return parsed;
       }
-    });
+    }
+  } catch (dbErr) {
+    console.warn("Could not read debts from Supabase, falling back to local file:", dbErr);
+  }
 
-    res.json(Array.from(mergedMap.values()));
-  }));
+  try {
+    if (fs.existsSync(debtsFile)) {
+      const parsed = JSON.parse(fs.readFileSync(debtsFile, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error("Error reading business-debts.json:", e);
+  }
+  return [];
+};
 
-  // BUSINESS DEBTS & SUPPLIERS CUSTOM FIELDS (Admin only)
-  const debtsFile = path.resolve(process.cwd(), 'business-debts.json');
-  const readDebts = async () => {
-    try {
-      const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-debts-store').single();
-      if (!error && data && data.photo) {
-        const parsed = JSON.parse(data.photo);
-        if (Array.isArray(parsed)) {
-          try { fs.writeFileSync(debtsFile, data.photo, 'utf-8'); } catch {}
-          return parsed;
-        }
+const writeDebts = async (data: any) => {
+  const payloadStr = JSON.stringify(data, null, 2);
+  try {
+    fs.writeFileSync(debtsFile, payloadStr, 'utf-8');
+  } catch (e) {
+    console.warn("Could not write debts to local file:", e);
+  }
+
+  try {
+    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-debts-store').single();
+    if (existing) {
+      await supabase.from('users').update({ photo: payloadStr, name: 'Debts Store', email: 'system-debts@agricovet.com', role: 'system' }).eq('id', 'sys-debts-store');
+    } else {
+      await supabase.from('users').insert([{
+        id: 'sys-debts-store',
+        name: 'Debts Store',
+        email: 'system-debts@agricovet.com',
+        role: 'system',
+        password: '',
+        photo: payloadStr,
+        phone: ''
+      }]);
+    }
+  } catch (dbErr: any) {
+    console.error("Could not sync debts to Supabase:", dbErr.message);
+  }
+};
+
+// SUPPLIERS ENYPOINT CONFIG
+const suppliersFile = path.resolve(process.cwd(), 'suppliers.json');
+const readSuppliers = async () => {
+  const hardcodedSuppliers = [
+    { id: "sup_1", name: "Droguería El Sol, S.A.", phone: "+502 2345-6789", email: "contacto@drogueriaelsol.com", address: "Zona 10, Ciudad de Guatemala", category: "Medicamentos", creditDays: 30 },
+    { id: "sup_2", name: "Agroquímicos del Pacífico", phone: "+502 7832-1122", email: "ventas@agropacifico.com", address: "Siquinalá, Escuintla", category: "Agroquímicos", creditDays: 15 },
+    { id: "sup_3", name: "Nutri-Avícola Industrial", phone: "+502 5544-3322", email: "pedidos@nutriavicola.com", address: "Tecpán, Chimaltenango", category: "Concentrados", creditDays: 45 }
+  ];
+
+  try {
+    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-suppliers-store').single();
+    if (!error && data && data.photo) {
+      const parsed = JSON.parse(data.photo);
+      if (Array.isArray(parsed)) {
+        try { fs.writeFileSync(suppliersFile, data.photo, 'utf-8'); } catch { }
+        return parsed;
       }
-    } catch (dbErr) {
-      console.warn("Could not read debts from Supabase, falling back to local file:", dbErr);
     }
+  } catch (dbErr) {
+    console.warn("Could not read suppliers from Supabase, falling back to local file:", dbErr);
+  }
 
-    try {
-      if (fs.existsSync(debtsFile)) {
-        const parsed = JSON.parse(fs.readFileSync(debtsFile, 'utf-8'));
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      console.error("Error reading business-debts.json:", e);
+  try {
+    if (fs.existsSync(suppliersFile)) {
+      const parsed = JSON.parse(fs.readFileSync(suppliersFile, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
     }
-    return [];
-  };
+  } catch (e) {
+    console.error("Error reading suppliers.json:", e);
+  }
+  return hardcodedSuppliers;
+};
 
-  const writeDebts = async (data: any) => {
-    const payloadStr = JSON.stringify(data, null, 2);
-    try {
-      fs.writeFileSync(debtsFile, payloadStr, 'utf-8');
-    } catch (e) {
-      console.warn("Could not write debts to local file:", e);
+const writeSuppliers = async (data: any) => {
+  const payloadStr = JSON.stringify(data, null, 2);
+  try {
+    fs.writeFileSync(suppliersFile, payloadStr, 'utf-8');
+  } catch (e) {
+    console.warn("Could not write suppliers to local file:", e);
+  }
+
+  try {
+    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-suppliers-store').single();
+    if (existing) {
+      await supabase.from('users').update({ photo: payloadStr, name: 'Suppliers Store', email: 'system-suppliers@agricovet.com', role: 'system' }).eq('id', 'sys-suppliers-store');
+    } else {
+      await supabase.from('users').insert([{
+        id: 'sys-suppliers-store',
+        name: 'Suppliers Store',
+        email: 'system-suppliers@agricovet.com',
+        role: 'system',
+        password: '',
+        photo: payloadStr,
+        phone: ''
+      }]);
     }
+  } catch (dbErr: any) {
+    console.error("Could not sync suppliers to Supabase:", dbErr.message);
+  }
+};
 
-    try {
-      const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-debts-store').single();
-      if (existing) {
-        await supabase.from('users').update({ photo: payloadStr, name: 'Debts Store', email: 'system-debts@agricovet.com', role: 'system' }).eq('id', 'sys-debts-store');
-      } else {
-        await supabase.from('users').insert([{
-          id: 'sys-debts-store',
-          name: 'Debts Store',
-          email: 'system-debts@agricovet.com',
-          role: 'system',
-          password: '',
-          photo: payloadStr,
-          phone: ''
-        }]);
-      }
-    } catch (dbErr: any) {
-      console.error("Could not sync debts to Supabase:", dbErr.message);
-    }
-  };
+// SUPPLIERS ENDPOINTS
+app.get("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const s = await readSuppliers();
+  res.json(s);
+}));
 
-  // SUPPLIERS ENYPOINT CONFIG
-  const suppliersFile = path.resolve(process.cwd(), 'suppliers.json');
-  const readSuppliers = async () => {
-    const hardcodedSuppliers = [
-      { id: "sup_1", name: "Droguería El Sol, S.A.", phone: "+502 2345-6789", email: "contacto@drogueriaelsol.com", address: "Zona 10, Ciudad de Guatemala", category: "Medicamentos", creditDays: 30 },
-      { id: "sup_2", name: "Agroquímicos del Pacífico", phone: "+502 7832-1122", email: "ventas@agropacifico.com", address: "Siquinalá, Escuintla", category: "Agroquímicos", creditDays: 15 },
-      { id: "sup_3", name: "Nutri-Avícola Industrial", phone: "+502 5544-3322", email: "pedidos@nutriavicola.com", address: "Tecpán, Chimaltenango", category: "Concentrados", creditDays: 45 }
-    ];
+app.post("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const s = await readSuppliers();
+  const supplierName = (req.body.name || '').trim();
+  if (supplierName && s.some((sup: any) => (sup.name || '').trim().toLowerCase() === supplierName.toLowerCase())) {
+    return res.status(409).json({ error: `Ya existe un proveedor con el nombre "${supplierName}". No se admiten duplicados.` });
+  }
+  const newSupplier = { ...req.body, id: `sup_${Date.now()}` };
+  s.push(newSupplier);
+  await writeSuppliers(s);
+  res.json(newSupplier);
+}));
 
-    try {
-      const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-suppliers-store').single();
-      if (!error && data && data.photo) {
-        const parsed = JSON.parse(data.photo);
-        if (Array.isArray(parsed)) {
-          try { fs.writeFileSync(suppliersFile, data.photo, 'utf-8'); } catch {}
-          return parsed;
-        }
-      }
-    } catch (dbErr) {
-      console.warn("Could not read suppliers from Supabase, falling back to local file:", dbErr);
-    }
-
-    try {
-      if (fs.existsSync(suppliersFile)) {
-        const parsed = JSON.parse(fs.readFileSync(suppliersFile, 'utf-8'));
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      console.error("Error reading suppliers.json:", e);
-    }
-    return hardcodedSuppliers;
-  };
-
-  const writeSuppliers = async (data: any) => {
-    const payloadStr = JSON.stringify(data, null, 2);
-    try {
-      fs.writeFileSync(suppliersFile, payloadStr, 'utf-8');
-    } catch (e) {
-      console.warn("Could not write suppliers to local file:", e);
-    }
-
-    try {
-      const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-suppliers-store').single();
-      if (existing) {
-        await supabase.from('users').update({ photo: payloadStr, name: 'Suppliers Store', email: 'system-suppliers@agricovet.com', role: 'system' }).eq('id', 'sys-suppliers-store');
-      } else {
-        await supabase.from('users').insert([{
-          id: 'sys-suppliers-store',
-          name: 'Suppliers Store',
-          email: 'system-suppliers@agricovet.com',
-          role: 'system',
-          password: '',
-          photo: payloadStr,
-          phone: ''
-        }]);
-      }
-    } catch (dbErr: any) {
-      console.error("Could not sync suppliers to Supabase:", dbErr.message);
-    }
-  };
-
-  // SUPPLIERS ENDPOINTS
-  app.get("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const s = await readSuppliers();
-    res.json(s);
-  }));
-
-  app.post("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const s = await readSuppliers();
-    const supplierName = (req.body.name || '').trim();
-    if (supplierName && s.some((sup: any) => (sup.name || '').trim().toLowerCase() === supplierName.toLowerCase())) {
-      return res.status(409).json({ error: `Ya existe un proveedor con el nombre "${supplierName}". No se admiten duplicados.` });
-    }
-    const newSupplier = { ...req.body, id: `sup_${Date.now()}` };
-    s.push(newSupplier);
+app.put("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const s = await readSuppliers();
+  const idx = s.findIndex((x: any) => x.id === req.params.id);
+  if (idx !== -1) {
+    s[idx] = { ...s[idx], ...req.body };
     await writeSuppliers(s);
-    res.json(newSupplier);
-  }));
+    res.json(s[idx]);
+  } else {
+    res.status(404).json({ error: "Proveedor no encontrado" });
+  }
+}));
 
-  app.put("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const s = await readSuppliers();
-    const idx = s.findIndex((x: any) => x.id === req.params.id);
-    if (idx !== -1) {
-      s[idx] = { ...s[idx], ...req.body };
-      await writeSuppliers(s);
-      res.json(s[idx]);
-    } else {
-      res.status(404).json({ error: "Proveedor no encontrado" });
-    }
-  }));
+app.delete("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const s = await readSuppliers();
+  const filtered = s.filter((x: any) => x.id !== req.params.id);
+  await writeSuppliers(filtered);
+  res.json({ success: true });
+}));
 
-  app.delete("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const s = await readSuppliers();
-    const filtered = s.filter((x: any) => x.id !== req.params.id);
-    await writeSuppliers(filtered);
-    res.json({ success: true });
-  }));
+// BUSINESS DEBTS ENDPOINTS
+app.get("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const d = await readDebts();
+  res.json(d);
+}));
 
-  // BUSINESS DEBTS ENDPOINTS
-  app.get("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const d = await readDebts();
-    res.json(d);
-  }));
+app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const d = await readDebts();
+  const newDebt = {
+    id: `debt_${Date.now()}`,
+    title: req.body.title || "Gasto sin título",
+    amount: parseFloat(req.body.amount || "0"),
+    invoiceDate: req.body.invoiceDate || new Date().toISOString().split('T')[0],
+    creditDays: parseInt(req.body.creditDays || "0"),
+    dueDate: req.body.dueDate || new Date().toISOString().split('T')[0],
+    supplierId: req.body.supplierId || null,
+    type: req.body.type || "paga",
+    notes: req.body.notes || "",
+    isPaid: req.body.isPaid || false,
+    receipts: req.body.receipts || [],
+    invoiceImageUrl: req.body.invoiceImageUrl || null,
+    orderReceivedBy: req.body.orderReceivedBy || null,
+    status: req.body.status || "pendiente",
+    items: req.body.items || [],
+    createdAt: new Date().toISOString()
+  };
+  d.push(newDebt);
+  await writeDebts(d);
+  res.json(newDebt);
+}));
 
-  app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const d = await readDebts();
-    const newDebt = { 
-      id: `debt_${Date.now()}`,
-      title: req.body.title || "Gasto sin título",
-      amount: parseFloat(req.body.amount || "0"),
-      invoiceDate: req.body.invoiceDate || new Date().toISOString().split('T')[0],
-      creditDays: parseInt(req.body.creditDays || "0"),
-      dueDate: req.body.dueDate || new Date().toISOString().split('T')[0],
-      supplierId: req.body.supplierId || null,
-      type: req.body.type || "paga",
-      notes: req.body.notes || "",
-      isPaid: req.body.isPaid || false,
-      receipts: req.body.receipts || [],
-      invoiceImageUrl: req.body.invoiceImageUrl || null,
-      orderReceivedBy: req.body.orderReceivedBy || null,
-      status: req.body.status || "pendiente",
-      items: req.body.items || [],
-      createdAt: new Date().toISOString()
-    };
-    d.push(newDebt);
+app.put("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const d = await readDebts();
+  const idx = d.findIndex((x: any) => x.id === req.params.id);
+  if (idx !== -1) {
+    d[idx] = { ...d[idx], ...req.body };
     await writeDebts(d);
-    res.json(newDebt);
-  }));
+    res.json(d[idx]);
+  } else {
+    res.status(404).json({ error: "Deuda del negocio no encontrada" });
+  }
+}));
 
-  app.put("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const d = await readDebts();
-    const idx = d.findIndex((x: any) => x.id === req.params.id);
-    if (idx !== -1) {
-      d[idx] = { ...d[idx], ...req.body };
-      await writeDebts(d);
-      res.json(d[idx]);
+app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const d = await readDebts();
+  const filtered = d.filter((x: any) => x.id !== req.params.id);
+  await writeDebts(filtered);
+  res.json({ success: true });
+}));
+
+// RECEIPT IMAGE UPLOAD FOR DEBTS
+app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
+  if (!req.file) return res.status(400).json({ error: "No se proporcionó ningún archivo de boleta" });
+
+  try {
+    const fileName = `receipt-${Date.now()}.jpg`;
+    const buffer = await sharp(req.file.buffer)
+      .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+
+    let imageUrl = '';
+    if (uploadError) {
+      console.error("Storage upload error for receipt, falling back to base64:", uploadError);
+      imageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } else {
-      res.status(404).json({ error: "Deuda del negocio no encontrada" });
-    }
-  }));
-
-  app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const d = await readDebts();
-    const filtered = d.filter((x: any) => x.id !== req.params.id);
-    await writeDebts(filtered);
-    res.json({ success: true });
-  }));
-
-  // RECEIPT IMAGE UPLOAD FOR DEBTS
-  app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
-    if (!req.file) return res.status(400).json({ error: "No se proporcionó ningún archivo de boleta" });
-
-    try {
-      const fileName = `receipt-${Date.now()}.jpg`;
-      const buffer = await sharp(req.file.buffer)
-        .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { data: publicUrlData } = supabase.storage
         .from('productos')
-        .upload(fileName, buffer, {
-          contentType: 'image/jpeg',
-          upsert: true
-        });
-
-      let imageUrl = '';
-      if (uploadError) {
-        console.error("Storage upload error for receipt, falling back to base64:", uploadError);
-        imageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      }
-
-      res.json({ success: true, imageUrl });
-    } catch (err: any) {
-      console.error("Error processing receipt upload:", err);
-      try {
-        const b64 = req.file.buffer.toString('base64');
-        res.json({ success: true, imageUrl: `data:${req.file.mimetype};base64,${b64}` });
-      } catch (e: any) {
-        res.status(500).json({ error: "No se pudo procesar el archivo: " + err.message });
-      }
-    }
-  }));
-
-  // GEMINI INVOICE SCANNING / DETECT TEXT
-  app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, upload.single("invoice"), asyncHandler(async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No se proporcionó ningún archivo de factura para analizar" });
+        .getPublicUrl(fileName);
+      imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
 
-    // Upload the original scanned invoice to Supabase as backup so it reflects on all devices
-    let uploadedImageUrl = '';
+    res.json({ success: true, imageUrl });
+  } catch (err: any) {
+    console.error("Error processing receipt upload:", err);
     try {
-      const fileName = `invoice-${Date.now()}.jpg`;
-      const buffer = await sharp(req.file.buffer)
-        .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
+      const b64 = req.file.buffer.toString('base64');
+      res.json({ success: true, imageUrl: `data:${req.file.mimetype};base64,${b64}` });
+    } catch (e: any) {
+      res.status(500).json({ error: "No se pudo procesar el archivo: " + err.message });
+    }
+  }
+}));
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+// GEMINI INVOICE SCANNING / DETECT TEXT
+app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, upload.single("invoice"), asyncHandler(async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No se proporcionó ningún archivo de factura para analizar" });
+  }
+
+  // Upload the original scanned invoice to Supabase as backup so it reflects on all devices
+  let uploadedImageUrl = '';
+  try {
+    const fileName = `invoice-${Date.now()}.jpg`;
+    const buffer = await sharp(req.file.buffer)
+      .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error("Storage upload error for invoice OCR image, falling back to base64:", uploadError);
+      uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+    } else {
+      const { data: publicUrlData } = supabase.storage
         .from('productos')
-        .upload(fileName, buffer, {
-          contentType: 'image/jpeg',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error("Storage upload error for invoice OCR image, falling back to base64:", uploadError);
-        uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      }
-    } catch (uploadErr) {
-      console.error("Error uploading invoice to Supabase inside OCR:", uploadErr);
-      try {
-        uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-      } catch (b64Err) {
-        uploadedImageUrl = '';
-      }
+        .getPublicUrl(fileName);
+      uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
-
+  } catch (uploadErr) {
+    console.error("Error uploading invoice to Supabase inside OCR:", uploadErr);
     try {
-      const client = getGeminiClient();
-      const prompt = `Analiza la siguiente imagen de una factura/gasto de proveedor. Extrae la siguiente información estructurada de manera precisa y en español. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto de la imagen:
+      uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    } catch (b64Err) {
+      uploadedImageUrl = '';
+    }
+  }
+
+  try {
+    const client = getGeminiClient();
+    const prompt = `Analiza la siguiente imagen de una factura/gasto de proveedor. Extrae la siguiente información estructurada de manera precisa y en español. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto de la imagen:
 1. Nombre del Proveedor (supplierName): Nombre legal o comercial del proveedor de la factura.
 2. Fecha de Compra/Factura (invoiceDate): En formato YYYY-MM-DD.
 3. Monto Total de la Factura (amount): Número decimal.
@@ -6988,155 +6987,155 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
   "notes": "String"
 }`;
 
-      const base64Data = req.file.buffer.toString("base64");
-      const imagePart = {
-        inlineData: {
-          mimeType: req.file.mimetype || "image/jpeg",
-          data: base64Data,
-        },
-      };
-      
-      let response: any = null;
-      let lastError: any = null;
-      const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    const base64Data = req.file.buffer.toString("base64");
+    const imagePart = {
+      inlineData: {
+        mimeType: req.file.mimetype || "image/jpeg",
+        data: base64Data,
+      },
+    };
 
-      for (const modelName of modelsToTry) {
-        let attempts = 0;
-        const maxAttempts = 2;
-        while (attempts < maxAttempts) {
-          try {
-            attempts++;
-            response = await client.models.generateContent({
-              model: modelName,
-              contents: [
-                imagePart,
-                { text: prompt }
-              ],
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
-            if (response && response.text) {
-              break;
+    let response: any = null;
+    let lastError: any = null;
+    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+
+    for (const modelName of modelsToTry) {
+      let attempts = 0;
+      const maxAttempts = 2;
+      while (attempts < maxAttempts) {
+        try {
+          attempts++;
+          response = await client.models.generateContent({
+            model: modelName,
+            contents: [
+              imagePart,
+              { text: prompt }
+            ],
+            config: {
+              responseMimeType: "application/json"
             }
-          } catch (err: any) {
-            lastError = err;
-            console.warn(`Attempt ${attempts} with model ${modelName} failed: ${err.message}. Retrying...`);
-            if (attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 800));
-            }
+          });
+          if (response && response.text) {
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Attempt ${attempts} with model ${modelName} failed: ${err.message}. Retrying...`);
+          if (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 800));
           }
         }
-        if (response && response.text) {
-          break;
-        }
       }
+      if (response && response.text) {
+        break;
+      }
+    }
 
-      if (!response || !response.text) {
-        throw lastError || new Error("Se superaron todos los reintentos para la extracción de texto.");
-      }
+    if (!response || !response.text) {
+      throw lastError || new Error("Se superaron todos los reintentos para la extracción de texto.");
+    }
 
-      const text = response.text || "{}";
-      let cleanedText = text.trim();
-      if (cleanedText.startsWith("```json")) {
-        cleanedText = cleanedText.substring(7, cleanedText.length - 3).trim();
-      } else if (cleanedText.startsWith("```")) {
-        cleanedText = cleanedText.substring(3, cleanedText.length - 3).trim();
-      }
-      
-      const extracted = JSON.parse(cleanedText);
-      extracted.imageUrl = uploadedImageUrl;
-      res.json({ success: true, data: extracted });
-    } catch (err: any) {
-      console.warn("Gemini invoice recognition failed, using simulated high-fidelity agricultural parser fallback:", err.message);
-      
-      const fileNameLower = req.file.originalname.toLowerCase();
-      let supplierName = "Distribuidora Veterinaria El Sol, S.A.";
-      let amount = 1450.00;
-      let creditDays = 30;
-      let notes = "Compra de medicamentos veterinarios y antibióticos";
-      let items = [
-        { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00 },
-        { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00 }
+    const text = response.text || "{}";
+    let cleanedText = text.trim();
+    if (cleanedText.startsWith("```json")) {
+      cleanedText = cleanedText.substring(7, cleanedText.length - 3).trim();
+    } else if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText.substring(3, cleanedText.length - 3).trim();
+    }
+
+    const extracted = JSON.parse(cleanedText);
+    extracted.imageUrl = uploadedImageUrl;
+    res.json({ success: true, data: extracted });
+  } catch (err: any) {
+    console.warn("Gemini invoice recognition failed, using simulated high-fidelity agricultural parser fallback:", err.message);
+
+    const fileNameLower = req.file.originalname.toLowerCase();
+    let supplierName = "Distribuidora Veterinaria El Sol, S.A.";
+    let amount = 1450.00;
+    let creditDays = 30;
+    let notes = "Compra de medicamentos veterinarios y antibióticos";
+    let items = [
+      { name: "Complejo B Inyectable 250ml", quantity: 3, price: 150.00 },
+      { name: "Desparasitante Bovino Cydectin", quantity: 10, price: 100.00 }
+    ];
+
+    if (fileNameLower.includes("agro") || fileNameLower.includes("fertil") || fileNameLower.includes("quim") || fileNameLower.includes("herbicida")) {
+      supplierName = "Agroquímicos del Pacífico";
+      amount = 3200.00;
+      creditDays = 15;
+      notes = "Compra de insecticidas y fertilizantes premium para catálogo";
+      items = [
+        { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00 },
+        { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00 }
       ];
+    } else if (fileNameLower.includes("ali") || fileNameLower.includes("con") || fileNameLower.includes("concentrado")) {
+      supplierName = "Nutri-Avícola Industrial";
+      amount = 4500.00;
+      creditDays = 45;
+      notes = "Compra de sacos de alimento balanceado para aves ponedoras";
+      items = [
+        { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00 },
+        { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.05 }
+      ];
+    }
 
-      if (fileNameLower.includes("agro") || fileNameLower.includes("fertil") || fileNameLower.includes("quim") || fileNameLower.includes("herbicida")) {
-        supplierName = "Agroquímicos del Pacífico";
-        amount = 3200.00;
-        creditDays = 15;
-        notes = "Compra de insecticidas y fertilizantes premium para catálogo";
-        items = [
-          { name: "Herbicida Paraquat 1L", quantity: 20, price: 110.00 },
-          { name: "Fertilizante Urea Saco 50kg", quantity: 5, price: 200.00 }
-        ];
-      } else if (fileNameLower.includes("ali") || fileNameLower.includes("con") || fileNameLower.includes("concentrado")) {
-        supplierName = "Nutri-Avícola Industrial";
-        amount = 4500.00;
-        creditDays = 45;
-        notes = "Compra de sacos de alimento balanceado para aves ponedoras";
-        items = [
-          { name: "Alimento Concentrado Iniciación 100lb", quantity: 15, price: 180.00 },
-          { name: "Alimento Concentrado Engorde 100lb", quantity: 10, price: 180.05 }
-        ];
+    res.json({
+      success: true,
+      isSimulation: true,
+      data: {
+        supplierName,
+        invoiceDate: new Date().toISOString().split('T')[0],
+        amount,
+        creditDays,
+        items,
+        notes: notes + " (Digitalizado mediante Escaneo Inteligente)",
+        imageUrl: uploadedImageUrl
       }
+    });
+  }
+}));
 
-      res.json({
-        success: true,
-        isSimulation: true,
-        data: {
-          supplierName,
-          invoiceDate: new Date().toISOString().split('T')[0],
-          amount,
-          creditDays,
-          items,
-          notes: notes + " (Digitalizado mediante Escaneo Inteligente)",
-          imageUrl: uploadedImageUrl
-        }
+app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide"), asyncHandler(async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No se proporcionó ninguna imagen de la guía" });
+  }
+
+  let uploadedImageUrl = '';
+  try {
+    const fileName = `shipping-guide-${Date.now()}.jpg`;
+    const buffer = await sharp(req.file.buffer)
+      .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(fileName, buffer, {
+        contentType: 'image/jpeg',
+        upsert: true
       });
-    }
-  }));
 
-  app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide"), asyncHandler(async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No se proporcionó ninguna imagen de la guía" });
-    }
-
-    let uploadedImageUrl = '';
-    try {
-      const fileName = `shipping-guide-${Date.now()}.jpg`;
-      const buffer = await sharp(req.file.buffer)
-        .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
+    if (uploadError) {
+      console.error("Storage upload error for shipping guide image, falling back to base64:", uploadError);
+      uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+    } else {
+      const { data: publicUrlData } = supabase.storage
         .from('productos')
-        .upload(fileName, buffer, {
-          contentType: 'image/jpeg',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error("Storage upload error for shipping guide image, falling back to base64:", uploadError);
-        uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      }
-    } catch (uploadErr) {
-      console.error("Error uploading shipping guide to Supabase inside OCR:", uploadErr);
-      try {
-        uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-      } catch (b64Err) {
-        uploadedImageUrl = '';
-      }
+        .getPublicUrl(fileName);
+      uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
-
+  } catch (uploadErr) {
+    console.error("Error uploading shipping guide to Supabase inside OCR:", uploadErr);
     try {
-      const client = getGeminiClient();
-      const prompt = `Analiza la siguiente imagen de una guía de envío (comprobante de paquetería o recibo de entrega). Extrae la siguiente información de manera precisa. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto:
+      uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    } catch (b64Err) {
+      uploadedImageUrl = '';
+    }
+  }
+
+  try {
+    const client = getGeminiClient();
+    const prompt = `Analiza la siguiente imagen de una guía de envío (comprobante de paquetería o recibo de entrega). Extrae la siguiente información de manera precisa. Si no estás seguro de algún campo, haz tu mejor suposición basada en el contexto:
 1. Número de guía (guideNumber): El código o número de rastreo del paquete.
 2. Nombre del cliente o destinatario (clientName): A quién va dirigido el paquete.
 3. Fecha de envío (shippingDate): En formato YYYY-MM-DD.
@@ -7148,1011 +7147,1011 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
   "shippingDate": "YYYY-MM-DD"
 }`;
 
-      const base64Data = req.file.buffer.toString("base64");
-      const imagePart = {
-        inlineData: {
-          mimeType: req.file.mimetype || "image/jpeg",
-          data: base64Data,
-        },
-      };
-      
-      let response: any = null;
-      let lastError: any = null;
-      const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
-
-      for (const modelName of modelsToTry) {
-        let attempts = 0;
-        const maxAttempts = 2;
-        while (attempts < maxAttempts) {
-          try {
-            attempts++;
-            response = await client.models.generateContent({
-              model: modelName,
-              contents: [imagePart, { text: prompt }],
-              config: { responseMimeType: "application/json" }
-            });
-            if (response && response.text) break;
-          } catch (err: any) {
-            lastError = err;
-            if (attempts < maxAttempts) await new Promise(resolve => setTimeout(resolve, 800));
-          }
-        }
-        if (response && response.text) break;
-      }
-
-      if (!response || !response.text) throw lastError || new Error("Se superaron todos los reintentos para la extracción de texto.");
-
-      const text = response.text || "{}";
-      let cleanedText = text.trim();
-      if (cleanedText.startsWith("```json")) {
-        cleanedText = cleanedText.substring(7, cleanedText.length - 3).trim();
-      } else if (cleanedText.startsWith("```")) {
-        cleanedText = cleanedText.substring(3, cleanedText.length - 3).trim();
-      }
-      
-      const extracted = JSON.parse(cleanedText);
-      extracted.imageUrl = uploadedImageUrl;
-      res.json({ success: true, data: extracted });
-    } catch (err: any) {
-      console.warn("Gemini guide recognition failed:", err.message);
-      res.json({
-        success: true,
-        isSimulation: true,
-        data: {
-          guideNumber: "GUIA-" + Math.floor(Math.random() * 1000000),
-          clientName: "Cliente Identificado Automáticamente",
-          shippingDate: new Date().toISOString().split('T')[0],
-          imageUrl: uploadedImageUrl
-        }
-      });
-    }
-  }));
-
-  app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any) => {
-    // Determine "today" - prefer query param from client to match their timezone
-    const clientDate = req.query.today;
-    const todayStr = clientDate || new Date().toISOString().split('T')[0];
-    
-    // 1. Fetch all invoices
-    let invoices: any[] = [];
-    try {
-      let { data, error } = await supabase.from("invoices").select("*").eq('is_archived', false);
-      if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
-        const fallback = await supabase.from("invoices").select("*");
-        data = fallback.data;
-      }
-      if (data) invoices = data;
-    } catch {}
-    
-    const folioMap = await getFolioMap();
-    const allInvoices = invoices.map(inv => ({
-      ...inv,
-      folio: folioMap[String(inv.id)] || 1
-    }));
-
-    // 2. Fetch all regular payments
-    let payments: any[] = [];
-    try {
-      let { data, error } = await supabase.from("payments").select("*").eq('is_archived', false);
-      if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
-        const fallback = await supabase.from("payments").select("*");
-        data = fallback.data;
-      }
-      if (data) payments = data;
-    } catch {}
-    
-    // Merge local payments
-    let localPayments: any[] = [];
-    const localFiles = ['payments.json', 'payments_local.json'];
-    localFiles.forEach(file => {
-      try {
-        const filePath = path.resolve(process.cwd(), file);
-        if (fs.existsSync(filePath)) {
-          const arr = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-          if (Array.isArray(arr)) {
-            localPayments = [...localPayments, ...arr];
-          }
-        }
-      } catch {}
-    });
-    
-    const paymentsMap = new Map<string, any>();
-    localPayments.forEach(p => p && p.id && paymentsMap.set(p.id, p));
-    payments.forEach(p => {
-      if (p && p.id) {
-        const existing = paymentsMap.get(p.id);
-        paymentsMap.set(p.id, existing ? { ...existing, ...p } : p);
-      }
-    });
-    const allPayments = Array.from(paymentsMap.values());
-
-    const salesBySeller: Record<string, number> = {};
-    const paymentsBySeller: Record<string, number> = {};
-    const todayPaymentsDetail: any[] = [];
-
-    // Calculate today's sales (based on invoice date)
-    const matchesTargetDate = (dateStr: string, target: string) => {
-      if (!dateStr || !target) return false;
-      // Basic match
-      if (dateStr.startsWith(target)) return true;
-      // Heuristic match for timezone offsets (e.g. UTC+1 transition)
-      try {
-        const d = new Date(dateStr);
-        // Adjust by -6 hours (Guatemala/Central Time)
-        const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
-        return adjusted.toISOString().split('T')[0] === target;
-      } catch {
-        return false;
-      }
+    const base64Data = req.file.buffer.toString("base64");
+    const imagePart = {
+      inlineData: {
+        mimeType: req.file.mimetype || "image/jpeg",
+        data: base64Data,
+      },
     };
 
-    allInvoices.forEach(inv => {
-      if (matchesTargetDate(inv.date, todayStr)) {
-         if (inv.status !== 'cancelled' && inv.status !== 'rejected') {
-            salesBySeller[inv.sellerId] = (salesBySeller[inv.sellerId] || 0) + (inv.totalAmount || 0);
-         }
-      }
-    });
+    let response: any = null;
+    let lastError: any = null;
+    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
 
-    const invoicesMap = new Map<string, any>();
-    allInvoices.forEach(inv => {
-      if (inv && inv.id) {
-        invoicesMap.set(inv.id, inv);
-      }
-    });
-
-    // Calculate today's payments (based on payment date)
-    allPayments.forEach(pay => {
-      const payDate = pay.date || '';
-      if (matchesTargetDate(payDate, todayStr)) {
-         const inv = invoicesMap.get(pay.invoiceId);
-         
-         const rawRecordedBy = pay.recordedBy || pay.recordedby || pay.recorded_by;
-         const recordedBy = rawRecordedBy || (inv ? inv.sellerId : 'Desconocido');
-         
-         const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (pay.amount || 0);
-         const clientName = inv ? (inv.clientName || inv.client || 'Cliente') : 'Cliente';
-         const folioNum = inv ? (inv.folio || 1) : 1;
-         const folio = String(folioNum);
-         const receiptUrl = pay.receiptUrl || pay.receipturl || pay.receipt_url || null;
-
-         paymentsBySeller[recordedBy] = (paymentsBySeller[recordedBy] || 0) + amount;
-
-         todayPaymentsDetail.push({
-           id: pay.id,
-           amount,
-           date: payDate,
-           receiptUrl,
-           notes: pay.notes || '',
-           recordedBy,
-           invoiceFolio: folio,
-           clientName,
-           invoiceId: pay.invoiceId
-         });
-      }
-    });
-
-    res.json({
-       todayStr,
-       salesBySeller,
-       paymentsBySeller,
-       todayPaymentsDetail,
-       totalSales: Object.values(salesBySeller).reduce((a, b) => a + b, 0),
-       totalPayments: Object.values(paymentsBySeller).reduce((a, b) => a + b, 0)
-    });
-  }));
-
-  // WHATSAPP
-  async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 8000) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal as any
-      });
-      clearTimeout(timer);
-      return response;
-    } catch (e) {
-      clearTimeout(timer);
-      throw e;
-    }
-  }
-
-  async function internalSendWhatsApp(phone: string, message: string, templateName?: string, templateLanguage: string = "es_MX", templateVariables?: any[]) {
-    // Check if WhatsApp is enabled (by default false/archived)
-    const isWhatsAppEnabled = process.env.ENABLE_WHATSAPP === 'true';
-    if (!isWhatsAppEnabled) {
-      console.log(`[WhatsApp - ARCHIVED] Bypassed message to ${phone}: ${message}`);
-      return { 
-        success: true, 
-        bypassed: true, 
-        archived: true,
-        message: "Las notificaciones de WhatsApp están desactivadas/archivadas." 
-      };
-    }
-
-    // Limpiar el número de teléfono para que solo contenga dígitos (quita espacios, guiones, +, etc)
-    let cleanPhone = String(phone).replace(/\D/g, "");
-    if (cleanPhone.length === 8) {
-        cleanPhone = "502" + cleanPhone; // Guatemala country code prefix by default if 8 digits
-    } else if (cleanPhone.length === 10) {
-        cleanPhone = "52" + cleanPhone; // Mexico country code default if 10 digits
-    }
-    
-    // Configura estas variables en tu archivo .env o en el panel de despliegue
-    let waToken = (process.env.WHATSAPP_TOKEN || "").trim().replace(/['"]/g, '');
-    let waPhoneId = (process.env.WHATSAPP_PHONE_ID || "").trim().replace(/['"]/g, '');
-    let waUrl = (process.env.WHATSAPP_API_URL || "").trim().replace(/['"]/g, '');
-
-    // Intentar leer configuración desde Supabase si existe (para respaldo en BD)
-    try {
-        const { data: configData } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
-        if (configData && configData.photo) {
-            const parsed = JSON.parse(configData.photo);
-            if (parsed.waToken) waToken = parsed.waToken.trim();
-            if (parsed.waPhoneId) waPhoneId = parsed.waPhoneId.trim();
-            if (parsed.waUrl) waUrl = parsed.waUrl.trim();
-        }
-    } catch (e) {}
-    
-    console.log(`[WhatsApp] Configuración: Token presente=${!!waToken} (${waToken.substring(0, 7)}...), PhoneID=${waPhoneId || 'None'}, URL=${waUrl || 'Default'}`);
-
-    // Auto-corrección si el usuario pegó el Token en el lugar de la URL o viceversa
-    if (waUrl && waUrl.includes("EAA")) {
-        console.warn("[WhatsApp] Se detectó Token en el campo de URL. Corrigiendo...");
-        waUrl = "";
-    }
-    
-    if (waUrl && waUrl.includes("graph.facebook.com") && waPhoneId && !waUrl.includes("messages")) {
-        // Ensure it has the correct path
-        const baseUrl = waUrl.endsWith('/') ? waUrl.slice(0, -1) : waUrl;
-        waUrl = `${baseUrl}/${waPhoneId}/messages`;
-    } else if (!waUrl && waPhoneId) {
-        waUrl = `https://graph.facebook.com/v20.0/${waPhoneId}/messages`;
-    }
-    
-    if (!waToken || !waUrl) {
-       const missing = [];
-       if (!waToken) missing.push("WHATSAPP_TOKEN");
-       if (!waUrl) missing.push("WHATSAPP_PHONE_ID (o WHATSAPP_API_URL)");
-       
-       console.warn(`⚠️ ERROR: WhatsApp NO configurado. Faltan: ${missing.join(", ")}`);
-       return { 
-           success: false, 
-           mock: true, 
-           error: `Faltan variables de entorno: ${missing.join(", ")}`
-       };
-    }
-
-    let fetchUrl = waUrl;
-    let options: RequestInit = {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        }
-    };
-
-    // Si es la API oficial de Meta (Cloud API):
-    if (waUrl.includes("graph.facebook.com")) {
-         let payload: any = {
-             messaging_product: "whatsapp",
-             recipient_type: "individual",
-             to: cleanPhone,
-         };
-         
-         if (templateName) {
-             // FOR TESTING: Override any template with hello_world
-             console.log(`[WhatsApp] Overriding template ${templateName} to hello_world for testing`);
-             templateName = "hello_world";
-             templateLanguage = "en_US";
-             templateVariables = [];
-
-             payload.type = "template";
-             payload.template = {
-                 name: templateName,
-                 language: { code: templateLanguage }
-             };
-             
-             if (templateVariables && templateVariables.length > 0) {
-                 if (templateName === "alerta_nuevo_pedido_interno") {
-                      payload.template.components = [
-                          {
-                              type: "body",
-                              parameters: templateVariables.slice(0, 5).map((val) => {
-                                  const text = typeof val === 'object' && val !== null ? String(val.value || val.text || "") : String(val);
-                                  return { type: "text", text };
-                              })
-                          }
-                      ];
-                      const buttonVal = templateVariables[5];
-                      if (buttonVal !== undefined) {
-                          const buttonText = typeof buttonVal === 'object' && buttonVal !== null ? String(buttonVal.value || buttonVal.text || "") : String(buttonVal);
-                          payload.template.components.push({
-                              type: "button",
-                              sub_type: "url",
-                              index: "0",
-                              parameters: [
-                                  { type: "text", text: buttonText }
-                              ]
-                          });
-                      }
-                  } else payload.template.components = [
-                     {
-                         type: "body",
-                         parameters: templateVariables.map((val) => {
-                             if (typeof val === 'object' && val !== null) {
-                                 // Soporta tanto posicional como nombrado si Meta lo requiere
-                                 return { 
-                                     type: "text", 
-                                     text: String(val.value || val.text || "")
-                                 };
-                             }
-                             return { type: "text", text: String(val) };
-                         })
-                     }
-                 ];
-             }
-         } else {
-             payload.type = "text";
-             payload.text = { body: message };
-         }
-         
-         options.body = JSON.stringify(payload);
-         options.headers = {
-             ...options.headers,
-             "Authorization": `Bearer ${waToken}`
-         };
-         
-         // Intentar con plantilla primero (si está presente)
-         let firstRes, firstText;
-         try {
-             firstRes = await fetchWithTimeout(fetchUrl, options);
-             firstText = await firstRes.text();
-         } catch(e: any) {
-             console.error("WhatsApp Fetch Network Error:", e);
-             return { success: false, error: "Network/Timeout error: " + e.message };
-         }
-         let firstData;
-         try { firstData = JSON.parse(firstText); } catch(e) { firstData = {}; }
-
-         if (!firstRes.ok) {
-             // Si el error es por parámetros del template (#132000) o template no encontrado (#132001)
-             // intentamos enviar como MENSAJE DE TEXTO PLANO como fallback.
-             const isParamError = firstData.error?.code === 132000 || firstData.error?.code === 132001;
-             
-             if (templateName && isParamError) {
-                 console.warn(`[WhatsApp] Fallo con plantilla "${templateName}" (${firstData.error?.message}). Reintentando como texto plano...`);
-                 payload = {
-                     messaging_product: "whatsapp",
-                     recipient_type: "individual",
-                     to: cleanPhone,
-                     type: "text",
-                     text: { body: message }
-                 };
-                 options.body = JSON.stringify(payload);
-                 const retryRes = await fetchWithTimeout(fetchUrl, options);
-                 const retryText = await retryRes.text();
-                 try {
-                     const retryData = JSON.parse(retryText);
-                     if (retryRes.ok) return { success: true, ...retryData };
-                     return { success: false, error: retryData.error?.message || "Error en reintento texto plano" };
-                 } catch(e) {
-                     return { success: false, error: "Error de red en reintento: " + retryText.substring(0, 50) };
-                 }
-             }
-
-             let errorMsg = firstData.error?.message || "Error interaccionando con Meta WhatsApp API";
-             if (firstData.error?.code === 131047) {
-                 errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente te haya enviado un mensaje primero en las últimas 24 hrs para poder enviarle texto libre. Debes usar plantillas (templates) pre-aprobadas para iniciar la conversación.";
-             } else if (firstData.error?.code === 131026) {
-                 errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
-             } else if (firstData.error?.code === 131030) {
-                 errorMsg = "IMPORTANTE: Modo de Prueba (Sandbox). Meta está bloqueando el mensaje porque este número de teléfono no fue autorizado. Debes ir a https://developers.facebook.com/, seleccionar tu App, ir a WhatsApp, y agregar este número al 'Test phone numbers' (Destinatarios de prueba) o agregar cuenta de pago.";
-             } else if (firstData.error?.error_subcode === 33 || firstData.error?.code === 100) {
-                 errorMsg = "Error: El 'Phone Number ID' (ID de Número) ingresado en la configuración es incorrecto. Asegúrate de usar el identificador numérico que proporciona Meta, NO uses tu número de teléfono real ni el Identificador de la cuenta de WhatsApp.";
-             } else if (firstData.error?.code === 190) {
-                 if (firstData.error?.error_subcode === 460) {
-                     errorMsg = "Error de Sesión Expirada (Meta Code 190 / Subcode 460). El Token de WhatsApp configurado (de 243 caracteres) ha sido INVALIDADO por Meta, usualmente porque cambiaste la contraseña de tu cuenta de Facebook o por razones de seguridad de Meta. Debes ingresar a Meta Business Suite, ir a Usuarios del Sistema, generar un NUEVO token de acceso y guardarlo en tu configuración.";
-                 } else {
-                     errorMsg = "Token de Acceso Inválido, Expirado o no Autorizado (Meta Code 190). Asegúrate de generar un nuevo token permanente de Usuario del Sistema con los permisos 'whatsapp_business_messaging' y 'whatsapp_business_management'.";
-                 }
-             } else if (errorMsg.includes("Authentication")) {
-                 errorMsg = "Error de Autenticación de Meta. Revisa que el Token de WhatsApp (EAAG...) esté correcto en tu archivo .env o configuraciones (sin comillas adicionales). Verifica que tenga el permiso 'whatsapp_business_messaging'. (Token configurado en su ambiente mide " + waToken.length + " caracteres).";
-             }
-             return { success: false, error: errorMsg, data: firstData };
-         }
-         
-         return { success: true, ...firstData };
-    // Si es WATI:
-    } else if (waUrl.includes("wati")) {
-        // WATI Session Message format
-        fetchUrl = `${waUrl}/api/v1/sendSessionMessage/${cleanPhone}?messageText=${encodeURIComponent(message)}`;
-        options.headers = {
-            ...options.headers,
-            "Authorization": `Bearer ${waToken}`
-        };
-    } else {
-         // General Evolution/Z-API format assumption
-         options.body = JSON.stringify({ number: cleanPhone, text: message });
-         options.headers = {
-             ...options.headers,
-             "apikey": waToken,
-             "Authorization": `Bearer ${waToken}`
-         };
-    }
-    
-    let wpRes, resText;
-    try {
-        wpRes = await fetchWithTimeout(fetchUrl, options);
-        console.log(`WhatsApp API [${wpRes.status}] calling ${fetchUrl}`);
-        resText = await wpRes.text();
-    } catch (e: any) {
-        console.error("WhatsApp generic API network error:", e);
-        return { success: false, error: "Network/Timeout error: " + e.message };
-    }
-
-    let data;
-    try {
-        data = JSON.parse(resText);
-    } catch(e) {
-        data = { error: { message: "Error parsing WhatsApp response: " + resText.substring(0, 100) }};
-    }
-    
-    if (!wpRes.ok) {
-         console.error("WhatsApp API Raw Error Response:", resText);
-         let errorMsg = data.error?.message || data.message || "Error de la API de WhatsApp";
-         if (data.error?.code === 131047) {
-             errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente haya enviado un mensaje primero en las últimas 24 hrs. Debe usar plantillas para enviar fuera del límite.";
-         }
-         if (data.error?.code === 131026) {
-             errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
-         }
-         if (data.error?.code === 131030) {
-             errorMsg = "El número de teléfono receptor no está en la lista de permitidos. Estás usando una cuenta de WhatsApp en modo de prueba (Sandbox). Debes agregar este número de teléfono como 'número de prueba autorizado' en el panel de desarrolladores de Facebook (Meta Developer Console) para poder enviarle mensajes, o cambiar la cuenta a producción.";
-         }
-         throw new Error(errorMsg);
-    }
-    
-    return { success: true, apiResponse: data };
-  }
-
-  app.post("/api/whatsapp/send", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { phone, message, templateName, templateLanguage = "es_MX", templateVariables } = req.body;
-    try {
-       const result = await internalSendWhatsApp(phone, message, templateName, templateLanguage, templateVariables);
-       if (!result.success && !result.mock) {
-           return res.status(400).json({ error: result.error || "Error al enviar mensaje de WhatsApp", details: result });
-       }
-       res.json(result);
-    } catch (err: any) {
-       console.error("WhatsApp API Error:", err);
-       res.status(500).json({ error: "No se pudo enviar el mensaje", details: err.message, stack: err.stack });
-    }
-  }));
-
-  // === WHATSAPP CONFIG BACKUP ENDPOINTS ===
-  app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    try {
-        const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
-        if (data && data.photo) {
-            res.json(JSON.parse(data.photo));
-        } else {
-            res.json({ waToken: '', waPhoneId: '', waUrl: '' });
-        }
-    } catch (e) {
-        res.json({ waToken: '', waPhoneId: '', waUrl: '' });
-    }
-  }));
-
-  app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { waToken, waPhoneId, waUrl } = req.body;
-    try {
-        const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
-        const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
-        
-        if (existing) {
-            await supabase.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
-        } else {
-            await supabase.from('users').insert([{
-                id: 'sys-whatsapp-config',
-                name: 'WhatsApp Config',
-                email: 'system-whatsapp@agricovet.com',
-                role: 'system',
-                phone: '',
-                password: '',
-                photo: payloadStr
-            }]);
-        }
-        res.json({ success: true });
-    } catch(e: any) {
-        console.error("Error saving WhatsApp config:", e);
-        res.status(500).json({ error: e.message });
-    }
-  }));
-  // ========================================
-  // ========================================
-  // BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by Supabase for Cloud / Serverless)
-  const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
-
-  async function savePendingBoleta(phone: string, data: any) {
-    try {
-      const payload = JSON.stringify({ ...data, timestamp: Date.now() });
-      const recordId = 'bot-boleta-' + phone;
-      await supabase.from('users').upsert({
-        id: recordId,
-        name: 'Pending Boleta',
-        email: `${recordId}@bot.local`,
-        role: 'system',
-        phone: phone,
-        password: '',
-        photo: payload
-      });
-    } catch (e) {
-      console.warn("Could not save pending boleta to Supabase:", e);
-    }
-  }
-
-  async function popPendingBoleta(phone: string) {
-    try {
-      const now = Date.now();
-      const recordId = 'bot-boleta-' + phone;
-      const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
-      if (direct && direct.photo) {
+    for (const modelName of modelsToTry) {
+      let attempts = 0;
+      const maxAttempts = 2;
+      while (attempts < maxAttempts) {
         try {
-          const parsed = JSON.parse(direct.photo);
-          if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-            await supabase.from('users').delete().eq('id', recordId);
-            return parsed;
-          }
-        } catch (e) {}
-      }
-      const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-boleta-%');
-      if (recent && recent.length > 0) {
-        for (const r of recent) {
-          if (r.photo) {
-            try {
-              const parsed = JSON.parse(r.photo);
-              if (now - (parsed.timestamp || 0) < 60000) {
-                await supabase.from('users').delete().eq('id', r.id);
-                return parsed;
-              }
-            } catch (e) {}
-          }
-        }
-      }
-    } catch (e) {}
-    return null;
-  }
-
-  async function savePendingFolio(phone: string, data: any) {
-    try {
-      const payload = JSON.stringify({ ...data, timestamp: Date.now() });
-      const recordId = 'bot-folio-' + phone;
-      await supabase.from('users').upsert({
-        id: recordId,
-        name: 'Pending Folio',
-        email: `${recordId}@bot.local`,
-        role: 'system',
-        phone: phone,
-        password: '',
-        photo: payload
-      });
-    } catch (e) {
-      console.warn("Could not save pending folio to Supabase:", e);
-    }
-  }
-
-  async function popPendingFolio(phone: string) {
-    try {
-      const now = Date.now();
-      const recordId = 'bot-folio-' + phone;
-      const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
-      if (direct && direct.photo) {
-        try {
-          const parsed = JSON.parse(direct.photo);
-          if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-            await supabase.from('users').delete().eq('id', recordId);
-            return parsed;
-          }
-        } catch (e) {}
-      }
-      const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-folio-%');
-      if (recent && recent.length > 0) {
-        for (const r of recent) {
-          if (r.photo) {
-            try {
-              const parsed = JSON.parse(r.photo);
-              if (now - (parsed.timestamp || 0) < 60000) {
-                await supabase.from('users').delete().eq('id', r.id);
-                return parsed;
-              }
-            } catch (e) {}
-          }
-        }
-      }
-    } catch (e) {}
-    return null;
-  }
-
-  async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
-    const startTime = Date.now();
-    let boleta = await popPendingBoleta(phone);
-    if (boleta) return boleta;
-
-    while (Date.now() - startTime < maxWaitMs) {
-      await new Promise(r => setTimeout(r, 400));
-      boleta = await popPendingBoleta(phone);
-      if (boleta) return boleta;
-    }
-
-    return null;
-  }
-
-  async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
-    const cleanFolio = String(folioInput || '').replace(/^#/, '').trim();
-    if (!cleanFolio || cleanFolio === 'S/N') return null;
-
-    // 1. Exact match on 'folio' column
-    const { data: byFolio } = await supabase
-      .from("invoices")
-      .select("*")
-      .eq('folio', cleanFolio);
-
-    if (byFolio && byFolio.length > 0) {
-      if (byFolio.length > 1 && clientHint) {
-        const hint = clientHint.toLowerCase().trim();
-        const best = byFolio.find(inv => inv.clientName && inv.clientName.toLowerCase().includes(hint));
-        if (best) return best;
-      }
-      return byFolio[0];
-    }
-
-    // 2. Exact match in notes with FOLIO:<cleanFolio>
-    const { data: byNotes } = await supabase
-      .from("invoices")
-      .select("*")
-      .ilike('notes', `%FOLIO:${cleanFolio}%`);
-
-    if (byNotes && byNotes.length > 0) return byNotes[0];
-
-    // 3. Exact match on 'id' column
-    const { data: byId } = await supabase
-      .from("invoices")
-      .select("*")
-      .eq('id', cleanFolio);
-
-    if (byId && byId.length > 0) return byId[0];
-
-    // 4. Exact prefix match on id (e.g. INV-831-...)
-    const { data: byPrefix } = await supabase
-      .from("invoices")
-      .select("*")
-      .ilike('id', `INV-${cleanFolio}-%`);
-
-    if (byPrefix && byPrefix.length > 0) return byPrefix[0];
-
-    // 5. Fallback: Search by clientHint if provided
-    if (clientHint && clientHint.length > 3) {
-      const { data: byClient } = await supabase
-        .from("invoices")
-        .select("*")
-        .ilike('clientName', `%${clientHint}%`)
-        .order('date', { ascending: false })
-        .limit(5);
-
-      if (byClient && byClient.length > 0) {
-        const withBalance = byClient.find(inv => (parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0)) > 0);
-        if (withBalance) return withBalance;
-        return byClient[0];
-      }
-    }
-
-    return null;
-  }
-
-  // ENDPOINT: Procesar Boleta de Imagen (o con Folio incluido)
-  app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
-    const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
-    let cleanFolio = String(folio || '').replace(/^#/, '').trim();
-    const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
-    const numAmount = parseFloat(amount || 0);
-
-    let receiptUrl = null;
-    if (receiptBase64 && String(receiptBase64).trim() !== '') {
-      try {
-        const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ''), 'base64');
-        const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from('productos')
-          .upload(fileName, buffer, {
-            contentType: 'image/jpeg',
-            upsert: true
+          attempts++;
+          response = await client.models.generateContent({
+            model: modelName,
+            contents: [imagePart, { text: prompt }],
+            config: { responseMimeType: "application/json" }
           });
-
-        if (!uploadError) {
-          const { data: publicUrlData } = supabase.storage
-            .from('productos')
-            .getPublicUrl(fileName);
-          receiptUrl = publicUrlData.publicUrl;
-        } else {
-          receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
+          if (response && response.text) break;
+        } catch (err: any) {
+          lastError = err;
+          if (attempts < maxAttempts) await new Promise(resolve => setTimeout(resolve, 800));
         }
-      } catch (err) {
-        console.error("Error guardando imagen de boleta de bot:", err);
       }
+      if (response && response.text) break;
     }
 
-    // Si no vino folio en este mensaje, verificar si ya había un folio en espera enviado por texto antes
-    let matchedPendingFolio = null;
-    if (!cleanFolio || cleanFolio === 'S/N') {
-      matchedPendingFolio = await popPendingFolio(cleanPhone);
-      if (matchedPendingFolio && matchedPendingFolio.folio) {
-        cleanFolio = matchedPendingFolio.folio;
-        console.log(`[Bot Abono] Se asoció boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
-      }
+    if (!response || !response.text) throw lastError || new Error("Se superaron todos los reintentos para la extracción de texto.");
+
+    const text = response.text || "{}";
+    let cleanedText = text.trim();
+    if (cleanedText.startsWith("```json")) {
+      cleanedText = cleanedText.substring(7, cleanedText.length - 3).trim();
+    } else if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText.substring(3, cleanedText.length - 3).trim();
     }
 
-    // Si aún no hay folio, guardar la boleta en espera de que el usuario mande el texto
-    if (!cleanFolio || cleanFolio === 'S/N') {
-      await savePendingBoleta(cleanPhone, {
-        amount: numAmount,
-        noBoleta: noBoleta || 'S/N',
-        banco: banco || 'S/N',
-        receiptUrl: receiptUrl,
-        sellerName: sellerName || '',
-        notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
-      });
-      console.log(`[Bot Abono] Boleta guardada en espera de folio para teléfono ${cleanPhone} (Monto: Q. ${numAmount}, Boleta: ${noBoleta})`);
-      return res.json({
-        success: false,
-        pending: true,
-        message: "Boleta recibida y guardada a la espera de folio",
-        amount: numAmount,
-        noBoleta: noBoleta,
-        banco: banco,
-        receiptUrl: receiptUrl
-      });
-    }
-
-    const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
-    if (!invoice) {
-      await savePendingBoleta(cleanPhone, {
-        amount: numAmount,
-        noBoleta: noBoleta || 'S/N',
-        banco: banco || 'S/N',
-        receiptUrl: receiptUrl,
-        sellerName: sellerName || '',
-        notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
-      });
-      return res.json({ success: false, message: `No se encontró ninguna factura con el folio #${cleanFolio}` });
-    }
-
-    // Limpiar colas de este teléfono
-    await popPendingBoleta(cleanPhone);
-    await popPendingFolio(cleanPhone);
-
-    let currentPaid = parseFloat(invoice.paidAmount || 0);
-    let total = parseFloat(invoice.totalAmount || 0);
-    let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
-    let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
-
-    await supabase.from("invoices").update({
-      paidAmount: newPaid,
-      status: newStatus
-    }).eq('id', invoice.id);
-
-    const paymentNotes = notes || matchedPendingFolio?.notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`;
-
-    if (numAmount > 0) {
-      try {
-        await safeInsertPayment({
-          id: `PAY-BOT-${Date.now()}`,
-          invoiceId: invoice.id,
-          amount: numAmount,
-          date: new Date().toISOString(),
-          receiptUrl: receiptUrl || null,
-          notes: paymentNotes
-        });
-      } catch (payErr) {
-        console.warn("Error guardando pago en tabla payments:", payErr);
-      }
-    }
-
-    const remaining = Math.max(0, total - newPaid);
-    const isFullyPaid = remaining <= 0.01;
-
-    return res.json({
+    const extracted = JSON.parse(cleanedText);
+    extracted.imageUrl = uploadedImageUrl;
+    res.json({ success: true, data: extracted });
+  } catch (err: any) {
+    console.warn("Gemini guide recognition failed:", err.message);
+    res.json({
       success: true,
-      folio: invoice.folio || invoice.id,
-      invoiceId: invoice.id,
-      clientName: invoice.clientName || 'Cliente',
-      totalAmount: total,
-      paidAmount: newPaid,
-      balance: remaining,
-      remainingBalance: remaining,
-      isFullyPaid,
-      receiptUrl
+      isSimulation: true,
+      data: {
+        guideNumber: "GUIA-" + Math.floor(Math.random() * 1000000),
+        clientName: "Cliente Identificado Automáticamente",
+        shippingDate: new Date().toISOString().split('T')[0],
+        imageUrl: uploadedImageUrl
+      }
     });
+  }
+}));
+
+app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any) => {
+  // Determine "today" - prefer query param from client to match their timezone
+  const clientDate = req.query.today;
+  const todayStr = clientDate || new Date().toISOString().split('T')[0];
+
+  // 1. Fetch all invoices
+  let invoices: any[] = [];
+  try {
+    let { data, error } = await supabase.from("invoices").select("*").eq('is_archived', false);
+    if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
+      const fallback = await supabase.from("invoices").select("*");
+      data = fallback.data;
+    }
+    if (data) invoices = data;
+  } catch { }
+
+  const folioMap = await getFolioMap();
+  const allInvoices = invoices.map(inv => ({
+    ...inv,
+    folio: folioMap[String(inv.id)] || 1
   }));
 
-  // ENDPOINT: Procesar Folio por Texto
-  app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: any, res: any) => {
-    const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
-    const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
-    const cleanFolio = String(folioParam || '').replace(/^#/, '').trim();
-    const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
-
-    if (!cleanFolio || cleanFolio === 'S/N') {
-      return res.json({ success: false, message: "No se especificó folio válido" });
+  // 2. Fetch all regular payments
+  let payments: any[] = [];
+  try {
+    let { data, error } = await supabase.from("payments").select("*").eq('is_archived', false);
+    if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
+      const fallback = await supabase.from("payments").select("*");
+      data = fallback.data;
     }
+    if (data) payments = data;
+  } catch { }
 
-    const invoice = await findInvoiceByFolio(cleanFolio, cliente);
-    if (!invoice) {
-      return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
-    }
-
-    // Esperar hasta 6s por si la imagen de la boleta se está procesando simultáneamente
-    const pending = await waitForPendingBoleta(cleanPhone, 6000);
-    let numAmount = parseFloat(amount || 0);
-    let receiptUrl = null;
-    let boletaNotes = notes ? decodeURIComponent(notes) : '';
-
-    if (pending) {
-      if (numAmount <= 0 && pending.amount > 0) {
-        numAmount = pending.amount;
+  // Merge local payments
+  let localPayments: any[] = [];
+  const localFiles = ['payments.json', 'payments_local.json'];
+  localFiles.forEach(file => {
+    try {
+      const filePath = path.resolve(process.cwd(), file);
+      if (fs.existsSync(filePath)) {
+        const arr = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (Array.isArray(arr)) {
+          localPayments = [...localPayments, ...arr];
+        }
       }
-      receiptUrl = pending.receiptUrl;
-      if (!boletaNotes) {
-        boletaNotes = `Abono asignado por Bot WhatsApp (Boleta: ${pending.noBoleta || 'S/N'}, Banco: ${pending.banco || 'S/N'})`;
-      }
+    } catch { }
+  });
+
+  const paymentsMap = new Map<string, any>();
+  localPayments.forEach(p => p && p.id && paymentsMap.set(p.id, p));
+  payments.forEach(p => {
+    if (p && p.id) {
+      const existing = paymentsMap.get(p.id);
+      paymentsMap.set(p.id, existing ? { ...existing, ...p } : p);
     }
+  });
+  const allPayments = Array.from(paymentsMap.values());
 
-    let currentPaid = parseFloat(invoice.paidAmount || 0);
-    let total = parseFloat(invoice.totalAmount || 0);
+  const salesBySeller: Record<string, number> = {};
+  const paymentsBySeller: Record<string, number> = {};
+  const todayPaymentsDetail: any[] = [];
 
-    // Si NO hay monto explícito ni boleta pendiente encontrada:
-    // NO autoliquidar a ciegas. Guardar folio en espera de la imagen.
-    if (numAmount <= 0) {
-      await savePendingFolio(cleanPhone, {
-        folio: cleanFolio,
-        cliente: cliente || invoice.clientName,
-        notes: boletaNotes || notes || '',
-        invoiceId: invoice.id
-      });
-      console.log(`[Bot Folio] Folio #${cleanFolio} guardado en espera de la imagen de boleta para ${cleanPhone}`);
-
-      const remaining = Math.max(0, total - currentPaid);
-      return res.json({
-        success: true,
-        pendingImage: true,
-        folio: invoice.folio || invoice.id,
-        invoiceId: invoice.id,
-        clientName: invoice.clientName || 'Cliente',
-        totalAmount: total,
-        paidAmount: currentPaid,
-        balance: remaining,
-        isFullyPaid: remaining <= 0.01,
-        message: `Folio #${cleanFolio} registrado. Esperando la imagen de la boleta para abonar.`
-      });
+  // Calculate today's sales (based on invoice date)
+  const matchesTargetDate = (dateStr: string, target: string) => {
+    if (!dateStr || !target) return false;
+    // Basic match
+    if (dateStr.startsWith(target)) return true;
+    // Heuristic match for timezone offsets (e.g. UTC+1 transition)
+    try {
+      const d = new Date(dateStr);
+      // Adjust by -6 hours (Guatemala/Central Time)
+      const adjusted = new Date(d.getTime() - (6 * 60 * 60 * 1000));
+      return adjusted.toISOString().split('T')[0] === target;
+    } catch {
+      return false;
     }
+  };
 
-    // Si sí hay monto o boleta vinculada:
-    let newPaid = currentPaid + numAmount;
-    let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
-
-    await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
-
-    if (numAmount > 0) {
-      try {
-        await safeInsertPayment({
-          id: `PAY-BOT-${Date.now()}`,
-          invoiceId: invoice.id,
-          amount: numAmount,
-          date: new Date().toISOString(),
-          receiptUrl: receiptUrl || null,
-          notes: boletaNotes || notes || `Abono asignado por Bot WhatsApp`
-        });
-      } catch (e) {
-        console.warn("Error guardando pago en payments:", e);
+  allInvoices.forEach(inv => {
+    if (matchesTargetDate(inv.date, todayStr)) {
+      if (inv.status !== 'cancelled' && inv.status !== 'rejected') {
+        salesBySeller[inv.sellerId] = (salesBySeller[inv.sellerId] || 0) + (inv.totalAmount || 0);
       }
-    }
-
-    // Limpiar folios y boletas pendientes de este teléfono
-    await popPendingFolio(cleanPhone);
-    await popPendingBoleta(cleanPhone);
-
-    const remaining = Math.max(0, total - newPaid);
-    const isFullyPaid = remaining <= 0.01;
-
-    return res.json({
-      success: true,
-      folio: invoice.folio || invoice.id,
-      invoiceId: invoice.id,
-      clientName: invoice.clientName || 'Cliente',
-      totalAmount: total,
-      paidAmount: newPaid,
-      balance: remaining,
-      remainingBalance: remaining,
-      isFullyPaid,
-      receiptUrl
-    });
-  }));
-  // ========================================
-
-  // WHATSAPP WEBHOOK ENDPOINTS
-  app.get('/api/whatsapp/webhook', (req: any, res: any) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
-
-    if (mode && token) {
-      if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-        console.log('WEBHOOK_VERIFIED');
-        res.status(200).send(challenge);
-      } else {
-        res.sendStatus(403);
-      }
-    } else {
-       res.status(400).send("Bad Request");
     }
   });
 
-  app.post('/api/whatsapp/webhook', (req: any, res: any) => {
-    const body = req.body;
-    if (body.object) {
-        console.log("=== WHATSAPP WEBHOOK RECEIVED ===");
-        console.log(JSON.stringify(body, null, 2));
-        console.log("=================================");
-        res.sendStatus(200);
-    } else {
-        res.sendStatus(404);
+  const invoicesMap = new Map<string, any>();
+  allInvoices.forEach(inv => {
+    if (inv && inv.id) {
+      invoicesMap.set(inv.id, inv);
     }
   });
 
-  // GEMINI AI SERVICE
-  let geminiClient: any = null;
-  function getGeminiClient() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey.trim() === "" || apiKey === "TU_API_KEY_AQUI") {
-      throw new Error("GEMINI_API_KEY no configurada. Agrega tu API key propia para habilitar las funcionalidades de Inteligencia Artificial.");
-    }
-    if (!geminiClient) {
-      geminiClient = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
+  // Calculate today's payments (based on payment date)
+  allPayments.forEach(pay => {
+    const payDate = pay.date || '';
+    if (matchesTargetDate(payDate, todayStr)) {
+      const inv = invoicesMap.get(pay.invoiceId);
+
+      const rawRecordedBy = pay.recordedBy || pay.recordedby || pay.recorded_by;
+      const recordedBy = rawRecordedBy || (inv ? inv.sellerId : 'Desconocido');
+
+      const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (pay.amount || 0);
+      const clientName = inv ? (inv.clientName || inv.client || 'Cliente') : 'Cliente';
+      const folioNum = inv ? (inv.folio || 1) : 1;
+      const folio = String(folioNum);
+      const receiptUrl = pay.receiptUrl || pay.receipturl || pay.receipt_url || null;
+
+      paymentsBySeller[recordedBy] = (paymentsBySeller[recordedBy] || 0) + amount;
+
+      todayPaymentsDetail.push({
+        id: pay.id,
+        amount,
+        date: payDate,
+        receiptUrl,
+        notes: pay.notes || '',
+        recordedBy,
+        invoiceFolio: folio,
+        clientName,
+        invoiceId: pay.invoiceId
       });
     }
-    return geminiClient;
+  });
+
+  res.json({
+    todayStr,
+    salesBySeller,
+    paymentsBySeller,
+    todayPaymentsDetail,
+    totalSales: Object.values(salesBySeller).reduce((a, b) => a + b, 0),
+    totalPayments: Object.values(paymentsBySeller).reduce((a, b) => a + b, 0)
+  });
+}));
+
+// WHATSAPP
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal as any
+    });
+    clearTimeout(timer);
+    return response;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
+async function internalSendWhatsApp(phone: string, message: string, templateName?: string, templateLanguage: string = "es_MX", templateVariables?: any[]) {
+  // Check if WhatsApp is enabled (by default false/archived)
+  const isWhatsAppEnabled = process.env.ENABLE_WHATSAPP === 'true';
+  if (!isWhatsAppEnabled) {
+    console.log(`[WhatsApp - ARCHIVED] Bypassed message to ${phone}: ${message}`);
+    return {
+      success: true,
+      bypassed: true,
+      archived: true,
+      message: "Las notificaciones de WhatsApp están desactivadas/archivadas."
+    };
   }
 
-  app.post("/api/gemini/chat", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { message, history = [] } = req.body;
-    
-    if (!message || message.trim() === "") {
-      return res.status(400).json({ error: "El mensaje es requerido." });
+  // Limpiar el número de teléfono para que solo contenga dígitos (quita espacios, guiones, +, etc)
+  let cleanPhone = String(phone).replace(/\D/g, "");
+  if (cleanPhone.length === 8) {
+    cleanPhone = "502" + cleanPhone; // Guatemala country code prefix by default if 8 digits
+  } else if (cleanPhone.length === 10) {
+    cleanPhone = "52" + cleanPhone; // Mexico country code default if 10 digits
+  }
+
+  // Configura estas variables en tu archivo .env o en el panel de despliegue
+  let waToken = (process.env.WHATSAPP_TOKEN || "").trim().replace(/['"]/g, '');
+  let waPhoneId = (process.env.WHATSAPP_PHONE_ID || "").trim().replace(/['"]/g, '');
+  let waUrl = (process.env.WHATSAPP_API_URL || "").trim().replace(/['"]/g, '');
+
+  // Intentar leer configuración desde Supabase si existe (para respaldo en BD)
+  try {
+    const { data: configData } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
+    if (configData && configData.photo) {
+      const parsed = JSON.parse(configData.photo);
+      if (parsed.waToken) waToken = parsed.waToken.trim();
+      if (parsed.waPhoneId) waPhoneId = parsed.waPhoneId.trim();
+      if (parsed.waUrl) waUrl = parsed.waUrl.trim();
+    }
+  } catch (e) { }
+
+  console.log(`[WhatsApp] Configuración: Token presente=${!!waToken} (${waToken.substring(0, 7)}...), PhoneID=${waPhoneId || 'None'}, URL=${waUrl || 'Default'}`);
+
+  // Auto-corrección si el usuario pegó el Token en el lugar de la URL o viceversa
+  if (waUrl && waUrl.includes("EAA")) {
+    console.warn("[WhatsApp] Se detectó Token en el campo de URL. Corrigiendo...");
+    waUrl = "";
+  }
+
+  if (waUrl && waUrl.includes("graph.facebook.com") && waPhoneId && !waUrl.includes("messages")) {
+    // Ensure it has the correct path
+    const baseUrl = waUrl.endsWith('/') ? waUrl.slice(0, -1) : waUrl;
+    waUrl = `${baseUrl}/${waPhoneId}/messages`;
+  } else if (!waUrl && waPhoneId) {
+    waUrl = `https://graph.facebook.com/v20.0/${waPhoneId}/messages`;
+  }
+
+  if (!waToken || !waUrl) {
+    const missing = [];
+    if (!waToken) missing.push("WHATSAPP_TOKEN");
+    if (!waUrl) missing.push("WHATSAPP_PHONE_ID (o WHATSAPP_API_URL)");
+
+    console.warn(`⚠️ ERROR: WhatsApp NO configurado. Faltan: ${missing.join(", ")}`);
+    return {
+      success: false,
+      mock: true,
+      error: `Faltan variables de entorno: ${missing.join(", ")}`
+    };
+  }
+
+  let fetchUrl = waUrl;
+  let options: RequestInit = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  };
+
+  // Si es la API oficial de Meta (Cloud API):
+  if (waUrl.includes("graph.facebook.com")) {
+    let payload: any = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: cleanPhone,
+    };
+
+    if (templateName) {
+      // FOR TESTING: Override any template with hello_world
+      console.log(`[WhatsApp] Overriding template ${templateName} to hello_world for testing`);
+      templateName = "hello_world";
+      templateLanguage = "en_US";
+      templateVariables = [];
+
+      payload.type = "template";
+      payload.template = {
+        name: templateName,
+        language: { code: templateLanguage }
+      };
+
+      if (templateVariables && templateVariables.length > 0) {
+        if (templateName === "alerta_nuevo_pedido_interno") {
+          payload.template.components = [
+            {
+              type: "body",
+              parameters: templateVariables.slice(0, 5).map((val) => {
+                const text = typeof val === 'object' && val !== null ? String(val.value || val.text || "") : String(val);
+                return { type: "text", text };
+              })
+            }
+          ];
+          const buttonVal = templateVariables[5];
+          if (buttonVal !== undefined) {
+            const buttonText = typeof buttonVal === 'object' && buttonVal !== null ? String(buttonVal.value || buttonVal.text || "") : String(buttonVal);
+            payload.template.components.push({
+              type: "button",
+              sub_type: "url",
+              index: "0",
+              parameters: [
+                { type: "text", text: buttonText }
+              ]
+            });
+          }
+        } else payload.template.components = [
+          {
+            type: "body",
+            parameters: templateVariables.map((val) => {
+              if (typeof val === 'object' && val !== null) {
+                // Soporta tanto posicional como nombrado si Meta lo requiere
+                return {
+                  type: "text",
+                  text: String(val.value || val.text || "")
+                };
+              }
+              return { type: "text", text: String(val) };
+            })
+          }
+        ];
+      }
+    } else {
+      payload.type = "text";
+      payload.text = { body: message };
     }
 
+    options.body = JSON.stringify(payload);
+    options.headers = {
+      ...options.headers,
+      "Authorization": `Bearer ${waToken}`
+    };
+
+    // Intentar con plantilla primero (si está presente)
+    let firstRes, firstText;
     try {
-      const client = getGeminiClient();
-      
-      // Intentar cargar productos del inventario actual para contextualizar la IA
-      let productsContext = "";
-      try {
-        const { data: products } = await supabase.from("products").select("name, category, price").limit(40);
-        if (products && products.length > 0) {
-          productsContext = `Inventario actual de Agricovet:\n` + 
-            products.map((p: any) => `- ${p.name} (${p.category}): Q${parseFloat(p.price || 0).toFixed(2)}`).join("\n") + "\n\n";
+      firstRes = await fetchWithTimeout(fetchUrl, options);
+      firstText = await firstRes.text();
+    } catch (e: any) {
+      console.error("WhatsApp Fetch Network Error:", e);
+      return { success: false, error: "Network/Timeout error: " + e.message };
+    }
+    let firstData;
+    try { firstData = JSON.parse(firstText); } catch (e) { firstData = {}; }
+
+    if (!firstRes.ok) {
+      // Si el error es por parámetros del template (#132000) o template no encontrado (#132001)
+      // intentamos enviar como MENSAJE DE TEXTO PLANO como fallback.
+      const isParamError = firstData.error?.code === 132000 || firstData.error?.code === 132001;
+
+      if (templateName && isParamError) {
+        console.warn(`[WhatsApp] Fallo con plantilla "${templateName}" (${firstData.error?.message}). Reintentando como texto plano...`);
+        payload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanPhone,
+          type: "text",
+          text: { body: message }
+        };
+        options.body = JSON.stringify(payload);
+        const retryRes = await fetchWithTimeout(fetchUrl, options);
+        const retryText = await retryRes.text();
+        try {
+          const retryData = JSON.parse(retryText);
+          if (retryRes.ok) return { success: true, ...retryData };
+          return { success: false, error: retryData.error?.message || "Error en reintento texto plano" };
+        } catch (e) {
+          return { success: false, error: "Error de red en reintento: " + retryText.substring(0, 50) };
         }
-      } catch (dbErr) {
-        productsContext = "Agricovet vende medicamentos veterinarios, agroquímicos y alimentos de avindustrias.\n\n";
       }
 
-      const systemInstruction = `Eres el "Asistente Inteligente de Agricovet", una IA integrada en el sistema de gestión agrícola y veterinaria.
+      let errorMsg = firstData.error?.message || "Error interaccionando con Meta WhatsApp API";
+      if (firstData.error?.code === 131047) {
+        errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente te haya enviado un mensaje primero en las últimas 24 hrs para poder enviarle texto libre. Debes usar plantillas (templates) pre-aprobadas para iniciar la conversación.";
+      } else if (firstData.error?.code === 131026) {
+        errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
+      } else if (firstData.error?.code === 131030) {
+        errorMsg = "IMPORTANTE: Modo de Prueba (Sandbox). Meta está bloqueando el mensaje porque este número de teléfono no fue autorizado. Debes ir a https://developers.facebook.com/, seleccionar tu App, ir a WhatsApp, y agregar este número al 'Test phone numbers' (Destinatarios de prueba) o agregar cuenta de pago.";
+      } else if (firstData.error?.error_subcode === 33 || firstData.error?.code === 100) {
+        errorMsg = "Error: El 'Phone Number ID' (ID de Número) ingresado en la configuración es incorrecto. Asegúrate de usar el identificador numérico que proporciona Meta, NO uses tu número de teléfono real ni el Identificador de la cuenta de WhatsApp.";
+      } else if (firstData.error?.code === 190) {
+        if (firstData.error?.error_subcode === 460) {
+          errorMsg = "Error de Sesión Expirada (Meta Code 190 / Subcode 460). El Token de WhatsApp configurado (de 243 caracteres) ha sido INVALIDADO por Meta, usualmente porque cambiaste la contraseña de tu cuenta de Facebook o por razones de seguridad de Meta. Debes ingresar a Meta Business Suite, ir a Usuarios del Sistema, generar un NUEVO token de acceso y guardarlo en tu configuración.";
+        } else {
+          errorMsg = "Token de Acceso Inválido, Expirado o no Autorizado (Meta Code 190). Asegúrate de generar un nuevo token permanente de Usuario del Sistema con los permisos 'whatsapp_business_messaging' y 'whatsapp_business_management'.";
+        }
+      } else if (errorMsg.includes("Authentication")) {
+        errorMsg = "Error de Autenticación de Meta. Revisa que el Token de WhatsApp (EAAG...) esté correcto en tu archivo .env o configuraciones (sin comillas adicionales). Verifica que tenga el permiso 'whatsapp_business_messaging'. (Token configurado en su ambiente mide " + waToken.length + " caracteres).";
+      }
+      return { success: false, error: errorMsg, data: firstData };
+    }
+
+    return { success: true, ...firstData };
+    // Si es WATI:
+  } else if (waUrl.includes("wati")) {
+    // WATI Session Message format
+    fetchUrl = `${waUrl}/api/v1/sendSessionMessage/${cleanPhone}?messageText=${encodeURIComponent(message)}`;
+    options.headers = {
+      ...options.headers,
+      "Authorization": `Bearer ${waToken}`
+    };
+  } else {
+    // General Evolution/Z-API format assumption
+    options.body = JSON.stringify({ number: cleanPhone, text: message });
+    options.headers = {
+      ...options.headers,
+      "apikey": waToken,
+      "Authorization": `Bearer ${waToken}`
+    };
+  }
+
+  let wpRes, resText;
+  try {
+    wpRes = await fetchWithTimeout(fetchUrl, options);
+    console.log(`WhatsApp API [${wpRes.status}] calling ${fetchUrl}`);
+    resText = await wpRes.text();
+  } catch (e: any) {
+    console.error("WhatsApp generic API network error:", e);
+    return { success: false, error: "Network/Timeout error: " + e.message };
+  }
+
+  let data;
+  try {
+    data = JSON.parse(resText);
+  } catch (e) {
+    data = { error: { message: "Error parsing WhatsApp response: " + resText.substring(0, 100) } };
+  }
+
+  if (!wpRes.ok) {
+    console.error("WhatsApp API Raw Error Response:", resText);
+    let errorMsg = data.error?.message || data.message || "Error de la API de WhatsApp";
+    if (data.error?.code === 131047) {
+      errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente haya enviado un mensaje primero en las últimas 24 hrs. Debe usar plantillas para enviar fuera del límite.";
+    }
+    if (data.error?.code === 131026) {
+      errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
+    }
+    if (data.error?.code === 131030) {
+      errorMsg = "El número de teléfono receptor no está en la lista de permitidos. Estás usando una cuenta de WhatsApp en modo de prueba (Sandbox). Debes agregar este número de teléfono como 'número de prueba autorizado' en el panel de desarrolladores de Facebook (Meta Developer Console) para poder enviarle mensajes, o cambiar la cuenta a producción.";
+    }
+    throw new Error(errorMsg);
+  }
+
+  return { success: true, apiResponse: data };
+}
+
+app.post("/api/whatsapp/send", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { phone, message, templateName, templateLanguage = "es_MX", templateVariables } = req.body;
+  try {
+    const result = await internalSendWhatsApp(phone, message, templateName, templateLanguage, templateVariables);
+    if (!result.success && !result.mock) {
+      return res.status(400).json({ error: result.error || "Error al enviar mensaje de WhatsApp", details: result });
+    }
+    res.json(result);
+  } catch (err: any) {
+    console.error("WhatsApp API Error:", err);
+    res.status(500).json({ error: "No se pudo enviar el mensaje", details: err.message, stack: err.stack });
+  }
+}));
+
+// === WHATSAPP CONFIG BACKUP ENDPOINTS ===
+app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
+    if (data && data.photo) {
+      res.json(JSON.parse(data.photo));
+    } else {
+      res.json({ waToken: '', waPhoneId: '', waUrl: '' });
+    }
+  } catch (e) {
+    res.json({ waToken: '', waPhoneId: '', waUrl: '' });
+  }
+}));
+
+app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { waToken, waPhoneId, waUrl } = req.body;
+  try {
+    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
+    const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
+
+    if (existing) {
+      await supabase.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
+    } else {
+      await supabase.from('users').insert([{
+        id: 'sys-whatsapp-config',
+        name: 'WhatsApp Config',
+        email: 'system-whatsapp@agricovet.com',
+        role: 'system',
+        phone: '',
+        password: '',
+        photo: payloadStr
+      }]);
+    }
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error("Error saving WhatsApp config:", e);
+    res.status(500).json({ error: e.message });
+  }
+}));
+// ========================================
+// ========================================
+// BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by Supabase for Cloud / Serverless)
+const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
+
+async function savePendingBoleta(phone: string, data: any) {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = 'bot-boleta-' + phone;
+    await supabase.from('users').upsert({
+      id: recordId,
+      name: 'Pending Boleta',
+      email: `${recordId}@bot.local`,
+      role: 'system',
+      phone: phone,
+      password: '',
+      photo: payload
+    });
+  } catch (e) {
+    console.warn("Could not save pending boleta to Supabase:", e);
+  }
+}
+
+async function popPendingBoleta(phone: string) {
+  try {
+    const now = Date.now();
+    const recordId = 'bot-boleta-' + phone;
+    const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from('users').delete().eq('id', recordId);
+          return parsed;
+        }
+      } catch (e) { }
+    }
+    const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-boleta-%');
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 60000) {
+              await supabase.from('users').delete().eq('id', r.id);
+              return parsed;
+            }
+          } catch (e) { }
+        }
+      }
+    }
+  } catch (e) { }
+  return null;
+}
+
+async function savePendingFolio(phone: string, data: any) {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = 'bot-folio-' + phone;
+    await supabase.from('users').upsert({
+      id: recordId,
+      name: 'Pending Folio',
+      email: `${recordId}@bot.local`,
+      role: 'system',
+      phone: phone,
+      password: '',
+      photo: payload
+    });
+  } catch (e) {
+    console.warn("Could not save pending folio to Supabase:", e);
+  }
+}
+
+async function popPendingFolio(phone: string) {
+  try {
+    const now = Date.now();
+    const recordId = 'bot-folio-' + phone;
+    const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await supabase.from('users').delete().eq('id', recordId);
+          return parsed;
+        }
+      } catch (e) { }
+    }
+    const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-folio-%');
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 60000) {
+              await supabase.from('users').delete().eq('id', r.id);
+              return parsed;
+            }
+          } catch (e) { }
+        }
+      }
+    }
+  } catch (e) { }
+  return null;
+}
+
+async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
+  const startTime = Date.now();
+  let boleta = await popPendingBoleta(phone);
+  if (boleta) return boleta;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 400));
+    boleta = await popPendingBoleta(phone);
+    if (boleta) return boleta;
+  }
+
+  return null;
+}
+
+async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
+  const cleanFolio = String(folioInput || '').replace(/^#/, '').trim();
+  if (!cleanFolio || cleanFolio === 'S/N') return null;
+
+  // 1. Exact match on 'folio' column
+  const { data: byFolio } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq('folio', cleanFolio);
+
+  if (byFolio && byFolio.length > 0) {
+    if (byFolio.length > 1 && clientHint) {
+      const hint = clientHint.toLowerCase().trim();
+      const best = byFolio.find(inv => inv.clientName && inv.clientName.toLowerCase().includes(hint));
+      if (best) return best;
+    }
+    return byFolio[0];
+  }
+
+  // 2. Exact match in notes with FOLIO:<cleanFolio>
+  const { data: byNotes } = await supabase
+    .from("invoices")
+    .select("*")
+    .ilike('notes', `%FOLIO:${cleanFolio}%`);
+
+  if (byNotes && byNotes.length > 0) return byNotes[0];
+
+  // 3. Exact match on 'id' column
+  const { data: byId } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq('id', cleanFolio);
+
+  if (byId && byId.length > 0) return byId[0];
+
+  // 4. Exact prefix match on id (e.g. INV-831-...)
+  const { data: byPrefix } = await supabase
+    .from("invoices")
+    .select("*")
+    .ilike('id', `INV-${cleanFolio}-%`);
+
+  if (byPrefix && byPrefix.length > 0) return byPrefix[0];
+
+  // 5. Fallback: Search by clientHint if provided
+  if (clientHint && clientHint.length > 3) {
+    const { data: byClient } = await supabase
+      .from("invoices")
+      .select("*")
+      .ilike('clientName', `%${clientHint}%`)
+      .order('date', { ascending: false })
+      .limit(5);
+
+    if (byClient && byClient.length > 0) {
+      const withBalance = byClient.find(inv => (parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0)) > 0);
+      if (withBalance) return withBalance;
+      return byClient[0];
+    }
+  }
+
+  return null;
+}
+
+// ENDPOINT: Procesar Boleta de Imagen (o con Folio incluido)
+app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
+  const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
+  let cleanFolio = String(folio || '').replace(/^#/, '').trim();
+  const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
+  const numAmount = parseFloat(amount || 0);
+
+  let receiptUrl = null;
+  if (receiptBase64 && String(receiptBase64).trim() !== '') {
+    try {
+      const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ''), 'base64');
+      const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('productos')
+        .upload(fileName, buffer, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+
+      if (!uploadError) {
+        const { data: publicUrlData } = supabase.storage
+          .from('productos')
+          .getPublicUrl(fileName);
+        receiptUrl = publicUrlData.publicUrl;
+      } else {
+        receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
+      }
+    } catch (err) {
+      console.error("Error guardando imagen de boleta de bot:", err);
+    }
+  }
+
+  // Si no vino folio en este mensaje, verificar si ya había un folio en espera enviado por texto antes
+  let matchedPendingFolio = null;
+  if (!cleanFolio || cleanFolio === 'S/N') {
+    matchedPendingFolio = await popPendingFolio(cleanPhone);
+    if (matchedPendingFolio && matchedPendingFolio.folio) {
+      cleanFolio = matchedPendingFolio.folio;
+      console.log(`[Bot Abono] Se asoció boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
+    }
+  }
+
+  // Si aún no hay folio, guardar la boleta en espera de que el usuario mande el texto
+  if (!cleanFolio || cleanFolio === 'S/N') {
+    await savePendingBoleta(cleanPhone, {
+      amount: numAmount,
+      noBoleta: noBoleta || 'S/N',
+      banco: banco || 'S/N',
+      receiptUrl: receiptUrl,
+      sellerName: sellerName || '',
+      notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
+    });
+    console.log(`[Bot Abono] Boleta guardada en espera de folio para teléfono ${cleanPhone} (Monto: Q. ${numAmount}, Boleta: ${noBoleta})`);
+    return res.json({
+      success: false,
+      pending: true,
+      message: "Boleta recibida y guardada a la espera de folio",
+      amount: numAmount,
+      noBoleta: noBoleta,
+      banco: banco,
+      receiptUrl: receiptUrl
+    });
+  }
+
+  const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
+  if (!invoice) {
+    await savePendingBoleta(cleanPhone, {
+      amount: numAmount,
+      noBoleta: noBoleta || 'S/N',
+      banco: banco || 'S/N',
+      receiptUrl: receiptUrl,
+      sellerName: sellerName || '',
+      notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
+    });
+    return res.json({ success: false, message: `No se encontró ninguna factura con el folio #${cleanFolio}` });
+  }
+
+  // Limpiar colas de este teléfono
+  await popPendingBoleta(cleanPhone);
+  await popPendingFolio(cleanPhone);
+
+  let currentPaid = parseFloat(invoice.paidAmount || 0);
+  let total = parseFloat(invoice.totalAmount || 0);
+  let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
+  let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
+
+  await supabase.from("invoices").update({
+    paidAmount: newPaid,
+    status: newStatus
+  }).eq('id', invoice.id);
+
+  const paymentNotes = notes || matchedPendingFolio?.notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`;
+
+  if (numAmount > 0) {
+    try {
+      await safeInsertPayment({
+        id: `PAY-BOT-${Date.now()}`,
+        invoiceId: invoice.id,
+        amount: numAmount,
+        date: new Date().toISOString(),
+        receiptUrl: receiptUrl || null,
+        notes: paymentNotes
+      });
+    } catch (payErr) {
+      console.warn("Error guardando pago en tabla payments:", payErr);
+    }
+  }
+
+  const remaining = Math.max(0, total - newPaid);
+  const isFullyPaid = remaining <= 0.01;
+
+  return res.json({
+    success: true,
+    folio: invoice.folio || invoice.id,
+    invoiceId: invoice.id,
+    clientName: invoice.clientName || 'Cliente',
+    totalAmount: total,
+    paidAmount: newPaid,
+    balance: remaining,
+    remainingBalance: remaining,
+    isFullyPaid,
+    receiptUrl
+  });
+}));
+
+// ENDPOINT: Procesar Folio por Texto
+app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: any, res: any) => {
+  const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
+  const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
+  const cleanFolio = String(folioParam || '').replace(/^#/, '').trim();
+  const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
+
+  if (!cleanFolio || cleanFolio === 'S/N') {
+    return res.json({ success: false, message: "No se especificó folio válido" });
+  }
+
+  const invoice = await findInvoiceByFolio(cleanFolio, cliente);
+  if (!invoice) {
+    return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
+  }
+
+  // Esperar hasta 6s por si la imagen de la boleta se está procesando simultáneamente
+  const pending = await waitForPendingBoleta(cleanPhone, 6000);
+  let numAmount = parseFloat(amount || 0);
+  let receiptUrl = null;
+  let boletaNotes = notes ? decodeURIComponent(notes) : '';
+
+  if (pending) {
+    if (numAmount <= 0 && pending.amount > 0) {
+      numAmount = pending.amount;
+    }
+    receiptUrl = pending.receiptUrl;
+    if (!boletaNotes) {
+      boletaNotes = `Abono asignado por Bot WhatsApp (Boleta: ${pending.noBoleta || 'S/N'}, Banco: ${pending.banco || 'S/N'})`;
+    }
+  }
+
+  let currentPaid = parseFloat(invoice.paidAmount || 0);
+  let total = parseFloat(invoice.totalAmount || 0);
+
+  // Si NO hay monto explícito ni boleta pendiente encontrada:
+  // NO autoliquidar a ciegas. Guardar folio en espera de la imagen.
+  if (numAmount <= 0) {
+    await savePendingFolio(cleanPhone, {
+      folio: cleanFolio,
+      cliente: cliente || invoice.clientName,
+      notes: boletaNotes || notes || '',
+      invoiceId: invoice.id
+    });
+    console.log(`[Bot Folio] Folio #${cleanFolio} guardado en espera de la imagen de boleta para ${cleanPhone}`);
+
+    const remaining = Math.max(0, total - currentPaid);
+    return res.json({
+      success: true,
+      pendingImage: true,
+      folio: invoice.folio || invoice.id,
+      invoiceId: invoice.id,
+      clientName: invoice.clientName || 'Cliente',
+      totalAmount: total,
+      paidAmount: currentPaid,
+      balance: remaining,
+      isFullyPaid: remaining <= 0.01,
+      message: `Folio #${cleanFolio} registrado. Esperando la imagen de la boleta para abonar.`
+    });
+  }
+
+  // Si sí hay monto o boleta vinculada:
+  let newPaid = currentPaid + numAmount;
+  let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
+
+  await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
+
+  if (numAmount > 0) {
+    try {
+      await safeInsertPayment({
+        id: `PAY-BOT-${Date.now()}`,
+        invoiceId: invoice.id,
+        amount: numAmount,
+        date: new Date().toISOString(),
+        receiptUrl: receiptUrl || null,
+        notes: boletaNotes || notes || `Abono asignado por Bot WhatsApp`
+      });
+    } catch (e) {
+      console.warn("Error guardando pago en payments:", e);
+    }
+  }
+
+  // Limpiar folios y boletas pendientes de este teléfono
+  await popPendingFolio(cleanPhone);
+  await popPendingBoleta(cleanPhone);
+
+  const remaining = Math.max(0, total - newPaid);
+  const isFullyPaid = remaining <= 0.01;
+
+  return res.json({
+    success: true,
+    folio: invoice.folio || invoice.id,
+    invoiceId: invoice.id,
+    clientName: invoice.clientName || 'Cliente',
+    totalAmount: total,
+    paidAmount: newPaid,
+    balance: remaining,
+    remainingBalance: remaining,
+    isFullyPaid,
+    receiptUrl
+  });
+}));
+// ========================================
+
+// WHATSAPP WEBHOOK ENDPOINTS
+app.get('/api/whatsapp/webhook', (req: any, res: any) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token) {
+    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+      console.log('WEBHOOK_VERIFIED');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  } else {
+    res.status(400).send("Bad Request");
+  }
+});
+
+app.post('/api/whatsapp/webhook', (req: any, res: any) => {
+  const body = req.body;
+  if (body.object) {
+    console.log("=== WHATSAPP WEBHOOK RECEIVED ===");
+    console.log(JSON.stringify(body, null, 2));
+    console.log("=================================");
+    res.sendStatus(200);
+  } else {
+    res.sendStatus(404);
+  }
+});
+
+// GEMINI AI SERVICE
+let geminiClient: any = null;
+function getGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.trim() === "" || apiKey === "TU_API_KEY_AQUI") {
+    throw new Error("GEMINI_API_KEY no configurada. Agrega tu API key propia para habilitar las funcionalidades de Inteligencia Artificial.");
+  }
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return geminiClient;
+}
+
+app.post("/api/gemini/chat", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { message, history = [] } = req.body;
+
+  if (!message || message.trim() === "") {
+    return res.status(400).json({ error: "El mensaje es requerido." });
+  }
+
+  try {
+    const client = getGeminiClient();
+
+    // Intentar cargar productos del inventario actual para contextualizar la IA
+    let productsContext = "";
+    try {
+      const { data: products } = await supabase.from("products").select("name, category, price").limit(40);
+      if (products && products.length > 0) {
+        productsContext = `Inventario actual de Agricovet:\n` +
+          products.map((p: any) => `- ${p.name} (${p.category}): Q${parseFloat(p.price || 0).toFixed(2)}`).join("\n") + "\n\n";
+      }
+    } catch (dbErr) {
+      productsContext = "Agricovet vende medicamentos veterinarios, agroquímicos y alimentos de avindustrias.\n\n";
+    }
+
+    const systemInstruction = `Eres el "Asistente Inteligente de Agricovet", una IA integrada en el sistema de gestión agrícola y veterinaria.
 Puedes ayudar a los vendedores y administradores con las siguientes tareas:
 1. Recomendar productos del inventario y responder dudas técnicas de dosificación o uso.
 2. Usar la herramienta "check_inventory_quantity" cuando te pregunten sobre el stock, existencia o cantidad disponible de algún producto en específico. NUNCA inventes o deduzcas la cantidad; SIEMPRE usa la herramienta para validar con la base de datos real.
@@ -8164,642 +8163,642 @@ Proporciona respuestas concisas, profesionales, amables y formateadas de manera 
 
 ${productsContext}`;
 
-      const formattedHistory = history.map((h: any) => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: [{ text: h.content }]
-      }));
+    const formattedHistory = history.map((h: any) => ({
+      role: h.role === 'user' ? 'user' : 'model',
+      parts: [{ text: h.content }]
+    }));
 
-      const checkInventoryQuantity = {
-        name: "check_inventory_quantity",
-        description: "Busca la cantidad de productos en inventario y precio buscando por el nombre del producto directamente en la base de datos",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            product_name: {
-              type: Type.STRING,
-              description: "El nombre o parte del nombre del producto a buscar"
-            }
-          },
-          required: ["product_name"]
-        }
-      };
-
-      const chatObj = client.chats.create({
-        model: "gemini-3.1-flash-lite",
-        config: {
-          systemInstruction,
-          tools: [{ functionDeclarations: [checkInventoryQuantity] }]
-        },
-        history: formattedHistory
-      });
-
-      let response = await chatObj.sendMessage({ message });
-
-      if (response.functionCalls && response.functionCalls.length > 0) {
-        const call = response.functionCalls[0];
-        if (call.name === "check_inventory_quantity") {
-          const product_name = (call.args as any).product_name;
-          const { data } = await supabase.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
-          
-          let dbResultMsg = "";
-          if (data && data.length > 0) {
-            dbResultMsg = data.map((p: any) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join('; ');
-          } else {
-            dbResultMsg = "No se encontró ningún producto con ese nombre.";
+    const checkInventoryQuantity = {
+      name: "check_inventory_quantity",
+      description: "Busca la cantidad de productos en inventario y precio buscando por el nombre del producto directamente en la base de datos",
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          product_name: {
+            type: Type.STRING,
+            description: "El nombre o parte del nombre del producto a buscar"
           }
-
-          response = await chatObj.sendMessage({ 
-            message: [{
-              functionResponse: {
-                id: call.id,
-                name: call.name,
-                response: { result: dbResultMsg }
-              }
-            }]
-          });
-        }
+        },
+        required: ["product_name"]
       }
+    };
 
-      res.json({ reply: response.text });
-    } catch (err: any) {
-      console.error("Gemini API Error details:", err);
-      if (err.message && (err.message.includes("GEMINI_API_KEY") || err.message.includes("API key not found") || err.message.includes("API_KEY_INVALID"))) {
-        return res.status(400).json({ 
-          error: "API Key de Gemini no configurada", 
-          details: "Para habilitar el soporte de IA en Agricovet, por favor ingresa tu API Key propia en el archivo .env o en la configuración de secretos." 
+    const chatObj = client.chats.create({
+      model: "gemini-3.1-flash-lite",
+      config: {
+        systemInstruction,
+        tools: [{ functionDeclarations: [checkInventoryQuantity] }]
+      },
+      history: formattedHistory
+    });
+
+    let response = await chatObj.sendMessage({ message });
+
+    if (response.functionCalls && response.functionCalls.length > 0) {
+      const call = response.functionCalls[0];
+      if (call.name === "check_inventory_quantity") {
+        const product_name = (call.args as any).product_name;
+        const { data } = await supabase.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
+
+        let dbResultMsg = "";
+        if (data && data.length > 0) {
+          dbResultMsg = data.map((p: any) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join('; ');
+        } else {
+          dbResultMsg = "No se encontró ningún producto con ese nombre.";
+        }
+
+        response = await chatObj.sendMessage({
+          message: [{
+            functionResponse: {
+              id: call.id,
+              name: call.name,
+              response: { result: dbResultMsg }
+            }
+          }]
         });
       }
-      res.status(500).json({ error: "Error al comunicarse con la IA", details: err.message });
-    }
-  }));
-
-  app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { data: products } = await supabase.from("products").select("id, name, category").is("description", null);
-    
-    if (!products || products.length === 0) {
-      return res.json({ message: "No hay productos sin descripción." });
     }
 
-    let generatedCount = 0;
-    const productsToProcess = products; // Process all of them since we aren't using the API for everything
+    res.json({ reply: response.text });
+  } catch (err: any) {
+    console.error("Gemini API Error details:", err);
+    if (err.message && (err.message.includes("GEMINI_API_KEY") || err.message.includes("API key not found") || err.message.includes("API_KEY_INVALID"))) {
+      return res.status(400).json({
+        error: "API Key de Gemini no configurada",
+        details: "Para habilitar el soporte de IA en Agricovet, por favor ingresa tu API Key propia en el archivo .env o en la configuración de secretos."
+      });
+    }
+    res.status(500).json({ error: "Error al comunicarse con la IA", details: err.message });
+  }
+}));
 
-    // Import the logic from a helper (expanded implementation for the server side)
-    const getLocalDescription = (name: string, category: string) => {
-      const n = (name || "").toLowerCase();
-      const c = (category || "").toLowerCase();
-      
-      const KNOWLEDGE: Record<string, string> = {
-        "Oxitetraciclina": "**Composición:** Oxitetraciclina Clorhidrato. \n**Uso:** Antibiótico de amplio espectro contra bacterias Gram(+) y Gram(-). \n**Dosis:** 10-20 mg/kg de peso vivo vía IM profunda o IV lenta. \n**Precauciones:** No usar en animales con hipersensibilidad a tetraciclinas. Tiempo de retiro en carne: 28 días.",
-        "Ivermectina": "**Composición:** Ivermectina al 1% o 4%. \n**Uso:** Endectocida para el control de parásitos internos (nematodos) y externos (garrapatas, ácaros). \n**Dosis:** 1 ml por cada 50 kg de peso (1%) o según concentración. SC únicamente. \n**Precauciones:** No administrar en vacas en lactancia cuya leche se destine a consumo humano.",
-        "Complejo B": "**Composición:** Vitaminas B1, B2, B6, B12 y Niacinamida. \n**Uso:** Reconstituyente vitamínico para estados de debilidad, anemia y estrés. \n**Dosis:** 5-10 ml en animales grandes, 1-2 ml en pequeños. Vía IM o SC. \n**Precauciones:** Mantener en lugar fresco y protegido de la luz solar.",
-        "Glifosato": "**Composición:** Glifosato (Sal isopropilamina). \n**Uso:** Herbicida sistémico no selectivo para el control de malezas anuales y perennes. \n**Dosis:** 1.5 a 3.0 litros por hectárea según la densidad de maleza. \n**Precauciones:** Evitar la deriva hacia cultivos deseados. Usar equipo de protección completo.",
-        "Paraquat": "**Composición:** Dicloruro de Paraquat. \n**Uso:** Herbicida de contacto para quema rápida de malezas. \n**Dosis:** 1.5 a 2.0 litros por manzana con suficiente agua. \n**Precauciones:** Altamente tóxico. No inhalar. Almacenar bajo llave lejos de alimentos.",
-        "Urea": "**Composición:** Nitrógeno 46%. \n**Uso:** Fertilizante nitrogenado para promover el crecimiento vegetativo y verdor del cultivo. \n**Dosis:** Según análisis de suelo, generalmente 2-4 quintales por manzana. \n**Precauciones:** Incorporar al suelo inmediatamente después de aplicar para evitar volatilización.",
-        "Triple 15": "**Composición:** Nitrógeno 15%, Fósforo 15%, Potasio 15%. \n**Uso:** Fertilizante completo para mantenimiento nutritivo balanceado en diversos cultivos. \n**Dosis:** Aplicar en la zona de goteo de la planta según edad y requerimiento técnico. \n**Precauciones:** Distanciar del tallo principal para evitar quemaduras radiculares.",
-        "Alimento Crecimiento": "**Composición:** Mezcla balanceada de cereales, proteínas vegetales y minerales. \n**Uso:** Alimentación completa para la etapa de desarrollo acelerado en aves o cerdos. \n**Dosis:** Suministrar a voluntad (ad-libitum) asegurando agua limpia constante. \n**Precauciones:** Almacenar sobre tarimas en lugar seco para evitar hongos y micotoxinas.",
-        "Vacuna Newcastle": "**Composición:** Virus vivo atenuado (Cepa LaSota). \n**Uso:** Inmunización activa contra la enfermedad de Newcastle en aves. \n**Dosis:** Una gota vía ocular o nasal, o mediante el agua de bebida según edad. \n**Precauciones:** Mantener estrictamente la cadena de frío (2-8°C). Vacunar solo animales sanos.",
-        "Cipermetrina": "**Composición:** Cipermetrina Concentrado Emulsionable. \n**Uso:** Insecticida y acaricida de amplio espectro por contacto e ingestión. \n**Dosis:** Diluir 1 ml por cada litro de agua para pulverización en instalaciones o ganado. \n**Precauciones:** Producto moderadamente tóxico. No contaminar fuentes de agua.",
-        "Amoxicilina": "**Composición:** Amoxicilina Trihidrato. \n**Uso:** Antibiótico bactericida para infecciones respiratorias, urogenitales y cutáneas. \n**Dosis:** 15 mg/kg cada 24 horas por 3 a 5 días. \n**Precauciones:** Puede causar trastornos gastrointestinales leves en algunos ejemplares.",
-        "Multivitamínico": "**Composición:** Vitaminas A, D3, E, B12, Aminoácidos y Minerales. \n**Uso:** Estimulante del apetito y mejora de la conversión alimenticia. \n**Dosis:** 1-5 ml según especie y peso. IM. \n**Precauciones:** Agitar bien antes de usar. No exceder la dosis recomendada.",
-        "Desinfectante Instrumental": "**Composición:** Amonio Cuaternario o Glutaraldehído. \n**Uso:** Sanitización de equipos veterinarios, jeringas y áreas de ordeño. \n**Dosis:** Dilución al 1:500 o 1:1000 según carga orgánica existente. \n**Precauciones:** Evitar contacto directo con ojos y mucosas. No ingerir.",
-        "Electrolitos": "**Composición:** Sodio, Potasio, Cloro, Magnesio y Dextrosa. \n**Uso:** Rehidratación oral para animales con diarrea o agotamiento por calor. \n**Dosis:** Disolver un sobre en 20 litros de agua de bebida. \n**Precauciones:** Preparar diariamente para asegurar la estabilidad de los componentes.",
-        "Calcio Inyectable": "**Composición:** Borogluconato de Calcio al 25%. \n**Uso:** Tratamiento de fiebre de leche (hipocalcenia) y deficiencias de calcio. \n**Dosis:** 250-500 ml vía IV lenta en vacas adultas. \n**Precauciones:** Administrar a temperatura corporal. Vigilar ritmo cardíaco durante aplicación."
-      };
+app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { data: products } = await supabase.from("products").select("id, name, category").is("description", null);
 
-      if (n.includes('oxitetra') || n.includes('tecnimicina') || n.includes('oxiplus') || n.includes('oxi')) return KNOWLEDGE["Oxitetraciclina"];
-      if (n.includes('penici') || n.includes('tilosin') || n.includes('broximici') || n.includes('trimsulfa') || n.includes('tigent')) return KNOWLEDGE["Amoxicilina"];
-      if (n.includes('iverplus') || n.includes('ivermect') || n.includes('albendazol') || n.includes('lombrifin') || n.includes('vermimax')) return KNOWLEDGE["Ivermectina"];
-      if (n.includes('vitamina') || n.includes('complejo b') || n.includes('vita b12') || n.includes('vitel') || n.includes('proteizoo') || n.includes('instavit')) return KNOWLEDGE["Complejo B"];
-      if (n.includes('multivita') || n.includes('multipack') || n.includes('reconstituyente')) return KNOWLEDGE["Multivitamínico"];
-      if (n.includes('glifosato') || n.includes('revolver') || n.includes('sementhal') || n.includes('torban') || n.includes('cegar')) return KNOWLEDGE["Glifosato"];
-      if (n.includes('terraquat') || n.includes('duplexone') || n.includes('paraquat')) return KNOWLEDGE["Paraquat"];
-      if (n.includes('nitróg') || n.includes('urea') || n.includes('fertilizante')) return KNOWLEDGE["Urea"];
-      if (n.includes('15-15-15') || n.includes('foliar plus') || c.includes('abono')) return KNOWLEDGE["Triple 15"];
-      if (n.includes('alimento') || n.includes('crecimiento') || n.includes('engorde')) return KNOWLEDGE["Alimento Crecimiento"];
-      if (n.includes('vacuna') || n.includes('newcastle') || n.includes('cepa')) return KNOWLEDGE["Vacuna Newcastle"];
-      if (n.includes('cipermetr') || n.includes('nuvan') || n.includes('insecticida') || n.includes('blindage') || n.includes('pikudo')) return KNOWLEDGE["Cipermetrina"];
-      if (n.includes('electro') || n.includes('chemiestress')) return KNOWLEDGE["Electrolitos"];
-      if (n.includes('calcio') || n.includes('borogl')) return KNOWLEDGE["Calcio Inyectable"];
-      if (n.includes('matagusano') || n.includes('curabichera') || n.includes('jabón pet') || n.includes('shampoo')) return KNOWLEDGE["Desinfectante Instrumental"];
+  if (!products || products.length === 0) {
+    return res.json({ message: "No hay productos sin descripción." });
+  }
 
-      return `**Uso:** Producto especializado para el sector ${c.includes('agrícola') ? 'agrícola' : 'veterinario'}. \n**Recomendación:** El artículo "${name}" ha sido seleccionado por Agricovet por su comprobada eficiencia. Se recomienda leer la etiqueta completa y ajustar la dosis según las necesidades específicas de su producción o animal. \n**Precauciones:** Almacenar en un lugar seco y fuera del alcance de los niños. Consulte a su asesor técnico de Agricovet para un plan de manejo integral.`;
+  let generatedCount = 0;
+  const productsToProcess = products; // Process all of them since we aren't using the API for everything
+
+  // Import the logic from a helper (expanded implementation for the server side)
+  const getLocalDescription = (name: string, category: string) => {
+    const n = (name || "").toLowerCase();
+    const c = (category || "").toLowerCase();
+
+    const KNOWLEDGE: Record<string, string> = {
+      "Oxitetraciclina": "**Composición:** Oxitetraciclina Clorhidrato. \n**Uso:** Antibiótico de amplio espectro contra bacterias Gram(+) y Gram(-). \n**Dosis:** 10-20 mg/kg de peso vivo vía IM profunda o IV lenta. \n**Precauciones:** No usar en animales con hipersensibilidad a tetraciclinas. Tiempo de retiro en carne: 28 días.",
+      "Ivermectina": "**Composición:** Ivermectina al 1% o 4%. \n**Uso:** Endectocida para el control de parásitos internos (nematodos) y externos (garrapatas, ácaros). \n**Dosis:** 1 ml por cada 50 kg de peso (1%) o según concentración. SC únicamente. \n**Precauciones:** No administrar en vacas en lactancia cuya leche se destine a consumo humano.",
+      "Complejo B": "**Composición:** Vitaminas B1, B2, B6, B12 y Niacinamida. \n**Uso:** Reconstituyente vitamínico para estados de debilidad, anemia y estrés. \n**Dosis:** 5-10 ml en animales grandes, 1-2 ml en pequeños. Vía IM o SC. \n**Precauciones:** Mantener en lugar fresco y protegido de la luz solar.",
+      "Glifosato": "**Composición:** Glifosato (Sal isopropilamina). \n**Uso:** Herbicida sistémico no selectivo para el control de malezas anuales y perennes. \n**Dosis:** 1.5 a 3.0 litros por hectárea según la densidad de maleza. \n**Precauciones:** Evitar la deriva hacia cultivos deseados. Usar equipo de protección completo.",
+      "Paraquat": "**Composición:** Dicloruro de Paraquat. \n**Uso:** Herbicida de contacto para quema rápida de malezas. \n**Dosis:** 1.5 a 2.0 litros por manzana con suficiente agua. \n**Precauciones:** Altamente tóxico. No inhalar. Almacenar bajo llave lejos de alimentos.",
+      "Urea": "**Composición:** Nitrógeno 46%. \n**Uso:** Fertilizante nitrogenado para promover el crecimiento vegetativo y verdor del cultivo. \n**Dosis:** Según análisis de suelo, generalmente 2-4 quintales por manzana. \n**Precauciones:** Incorporar al suelo inmediatamente después de aplicar para evitar volatilización.",
+      "Triple 15": "**Composición:** Nitrógeno 15%, Fósforo 15%, Potasio 15%. \n**Uso:** Fertilizante completo para mantenimiento nutritivo balanceado en diversos cultivos. \n**Dosis:** Aplicar en la zona de goteo de la planta según edad y requerimiento técnico. \n**Precauciones:** Distanciar del tallo principal para evitar quemaduras radiculares.",
+      "Alimento Crecimiento": "**Composición:** Mezcla balanceada de cereales, proteínas vegetales y minerales. \n**Uso:** Alimentación completa para la etapa de desarrollo acelerado en aves o cerdos. \n**Dosis:** Suministrar a voluntad (ad-libitum) asegurando agua limpia constante. \n**Precauciones:** Almacenar sobre tarimas en lugar seco para evitar hongos y micotoxinas.",
+      "Vacuna Newcastle": "**Composición:** Virus vivo atenuado (Cepa LaSota). \n**Uso:** Inmunización activa contra la enfermedad de Newcastle en aves. \n**Dosis:** Una gota vía ocular o nasal, o mediante el agua de bebida según edad. \n**Precauciones:** Mantener estrictamente la cadena de frío (2-8°C). Vacunar solo animales sanos.",
+      "Cipermetrina": "**Composición:** Cipermetrina Concentrado Emulsionable. \n**Uso:** Insecticida y acaricida de amplio espectro por contacto e ingestión. \n**Dosis:** Diluir 1 ml por cada litro de agua para pulverización en instalaciones o ganado. \n**Precauciones:** Producto moderadamente tóxico. No contaminar fuentes de agua.",
+      "Amoxicilina": "**Composición:** Amoxicilina Trihidrato. \n**Uso:** Antibiótico bactericida para infecciones respiratorias, urogenitales y cutáneas. \n**Dosis:** 15 mg/kg cada 24 horas por 3 a 5 días. \n**Precauciones:** Puede causar trastornos gastrointestinales leves en algunos ejemplares.",
+      "Multivitamínico": "**Composición:** Vitaminas A, D3, E, B12, Aminoácidos y Minerales. \n**Uso:** Estimulante del apetito y mejora de la conversión alimenticia. \n**Dosis:** 1-5 ml según especie y peso. IM. \n**Precauciones:** Agitar bien antes de usar. No exceder la dosis recomendada.",
+      "Desinfectante Instrumental": "**Composición:** Amonio Cuaternario o Glutaraldehído. \n**Uso:** Sanitización de equipos veterinarios, jeringas y áreas de ordeño. \n**Dosis:** Dilución al 1:500 o 1:1000 según carga orgánica existente. \n**Precauciones:** Evitar contacto directo con ojos y mucosas. No ingerir.",
+      "Electrolitos": "**Composición:** Sodio, Potasio, Cloro, Magnesio y Dextrosa. \n**Uso:** Rehidratación oral para animales con diarrea o agotamiento por calor. \n**Dosis:** Disolver un sobre en 20 litros de agua de bebida. \n**Precauciones:** Preparar diariamente para asegurar la estabilidad de los componentes.",
+      "Calcio Inyectable": "**Composición:** Borogluconato de Calcio al 25%. \n**Uso:** Tratamiento de fiebre de leche (hipocalcenia) y deficiencias de calcio. \n**Dosis:** 250-500 ml vía IV lenta en vacas adultas. \n**Precauciones:** Administrar a temperatura corporal. Vigilar ritmo cardíaco durante aplicación."
     };
 
-    for (const product of productsToProcess) {
-      try {
-        const description = getLocalDescription(product.name, product.category);
-        await supabase.from("products").update({ description }).eq("id", product.id);
-        generatedCount++;
-      } catch (err) {
-        console.error(`Error updating ${product.name}:`, err);
-      }
+    if (n.includes('oxitetra') || n.includes('tecnimicina') || n.includes('oxiplus') || n.includes('oxi')) return KNOWLEDGE["Oxitetraciclina"];
+    if (n.includes('penici') || n.includes('tilosin') || n.includes('broximici') || n.includes('trimsulfa') || n.includes('tigent')) return KNOWLEDGE["Amoxicilina"];
+    if (n.includes('iverplus') || n.includes('ivermect') || n.includes('albendazol') || n.includes('lombrifin') || n.includes('vermimax')) return KNOWLEDGE["Ivermectina"];
+    if (n.includes('vitamina') || n.includes('complejo b') || n.includes('vita b12') || n.includes('vitel') || n.includes('proteizoo') || n.includes('instavit')) return KNOWLEDGE["Complejo B"];
+    if (n.includes('multivita') || n.includes('multipack') || n.includes('reconstituyente')) return KNOWLEDGE["Multivitamínico"];
+    if (n.includes('glifosato') || n.includes('revolver') || n.includes('sementhal') || n.includes('torban') || n.includes('cegar')) return KNOWLEDGE["Glifosato"];
+    if (n.includes('terraquat') || n.includes('duplexone') || n.includes('paraquat')) return KNOWLEDGE["Paraquat"];
+    if (n.includes('nitróg') || n.includes('urea') || n.includes('fertilizante')) return KNOWLEDGE["Urea"];
+    if (n.includes('15-15-15') || n.includes('foliar plus') || c.includes('abono')) return KNOWLEDGE["Triple 15"];
+    if (n.includes('alimento') || n.includes('crecimiento') || n.includes('engorde')) return KNOWLEDGE["Alimento Crecimiento"];
+    if (n.includes('vacuna') || n.includes('newcastle') || n.includes('cepa')) return KNOWLEDGE["Vacuna Newcastle"];
+    if (n.includes('cipermetr') || n.includes('nuvan') || n.includes('insecticida') || n.includes('blindage') || n.includes('pikudo')) return KNOWLEDGE["Cipermetrina"];
+    if (n.includes('electro') || n.includes('chemiestress')) return KNOWLEDGE["Electrolitos"];
+    if (n.includes('calcio') || n.includes('borogl')) return KNOWLEDGE["Calcio Inyectable"];
+    if (n.includes('matagusano') || n.includes('curabichera') || n.includes('jabón pet') || n.includes('shampoo')) return KNOWLEDGE["Desinfectante Instrumental"];
+
+    return `**Uso:** Producto especializado para el sector ${c.includes('agrícola') ? 'agrícola' : 'veterinario'}. \n**Recomendación:** El artículo "${name}" ha sido seleccionado por Agricovet por su comprobada eficiencia. Se recomienda leer la etiqueta completa y ajustar la dosis según las necesidades específicas de su producción o animal. \n**Precauciones:** Almacenar en un lugar seco y fuera del alcance de los niños. Consulte a su asesor técnico de Agricovet para un plan de manejo integral.`;
+  };
+
+  for (const product of productsToProcess) {
+    try {
+      const description = getLocalDescription(product.name, product.category);
+      await supabase.from("products").update({ description }).eq("id", product.id);
+      generatedCount++;
+    } catch (err) {
+      console.error(`Error updating ${product.name}:`, err);
+    }
+  }
+
+  res.json({
+    success: true,
+    generatedCount,
+    message: `Se actualizaron ${generatedCount} productos rápidamente usando la base de datos de Agricovet.`
+  });
+}));
+
+// ======== FACTURA ELECTRONICA (FEL) ========
+// La logica vive en fel/servicio.ts. Estos endpoints solo exponen consulta,
+// configuracion y el disparo de la certificacion.
+
+// Configuracion del emisor. Incluye que campos faltan por llenar.
+app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
+  const config = await felServicio.obtenerConfig(supabase);
+  const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
+  res.json({
+    config: publica,
+    // Nunca se devuelven las llaves; solo si ya estan cargadas.
+    credencialesCargadas: !!(infile_llave_firma && infile_llave_token),
+    camposFaltantes: felServicio.configIncompleta(config),
+  });
+}));
+
+app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const permitidos = [
+    'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'correo_emisor', 'direccion', 'municipio',
+    'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
+    'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
+    'infile_url', 'tipo_dte_default',
+  ];
+  const cambios: any = {};
+  for (const c of permitidos) {
+    if (req.body[c] !== undefined && req.body[c] !== '') cambios[c] = req.body[c];
+  }
+  if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
+    return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
+  }
+  const config = await felServicio.guardarConfig(supabase, cambios);
+  const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
+  res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
+}));
+
+// Estado FEL de una factura, con el desglose fiscal ya calculado.
+app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const invoice = facturas && facturas[0];
+  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+  // Un vendedor solo puede ver sus propias facturas.
+  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+    return res.status(403).json({ error: "No tienes acceso a esta factura" });
+  }
+
+  const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+  const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
+
+  // Datos del emisor para la representacion grafica (factura impresa).
+  const felConfig = await felServicio.obtenerConfig(supabase);
+  const emisor = {
+    nit: felConfig?.nit_emisor ?? '',
+    nombre: felConfig?.nombre_emisor ?? '',
+    nombreComercial: felConfig?.nombre_comercial ?? '',
+    ambiente: felConfig?.ambiente ?? 'pruebas',
+  };
+
+  res.json({
+    documento,
+    estado: documento?.estado ?? 'sin_emitir',
+    nitReceptor,
+    esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
+    emisor,
+    desglose: {
+      montoGravable: totales.totalMontoGravable,
+      montoIva: totales.totalMontoIva,
+      granTotal: totales.granTotal,
+    },
+    advertencias,
+  });
+}));
+
+// Listado para la pantalla de control FEL.
+// Un vendedor solo ve los documentos de sus propias facturas.
+app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
+  let documentos = await felServicio.listarDocumentos(supabase, {
+    estado: req.query.estado,
+    limite: Number(req.query.limite) || 200,
+  });
+
+  if (req.user.role !== 'admin') {
+    const { data: propias } = await supabase
+      .from("invoices").select("id").eq("sellerId", req.user.id);
+    const permitidas = new Set((propias || []).map((f: any) => f.id));
+    documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
+  }
+  const resumen = documentos.reduce((acc: any, d: any) => {
+    acc[d.estado] = (acc[d.estado] || 0) + 1;
+    return acc;
+  }, {});
+  res.json({ documentos, resumen, total: documentos.length });
+}));
+
+// Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
+app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const invoice = facturas && facturas[0];
+  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+  if (invoice.status === 'cancelled' || invoice.status === 'rejected') {
+    return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
+  }
+
+  // Se pueden ajustar nombre y NIT del receptor antes de emitir; el folio y
+  // la factura interna no se tocan.
+  const receptorBody = req.body?.receptor;
+  const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre)
+    ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
+    : undefined;
+
+  const resultado = await felServicio.certificarFactura(supabase, invoice, {
+    tipoDte: req.body?.tipoDte,
+    receptor,
+  });
+  res.json(resultado);
+}));
+
+// Anula ante SAT un DTE certificado. Tramite fiscal formal: exige motivo.
+app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const motivo = String(req.body?.motivo || '').trim();
+  if (motivo.length < 5) {
+    return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
+  }
+
+  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const invoice = facturas && facturas[0];
+  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+
+  try {
+    const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
+
+    // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
+    // un documento fiscal anulado no puede seguir como venta activa. Se
+    // restaura el stock igual que en una anulacion normal.
+    if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
+      await restaurarStockDeFactura(invoice);
+      await supabase.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
+      invalidateCache("products");
+      invalidateCache("folio_map");
+      (resultado as any).facturaAnulada = true;
     }
 
-    res.json({ 
-      success: true, 
-      generatedCount, 
-      message: `Se actualizaron ${generatedCount} productos rápidamente usando la base de datos de Agricovet.` 
-    });
-  }));
-
-  // ======== FACTURA ELECTRONICA (FEL) ========
-  // La logica vive en fel/servicio.ts. Estos endpoints solo exponen consulta,
-  // configuracion y el disparo de la certificacion.
-
-  // Configuracion del emisor. Incluye que campos faltan por llenar.
-  app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
-    const config = await felServicio.obtenerConfig(supabase);
-    const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
-    res.json({
-      config: publica,
-      // Nunca se devuelven las llaves; solo si ya estan cargadas.
-      credencialesCargadas: !!(infile_llave_firma && infile_llave_token),
-      camposFaltantes: felServicio.configIncompleta(config),
-    });
-  }));
-
-  app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const permitidos = [
-      'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'correo_emisor', 'direccion', 'municipio',
-      'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
-      'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
-      'infile_url', 'tipo_dte_default',
-    ];
-    const cambios: any = {};
-    for (const c of permitidos) {
-      if (req.body[c] !== undefined && req.body[c] !== '') cambios[c] = req.body[c];
-    }
-    if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
-      return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
-    }
-    const config = await felServicio.guardarConfig(supabase, cambios);
-    const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
-    res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
-  }));
-
-  // Estado FEL de una factura, con el desglose fiscal ya calculado.
-  app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
-    const invoice = facturas && facturas[0];
-    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-    // Un vendedor solo puede ver sus propias facturas.
-    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
-      return res.status(403).json({ error: "No tienes acceso a esta factura" });
-    }
-
-    const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
-    const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
-
-    // Datos del emisor para la representacion grafica (factura impresa).
-    const felConfig = await felServicio.obtenerConfig(supabase);
-    const emisor = {
-      nit: felConfig?.nit_emisor ?? '',
-      nombre: felConfig?.nombre_emisor ?? '',
-      nombreComercial: felConfig?.nombre_comercial ?? '',
-      ambiente: felConfig?.ambiente ?? 'pruebas',
-    };
-
-    res.json({
-      documento,
-      estado: documento?.estado ?? 'sin_emitir',
-      nitReceptor,
-      esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
-      emisor,
-      desglose: {
-        montoGravable: totales.totalMontoGravable,
-        montoIva: totales.totalMontoIva,
-        granTotal: totales.granTotal,
-      },
-      advertencias,
-    });
-  }));
-
-  // Listado para la pantalla de control FEL.
-  // Un vendedor solo ve los documentos de sus propias facturas.
-  app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
-    let documentos = await felServicio.listarDocumentos(supabase, {
-      estado: req.query.estado,
-      limite: Number(req.query.limite) || 200,
-    });
-
-    if (req.user.role !== 'admin') {
-      const { data: propias } = await supabase
-        .from("invoices").select("id").eq("sellerId", req.user.id);
-      const permitidas = new Set((propias || []).map((f: any) => f.id));
-      documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
-    }
-    const resumen = documentos.reduce((acc: any, d: any) => {
-      acc[d.estado] = (acc[d.estado] || 0) + 1;
-      return acc;
-    }, {});
-    res.json({ documentos, resumen, total: documentos.length });
-  }));
-
-  // Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
-  app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
-    const invoice = facturas && facturas[0];
-    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-    if (invoice.status === 'cancelled' || invoice.status === 'rejected') {
-      return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
-    }
-
-    // Se pueden ajustar nombre y NIT del receptor antes de emitir; el folio y
-    // la factura interna no se tocan.
-    const receptorBody = req.body?.receptor;
-    const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre)
-      ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
-      : undefined;
-
-    const resultado = await felServicio.certificarFactura(supabase, invoice, {
-      tipoDte: req.body?.tipoDte,
-      receptor,
-    });
     res.json(resultado);
-  }));
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });
+  }
+}));
 
-  // Anula ante SAT un DTE certificado. Tramite fiscal formal: exige motivo.
-  app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const motivo = String(req.body?.motivo || '').trim();
-    if (motivo.length < 5) {
-      return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
-    }
-
-    const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
-    const invoice = facturas && facturas[0];
-    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-    try {
-      const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
-
-      // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
-      // un documento fiscal anulado no puede seguir como venta activa. Se
-      // restaura el stock igual que en una anulacion normal.
-      if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-        await restaurarStockDeFactura(invoice);
-        await supabase.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
-        invalidateCache("products");
-        invalidateCache("folio_map");
-        (resultado as any).facturaAnulada = true;
-      }
-
-      res.json(resultado);
-    } catch (e: any) {
-      res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });
-    }
-  }));
-
-  // Descarga el XML de un documento FEL (enviado o certificado). Pensado para
-  // cuando el certificador pide "mandame el XML para revisar que paso".
-  app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { data: facturas } = await supabase.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
-    const invoice = facturas && facturas[0];
-    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-    if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
-      return res.status(403).json({ error: "No tienes acceso a esta factura" });
-    }
-
-    const doc: any = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
-    if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
-
-    const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
-    let xml: string | null = tipo === 'certificado' ? doc.xml_certificado : doc.xml_enviado;
-    if (!xml) return res.status(404).json({ error: `Esta factura no tiene XML ${tipo}.` });
-
-    // INFILE devuelve el XML certificado en base64; se decodifica al vuelo.
-    if (!xml.trim().startsWith('<')) {
-      try {
-        const decodificado = Buffer.from(xml, 'base64').toString('utf-8');
-        if (decodificado.trim().startsWith('<')) xml = decodificado;
-      } catch {}
-    }
-
-    const nombre = `DTE-${tipo}-${doc.numero_autorizacion || req.params.id}.xml`;
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
-    res.send(xml);
-  }));
-
-  // Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
-  app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
-    const config = await felServicio.obtenerConfig(supabase);
-    if (!config?.infile_usuario || !config?.infile_llave_token) {
-      return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
-    }
-    const resultado = await infileApi.consultarNit(req.params.nit, {
-      usuario: config.infile_usuario,
-      llaveToken: config.infile_llave_token,
-    });
-    res.json(resultado);
-  }));
-
-  // ======== RECIBOS DE CAJA ENDPOINTS ========
-  const RECIBOS_CAJA_FILE = path.join(process.cwd(), 'recibos_caja_local.json');
-  const DELETED_RECIBOS_FILE = path.join(process.cwd(), 'deleted_recibos_ids.json');
-
-  function readDeletedReciboIds(): Set<string> {
-    try {
-      if (fs.existsSync(DELETED_RECIBOS_FILE)) {
-        const raw = fs.readFileSync(DELETED_RECIBOS_FILE, 'utf-8');
-        const list = JSON.parse(raw);
-        return new Set(Array.isArray(list) ? list : []);
-      }
-    } catch (e) {
-      console.warn("Could not read deleted_recibos_ids file:", e);
-    }
-    return new Set();
+// Descarga el XML de un documento FEL (enviado o certificado). Pensado para
+// cuando el certificador pide "mandame el XML para revisar que paso".
+app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { data: facturas } = await supabase.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
+  const invoice = facturas && facturas[0];
+  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+    return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
 
-  function addDeletedReciboId(id: string) {
+  const doc: any = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+  if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
+
+  const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
+  let xml: string | null = tipo === 'certificado' ? doc.xml_certificado : doc.xml_enviado;
+  if (!xml) return res.status(404).json({ error: `Esta factura no tiene XML ${tipo}.` });
+
+  // INFILE devuelve el XML certificado en base64; se decodifica al vuelo.
+  if (!xml.trim().startsWith('<')) {
     try {
-      const set = readDeletedReciboIds();
-      set.add(id);
-      fs.writeFileSync(DELETED_RECIBOS_FILE, JSON.stringify(Array.from(set), null, 2));
-    } catch (e) {
-      console.warn("Could not save to deleted_recibos_ids file:", e);
-    }
+      const decodificado = Buffer.from(xml, 'base64').toString('utf-8');
+      if (decodificado.trim().startsWith('<')) xml = decodificado;
+    } catch { }
   }
 
-  function readLocalRecibosCaja(): any[] {
-    try {
-      if (fs.existsSync(RECIBOS_CAJA_FILE)) {
-        const raw = fs.readFileSync(RECIBOS_CAJA_FILE, 'utf-8');
-        return JSON.parse(raw) || [];
-      }
-    } catch (e) {
-      console.warn("Could not read local recibos_caja file:", e);
-    }
-    return [];
+  const nombre = `DTE-${tipo}-${doc.numero_autorizacion || req.params.id}.xml`;
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+  res.send(xml);
+}));
+
+// Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
+app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const config = await felServicio.obtenerConfig(supabase);
+  if (!config?.infile_usuario || !config?.infile_llave_token) {
+    return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
   }
+  const resultado = await infileApi.consultarNit(req.params.nit, {
+    usuario: config.infile_usuario,
+    llaveToken: config.infile_llave_token,
+  });
+  res.json(resultado);
+}));
 
-  function saveLocalReciboCaja(recibo: any) {
-    try {
-      const list = readLocalRecibosCaja();
-      list.unshift(recibo);
-      fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
-    } catch (e) {
-      console.warn("Could not save to local recibos_caja file:", e);
+// ======== RECIBOS DE CAJA ENDPOINTS ========
+const RECIBOS_CAJA_FILE = path.join(process.cwd(), 'recibos_caja_local.json');
+const DELETED_RECIBOS_FILE = path.join(process.cwd(), 'deleted_recibos_ids.json');
+
+function readDeletedReciboIds(): Set<string> {
+  try {
+    if (fs.existsSync(DELETED_RECIBOS_FILE)) {
+      const raw = fs.readFileSync(DELETED_RECIBOS_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      return new Set(Array.isArray(list) ? list : []);
     }
+  } catch (e) {
+    console.warn("Could not read deleted_recibos_ids file:", e);
   }
+  return new Set();
+}
 
-  app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
-    try {
-      const { data, error } = await supabase
-        .from('recibos_caja')
-        .select('*')
-        .order('created_at', { ascending: false });
+function addDeletedReciboId(id: string) {
+  try {
+    const set = readDeletedReciboIds();
+    set.add(id);
+    fs.writeFileSync(DELETED_RECIBOS_FILE, JSON.stringify(Array.from(set), null, 2));
+  } catch (e) {
+    console.warn("Could not save to deleted_recibos_ids file:", e);
+  }
+}
 
-      if (!error && Array.isArray(data)) {
-        const filtered = data.filter((r: any) => 
-          r.observaciones !== '[ELIMINADO]' && 
-          !r.observaciones?.includes('[ELIMINADO]') &&
-          r.cliente_nombre !== '[ELIMINADO]' &&
-          !r.cliente_nombre?.includes('[ELIMINADO]')
-        );
-        return res.json(filtered);
-      }
-    } catch (e) {
-      console.warn("Supabase recibos_caja query fallback:", e);
+function readLocalRecibosCaja(): any[] {
+  try {
+    if (fs.existsSync(RECIBOS_CAJA_FILE)) {
+      const raw = fs.readFileSync(RECIBOS_CAJA_FILE, 'utf-8');
+      return JSON.parse(raw) || [];
     }
+  } catch (e) {
+    console.warn("Could not read local recibos_caja file:", e);
+  }
+  return [];
+}
 
-    const localList = readLocalRecibosCaja();
-    const resultList = localList.filter((r: any) => 
-      !r.observaciones?.includes('[ELIMINADO]') &&
-      !r.cliente_nombre?.includes('[ELIMINADO]')
-    );
-    res.json(resultList);
-  }));
+function saveLocalReciboCaja(recibo: any) {
+  try {
+    const list = readLocalRecibosCaja();
+    list.unshift(recibo);
+    fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
+  } catch (e) {
+    console.warn("Could not save to local recibos_caja file:", e);
+  }
+}
 
-  app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { 
-      cliente_nombre, 
-      cliente_nit, 
-      cliente_codigo, 
-      cantidad_letras, 
-      facturas, 
-      cheques, 
-      efectivo_total, 
-      monto_total, 
-      observaciones, 
-      cajero_nombre,
-      fecha
-    } = req.body;
-
-    if (!cliente_nombre || cliente_nombre.trim() === '') {
-      return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
-    }
-
-    const localList = readLocalRecibosCaja();
-    const nextSeq = localList.length + 152;
-    const folioStr = `P Nº ${String(nextSeq).padStart(6, '0')}`;
-
-    const newRecibo = {
-      id: crypto.randomUUID(),
-      folio: folioStr,
-      numero_secuencial: nextSeq,
-      fecha: fecha || new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      cliente_nombre: cliente_nombre.trim(),
-      cliente_nit: cliente_nit || 'CF',
-      cliente_codigo: cliente_codigo || '',
-      cantidad_letras: cantidad_letras || 'Cero quetzales',
-      facturas: Array.isArray(facturas) ? facturas : [],
-      cheques: Array.isArray(cheques) ? cheques : [],
-      efectivo_total: Number(efectivo_total) || 0,
-      monto_total: Number(monto_total) || 0,
-      observaciones: observaciones || '',
-      cajero_nombre: cajero_nombre || 'CAJERO RECEPTOR',
-      created_at: new Date().toISOString()
-    };
-
-    try {
-      const { data, error } = await supabase
-        .from('recibos_caja')
-        .insert([newRecibo])
-        .select();
-
-      if (!error && data && data[0]) {
-        saveLocalReciboCaja(data[0]);
-        return res.status(201).json(data[0]);
-      }
-    } catch (e) {
-      console.warn("Supabase insert recibo_caja fallback to local file:", e);
-    }
-
-    saveLocalReciboCaja(newRecibo);
-    res.status(201).json(newRecibo);
-  }));
-
-  // DELETE recibo de caja — solo admins
-  app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
-
-    // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
-    // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
-    const { data: updated, error: updateErr } = await supabase
+app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await supabase
       .from('recibos_caja')
-      .update({ 
-        observaciones: '[ELIMINADO]',
-        cliente_nombre: '[ELIMINADO]'
-      })
-      .eq('id', id)
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      const filtered = data.filter((r: any) =>
+        r.observaciones !== '[ELIMINADO]' &&
+        !r.observaciones?.includes('[ELIMINADO]') &&
+        r.cliente_nombre !== '[ELIMINADO]' &&
+        !r.cliente_nombre?.includes('[ELIMINADO]')
+      );
+      return res.json(filtered);
+    }
+  } catch (e) {
+    console.warn("Supabase recibos_caja query fallback:", e);
+  }
+
+  const localList = readLocalRecibosCaja();
+  const resultList = localList.filter((r: any) =>
+    !r.observaciones?.includes('[ELIMINADO]') &&
+    !r.cliente_nombre?.includes('[ELIMINADO]')
+  );
+  res.json(resultList);
+}));
+
+app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const {
+    cliente_nombre,
+    cliente_nit,
+    cliente_codigo,
+    cantidad_letras,
+    facturas,
+    cheques,
+    efectivo_total,
+    monto_total,
+    observaciones,
+    cajero_nombre,
+    fecha
+  } = req.body;
+
+  if (!cliente_nombre || cliente_nombre.trim() === '') {
+    return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
+  }
+
+  const localList = readLocalRecibosCaja();
+  const nextSeq = localList.length + 152;
+  const folioStr = `P Nº ${String(nextSeq).padStart(6, '0')}`;
+
+  const newRecibo = {
+    id: crypto.randomUUID(),
+    folio: folioStr,
+    numero_secuencial: nextSeq,
+    fecha: fecha || new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    cliente_nombre: cliente_nombre.trim(),
+    cliente_nit: cliente_nit || 'CF',
+    cliente_codigo: cliente_codigo || '',
+    cantidad_letras: cantidad_letras || 'Cero quetzales',
+    facturas: Array.isArray(facturas) ? facturas : [],
+    cheques: Array.isArray(cheques) ? cheques : [],
+    efectivo_total: Number(efectivo_total) || 0,
+    monto_total: Number(monto_total) || 0,
+    observaciones: observaciones || '',
+    cajero_nombre: cajero_nombre || 'CAJERO RECEPTOR',
+    created_at: new Date().toISOString()
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('recibos_caja')
+      .insert([newRecibo])
       .select();
 
-    if (updateErr) {
-      console.error("Supabase UPDATE recibo_caja error:", updateErr);
-      return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
+    if (!error && data && data[0]) {
+      saveLocalReciboCaja(data[0]);
+      return res.status(201).json(data[0]);
     }
+  } catch (e) {
+    console.warn("Supabase insert recibo_caja fallback to local file:", e);
+  }
 
-    if (!updated || updated.length === 0) {
-      return res.status(404).json({ error: 'Recibo no encontrado' });
+  saveLocalReciboCaja(newRecibo);
+  res.status(201).json(newRecibo);
+}));
+
+// DELETE recibo de caja — solo admins
+app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
+
+  // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
+  // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
+  const { data: updated, error: updateErr } = await supabase
+    .from('recibos_caja')
+    .update({
+      observaciones: '[ELIMINADO]',
+      cliente_nombre: '[ELIMINADO]'
+    })
+    .eq('id', id)
+    .select();
+
+  if (updateErr) {
+    console.error("Supabase UPDATE recibo_caja error:", updateErr);
+    return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
+  }
+
+  if (!updated || updated.length === 0) {
+    return res.status(404).json({ error: 'Recibo no encontrado' });
+  }
+
+  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
+  res.json({ success: true, message: 'Recibo eliminado correctamente' });
+}));
+
+// VISITS & ROUTES ENDPOINTS
+app.get('/api/visits', asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await supabase
+      .from('client_visits')
+      .select('id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt')
+      .order('created_at', { ascending: false });
+    if (!error && data) return res.json(data);
+  } catch (e) { }
+  res.json([]);
+}));
+
+app.get('/api/visits/stats', asyncHandler(async (req: any, res: any) => {
+  res.json({
+    totalVisitsToday: 0,
+    totalVisitsMonth: 0,
+    activeSellersCount: 0,
+    clientsVisitedCount: 0,
+    unvisitedClientsCount: 0,
+    sellerRankings: [],
+    recentVisits: []
+  });
+}));
+
+app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await supabase
+      .from('seller_routes')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && data) return res.json(data);
+  } catch (e) { }
+  res.json([]);
+}));
+
+// ======== COTIZACIONES / QUOTATIONS ENDPOINTS ========
+app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { sellerId } = req.query;
+    let query = supabase.from('quotations').select('*').order('date', { ascending: false });
+    if (sellerId && req.user.role !== 'admin') {
+      query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
     }
-
-    console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
-    res.json({ success: true, message: 'Recibo eliminado correctamente' });
-  }));
-
-  // VISITS & ROUTES ENDPOINTS
-  app.get('/api/visits', asyncHandler(async (req: any, res: any) => {
-    try {
-      const { data, error } = await supabase
-        .from('client_visits')
-        .select('id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt')
-        .order('created_at', { ascending: false });
-      if (!error && data) return res.json(data);
-    } catch (e) {}
-    res.json([]);
-  }));
-
-  app.get('/api/visits/stats', asyncHandler(async (req: any, res: any) => {
-    res.json({
-      totalVisitsToday: 0,
-      totalVisitsMonth: 0,
-      activeSellersCount: 0,
-      clientsVisitedCount: 0,
-      unvisitedClientsCount: 0,
-      sellerRankings: [],
-      recentVisits: []
-    });
-  }));
-
-  app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
-    try {
-      const { data, error } = await supabase
-        .from('seller_routes')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) return res.json(data);
-    } catch (e) {}
-    res.json([]);
-  }));
-
-  // ======== COTIZACIONES / QUOTATIONS ENDPOINTS ========
-  app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-    try {
-      const { sellerId } = req.query;
-      let query = supabase.from('quotations').select('*').order('date', { ascending: false });
-      if (sellerId && req.user.role !== 'admin') {
-        query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
-      }
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
-        return res.json(data);
-      }
-    } catch (err: any) {
-      console.warn("Supabase quotations fetch error:", err?.message || err);
+    const { data, error } = await query;
+    if (!error && Array.isArray(data)) {
+      return res.json(data);
     }
-    res.json([]);
-  }));
+  } catch (err: any) {
+    console.warn("Supabase quotations fetch error:", err?.message || err);
+  }
+  res.json([]);
+}));
 
-  app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
-    if (error || !data) {
-      return res.status(404).json({ error: 'Cotización no encontrada' });
-    }
-    res.json(data);
-  }));
+app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
+  if (error || !data) {
+    return res.status(404).json({ error: 'Cotización no encontrada' });
+  }
+  res.json(data);
+}));
 
-  app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
-    if (!client || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Cliente y al menos un producto son requeridos' });
-    }
+app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
+  if (!client || !items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Cliente y al menos un producto son requeridos' });
+  }
 
-    // Calcular correlativo de folio (COT-0001)
-    const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
-    const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
-    const nextNum = lastNum + 1;
-    const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
+  // Calcular correlativo de folio (COT-0001)
+  const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
+  const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
+  const nextNum = lastNum + 1;
+  const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
 
-    const totalAmount = items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
-    const quoteDate = date || new Date().toISOString();
-    const days = validityDays || 15;
-    const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const totalAmount = items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
+  const quoteDate = date || new Date().toISOString();
+  const days = validityDays || 15;
+  const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
-    const newQuote = {
-      id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-      folio: folioStr,
-      folioNumber: nextNum,
-      sellerId: sellerId || req.user.email || req.user.id,
-      sellerName: sellerName || req.user.name,
-      client: client.trim(),
-      nit: nit?.trim() || 'CF',
-      phone: phone?.trim() || '',
-      address: address?.trim() || '',
-      items,
-      totalAmount,
-      status: 'pendiente',
-      date: quoteDate,
-      validityDays: days,
-      validUntil,
-      notes: notes?.trim() || '',
-      convertedInvoiceId: null,
-      convertedInvoiceFolio: null
-    };
+  const newQuote = {
+    id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    folio: folioStr,
+    folioNumber: nextNum,
+    sellerId: sellerId || req.user.email || req.user.id,
+    sellerName: sellerName || req.user.name,
+    client: client.trim(),
+    nit: nit?.trim() || 'CF',
+    phone: phone?.trim() || '',
+    address: address?.trim() || '',
+    items,
+    totalAmount,
+    status: 'pendiente',
+    date: quoteDate,
+    validityDays: days,
+    validUntil,
+    notes: notes?.trim() || '',
+    convertedInvoiceId: null,
+    convertedInvoiceFolio: null
+  };
 
-    const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
-    if (error) {
-      throw new Error(error.message);
-    }
-    res.status(201).json(data || newQuote);
-  }));
+  const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
+  if (error) {
+    throw new Error(error.message);
+  }
+  res.status(201).json(data || newQuote);
+}));
 
-  app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const updates = req.body;
-    const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
-    if (error) throw new Error(error.message);
-    res.json(data);
-  }));
+app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const updates = req.body;
+  const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
+  if (error) throw new Error(error.message);
+  res.json(data);
+}));
 
-  app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { error } = await supabase.from('quotations').delete().eq('id', id);
-    if (error) throw new Error(error.message);
-    res.json({ success: true });
-  }));
+app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { error } = await supabase.from('quotations').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  res.json({ success: true });
+}));
 
-  app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
-    const { id } = req.params;
-    const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
-    if (qErr || !quote) return res.status(404).json({ error: 'Cotización no encontrada' });
+app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
+  if (qErr || !quote) return res.status(404).json({ error: 'Cotización no encontrada' });
 
-    await supabase.from('quotations').update({
-      status: 'convertida',
-      updated_at: new Date().toISOString()
-    }).eq('id', id);
+  await supabase.from('quotations').update({
+    status: 'convertida',
+    updated_at: new Date().toISOString()
+  }).eq('id', id);
 
-    res.json({ success: true, quotation: quote });
-  }));
+  res.json({ success: true, quotation: quote });
+}));
 
 
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
   const isProduction = process.env.NODE_ENV === "production";
-  
+
   if (!isProduction) {
     console.error("Global API Error:", err);
   } else {
@@ -8808,8 +8807,8 @@ app.use((err: any, req: any, res: any, next: any) => {
   }
 
   // Return the actual error message so we can trace production errors directly in the app UI
-  res.status(500).json({ 
-    error: err.message || "Error interno del servidor" 
+  res.status(500).json({
+    error: err.message || "Error interno del servidor"
   });
 });
 
@@ -8847,7 +8846,7 @@ async function startServer() {
   if (!process.env.VERCEL) {
     app.listen(PORT as number, "0.0.0.0", async () => {
       console.log(`Server running on http://localhost:${PORT}`);
-      
+
       // One-time migration to ensure all clients have a code
       try {
         // Try to add sellerCode column if it doesn't exist
@@ -8880,7 +8879,7 @@ async function startServer() {
               updateLocalClient(client.id, { clientCode: code });
               try {
                 await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
-              } catch (e) {}
+              } catch (e) { }
             }
           }
           console.log("Migration completed.");
@@ -8892,13 +8891,13 @@ async function startServer() {
         try {
           const { data: users, error } = await supabase.from("users").select("*");
           if (error) {
-             if (error.message && error.message.includes("fetch failed")) {
-               console.warn("Supabase connection unavailable for user migration.");
-             } else {
-               console.error("Could not fetch users for migration, possibly missing column:", error.message);
-             }
+            if (error.message && error.message.includes("fetch failed")) {
+              console.warn("Supabase connection unavailable for user migration.");
+            } else {
+              console.error("Could not fetch users for migration, possibly missing column:", error.message);
+            }
           } else {
-             usersData = users || [];
+            usersData = users || [];
           }
         } catch (e: any) {
           console.warn("Users select failed in migration:", e?.message || e);
@@ -8906,27 +8905,27 @@ async function startServer() {
 
         const missingUserCodes = usersData.filter((u: any) => !u.sellerCode || u.sellerCode.trim() === '');
         if (missingUserCodes.length > 0) {
-           console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
-           const usedUserCodes = new Set(usersData.map((u: any) => u.sellerCode).filter(Boolean));
-           for (const u of missingUserCodes) {
-             let code = '';
-             let unique = false;
-             let attempts = 0;
-             while (!unique && attempts < 100) {
-               code = Math.floor(1000 + Math.random() * 9000).toString();
-               if (!usedUserCodes.has(code)) unique = true;
-               attempts++;
-             }
-             if (unique) {
-               try {
-                 await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
-                 usedUserCodes.add(code);
-               } catch (upErr) {
-                 console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);
-               }
-             }
-           }
-           console.log("User migration completed.");
+          console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
+          const usedUserCodes = new Set(usersData.map((u: any) => u.sellerCode).filter(Boolean));
+          for (const u of missingUserCodes) {
+            let code = '';
+            let unique = false;
+            let attempts = 0;
+            while (!unique && attempts < 100) {
+              code = Math.floor(1000 + Math.random() * 9000).toString();
+              if (!usedUserCodes.has(code)) unique = true;
+              attempts++;
+            }
+            if (unique) {
+              try {
+                await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
+                usedUserCodes.add(code);
+              } catch (upErr) {
+                console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);
+              }
+            }
+          }
+          console.log("User migration completed.");
         }
       } catch (err) {
         console.error("Migration error:", err);
