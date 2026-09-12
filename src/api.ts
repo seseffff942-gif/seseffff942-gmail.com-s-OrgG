@@ -2501,7 +2501,7 @@ export const api = {
     // Si el servidor está en la nube (Vercel) y no puede alcanzar el webhook, reenviar directo desde el navegador del usuario
     if (options?.sendToWebhook && (data?.reports || data?.data)) {
       const reportsToSend = Array.isArray(data.reports) && data.reports.length > 0 ? data.reports : (data.data ? [data.data] : []);
-      const localWebhookUrl = options?.webhookUrl || 'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte';
+      const localWebhookUrl = options?.webhookUrl || 'http://185.166.39.49:5678/webhook/ventas-reporte';
       for (const rep of reportsToSend) {
         try {
           await fetch(localWebhookUrl, {
