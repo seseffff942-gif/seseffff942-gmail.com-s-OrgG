@@ -5774,31 +5774,16 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   if (targetDate) {
     updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? (/* @__PURE__ */ new Date(`${targetDate}T12:00:00-06:00`)).toISOString() : /^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString();
   }
-  updatedDataRaw["clientName"] = client;
-  updatedDataRaw["customerPhone"] = phone || "";
-  updatedDataRaw["deliveryAddress"] = address || "";
-  updatedDataRaw["nit"] = effectiveNit;
-  updatedDataRaw["customerNit"] = effectiveNit;
+  if (client !== void 0) updatedDataRaw["clientName"] = client;
+  if (phone !== void 0) updatedDataRaw["customerPhone"] = phone;
+  if (address !== void 0) updatedDataRaw["deliveryAddress"] = address;
+  if (effectiveNit !== void 0) updatedDataRaw["nit"] = effectiveNit;
+  if (sellerId !== void 0) updatedDataRaw["sellerId"] = sellerId;
+  if (oldInvoice.folio) updatedDataRaw["folio"] = String(oldInvoice.folio);
   const { error: updateError } = await localDb.from("invoices").update(updatedDataRaw).eq("id", id);
   if (updateError) {
-    console.warn("Primary update invoice error:", updateError.message);
-    const fallbackData = { ...updatedDataRaw };
-    delete fallbackData["clientName"];
-    delete fallbackData["customerPhone"];
-    delete fallbackData["deliveryAddress"];
-    delete fallbackData["customerNit"];
-    fallbackData["client"] = client;
-    fallbackData["phone"] = phone || "";
-    fallbackData["address"] = address || "";
-    fallbackData["nit"] = effectiveNit;
-    const { error: retryError1 } = await localDb.from("invoices").update(fallbackData).eq("id", id);
-    if (retryError1) {
-      const bareData = { ...fallbackData };
-      delete bareData["phone"];
-      delete bareData["address"];
-      delete bareData["nit"];
-      await localDb.from("invoices").update(bareData).eq("id", id);
-    }
+    console.error("Primary update invoice error:", updateError.message);
+    throw new Error(updateError.message);
   }
   if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
     try {
@@ -5849,24 +5834,20 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res)
   };
   if (nit !== void 0) {
     updatePayload.nit = effectiveNit;
-    updatePayload.customerNit = effectiveNit;
   }
   if (client !== void 0) {
     updatePayload.clientName = client.trim();
-    updatePayload.client = client.trim();
   }
   if (phone !== void 0) {
     updatePayload.customerPhone = phone.trim();
-    updatePayload.phone = phone.trim();
   }
   if (address !== void 0) {
     updatePayload.deliveryAddress = address.trim();
-    updatePayload.address = address.trim();
   }
   const { error: updateError } = await localDb.from("invoices").update(updatePayload).eq("id", id);
   if (updateError) {
-    const fallback = { notes: newNotes };
-    await localDb.from("invoices").update(fallback).eq("id", id);
+    console.error("Update invoice customer error:", updateError.message);
+    throw new Error(updateError.message);
   }
   await syncInvoiceToPermanentBackup(id);
   if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
