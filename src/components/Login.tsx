@@ -374,17 +374,10 @@ export function Login({ onLogin }: LoginProps) {
 
           {/* Subtitle footer elements below the main crystal card on mobile */}
           <div className="text-center mt-6 space-y-1.5 text-slate-500 text-xs select-none">
-            {isNeon ? (
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] font-semibold shadow-lg shadow-amber-950/30">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-                <span>Base de Datos Conectada: Neon PostgreSQL (Emergencia)</span>
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-[11px] font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>Base de Datos Conectada: Supabase Cloud</span>
-              </div>
-            )}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-[11px] font-semibold shadow-lg shadow-emerald-950/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Base de Datos: Servidor Local (PostgreSQL)</span>
+            </div>
             <p className="text-slate-400">Agricovet Cloud Security System</p>
             <p className="opacity-60 text-[10px]">Protegido con encriptación SSL de 256 bits</p>
           </div>

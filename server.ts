@@ -33,8 +33,6 @@ function requireEnv(name: string): string {
   if (!value || !value.trim()) {
     console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
     if (name === "JWT_SECRET") return "agricovet_secret_key_2026";
-    if (name === "SUPABASE_URL") return "";
-    if (name === "SUPABASE_ANON_KEY") return "";
     return "default_value";
   }
   return value.trim();
@@ -42,41 +40,36 @@ function requireEnv(name: string): string {
 
 const JWT_SECRET = requireEnv("JWT_SECRET");
 
-import { createClient } from '@supabase/supabase-js';
 import pg from 'pg';
+import { createLocalDb } from './localDb';
 
-const supabaseUrl = requireEnv("SUPABASE_URL");
-const supabaseKey = requireEnv("SUPABASE_ANON_KEY");
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
-
-// Configuración de Base de Datos de Respaldo (Neon PostgreSQL)
-const neonDbUrl = process.env.NEON_DATABASE_URL || '';
-export const neonPool = neonDbUrl ? new pg.Pool({
+// Configuración de Base de Datos Local (PostgreSQL)
+const neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || 'postgresql://postgres:postgres123@localhost:5432/postgres';
+const isRemoteCloudPg = neonDbUrl.includes('neon.tech') || (neonDbUrl.includes('sslmode=require') && !neonDbUrl.includes('172.') && !neonDbUrl.includes('185.166.39.49'));
+export const neonPool = new pg.Pool({
   connectionString: neonDbUrl,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
+  ssl: isRemoteCloudPg ? { rejectUnauthorized: false } : false,
+  max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
-}) : null;
+});
 
-if (neonPool) {
-  console.log(`[DB] Pool de Respaldo Neon inicializado.`);
-} else {
-  console.warn(`[DB] NEON_DATABASE_URL no configurada. Respaldo Neon inactivo.`);
-}
+console.log(`[DB] ✅ Conectado a PostgreSQL: ${neonDbUrl}`);
 
-// ESTADO GLOBAL DE BOTÓN DE PÁNICO (PERSISTENTE EN BASE DE DATOS PARA TODOS LOS DISPOSITIVOS Y SERVERLESS)
+export const localDb = createLocalDb({
+  pool: neonPool,
+  storageDir: path.join(process.cwd(), 'storage')
+});
+// ESTADO GLOBAL DE MODO DE BASE DE DATOS (POR DEFECTO LOCAL)
 const PANIC_STATE_FILE = path.join(process.cwd(), "panic_state.json");
-let lastDbModeCached: { mode: 'supabase' | 'neon'; timestamp: number } = {
-  mode: 'supabase',
+let lastDbModeCached: { mode: 'local' | 'neon'; timestamp: number } = {
+  mode: 'neon',
   timestamp: 0
 };
 
-export let activeDatabaseMode: 'supabase' | 'neon' = 'supabase';
+export let activeDatabaseMode: 'local' | 'neon' = 'neon';
 
-export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
+export async function fetchGlobalDbModeFromDb(): Promise<'local' | 'neon'> {
   if (Date.now() - lastDbModeCached.timestamp < 15000) {
     return lastDbModeCached.mode;
   }
@@ -85,7 +78,7 @@ export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
       const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
       if (res.rows && res.rows.length > 0) {
         const val = res.rows[0].value;
-        if (val === 'neon' || val === 'supabase') {
+        if (val === 'neon' || val === "local") {
           activeDatabaseMode = val;
           lastDbModeCached = { mode: val, timestamp: Date.now() };
           return val;
@@ -97,7 +90,7 @@ export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
     if (fs.existsSync(PANIC_STATE_FILE)) {
       const content = fs.readFileSync(PANIC_STATE_FILE, "utf-8");
       const parsed = JSON.parse(content);
-      if (parsed.activeMode === "neon" || parsed.activeMode === "supabase") {
+      if (parsed.activeMode === "neon" || parsed.activeMode === "local") {
         activeDatabaseMode = parsed.activeMode;
         lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
         return parsed.activeMode;
@@ -107,11 +100,11 @@ export async function fetchGlobalDbModeFromDb(): Promise<'supabase' | 'neon'> {
   return activeDatabaseMode;
 }
 
-export function getGlobalDbMode(): 'supabase' | 'neon' {
+export function getGlobalDbMode(): 'local' | 'neon' {
   return activeDatabaseMode;
 }
 
-export async function persistGlobalDbMode(mode: 'supabase' | 'neon') {
+export async function persistGlobalDbMode(mode: 'local' | 'neon') {
   activeDatabaseMode = mode;
   lastDbModeCached = { mode, timestamp: Date.now() };
   if (neonPool) {
@@ -131,7 +124,7 @@ export async function persistGlobalDbMode(mode: 'supabase' | 'neon') {
   } catch (e) { }
 }
 
-export function setGlobalDbMode(mode: 'supabase' | 'neon') {
+export function setGlobalDbMode(mode: 'local' | 'neon') {
   persistGlobalDbMode(mode).catch(() => { });
 }
 
@@ -320,43 +313,43 @@ async function seedDatabase(force: boolean = false) {
 
     // Delete the removed products from the actual database to fulfill user request
     try {
-      await supabase.from("products").delete().in('name', ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
+      await localDb.from("products").delete().in('name', ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
     } catch (e) { }
 
     // Ensure jerickottoniel@gmail.com is named Erick Juárez
     try {
-      await supabase.from("users").update({ name: "Erick Juárez" }).ilike("email", "jerickottoniel@gmail.com");
+      await localDb.from("users").update({ name: "Erick Juárez" }).ilike("email", "jerickottoniel@gmail.com");
     } catch (e) { }
 
-    const { data: defaultUsers, error: uErr } = await supabase.from("users").select("id").limit(1);
+    const { data: defaultUsers, error: uErr } = await localDb.from("users").select("id").limit(1);
     if (uErr) {
       if (uErr.message && uErr.message.includes("fetch failed")) {
-        console.warn("[Seed] Supabase DB offline or fetch failed; using local fallbacks.");
+        console.warn("[Seed] PostgreSQL Local DB offline or fetch failed; using local fallbacks.");
         return;
       }
       console.warn("[Seed] Error checking users:", uErr.message);
     } else if (force || !defaultUsers || defaultUsers.length === 0) {
       console.log("[Seed] Seeding users...");
       const userInserts = initialDb.users.map(u => ({ ...u, password: u.password }));
-      const { error: insErr } = await supabase.from("users").insert(userInserts);
+      const { error: insErr } = await localDb.from("users").insert(userInserts);
       if (insErr) console.error("[Seed] User insertion failed:", insErr.message);
     }
 
-    const { data: defaultProducts, error: pErr } = await supabase.from("products").select("id").limit(1);
+    const { data: defaultProducts, error: pErr } = await localDb.from("products").select("id").limit(1);
     if (pErr) {
       console.warn("[Seed] Error checking products:", pErr.message);
     } else if (force || !defaultProducts || defaultProducts.length === 0) {
       console.log("[Seed] Seeding products...");
-      const { error: insErr } = await supabase.from("products").insert(initialDb.products);
+      const { error: insErr } = await localDb.from("products").insert(initialDb.products);
       if (insErr) console.error("[Seed] Product insertion failed:", insErr.message);
     }
 
-    const { data: defaultOffers, error: oErr } = await supabase.from("offers").select("id").limit(1);
+    const { data: defaultOffers, error: oErr } = await localDb.from("offers").select("id").limit(1);
     if (oErr) {
       console.warn("[Seed] Error checking offers:", oErr.message);
     } else if (force || !defaultOffers || defaultOffers.length === 0) {
       console.log("[Seed] Seeding offers...");
-      const { error: insErr } = await supabase.from("offers").insert(initialDb.offers);
+      const { error: insErr } = await localDb.from("offers").insert(initialDb.offers);
       if (insErr) console.error("[Seed] Offer insertion failed:", insErr.message);
     }
     console.log("[Seed] Finished seeding process.");
@@ -494,6 +487,14 @@ const loginLimiter = rateLimit({
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", loginLimiter);
 
+// Servidor de archivos estáticos para almacenamiento local de imágenes
+const storageLocalPath = path.join(process.cwd(), 'storage');
+if (!fs.existsSync(storageLocalPath)) {
+  fs.mkdirSync(storageLocalPath, { recursive: true });
+}
+app.use('/storage/v1/object/public', express.static(storageLocalPath, { maxAge: '7d' }));
+app.use('/storage', express.static(storageLocalPath, { maxAge: '7d' }));
+
 // Trigger DB seeding in the background so we don't delay startup
 if (!process.env.VERCEL) {
   seedDatabase().catch(err => console.error("Seeding DB failed", err));
@@ -537,9 +538,9 @@ async function getFolioMap(forceRefresh: boolean = false) {
   let startFrom = 1;
   let resetDate: string | null = null;
 
-  // 1. Try reading from Supabase sys-folio-config first (production dynamic config)
+  // 1. Try reading from PostgreSQL Local sys-folio-config first (production dynamic config)
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-folio-config").single();
     if (sysRow && sysRow.photo) {
       const config = JSON.parse(sysRow.photo);
       startFrom = config.startFrom || 1;
@@ -559,15 +560,14 @@ async function getFolioMap(forceRefresh: boolean = false) {
     } catch (e) { }
   }
 
-  // 3. Paginate to fetch all invoices (avoid Supabase 1000 rows cut)
+  // 3. Paginate to fetch all invoices (avoid PostgreSQL Local 1000 rows cut)
   let invoices: any[] = [];
   let page = 0;
   const PAGE_SIZE = 1000;
   let hasMore = true;
 
   while (hasMore) {
-    let query = supabase
-      .from("invoices")
+    let query = localDb.from("invoices")
       .select("id, date, status, notes, folio")
       .eq("is_archived", false);
 
@@ -582,7 +582,7 @@ async function getFolioMap(forceRefresh: boolean = false) {
 
     if (error) {
       if (error.code === '42703' || error.message?.includes('folio') || error.message?.includes('is_archived')) {
-        let retryQ = supabase.from("invoices").select("id, date, status, notes");
+        let retryQ = localDb.from("invoices").select("id, date, status, notes");
         if (resetDate) retryQ = retryQ.gte("date", resetDate);
         const retryRes = await retryQ
           .order("date", { ascending: true, nullsFirst: false })
@@ -694,12 +694,12 @@ const requireAuth = async (req: any, res: any, next: any) => {
 
     if (!user) {
       try {
-        const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+        const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
         if (users && users.length > 0) {
           user = users[0];
         }
       } catch (dbErr) {
-        console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
+        console.warn("PostgreSQL Local error in requireAuth, trying Neon fallback:", dbErr);
         if (neonPool) {
           try {
             const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
@@ -827,7 +827,7 @@ async function acquireStockLocks(productIds: (string | undefined)[]): Promise<()
 // al cambiar el estado de la factura como al anular su DTE ante SAT.
 async function restaurarStockDeFactura(invoice: any) {
   for (const item of (invoice.items || [])) {
-    const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+    const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq('id', item.productId);
     const product = prods?.[0];
     if (product && !product.is_external) {
       let variantsToUpdate = product.variants ? [...product.variants] : [];
@@ -842,10 +842,10 @@ async function restaurarStockDeFactura(invoice: any) {
       if (variantObj && variantObj.stock !== undefined) {
         const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
         variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-        const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+        const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
         if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
       } else {
-        const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
         if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
       }
     }
@@ -875,13 +875,13 @@ app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: a
     client,
     sellerId: sellerId || req.user.id
   };
-  await supabase.from("dispatches").insert([dispatchRecord]);
+  await localDb.from("dispatches").insert([dispatchRecord]);
   res.json({ success: true, dispatchId });
 }));
 
 app.post("/api/invoices/:id/dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { error } = await supabase.from("invoices").update({ status: 'despachado' }).eq('id', id);
+  const { error } = await localDb.from("invoices").update({ status: 'despachado' }).eq('id', id);
   if (error) throw error;
   await syncInvoiceToPermanentBackup(id);
   res.json({ success: true });
@@ -995,7 +995,7 @@ async function getPushSubscriptions(): Promise<any[]> {
   });
 
   try {
-    const { data, error } = await supabase.from("push_subscriptions").select("*");
+    const { data, error } = await localDb.from("push_subscriptions").select("*");
     if (!error && Array.isArray(data)) {
       data.forEach((row: any) => {
         const sub = typeof row.subscription === 'string' ? JSON.parse(row.subscription) : (row.subscription || row);
@@ -1005,7 +1005,7 @@ async function getPushSubscriptions(): Promise<any[]> {
       });
     }
   } catch (err) {
-    // Supabase table may not exist yet; local is used
+    // PostgreSQL Local table may not exist yet; local is used
   }
   return Array.from(map.values());
 }
@@ -1018,14 +1018,14 @@ async function savePushSubscription(subscription: any) {
 
   try {
     const subId = Buffer.from(subscription.endpoint).toString('base64').substring(0, 100);
-    await supabase.from("push_subscriptions").upsert([{
+    await localDb.from("push_subscriptions").upsert([{
       id: subId,
       endpoint: subscription.endpoint,
       subscription: subscription,
       updated_at: new Date().toISOString()
     }], { onConflict: 'id' });
   } catch (err) {
-    console.warn("Could not upsert push subscription to Supabase:", err);
+    console.warn("Could not upsert push subscription to PostgreSQL Local:", err);
   }
 }
 
@@ -1036,7 +1036,7 @@ async function removePushSubscription(endpoint: string) {
 
   try {
     const subId = Buffer.from(endpoint).toString('base64').substring(0, 100);
-    await supabase.from("push_subscriptions").delete().eq('id', subId);
+    await localDb.from("push_subscriptions").delete().eq('id', subId);
   } catch (err) { }
 }
 
@@ -1059,7 +1059,7 @@ async function getFcmTokens(): Promise<string[]> {
   const local = readFcmTokens();
   const tokenSet = new Set<string>(local);
   try {
-    const { data, error } = await supabase.from("fcm_tokens").select("token");
+    const { data, error } = await localDb.from("fcm_tokens").select("token");
     if (!error && Array.isArray(data)) {
       data.forEach((r: any) => { if (r?.token) tokenSet.add(r.token); });
     }
@@ -1075,7 +1075,7 @@ async function registerFcmToken(token: string) {
     saveFcmTokens(tokens);
   }
   try {
-    await supabase.from("fcm_tokens").upsert([{ token, updated_at: new Date().toISOString() }], { onConflict: "token" });
+    await localDb.from("fcm_tokens").upsert([{ token, updated_at: new Date().toISOString() }], { onConflict: "token" });
   } catch (e) { }
 }
 
@@ -1205,7 +1205,7 @@ async function createNotification(type: string, title: string, message: string, 
     console.error("Error saving local notification:", e);
   }
 
-  // 2. Guardar en Supabase para sincronización en tiempo real con todos los dispositivos y la APK
+  // 2. Guardar en PostgreSQL Local para sincronización en tiempo real con todos los dispositivos y la APK
   try {
     const payload: any = {
       id: ntfId,
@@ -1219,9 +1219,9 @@ async function createNotification(type: string, title: string, message: string, 
       invoiceId: ntf.invoiceId,
       invoice_id: ntf.invoice_id
     };
-    await supabase.from("notifications").insert([payload]);
+    await localDb.from("notifications").insert([payload]);
   } catch (err) {
-    console.warn("Error inserting notification into Supabase:", err);
+    console.warn("Error inserting notification into PostgreSQL Local:", err);
   }
 
   // 3. Emitir Push Notification a todos los teléfonos y navegadores suscritos
@@ -1538,11 +1538,11 @@ async function safeInsertClient(clientData: any) {
       clientData.clientCode = await generateUniqueClientCode();
     }
 
-    // 1. Try standard formatted insertion with camelCase (matching supabase_schema.sql)
-    const { error } = await supabase.from("clients").insert([clientData]);
+    // 1. Try standard formatted insertion with camelCase (matching PostgreSQL Local_schema.sql)
+    const { error } = await localDb.from("clients").insert([clientData]);
     if (!error) return true;
 
-    console.warn("Primary Supabase client insert failed, trying fallbacks:", error.message);
+    console.warn("Primary PostgreSQL Local client insert failed, trying fallbacks:", error.message);
 
     // 2. Prep falling back object mapping standard snake_case alongside camelCase to cover both bases!
     const payload: any = {
@@ -1561,7 +1561,7 @@ async function safeInsertClient(clientData: any) {
       isBlocked: clientData.isBlocked || false
     };
 
-    const { error: errorWithFallbacks } = await supabase.from("clients").insert([payload]);
+    const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
     if (!errorWithFallbacks) return true;
 
     console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
@@ -1597,7 +1597,7 @@ async function safeInsertClient(clientData: any) {
     }
 
     if (needsRetry) {
-      const { error: retryError } = await supabase.from("clients").insert([prunedPayload]);
+      const { error: retryError } = await localDb.from("clients").insert([prunedPayload]);
       if (!retryError) return true;
       console.warn("Client pruned insert failed:", retryError.message);
     }
@@ -1610,7 +1610,7 @@ async function safeInsertClient(clientData: any) {
       phone: clientData.phone || '',
       address: clientData.address || ''
     };
-    const { error: bareError } = await supabase.from("clients").insert([bareClient]);
+    const { error: bareError } = await localDb.from("clients").insert([bareClient]);
     if (!bareError) return true;
     console.error("Bare client backup insert failed:", bareError.message);
 
@@ -1680,14 +1680,14 @@ async function safeInsertPayment(payment: any) {
       notes: payment.notes || null
     };
 
-    const { error } = await supabase.from("payments").insert([paymentToInsert]);
+    const { error } = await localDb.from("payments").insert([paymentToInsert]);
     if (!error) return true;
 
-    console.warn("Primary Supabase payment insert failed, trying falling back without receiptUrl:", error.message);
+    console.warn("Primary PostgreSQL Local payment insert failed, trying falling back without receiptUrl:", error.message);
 
     delete paymentToInsert.receiptUrl;
     paymentToInsert.notes = rUrl || paymentToInsert.notes || null;
-    const { error: retryError } = await supabase.from("payments").insert([paymentToInsert]);
+    const { error: retryError } = await localDb.from("payments").insert([paymentToInsert]);
     if (!retryError) return true;
     console.error("Retry insert failed:", retryError.message);
 
@@ -1723,7 +1723,7 @@ async function syncInvoiceToPermanentBackup(id: string, invoiceObj?: any) {
 
     let invoiceData = invoiceObj;
     if (!invoiceData) {
-      const { data } = await supabase.from("invoices").select("*").eq('id', id).single();
+      const { data } = await localDb.from("invoices").select("*").eq('id', id).single();
       invoiceData = data;
     }
 
@@ -1754,7 +1754,7 @@ async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
 
     let paymentData = paymentObj;
     if (!paymentData) {
-      const { data } = await supabase.from("payments").select("*").eq('id', id).single();
+      const { data } = await localDb.from("payments").select("*").eq('id', id).single();
       paymentData = data;
     }
 
@@ -1770,14 +1770,14 @@ async function syncPaymentToPermanentBackup(id: string, paymentObj?: any) {
   }
 }
 
-async function fetchPaymentsFromSupabase(invoiceId: string): Promise<any[]> {
+async function fetchPaymentsFromLocalDb(invoiceId: string): Promise<any[]> {
   const filterValid = (list: any[]) => (list || [])
     .filter((p: any) => p && (parseFloat(p.amount) > 0) && p.notes !== '[ELIMINADO]')
     .map(normalizePayment);
 
   // Try camelCase first:
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoiceId", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoiceId", invoiceId);
     if (!error && data) return filterValid(data);
 
     if (error) {
@@ -1789,19 +1789,19 @@ async function fetchPaymentsFromSupabase(invoiceId: string): Promise<any[]> {
 
   // Try lowercase 'invoiceid'
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoiceid", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoiceid", invoiceId);
     if (!error && data) return filterValid(data);
   } catch (err) { }
 
   // Try snake_case 'invoice_id'
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoice_id", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoice_id", invoiceId);
     if (!error && data) return filterValid(data);
   } catch (err) { }
 
   // Fallback: Select all and filter (Super resilient)
   try {
-    const { data, error } = await supabase.from("payments").select("*");
+    const { data, error } = await localDb.from("payments").select("*");
     if (!error && data) {
       const filtered = data.filter((d: any) => {
         const val = d.invoiceId || d.invoiceid || d.invoice_id;
@@ -1834,7 +1834,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
 
   if (dbClients.length === 0) {
     try {
-      const { data, error } = await supabase.from("clients").select("*");
+      const { data, error } = await localDb.from("clients").select("*");
       if (!error && data) {
         dbClients = data;
       } else if (neonPool) {
@@ -1849,7 +1849,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
 
   const localClients = readLocalClients();
 
-  // Build sets of all deleted client markers from Supabase DB to prevent ghost re-inserts
+  // Build sets of all deleted client markers from PostgreSQL Local DB to prevent ghost re-inserts
   const allDbDeletedNames = new Set<string>();
   const allDbDeletedIds = new Set<string>();
 
@@ -1914,7 +1914,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
     });
   };
 
-  // 1. First add all valid Supabase DB clients (DB is primary source of truth)
+  // 1. First add all valid PostgreSQL Local DB clients (DB is primary source of truth)
   validDbClients.forEach(c => {
     if (!c || !c.name) return;
     const name = c.name;
@@ -1977,7 +1977,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
     }
   });
 
-  // Sync 1: Local missing clients -> Supabase (ONLY for clients NEVER deleted anywhere)
+  // Sync 1: Local missing clients -> PostgreSQL Local (ONLY for clients NEVER deleted anywhere)
   const dbClientIds = new Set(validDbClients.map(c => c.id).filter(Boolean));
   const dbClientNames = new Set(validDbClients.map(c => (c.name || '').toLowerCase().trim()).filter(Boolean));
 
@@ -2029,7 +2029,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   // Fetch existing clients to check for duplicates
   let existingList: any[] = [];
   try {
-    const { data } = await supabase.from("clients").select("*");
+    const { data } = await localDb.from("clients").select("*");
     if (data) existingList = data;
   } catch (e) { }
 
@@ -2069,7 +2069,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     if (Object.keys(updates).length > 0) {
       updateLocalClient(matchedClient.id, updates);
       try {
-        await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+        await localDb.from("clients").update(updates).eq("id", matchedClient.id);
       } catch (e) { }
     }
 
@@ -2107,7 +2107,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     updateLocalClient(deletedMatch.id, reactivatedPayload);
 
     try {
-      await supabase.from("clients").update({
+      await localDb.from("clients").update({
         name: nameToSave,
         company_name: companyToSave || deletedMatch.companyName || '',
         nit: nit || deletedMatch.nit || '',
@@ -2148,7 +2148,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   try {
     await safeInsertClient(clientData);
   } catch (e) {
-    console.error("Insert client catch error in Supabase (handled gracefully):", e);
+    console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
 
   res.json({ success: true, client: clientData });
@@ -2172,7 +2172,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
   // Update local file first with full oldData context
   updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
 
-  // Update Supabase using all potential matching strategies
+  // Update PostgreSQL Local using all potential matching strategies
   try {
     const snakeUpdates: any = {};
     if (updates.name !== undefined) snakeUpdates.name = updates.name;
@@ -2188,20 +2188,20 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
 
     // 1. Try by id (string and number)
     try {
-      const res1 = await supabase.from("clients").update(updates).eq("id", id).select("*");
+      const res1 = await localDb.from("clients").update(updates).eq("id", id).select("*");
       if (!res1.error && res1.data && res1.data.length > 0) updatedInDb = true;
       if (!updatedInDb && !isNaN(Number(id))) {
-        const res1num = await supabase.from("clients").update(updates).eq("id", Number(id)).select("*");
+        const res1num = await localDb.from("clients").update(updates).eq("id", Number(id)).select("*");
         if (!res1num.error && res1num.data && res1num.data.length > 0) updatedInDb = true;
       }
     } catch (e) { }
 
     if (!updatedInDb) {
       try {
-        const res2 = await supabase.from("clients").update(snakeUpdates).eq("id", id).select("*");
+        const res2 = await localDb.from("clients").update(snakeUpdates).eq("id", id).select("*");
         if (!res2.error && res2.data && res2.data.length > 0) updatedInDb = true;
         if (!updatedInDb && !isNaN(Number(id))) {
-          const res2num = await supabase.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
+          const res2num = await localDb.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
           if (!res2num.error && res2num.data && res2num.data.length > 0) updatedInDb = true;
         }
       } catch (e) { }
@@ -2211,12 +2211,12 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
     const codeToTry = clientCode || oldClientCode;
     if (!updatedInDb && codeToTry) {
       try {
-        const resCode = await supabase.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
+        const resCode = await localDb.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
         if (!resCode.error && resCode.data && resCode.data.length > 0) updatedInDb = true;
       } catch (e) { }
       if (!updatedInDb) {
         try {
-          const resCodeCamel = await supabase.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
+          const resCodeCamel = await localDb.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
           if (!resCodeCamel.error && resCodeCamel.data && resCodeCamel.data.length > 0) updatedInDb = true;
         } catch (e) { }
       }
@@ -2226,7 +2226,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
     const nitToTry = nit || oldNit;
     if (!updatedInDb && nitToTry && String(nitToTry).toUpperCase() !== 'CF') {
       try {
-        const resNit = await supabase.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
+        const resNit = await localDb.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
         if (!resNit.error && resNit.data && resNit.data.length > 0) updatedInDb = true;
       } catch (e) { }
     }
@@ -2236,7 +2236,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
     for (const n of namesToTry) {
       if (updatedInDb) break;
       try {
-        const resName = await supabase.from("clients").update(snakeUpdates).eq("name", n).select("*");
+        const resName = await localDb.from("clients").update(snakeUpdates).eq("name", n).select("*");
         if (!resName.error && resName.data && resName.data.length > 0) {
           updatedInDb = true;
           break;
@@ -2244,7 +2244,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
       } catch (e) { }
       if (!updatedInDb) {
         try {
-          const resNameIlike = await supabase.from("clients").update(snakeUpdates).ilike("name", n).select("*");
+          const resNameIlike = await localDb.from("clients").update(snakeUpdates).ilike("name", n).select("*");
           if (!resNameIlike.error && resNameIlike.data && resNameIlike.data.length > 0) {
             updatedInDb = true;
             break;
@@ -2256,7 +2256,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   } catch (e) {
-    console.error("Exception updating client in supabase:", e);
+    console.error("Exception updating client in PostgreSQL Local:", e);
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   }
@@ -2273,12 +2273,12 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: a
   let targetCompany = companyName ? String(companyName).trim() : '';
   let targetNit = nit ? String(nit).trim() : '';
 
-  // Look up existing client in local list and Supabase DB to extract full fields if missing
+  // Look up existing client in local list and PostgreSQL Local DB to extract full fields if missing
   try {
     const localClients = readLocalClients();
     let dbClientsForDel: any[] = [];
     try {
-      const { data } = await supabase.from("clients").select("*");
+      const { data } = await localDb.from("clients").select("*");
       if (data) dbClientsForDel = data;
     } catch (e) { }
 
@@ -2302,82 +2302,82 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: a
   // 1. Mark as deleted in local list and blacklisted keys
   deleteLocalClient(idStr, targetName, targetCode, targetCompany, targetNit);
 
-  // 2. Soft-delete and Hard-delete in Supabase DB safely without letting single column errors block execution
+  // 2. Soft-delete and Hard-delete in PostgreSQL Local DB safely without letting single column errors block execution
   const cleanDeleteName = targetName ? `[DELETED] ${targetName}` : `[DELETED] ${idStr}`;
   const softDeletePayload = {
     name: cleanDeleteName
   };
 
   // Helper for safe execution
-  const safeSupabaseUpdate = async (conditionField: string, value: any) => {
+  const safeLocalDbUpdate = async (conditionField: string, value: any) => {
     if (!value) return;
     try {
-      await supabase.from("clients").update(softDeletePayload).eq(conditionField, value);
+      await localDb.from("clients").update(softDeletePayload).eq(conditionField, value);
     } catch (e) { }
   };
 
-  const safeSupabaseDelete = async (conditionField: string, value: any) => {
+  const safeLocalDbDelete = async (conditionField: string, value: any) => {
     if (!value) return;
     try {
-      await supabase.from("clients").delete().eq(conditionField, value);
+      await localDb.from("clients").delete().eq(conditionField, value);
     } catch (e) { }
   };
 
-  const safeSupabaseIlikeDelete = async (conditionField: string, value: string) => {
+  const safeLocalDbIlikeDelete = async (conditionField: string, value: string) => {
     if (!value) return;
     try {
-      await supabase.from("clients").delete().ilike(conditionField, value);
+      await localDb.from("clients").delete().ilike(conditionField, value);
     } catch (e) { }
   };
 
   try {
-    // Step A: Soft-delete attempts in Supabase
+    // Step A: Soft-delete attempts in PostgreSQL Local
     if (idStr) {
-      await safeSupabaseUpdate("id", idStr);
+      await safeLocalDbUpdate("id", idStr);
       if (!isNaN(Number(idStr))) {
-        await safeSupabaseUpdate("id", Number(idStr));
+        await safeLocalDbUpdate("id", Number(idStr));
       }
     }
     if (targetCode) {
-      await safeSupabaseUpdate("clientCode", targetCode);
+      await safeLocalDbUpdate("clientCode", targetCode);
     }
     if (targetName) {
-      await safeSupabaseUpdate("name", targetName);
+      await safeLocalDbUpdate("name", targetName);
       if (targetName.includes(' - ')) {
         const parts = targetName.split(' - ');
-        await safeSupabaseUpdate("name", parts[0].trim());
+        await safeLocalDbUpdate("name", parts[0].trim());
       }
     }
     if (targetNit && targetNit.toUpperCase() !== 'CF') {
-      await safeSupabaseUpdate("nit", targetNit);
+      await safeLocalDbUpdate("nit", targetNit);
     }
 
-    // Step B: Hard-delete attempts in Supabase
+    // Step B: Hard-delete attempts in PostgreSQL Local
     if (idStr) {
-      await safeSupabaseDelete("id", idStr);
+      await safeLocalDbDelete("id", idStr);
       if (!isNaN(Number(idStr))) {
-        await safeSupabaseDelete("id", Number(idStr));
+        await safeLocalDbDelete("id", Number(idStr));
       }
     }
     if (targetCode) {
-      await safeSupabaseDelete("clientCode", targetCode);
+      await safeLocalDbDelete("clientCode", targetCode);
     }
     if (targetName) {
-      await safeSupabaseIlikeDelete("name", targetName);
-      await safeSupabaseDelete("name", targetName);
+      await safeLocalDbIlikeDelete("name", targetName);
+      await safeLocalDbDelete("name", targetName);
       if (targetName.includes(' - ')) {
         const parts = targetName.split(' - ');
-        await safeSupabaseIlikeDelete("name", parts[0].trim());
+        await safeLocalDbIlikeDelete("name", parts[0].trim());
       }
     }
     if (targetNit && targetNit.toUpperCase() !== 'CF') {
-      await safeSupabaseDelete("nit", targetNit);
+      await safeLocalDbDelete("nit", targetNit);
     }
 
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
-    console.error("Exception deleting client in Supabase:", e);
+    console.error("Exception deleting client in PostgreSQL Local:", e);
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado en almacenamiento local." });
   }
@@ -2387,7 +2387,7 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: a
 app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: any, res: any) => {
   let dbClients: any[] = [];
   try {
-    const { data } = await supabase.from("clients").select("*");
+    const { data } = await localDb.from("clients").select("*");
     if (data) dbClients = data;
   } catch (e) { }
 
@@ -2431,9 +2431,9 @@ app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req: an
 
         // Update local
         updateLocalClient(client.id, { clientCode: code });
-        // Update Supabase
+        // Update PostgreSQL Local
         try {
-          await supabase.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
+          await localDb.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
         } catch (err) { }
         updatedCount++;
       }
@@ -2516,7 +2516,7 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
     console.warn("Could not update local client location:", e);
   }
 
-  // Update in Supabase (handle both string id and numeric id)
+  // Update in PostgreSQL Local (handle both string id and numeric id)
   try {
     const sbUpdate = {
       latitude: latNum,
@@ -2528,12 +2528,12 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
       geotagged_by: updaterName,
       geotaggedBy: updaterName
     };
-    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
-      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
     }
   } catch (err: any) {
-    console.warn("Supabase update client location error:", err?.message || err);
+    console.warn("PostgreSQL Local update client location error:", err?.message || err);
   }
 
   invalidateCache("clients");
@@ -2559,7 +2559,7 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
     console.warn("Could not clear local client location:", e);
   }
 
-  // Update in Supabase
+  // Update in PostgreSQL Local
   try {
     const sbUpdate = {
       latitude: null,
@@ -2571,12 +2571,12 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
       geotagged_by: null,
       geotaggedBy: null
     };
-    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
-      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
     }
   } catch (err: any) {
-    console.warn("Supabase clear client location error:", err?.message || err);
+    console.warn("PostgreSQL Local clear client location error:", err?.message || err);
   }
 
   invalidateCache("clients");
@@ -2593,7 +2593,7 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
 
   let visits: any[] = [];
   try {
-    const { data, error } = await supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
+    const { data, error } = await localDb.from("client_visits").select("*").order("createdAt", { ascending: false });
     if (!error && data && data.length > 0) {
       visits = data;
     }
@@ -2720,7 +2720,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     if (clientId) {
       updateLocalClient(clientId, { lastVisitAt: nowIso });
       try {
-        await supabase.from("clients").update({
+        await localDb.from("clients").update({
           last_visit_at: nowIso,
           lastVisitAt: nowIso
         }).eq("id", clientId);
@@ -2765,7 +2765,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   saveLocalRoutes(routes);
 
   try {
-    await supabase.from("seller_routes").upsert([activeRoute]);
+    await localDb.from("seller_routes").upsert([activeRoute]);
   } catch (e) { }
 
   const newVisit = {
@@ -2793,7 +2793,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   currentVisits.unshift(newVisit);
   saveLocalVisits(currentVisits);
 
-  // Save in Supabase
+  // Save in PostgreSQL Local
   try {
     const sbPayload: Record<string, any> = {
       id: newVisit.id,
@@ -2825,12 +2825,12 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
       created_at: newVisit.createdAt
     };
 
-    const { error } = await supabase.from("client_visits").insert([sbPayload]);
+    const { error } = await localDb.from("client_visits").insert([sbPayload]);
     if (error) {
-      console.warn("Supabase visit insert error:", error.message);
+      console.warn("PostgreSQL Local visit insert error:", error.message);
     }
   } catch (err: any) {
-    console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
+    console.warn("Could not insert visit in PostgreSQL Local, stored locally:", err?.message || err);
   }
 
   res.json({ success: true, visit: newVisit, activeRoute });
@@ -2868,7 +2868,7 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
 
   let routes: any[] = [];
   try {
-    let query = supabase.from("seller_routes").select("*").order("started_at", { ascending: false });
+    let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
     if (userRole === 'seller') {
       if (userId) query = query.eq("seller_id", userId);
     } else if (sellerId && sellerId !== 'all') {
@@ -3002,7 +3002,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
   saveLocalRoutes(routes);
 
   try {
-    await supabase.from("seller_routes").insert([{
+    await localDb.from("seller_routes").insert([{
       id: newRoute.id,
       seller_id: newRoute.sellerId,
       seller_name: newRoute.sellerName,
@@ -3065,7 +3065,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
   saveLocalRoutes(routes);
 
   try {
-    await supabase.from("seller_routes").upsert([{
+    await localDb.from("seller_routes").upsert([{
       id: targetRoute.id,
       seller_id: targetRoute.sellerId,
       seller_name: targetRoute.sellerName,
@@ -3096,7 +3096,7 @@ app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any
 
   let allVisits = readLocalVisits();
   try {
-    const { data } = await supabase.from("client_visits").select("*");
+    const { data } = await localDb.from("client_visits").select("*");
     if (data && data.length > 0) {
       // Merge with local visits
       const map = new Map<string, any>();
@@ -3205,8 +3205,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
   // 1. Primero intentar encontrar el token directamente en login_tokens si existe
   if (cleanToken) {
     try {
-      const { data: directTokens, error: dtErr } = await supabase
-        .from("login_tokens")
+      const { data: directTokens, error: dtErr } = await localDb.from("login_tokens")
         .select("*")
         .eq("token", cleanToken)
         .is("usedAt", null);
@@ -3220,8 +3219,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
           matchedTokenRecord = validToken;
           const targetUserId = validToken.userId || (validToken as any).user_id;
           if (targetUserId) {
-            const { data: userFromToken } = await supabase
-              .from("users")
+            const { data: userFromToken } = await localDb.from("users")
               .select("*")
               .eq("id", targetUserId);
             if (userFromToken && userFromToken.length > 0) {
@@ -3239,14 +3237,14 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
   if (!foundUser && identifier) {
     try {
       // a) Por sellerCode
-      const { data: byCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+      const { data: byCode } = await localDb.from("users").select("*").ilike("sellerCode", identifier);
       if (byCode && byCode.length > 0) {
         foundUser = byCode[0];
       }
 
       // b) Por email
       if (!foundUser) {
-        const { data: byEmail } = await supabase.from("users").select("*").ilike("email", identifier);
+        const { data: byEmail } = await localDb.from("users").select("*").ilike("email", identifier);
         if (byEmail && byEmail.length > 0) {
           foundUser = byEmail[0];
         }
@@ -3254,7 +3252,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
 
       // c) Por id
       if (!foundUser) {
-        const { data: byId } = await supabase.from("users").select("*").eq("id", identifier);
+        const { data: byId } = await localDb.from("users").select("*").eq("id", identifier);
         if (byId && byId.length > 0) {
           foundUser = byId[0];
         }
@@ -3262,7 +3260,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
 
       // d) Por nombre
       if (!foundUser) {
-        const { data: byName } = await supabase.from("users").select("*").ilike("name", `%${identifier}%`);
+        const { data: byName } = await localDb.from("users").select("*").ilike("name", `%${identifier}%`);
         if (byName && byName.length > 0) {
           foundUser = byName[0];
         }
@@ -3271,7 +3269,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
       console.warn("DB error in login user search:", e);
     }
 
-    // Fallback a Neon PostgreSQL si Supabase falló o no se encontró
+    // Fallback a Neon PostgreSQL si PostgreSQL Local falló o no se encontró
     if (!foundUser && neonPool) {
       try {
         const client = await neonPool.connect();
@@ -3323,15 +3321,14 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
   if (matchedTokenRecord) {
     isMatch = true;
     try {
-      await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", matchedTokenRecord.id);
+      await localDb.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", matchedTokenRecord.id);
     } catch (e) { }
   }
 
   // b) Buscar tokens dinámicos asignados a este usuario
   if (!isMatch && cleanToken && foundUser.id) {
     try {
-      const { data: tokens, error: tokenErr } = await supabase
-        .from("login_tokens")
+      const { data: tokens, error: tokenErr } = await localDb.from("login_tokens")
         .select("*")
         .eq("userId", foundUser.id)
         .eq("token", cleanToken)
@@ -3343,7 +3340,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
         if (!expiresAt || expiresAt > new Date()) {
           isMatch = true;
           try {
-            await supabase.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
+            await localDb.from("login_tokens").update({ usedAt: new Date().toISOString() }).eq("id", tokenData.id);
           } catch (e) { }
         }
       }
@@ -3391,7 +3388,7 @@ app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(as
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
 
-  const { error } = await supabase.from("login_tokens").insert([{
+  const { error } = await localDb.from("login_tokens").insert([{
     id,
     userId,
     token,
@@ -3409,8 +3406,7 @@ app.post("/api/admin/force-logout", requireAuth, requireAdmin, asyncHandler(asyn
 
   // Update the force_logout_at timestamp to "now"
   // This will invalidate all sessions issued before this moment in requireAuth
-  const { error } = await supabase
-    .from("users")
+  const { error } = await localDb.from("users")
     .update({ force_logout_at: new Date().toISOString() })
     .eq("id", userId);
 
@@ -3432,7 +3428,7 @@ app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
     const payload = jwt.verify(token, JWT_SECRET) as any;
     let user = null;
     try {
-      const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+      const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
       if (users && users.length > 0) {
         user = users[0];
       }
@@ -3470,7 +3466,7 @@ app.put("/api/users/:id/password", requireAuth, requireAdmin, asyncHandler(async
   const { id } = req.params;
   const { password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
-  await supabase.from("users").update({ password: hashedPassword }).eq('id', id);
+  await localDb.from("users").update({ password: hashedPassword }).eq('id', id);
   res.json({ success: true });
 }));
 
@@ -3488,7 +3484,7 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
   }
 
   let user = null;
-  const { data: users } = await supabase.from("users").select("*").eq("id", userId);
+  const { data: users } = await localDb.from("users").select("*").eq("id", userId);
   if (users && users.length > 0) {
     user = users[0];
   }
@@ -3504,6 +3500,36 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
 // ======== DISPARADOR AUTOMÁTICO DE VENTAS (12:00 PM Y 5:00 PM) ========
 let lastDispatchedCorteKey = '';
 
+async function acquireCorteDispatchLock(corteKey: string): Promise<boolean> {
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        CREATE TABLE IF NOT EXISTS public.corte_sales_dispatches (
+          corte_key TEXT PRIMARY KEY,
+          dispatched_at TIMESTAMPTZ DEFAULT NOW(),
+          dispatched_by TEXT
+        );
+      `);
+      const res = await neonPool.query(
+        `INSERT INTO public.corte_sales_dispatches (corte_key, dispatched_at, dispatched_by)
+         VALUES ($1, NOW(), $2)
+         ON CONFLICT (corte_key) DO NOTHING
+         RETURNING corte_key;`,
+        [corteKey, process.env.HOSTNAME || 'server']
+      );
+      if (res.rows && res.rows.length > 0) {
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error('[AUTO-SALES-CRON] Error verificando bloqueo en base de datos:', err?.message || err);
+    }
+  }
+  if (lastDispatchedCorteKey === corteKey) return false;
+  lastDispatchedCorteKey = corteKey;
+  return true;
+}
+
 async function checkAndDispatchDailySales(options?: {
   corteHora?: string;
   threshold?: number;
@@ -3511,6 +3537,7 @@ async function checkAndDispatchDailySales(options?: {
   sendToWebhook?: boolean;
   targetSellerEmail?: string;
   targetSellerEmails?: string[];
+  isAutomatedCron?: boolean;
 }) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
@@ -3530,9 +3557,21 @@ async function checkAndDispatchDailySales(options?: {
 
   const corte = options?.corteHora || (hour >= 16 ? '17:00' : '12:00');
   const esCierre = corte === '17:00' || hour >= 16;
+  const corteKey = `${todayLabel}_${corte}`;
 
-  const { data: invoicesData, error: invErr } = await supabase
-    .from("invoices")
+  if (options?.isAutomatedCron) {
+    const lockAcquired = await acquireCorteDispatchLock(corteKey);
+    if (!lockAcquired) {
+      console.log(`[AUTO-SALES-CRON] 🛑 El corte ${corteKey} YA FUE ENVIADO previamente hoy. Omitiendo despacho para evitar duplicados.`);
+      return {
+        success: true,
+        skipped: true,
+        message: `El corte ${corteKey} ya fue enviado previamente hoy.`
+      };
+    }
+  }
+
+  const { data: invoicesData, error: invErr } = await localDb.from("invoices")
     .select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId")
     .gte("date", startOfDay)
     .lte("date", endOfDay);
@@ -3551,8 +3590,7 @@ async function checkAndDispatchDailySales(options?: {
     return digits;
   }
 
-  const { data: allUsersData } = await supabase
-    .from("users")
+  const { data: allUsersData } = await localDb.from("users")
     .select("id, name, email, phone, role, sellerCode");
 
   const users = (allUsersData || []).filter((u: any) => u && u.role !== "system" && u.email);
@@ -3765,7 +3803,7 @@ function initAutoDailySalesCron() {
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: '12:00' });
+          await checkAndDispatchDailySales({ corteHora: '12:00', isAutomatedCron: true });
         }
       }
 
@@ -3775,7 +3813,7 @@ function initAutoDailySalesCron() {
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] 🕔 Disparando corte automático de las 5:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: '17:00' });
+          await checkAndDispatchDailySales({ corteHora: '17:00', isAutomatedCron: true });
         }
       }
     } catch (e: any) {
@@ -3796,11 +3834,11 @@ app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any)
 
 app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
   try {
-    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
+    const { data: users, error } = await localDb.from("users").select("id, name, email, role, photo, phone, sellerCode");
     if (error) {
       // Fallback if sellerCode column is missing
       if (error.message.includes('sellerCode')) {
-        const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
+        const { data: usersFallback, error: errFallback } = await localDb.from("users").select("id, name, email, role, photo, phone");
         if (errFallback) throw new Error(errFallback.message);
         return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
       }
@@ -3818,12 +3856,12 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, 
 
   // Check if exists ONLY if email is provided
   if (email && email.trim() !== '') {
-    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    const { data: existing } = await localDb.from("users").select("id").ilike("email", email);
     if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya está registrado" });
   }
 
   if (sellerCode) {
-    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    const { data: existingCode } = await localDb.from("users").select("id").ilike("sellerCode", sellerCode);
     if (existingCode && existingCode.length > 0) return res.status(400).json({ error: "El código de vendedor ya está en uso" });
   }
 
@@ -3832,7 +3870,7 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, 
     let code = '';
     let unique = false;
     let attempts = 0;
-    const { data: allUsers } = await supabase.from("users").select("sellerCode");
+    const { data: allUsers } = await localDb.from("users").select("sellerCode");
     const usedCodes = new Set((allUsers || []).map((u: any) => u.sellerCode).filter(Boolean));
 
     while (!unique && attempts < 50) {
@@ -3847,7 +3885,7 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req: any, 
   const hashedPassword = password ? await bcrypt.hash(password, 10) : '';
   const newUser = { id, email: email || null, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
 
-  const { error } = await supabase.from("users").insert([newUser]);
+  const { error } = await localDb.from("users").insert([newUser]);
   if (error) throw new Error(error.message);
 
   res.json({ id, email, name, role, photo, phone, sellerCode: finalSellerCode });
@@ -3858,14 +3896,14 @@ app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: an
   const { name, email, role, phone, sellerCode, password } = req.body;
 
   if (email && email.trim() !== '') {
-    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    const { data: existing } = await localDb.from("users").select("id").ilike("email", email);
     if (existing && existing.length > 0 && existing[0].id !== id) {
       return res.status(400).json({ error: "El correo ya está registrado" });
     }
   }
 
   if (sellerCode) {
-    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    const { data: existingCode } = await localDb.from("users").select("id").ilike("sellerCode", sellerCode);
     if (existingCode && existingCode.length > 0 && existingCode[0].id !== id) {
       return res.status(400).json({ error: "El código de vendedor ya está en uso" });
     }
@@ -3876,7 +3914,7 @@ app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req: an
     updates.password = await bcrypt.hash(password, 10);
   }
 
-  const { error } = await supabase.from("users").update(updates).eq("id", id);
+  const { error } = await localDb.from("users").update(updates).eq("id", id);
   if (error) throw new Error(error.message);
 
   res.json({ success: true, user: { id, name, email: email || null, role, phone, sellerCode } });
@@ -3889,13 +3927,13 @@ app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"
   const base64 = req.file.buffer.toString('base64');
   const photoUrl = `data:${req.file.mimetype};base64,${base64}`;
 
-  await supabase.from("users").update({ photo: photoUrl }).eq('id', id);
+  await localDb.from("users").update({ photo: photoUrl }).eq('id', id);
   res.json({ success: true, photo: photoUrl });
 }));
 
 // OFFICE INVENTORY
 app.get("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { data, error } = await supabase.from("office_inventory").select("*");
+  const { data, error } = await localDb.from("office_inventory").select("*");
   if (error) {
     console.warn("Office inventory fetch error (probably table missing):", error);
     return res.json([]);
@@ -3922,7 +3960,7 @@ app.post("/api/office-inventory", requireAuth, asyncHandler(async (req: any, res
     location: req.body.location,
     status: req.body.status
   };
-  const { data, error } = await supabase.from("office_inventory").insert([payload]).select().single();
+  const { data, error } = await localDb.from("office_inventory").insert([payload]).select().single();
   if (error) {
     console.error("Error creating office item:", error);
     return res.status(500).json({ error: 'Error saving item: ' + error.message });
@@ -3949,7 +3987,7 @@ app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, 
     location: req.body.location,
     status: req.body.status
   };
-  const { data, error } = await supabase.from("office_inventory").update(payload).eq('id', id).select().single();
+  const { data, error } = await localDb.from("office_inventory").update(payload).eq('id', id).select().single();
   if (error) {
     console.error("Error updating office item:", error);
     return res.status(500).json({ error: 'Error updating item: ' + error.message });
@@ -3968,7 +4006,7 @@ app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, 
 app.delete("/api/office-inventory/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
   console.log("DELETE office item ID:", id);
-  const { error } = await supabase.from("office_inventory").delete().eq('id', id);
+  const { error } = await localDb.from("office_inventory").delete().eq('id', id);
   if (error) {
     console.error("Error deleting office item:", error);
     return res.status(500).json({ error: 'Error deleting item: ' + error.message });
@@ -4000,7 +4038,7 @@ app.get("/api/products", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   if (products.length === 0) {
     try {
-      const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
+      const { data, error } = await localDb.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
       if (!error && data) {
         products = data;
       } else if (neonPool) {
@@ -4033,7 +4071,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: an
 
   if (name) {
     const trimmedName = name.trim();
-    const { data: existingProducts } = await supabase.from("products").select("id, name").ilike("name", trimmedName);
+    const { data: existingProducts } = await localDb.from("products").select("id, name").ilike("name", trimmedName);
     if (existingProducts && existingProducts.length > 0) {
       return res.status(409).json({ error: `Ya existe un producto con el nombre "${trimmedName}". No se admiten duplicados.` });
     }
@@ -4064,7 +4102,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: an
     if (hiddenFromSales !== undefined) product.hidden_from_sales = hiddenFromSales;
   }
 
-  const { error } = await supabase.from("products").insert([product]);
+  const { error } = await localDb.from("products").insert([product]);
   if (error) {
     // Fallback: if specifications, variants, is_external, or new columns caused error, retry without them
     const isColumnError = error.message.includes("specifications") ||
@@ -4082,7 +4120,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req: an
       delete retryProduct.hidden_from_sales;
       delete (retryProduct as any).isExternalInventory;
 
-      const { error: err2 } = await supabase.from("products").insert([retryProduct]);
+      const { error: err2 } = await localDb.from("products").insert([retryProduct]);
       if (err2) throw new Error(err2.message);
       return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
     }
@@ -4104,7 +4142,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
       return res.status(403).json({ error: "Solo los administradores pueden editar datos básicos del producto." });
     }
 
-    const { data: results } = await supabase.from("products").select("description").eq('id', id);
+    const { data: results } = await localDb.from("products").select("description").eq('id', id);
     const existing = results?.[0];
     if (existing && existing.description) {
       return res.status(403).json({ error: "Solo los administradores pueden modificar descripciones existentes." });
@@ -4129,7 +4167,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
     if (hiddenFromSales !== undefined) updates.hidden_from_sales = hiddenFromSales;
   }
 
-  const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq('id', id);
+  const { data: results, error: checkError } = await localDb.from("products").select("stock, name, id, price").eq('id', id);
   const originalProduct = results?.[0];
 
   if (checkError || !originalProduct) {
@@ -4141,7 +4179,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
     return res.json({ ...originalProduct, ...updates });
   }
 
-  let { data, error } = await supabase.from("products").update(updates).eq('id', id).select();
+  let { data, error } = await localDb.from("products").update(updates).eq('id', id).select();
 
   if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales"))) {
     console.warn("Update failed, retrying granular fallback:", error.message);
@@ -4162,7 +4200,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
     }
 
     if (Object.keys(retryUpdates).length > 0) {
-      const { data: retryData, error: retryError } = await supabase.from("products").update(retryUpdates).eq('id', id).select();
+      const { data: retryData, error: retryError } = await localDb.from("products").update(retryUpdates).eq('id', id).select();
       data = retryData;
       error = retryError;
     } else {
@@ -4202,7 +4240,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
 app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
   let dbNotifs: any[] = [];
   try {
-    const { data, error } = await supabase.from("notifications").select("*").order('createdAt', { ascending: false }).limit(60);
+    const { data, error } = await localDb.from("notifications").select("*").order('createdAt', { ascending: false }).limit(60);
     if (!error && data) {
       dbNotifs = data;
     }
@@ -4218,7 +4256,7 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: an
     }
   });
 
-  // Supplementary feed from supabase (matching camelCase/snake_case)
+  // Supplementary feed from PostgreSQL Local (matching camelCase/snake_case)
   dbNotifs.forEach(n => {
     if (n && n.id) {
       mergedMap.set(n.id, {
@@ -4242,7 +4280,7 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: an
 app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
   try {
-    await supabase.from("notifications").delete().eq('id', id);
+    await localDb.from("notifications").delete().eq('id', id);
   } catch (e) { }
   const local = readLocalNotifications().filter(n => n.id !== id);
   saveLocalNotifications(local);
@@ -4251,7 +4289,7 @@ app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req: any, 
 
 app.delete("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
   try {
-    await supabase.from("notifications").delete().neq('id', 'clear-trigger');
+    await localDb.from("notifications").delete().neq('id', 'clear-trigger');
   } catch (e) { }
   saveLocalNotifications([]);
   res.json({ success: true });
@@ -4298,23 +4336,23 @@ app.post("/api/fcm/register", asyncHandler(async (req: any, res: any) => {
 // ==========================================
 
 app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
-  let supabaseHealthy = false;
+  let localDbHealthy = false;
   let neonHealthy = false;
 
-  // Obtener modo global persistido desde Neon DB
+  // Obtener modo global persistido
   const currentMode = await fetchGlobalDbModeFromDb();
 
-  // Test Supabase con timeout robusto de 6s para evitar falsas alarmas por latencia normal
+  // Test localDb con timeout robusto de 6s
   try {
-    const sbPromise = supabase.from("users").select("id").limit(1);
+    const sbPromise = localDb.from("users").select("id").limit(1);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
     const { error } = await Promise.race([sbPromise, timeoutPromise]) as any;
-    supabaseHealthy = !error;
+    localDbHealthy = !error;
   } catch (e) {
-    supabaseHealthy = false;
+    localDbHealthy = false;
   }
 
-  // Test Neon con timeout de 6s
+  // Test Neon / PostgreSQL Pool
   if (neonPool) {
     try {
       const neonPromise = neonPool.query("SELECT 1;");
@@ -4328,20 +4366,21 @@ app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
 
   res.json({
     activeMode: currentMode,
-    supabaseHealthy,
+    localDbHealthy,
     neonHealthy,
-    neonConfigured: Boolean(neonPool)
+    neonConfigured: Boolean(neonPool),
+    server: 'PostgreSQL Local'
   });
 }));
 
 app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
   const { mode } = req.body;
-  if (mode === "supabase" || mode === "neon") {
+  if (mode === "local" || mode === "neon") {
     await persistGlobalDbMode(mode);
     console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
     return res.json({ success: true, activeMode: mode });
   }
-  res.status(400).json({ error: "Modo no válido. Usa 'supabase' o 'neon'." });
+  res.status(400).json({ error: "Modo no válido. Usa 'PostgreSQL Local' o 'neon'." });
 }));
 
 app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
@@ -4354,7 +4393,7 @@ app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
   let productsSynced = 0;
 
   try {
-    const { data: users } = await supabase.from("users").select("*");
+    const { data: users } = await localDb.from("users").select("*");
     if (users && users.length > 0) {
       for (const u of users) {
         await client.query(`
@@ -4373,7 +4412,7 @@ app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
       }
     }
 
-    const { data: products } = await supabase.from("products").select("*");
+    const { data: products } = await localDb.from("products").select("*");
     if (products && products.length > 0) {
       for (const p of products) {
         await client.query(`
@@ -4405,7 +4444,7 @@ app.get("/api/app-logo", asyncHandler(async (req: any, res: any) => {
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4421,9 +4460,9 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
   }
   try {
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find(b => b.name === 'productos')) {
-        await supabase.storage.createBucket('productos', { public: true });
+        await localDb.storage.createBucket('productos', { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4445,7 +4484,7 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
       fileName = `logo-${Date.now()}${ext}`;
     }
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: contentType,
@@ -4457,7 +4496,7 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
       console.error("Storage logo upload error, failing back to base64:", uploadError);
       logoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       logoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
@@ -4467,16 +4506,16 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
     config.logoUrl = logoUrl;
     saveWarehouseConfig(config);
 
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-logo-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: logoUrl,
         name: "App Logo Configuration",
         email: "system-logo@agricovet.com",
         role: "system"
       }).eq("id", "sys-logo-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-logo-config",
         name: "App Logo Configuration",
         email: "system-logo@agricovet.com",
@@ -4500,9 +4539,9 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
   }
   try {
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find(b => b.name === 'productos')) {
-        await supabase.storage.createBucket('productos', { public: true });
+        await localDb.storage.createBucket('productos', { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4512,7 +4551,7 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
     let contentType = req.file.mimetype;
     let fileName = `signature-${Date.now()}.png`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: contentType,
@@ -4524,7 +4563,7 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
       console.error("Storage signature upload error, failing back to base64:", uploadError);
       signatureUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       signatureUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
@@ -4534,16 +4573,16 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
     config.signatureUrl = signatureUrl;
     saveWarehouseConfig(config);
 
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-signature-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: signatureUrl,
         name: "App Signature Configuration",
         email: "system-signature@agricovet.com",
         role: "system"
       }).eq("id", "sys-signature-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-signature-config",
         name: "App Signature Configuration",
         email: "system-signature@agricovet.com",
@@ -4565,7 +4604,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req: any, res:
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4574,7 +4613,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req: any, res:
   }
   if (!config.signatureUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-signature-config").single();
       if (sysRow && sysRow.photo) {
         config.signatureUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4594,7 +4633,7 @@ app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req: a
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4603,7 +4642,7 @@ app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req: a
   }
   if (!config.signatureUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-signature-config").single();
       if (sysRow && sysRow.photo) {
         config.signatureUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4634,16 +4673,16 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
   if (logoUrl !== undefined) {
     config.logoUrl = logoUrl;
     try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
+      const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-logo-config").single();
       if (existing) {
-        await supabase.from("users").update({
+        await localDb.from("users").update({
           photo: logoUrl,
           name: "App Logo Configuration",
           email: "system-logo@agricovet.com",
           role: "system"
         }).eq("id", "sys-logo-config");
       } else {
-        await supabase.from("users").insert([{
+        await localDb.from("users").insert([{
           id: "sys-logo-config",
           name: "App Logo Configuration",
           email: "system-logo@agricovet.com",
@@ -4654,23 +4693,23 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
         }]);
       }
     } catch (e) {
-      console.error("Failed to sync logoUrl to Supabase:", e);
+      console.error("Failed to sync logoUrl to PostgreSQL Local:", e);
     }
   }
 
   if (signatureUrl !== undefined) {
     config.signatureUrl = signatureUrl;
     try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
+      const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-signature-config").single();
       if (existing) {
-        await supabase.from("users").update({
+        await localDb.from("users").update({
           photo: signatureUrl,
           name: "App Signature Configuration",
           email: "system-signature@agricovet.com",
           role: "system"
         }).eq("id", "sys-signature-config");
       } else {
-        await supabase.from("users").insert([{
+        await localDb.from("users").insert([{
           id: "sys-signature-config",
           name: "App Signature Configuration",
           email: "system-signature@agricovet.com",
@@ -4681,7 +4720,7 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
         }]);
       }
     } catch (e) {
-      console.error("Failed to sync signatureUrl to Supabase:", e);
+      console.error("Failed to sync signatureUrl to PostgreSQL Local:", e);
     }
   }
 
@@ -4741,7 +4780,7 @@ app.post("/api/warehouse-config/notify-share", requireAuth, asyncHandler(async (
 app.delete("/api/products/:id", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
   invalidateCache("products");
   const { id } = req.params;
-  const { error } = await supabase.from("products").delete().eq('id', id);
+  const { error } = await localDb.from("products").delete().eq('id', id);
   if (error) {
     console.error("Error deleting product:", error);
     return res.status(500).json({ error: error.message });
@@ -4757,9 +4796,9 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
   try {
     // Ensure bucket exists (best effort)
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find(b => b.name === 'productos')) {
-        await supabase.storage.createBucket('productos', { public: true });
+        await localDb.storage.createBucket('productos', { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4783,8 +4822,8 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
       fileName = `${id}-${Date.now()}${ext}`;
     }
 
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    // Upload to PostgreSQL Local Storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: contentType,
@@ -4806,14 +4845,14 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
       }
       imageUrl = `data:${req.file.mimetype};base64,${base64Buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
 
     // Update Product in DB
-    const { error: dbError } = await supabase.from("products").update({ image: imageUrl }).eq('id', id);
+    const { error: dbError } = await localDb.from("products").update({ image: imageUrl }).eq('id', id);
     if (dbError) {
       console.error("DB update error:", dbError);
       return res.status(500).json({ error: `Error en base de datos: ${dbError.message}` });
@@ -4833,7 +4872,7 @@ app.get("/api/offers", requireAuth, asyncHandler(async (req: any, res: any) => {
     return res.json(cached);
   }
 
-  let { data: offers, error } = await supabase.from("offers").select("*");
+  let { data: offers, error } = await localDb.from("offers").select("*");
   if (error) {
     if (error.code === '42P01' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
       offers = [];
@@ -4871,9 +4910,9 @@ app.post("/api/offers", requireAuth, requireAdmin, asyncHandler(async (req: any,
   const offerPrice = price;
   const offerSellerPrices = sellerPrices;
 
-  const { error } = await supabase.from("offers").insert([offer]);
+  const { error } = await localDb.from("offers").insert([offer]);
   if (error) {
-    console.error("Supabase insert error for offers:", error);
+    console.error("PostgreSQL Local insert error for offers:", error);
     throw new Error(error.message);
   }
 
@@ -4899,9 +4938,9 @@ app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (re
     let currentInvoices: any[] = [];
     let currentPayments: any[] = [];
     try {
-      const { data: invs } = await supabase.from("invoices").select("*");
+      const { data: invs } = await localDb.from("invoices").select("*");
       if (invs) currentInvoices = invs;
-      const { data: pmts } = await supabase.from("payments").select("*");
+      const { data: pmts } = await localDb.from("payments").select("*");
       if (pmts) currentPayments = pmts;
     } catch (dbErr) {
       console.error("Error fetching data for archive preparation:", dbErr);
@@ -4952,17 +4991,17 @@ app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (re
     }
     */
 
-    // 2. Archive payments/abonos in Supabase instead of deleting
+    // 2. Archive payments/abonos in PostgreSQL Local instead of deleting
     try {
-      const { error: arcPayErr } = await supabase.from("payments").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
+      const { error: arcPayErr } = await localDb.from("payments").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
       if (arcPayErr && (arcPayErr.code === '42703' || arcPayErr.message.includes('is_archived'))) {
         console.log("Archive payments failed (likely column missing), skipping DB clear to protect data.");
       }
     } catch (e) { }
 
-    // 3. Archive invoices in Supabase instead of deleting
+    // 3. Archive invoices in PostgreSQL Local instead of deleting
     try {
-      const { error: arcInvErr } = await supabase.from("invoices").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
+      const { error: arcInvErr } = await localDb.from("invoices").update({ is_archived: true }).neq('id', 'borrar-todos').eq('is_archived', false);
       if (arcInvErr && (arcInvErr.code === '42703' || arcInvErr.message.includes('is_archived'))) {
         console.log("Archive invoices failed (likely column missing), skipping DB clear to protect data.");
       }
@@ -5010,7 +5049,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
     let existingList: any[] = [];
     try {
-      const { data } = await supabase.from("clients").select("*");
+      const { data } = await localDb.from("clients").select("*");
       if (data) existingList = data;
     } catch (e) { }
 
@@ -5034,7 +5073,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       if (Object.keys(updates).length > 0) {
         updateLocalClient(matchedClient.id, updates);
         try {
-          await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+          await localDb.from("clients").update(updates).eq("id", matchedClient.id);
         } catch (e) { }
       }
     } else {
@@ -5082,7 +5121,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           description: 'Costo de envío'
         };
       } else {
-        const { data: products, error } = await supabase.from("products").select("*").eq('id', item.productId);
+        const { data: products, error } = await localDb.from("products").select("*").eq('id', item.productId);
         if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
         product = products[0];
       }
@@ -5115,7 +5154,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
           const stockMessage = `⚠️ *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
-          const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
+          const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
           if (admins) {
             for (const admin of admins) {
               if (admin.phone) {
@@ -5132,7 +5171,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           if (currentStock > threshold && newStock <= threshold && newStock > 0) {
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
             const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
-            const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
+            const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin of admins) {
                 if (admin.phone) {
@@ -5149,10 +5188,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
         if (variantObj && variantObj.stock !== undefined) {
           const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
           variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
+          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
           if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
         } else {
-          const { error: sErr } = await supabase.from("products").update({ stock: newStock }).eq('id', product.id);
+          const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq('id', product.id);
           if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
         }
 
@@ -5239,7 +5278,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
     if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
 
-    let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
+    let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
 
     if (insertError) {
       console.warn("Primary insert invoice error:", insertError.message);
@@ -5253,7 +5292,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       fallbackInvoice1['address'] = address || "";
       fallbackInvoice1['folio'] = String(assignedFolio);
 
-      const { error: retryError1 } = await supabase.from("invoices").insert([fallbackInvoice1]);
+      const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
       if (retryError1) {
         // Fallback 2: bare minimum
         const bareInvoice = { ...fallbackInvoice1 };
@@ -5262,7 +5301,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
         // Si la base no tuviera la columna `nit`, se descarta igual que las
         // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
         delete bareInvoice['nit'];
-        const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
+        const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
         if (retryError2) throw new Error(retryError2.message);
       }
     }
@@ -5278,7 +5317,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
       for (const ded of deductedStockRecords) {
         try {
-          const { data: pList } = await supabase.from("products").select("stock, variants").eq('id', ded.productId);
+          const { data: pList } = await localDb.from("products").select("stock, variants").eq('id', ded.productId);
           const p = pList?.[0];
           if (p) {
             if (ded.variantId && p.variants) {
@@ -5286,10 +5325,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
               const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
               if (vIdx !== -1) {
                 vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                await supabase.from("products").update({ variants: vars }).eq('id', ded.productId);
+                await localDb.from("products").update({ variants: vars }).eq('id', ded.productId);
               }
             } else {
-              await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
+              await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
             }
           }
         } catch (rbErr: any) {
@@ -5309,7 +5348,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
     // WhatsApp API Notification a Admins
     // Encontrar admins y notificar únicamente a los administradores
-    const { data: admins } = await supabase.from("users").select("name, phone").eq("role", "admin");
+    const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
     if (admins && admins.length > 0) {
       const itemSummary = processedItems && processedItems.length > 0
         ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
@@ -5422,7 +5461,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
   isOwed = true; // Las ventas solo se pueden ir a crédito, ni por error de contado
 
   // Fetch old invoice
-  const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
+  const { data: invoices } = await localDb.from("invoices").select("*").eq('id', id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
 
@@ -5451,7 +5490,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
         variants: []
       };
     } else {
-      const { data: products } = await supabase.from("products").select("stock, price, name, is_external, variants").eq('id', item.productId);
+      const { data: products } = await localDb.from("products").select("stock, price, name, is_external, variants").eq('id', item.productId);
       prod = products?.[0];
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
@@ -5506,7 +5545,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
   const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
   try {
     for (const [prodId, changes] of Object.entries(netStockChanges)) {
-      const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq('id', prodId);
+      const { data: pData } = await localDb.from("products").select("stock, is_external, variants").eq('id', prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
       let varsToUpdate = p.variants ? [...p.variants] : [];
@@ -5518,9 +5557,9 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
         }
       }
       if (Object.keys(changes.variants).length > 0) {
-        await supabase.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
+        await localDb.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
       } else if (changes.total !== 0) {
-        await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
+        await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
       }
     }
   } finally {
@@ -5583,7 +5622,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
   updatedDataRaw['nit'] = effectiveNit;
   updatedDataRaw['customerNit'] = effectiveNit;
 
-  const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq('id', id);
+  const { error: updateError } = await localDb.from("invoices").update(updatedDataRaw).eq('id', id);
   if (updateError) {
     console.warn("Primary update invoice error:", updateError.message);
     const fallbackData = { ...updatedDataRaw };
@@ -5596,23 +5635,23 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
     fallbackData['address'] = address || '';
     fallbackData['nit'] = effectiveNit;
 
-    const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq('id', id);
+    const { error: retryError1 } = await localDb.from("invoices").update(fallbackData).eq('id', id);
     if (retryError1) {
       const bareData = { ...fallbackData };
       delete bareData['phone'];
       delete bareData['address'];
       delete bareData['nit'];
-      await supabase.from("invoices").update(bareData).eq('id', id);
+      await localDb.from("invoices").update(bareData).eq('id', id);
     }
   }
 
   // Auto sync NIT to clients table if client exists
   if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
     try {
-      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      const { data: matchedClients } = await localDb.from("clients").select("id, nit").ilike("name", String(client).trim());
       if (matchedClients && matchedClients.length > 0) {
         for (const mc of matchedClients) {
-          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          await localDb.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
           updateLocalClient(mc.id, { nit: effectiveNit });
         }
       }
@@ -5651,7 +5690,7 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any,
   const { id } = req.params;
   const { nit, client, phone, address } = req.body;
 
-  const { data: invoices } = await supabase.from("invoices").select("*").eq('id', id);
+  const { data: invoices } = await localDb.from("invoices").select("*").eq('id', id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
 
@@ -5680,20 +5719,20 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any,
     updatePayload.address = address.trim();
   }
 
-  const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq('id', id);
+  const { error: updateError } = await localDb.from("invoices").update(updatePayload).eq('id', id);
   if (updateError) {
     const fallback = { notes: newNotes };
-    await supabase.from("invoices").update(fallback).eq('id', id);
+    await localDb.from("invoices").update(fallback).eq('id', id);
   }
 
   await syncInvoiceToPermanentBackup(id);
 
   if (client && effectiveNit && effectiveNit.toUpperCase() !== 'CF') {
     try {
-      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      const { data: matchedClients } = await localDb.from("clients").select("id, nit").ilike("name", String(client).trim());
       if (matchedClients && matchedClients.length > 0) {
         for (const mc of matchedClients) {
-          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          await localDb.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
           updateLocalClient(mc.id, { nit: effectiveNit });
         }
       }
@@ -5707,7 +5746,7 @@ app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(asyn
   const { id } = req.params;
   const { adminSignature, reviewedBy } = req.body;
 
-  const { data: invoices } = await supabase.from("invoices").select("notes").eq('id', id);
+  const { data: invoices } = await localDb.from("invoices").select("notes").eq('id', id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
 
   let currentNotes = invoices[0].notes || "";
@@ -5715,7 +5754,7 @@ app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(asyn
   currentNotes = updateTagInNotes(currentNotes, "REVIEWED_BY", reviewedBy);
   currentNotes = updateTagInNotes(currentNotes, "AUTH", "authorized");
 
-  const { error } = await supabase.from("invoices").update({ notes: currentNotes }).eq('id', id);
+  const { error } = await localDb.from("invoices").update({ notes: currentNotes }).eq('id', id);
   if (error) throw error;
 
   res.json({ success: true });
@@ -5727,7 +5766,7 @@ app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler
   const { creditDays } = req.body;
 
   try {
-    const { data, error: selectError } = await supabase.from("invoices").select("notes").eq('id', id).single();
+    const { data, error: selectError } = await localDb.from("invoices").select("notes").eq('id', id).single();
     if (selectError) console.error("Select error:", selectError);
     if (data) {
       let notes = data.notes || "";
@@ -5743,7 +5782,7 @@ app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler
           notes = notes + "|||CREDIT:" + creditDays;
         }
       }
-      const { error: updateError } = await supabase.from("invoices").update({ notes }).eq('id', id);
+      const { error: updateError } = await localDb.from("invoices").update({ notes }).eq('id', id);
       if (updateError) console.error("Update error:", updateError); await syncInvoiceToPermanentBackup(id);
     }
   } catch (e) {
@@ -5757,7 +5796,7 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
   const { id } = req.params;
   const { itemIndex, newPrice } = req.body;
 
-  const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
+  const { data: invoices, error } = await localDb.from("invoices").select("*").eq('id', id);
   if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
   const invoice: any = invoices[0];
   if (invoice.status === 'paid' || invoice.status === 'cancelled') {
@@ -5772,7 +5811,7 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
   const newTotalAmount = invoice.items.reduce((acc: number, item: any) => acc + item.total, 0);
   invoice.totalAmount = newTotalAmount;
 
-  await supabase.from("invoices").update({
+  await localDb.from("invoices").update({
     items: invoice.items,
     totalAmount: newTotalAmount
   }).eq('id', id);
@@ -5785,7 +5824,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
   const { id } = req.params;
   const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate, sellerId } = req.body;
 
-  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq('id', id).single();
   if (!invoice) return res.status(404).json({ error: "No encontrada" });
 
   // PROTECCION FISCAL: no dejar anular/rechazar por la via normal una factura
@@ -5795,7 +5834,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
   // y restaura el stock). Ver POST /api/invoices/:id/fel/anular.
   if ((status === 'cancelled' || status === 'rejected')
     && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-    const docFel: any = await felServicio.obtenerDocumentoPorFactura(supabase, id);
+    const docFel: any = await felServicio.obtenerDocumentoPorFactura(localDb, id);
     if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
       return res.status(409).json({
         error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
@@ -5823,7 +5862,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
   }
 
   if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
-    const { data: inv } = await supabase.from("invoices").select("notes").eq('id', id).single();
+    const { data: inv } = await localDb.from("invoices").select("notes").eq('id', id).single();
     if (inv) {
       let notes = inv.notes || "";
       if (guideNumber) {
@@ -5841,8 +5880,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
             console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
 
             // Query all active (non-archived) invoices excluding the current invoice
-            const { data: otherInvoices } = await supabase
-              .from("invoices")
+            const { data: otherInvoices } = await localDb.from("invoices")
               .select("id, notes, status")
               .eq("is_archived", false)
               .neq("id", id);
@@ -5871,7 +5909,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
               if (updates.length > 0) {
                 console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
                 for (const update of updates) {
-                  await supabase.from("invoices").update({ notes: update.notes }).eq('id', update.id);
+                  await localDb.from("invoices").update({ notes: update.notes }).eq('id', update.id);
                   await syncInvoiceToPermanentBackup(update.id);
                 }
               }
@@ -5899,7 +5937,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
 
       updateData.notes = notes;
       if (sellerId !== undefined) { updateData.sellerId = sellerId; }
-      await supabase.from("invoices").update(updateData).eq('id', id);
+      await localDb.from("invoices").update(updateData).eq('id', id);
       invalidateCache("folio_map");
       invalidateCache("products");
       await syncInvoiceToPermanentBackup(id);
@@ -5907,7 +5945,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
     }
   }
 
-  await supabase.from("invoices").update(updateData).eq('id', id);
+  await localDb.from("invoices").update(updateData).eq('id', id);
   invalidateCache("folio_map");
   invalidateCache("products");
   await syncInvoiceToPermanentBackup(id);
@@ -5916,14 +5954,14 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
 
 app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq('id', id).single();
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
   if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
     return res.status(403).json({ error: "No autorizado para archivar esta factura" });
   }
-  await supabase.from("invoices").update({ is_archived: true }).eq('id', id);
+  await localDb.from("invoices").update({ is_archived: true }).eq('id', id);
   invalidateCache("folio_map");
   await syncInvoiceToPermanentBackup(id);
   res.json({ success: true });
@@ -5931,7 +5969,7 @@ app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req: any, 
 
 app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { data: invoice } = await supabase.from("invoices").select("*").eq('id', id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq('id', id).single();
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
@@ -5940,7 +5978,7 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: 
   }
   if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
     for (const item of invoice.items) {
-      const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq('id', item.productId);
+      const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq('id', item.productId);
       const product = prods?.[0];
       if (product && !product.is_external) {
         let variantsToUpdate = product.variants ? [...product.variants] : [];
@@ -5954,16 +5992,16 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: 
         if (variantObj && variantObj.stock !== undefined) {
           const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
           variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
+          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
           if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
         } else {
-          const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+          const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
           if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
         }
       }
     }
   }
-  await supabase.from("invoices").delete().eq('id', id);
+  await localDb.from("invoices").delete().eq('id', id);
   invalidateCache("folio_map");
   invalidateCache("products");
   res.json({ success: true });
@@ -5978,19 +6016,36 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
   } else if (req.user.role !== 'admin' && !client) {
     if (!sellerId) {
       sellerId = req.user.email; // Enforce their own email if omitted
-    } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
-      return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+    } else {
+      const allowed = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].map(s => String(s || '').trim().toLowerCase());
+      if (!allowed.includes(String(sellerId).trim().toLowerCase())) {
+        return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+      }
     }
   }
+
+  // Preparar identificadores asociados al vendedor para consulta flexible
+  let sellerFilterList: string[] = [];
+  if (sellerId) {
+    sellerFilterList.push(String(sellerId).trim());
+  }
+  if (req.user && req.user.role !== 'admin') {
+    if (req.user.email) sellerFilterList.push(String(req.user.email).trim());
+    if (req.user.id) sellerFilterList.push(String(req.user.id).trim());
+    if (req.user.name) sellerFilterList.push(String(req.user.name).trim());
+    if (req.user.sellerCode) sellerFilterList.push(String(req.user.sellerCode).trim());
+  }
+  sellerFilterList = Array.from(new Set(sellerFilterList)).filter(Boolean);
 
   const fetchInvoices = async () => {
     if (isNeonActive() && neonPool) {
       try {
         let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
         const params: any[] = [];
-        if (sellerId) {
-          params.push(sellerId);
-          sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+        if (sellerFilterList.length > 0) {
+          const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(', ');
+          params.push(...sellerFilterList);
+          sql += ` AND "sellerId" IN (${placeholders})`;
         }
         sql += ' ORDER BY date DESC, id DESC';
         const rows = await queryNeon(sql, params);
@@ -6007,12 +6062,14 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
     let useFallback = false;
 
     while (hasMore) {
-      let query = supabase.from("invoices").select("*");
+      let query = localDb.from("invoices").select("*");
       if (!useFallback) {
         query = query.eq('is_archived', false);
       }
-      if (sellerId) {
-        query = query.eq('sellerId', sellerId);
+      if (sellerFilterList.length === 1) {
+        query = query.eq('sellerId', sellerFilterList[0]);
+      } else if (sellerFilterList.length > 1) {
+        query = query.in('sellerId', sellerFilterList);
       }
       const res = await query
         .order("date", { ascending: false })
@@ -6029,9 +6086,10 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
           try {
             let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
             const params: any[] = [];
-            if (sellerId) {
-              params.push(sellerId);
-              sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+            if (sellerFilterList.length > 0) {
+              const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(', ');
+              params.push(...sellerFilterList);
+              sql += ` AND "sellerId" IN (${placeholders})`;
             }
             sql += ' ORDER BY date DESC, id DESC';
             const rows = await queryNeon(sql, params);
@@ -6152,6 +6210,9 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
       nit: mappedInv.nit || '',
       phone: mappedInv.phone || mappedInv.customerPhone || '',
       address: mappedInv.address || mappedInv.deliveryAddress || '',
+      totalAmount: Number(mappedInv.totalAmount || 0),
+      paidAmount: Number(mappedInv.paidAmount || 0),
+      total: Number(mappedInv.total || mappedInv.totalAmount || 0),
       trackingNumber: mappedInv.trackingNumber
     };
   });
@@ -6189,7 +6250,7 @@ app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(as
     } catch (err) { }
   }
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-folio-config").single();
     if (sysRow && sysRow.photo) {
       folioConfig = JSON.parse(sysRow.photo);
     }
@@ -6210,18 +6271,18 @@ app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(as
     fs.writeFileSync(FOLIO_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
   } catch (err) { }
 
-  // Save in Supabase
+  // Save in PostgreSQL Local
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-folio-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-folio-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: JSON.stringify(config),
         name: "Folio Configuration",
         email: "system-folio@agricovet.com",
         role: "system"
       }).eq("id", "sys-folio-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-folio-config",
         name: "Folio Configuration",
         email: "system-folio@agricovet.com",
@@ -6232,7 +6293,7 @@ app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(as
       }]);
     }
   } catch (e) {
-    console.error("Failed to save folio config to Supabase:", e);
+    console.error("Failed to save folio config to PostgreSQL Local:", e);
   }
 
   res.json({ success: true, config });
@@ -6248,7 +6309,7 @@ app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req
     } catch (err) { }
   }
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-critical-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-critical-config").single();
     if (sysRow && sysRow.photo) {
       const parsed = JSON.parse(sysRow.photo);
       if (Array.isArray(parsed)) {
@@ -6270,18 +6331,18 @@ app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHan
     fs.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
   } catch (err) { }
 
-  // Save in Supabase
+  // Save in PostgreSQL Local
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-critical-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-critical-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: JSON.stringify(list),
         name: "Critical Stock Exclusions",
         email: "system-critical@agricovet.com",
         role: "system"
       }).eq("id", "sys-critical-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-critical-config",
         name: "Critical Stock Exclusions",
         email: "system-critical@agricovet.com",
@@ -6292,7 +6353,7 @@ app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHan
       }]);
     }
   } catch (e) {
-    console.error("Failed to save critical stock exclusions to Supabase:", e);
+    console.error("Failed to save critical stock exclusions to PostgreSQL Local:", e);
   }
 
   res.json({ success: true, excludedIds: list });
@@ -6308,7 +6369,7 @@ app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req: an
   }
   if (!template) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-print-template").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-print-template").single();
       if (sysRow && sysRow.photo) {
         template = sysRow.photo;
       }
@@ -6326,18 +6387,18 @@ app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler
     fs.writeFileSync(TEMPLATE_FILE, template || "", "utf8");
   } catch (err) { }
 
-  // Save in Supabase
+  // Save in PostgreSQL Local
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-print-template").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-print-template").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: template || "",
         name: "Print Template Configuration",
         email: "system-print-template@agricovet.com",
         role: "system"
       }).eq("id", "sys-print-template");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-print-template",
         name: "Print Template Configuration",
         email: "system-print-template@agricovet.com",
@@ -6348,7 +6409,7 @@ app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler
       }]);
     }
   } catch (e) {
-    console.error("Failed to save print template to Supabase:", e);
+    console.error("Failed to save print template to PostgreSQL Local:", e);
   }
 
   res.json({ success: true });
@@ -6359,7 +6420,7 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
   const { status } = req.body; // 'authorized', 'rejected', or 'pending'
 
   try {
-    const { data: rawData, error: selectErr } = await supabase.from("invoices").select("*").eq('id', id).single();
+    const { data: rawData, error: selectErr } = await localDb.from("invoices").select("*").eq('id', id).single();
     if (selectErr) {
       console.error("Error fetching invoice in auth endpoint:", JSON.stringify(selectErr));
       return res.status(400).json({ error: "Fallo al obtener la factura: " + selectErr.message });
@@ -6376,7 +6437,7 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
           notes = notes + "|||AUTH:" + status;
         }
       }
-      const { error: updateErr } = await supabase.from("invoices").update({ notes }).eq('id', id);
+      const { error: updateErr } = await localDb.from("invoices").update({ notes }).eq('id', id);
       if (updateErr) {
         console.error("Error updating invoice auth status notes:", updateErr);
         return res.status(400).json({ error: "Fallo al actualizar estado de autorización: " + updateErr.message });
@@ -6394,10 +6455,10 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
         const clientName = data.clientName || data.client || "el cliente";
         if (sellerId) {
           let seller = null;
-          const { data: sellerDataByEmail } = await supabase.from("users").select("name, phone").eq("email", sellerId).single();
+          const { data: sellerDataByEmail } = await localDb.from("users").select("name, phone").eq("email", sellerId).single();
           if (sellerDataByEmail) seller = sellerDataByEmail;
           else {
-            const { data: sellerDataById } = await supabase.from("users").select("name, phone").eq("id", sellerId).single();
+            const { data: sellerDataById } = await localDb.from("users").select("name, phone").eq("id", sellerId).single();
             if (sellerDataById) seller = sellerDataById;
           }
 
@@ -6448,7 +6509,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   const { amount, notes } = req.body;
   const numAmount = parseFloat(amount);
 
-  const { data: invoices, error } = await supabase.from("invoices").select("*").eq('id', id);
+  const { data: invoices, error } = await localDb.from("invoices").select("*").eq('id', id);
   if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
   const invoice: any = invoices[0];
 
@@ -6471,7 +6532,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
         .toBuffer();
 
       const fileName = `boletas/boleta-${id}-${Date.now()}.jpg`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await localDb.storage
         .from('productos')
         .upload(fileName, buffer, {
           contentType: 'image/jpeg',
@@ -6479,12 +6540,12 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
         });
 
       if (!uploadError) {
-        const { data: publicUrlData } = supabase.storage
+        const { data: publicUrlData } = localDb.storage
           .from('productos')
           .getPublicUrl(fileName);
         receiptUrl = publicUrlData.publicUrl;
       } else {
-        console.error("Payment receipt upload to Supabase storage error, failing back directly to base64:", uploadError);
+        console.error("Payment receipt upload to PostgreSQL Local storage error, failing back directly to base64:", uploadError);
         receiptUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
       }
     } catch (err) {
@@ -6500,9 +6561,9 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   }
 
   try {
-    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+    await localDb.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
   } catch (e) {
-    console.error("Error updating invoice in Supabase handled gracefully:", e);
+    console.error("Error updating invoice in PostgreSQL Local handled gracefully:", e);
   }
 
   invoice.paidAmount = newPaidAmount;
@@ -6528,7 +6589,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   try {
     await safeInsertPayment(payment);
   } catch (e) {
-    console.error("Error inserting payment in Supabase handled gracefully:", e);
+    console.error("Error inserting payment in PostgreSQL Local handled gracefully:", e);
   }
 
   // Capture in permanent archival backups
@@ -6542,16 +6603,16 @@ app.get("/api/invoices/:id/payments", requireAuth, asyncHandler(async (req: any,
   const { id } = req.params;
   let payments: any[] = [];
   try {
-    payments = await fetchPaymentsFromSupabase(id);
+    payments = await fetchPaymentsFromLocalDb(id);
   } catch (e) {
-    console.error("Fetch payments supabase catch error:", e);
+    console.error("Fetch payments PostgreSQL Local catch error:", e);
   }
 
   // Feed and merge local payments
   const localPayments = readLocalPayments().filter(p => p.invoiceId === id).map(normalizePayment);
   const dbPaymentIds = new Set(payments.map(p => p.id));
 
-  // Upload missing local payments to Supabase
+  // Upload missing local payments to PostgreSQL Local
   localPayments.forEach(async (p) => {
     if (p && p.id && !dbPaymentIds.has(p.id)) {
       await safeInsertPayment(p);
@@ -6590,7 +6651,7 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
   // 1. Find the payment to get its amount
   let paymentAmount = 0;
   try {
-    const { data: pmtData } = await supabase.from("payments").select("*").eq('id', paymentId);
+    const { data: pmtData } = await localDb.from("payments").select("*").eq('id', paymentId);
     if (pmtData && pmtData.length > 0) {
       paymentAmount = parseFloat(pmtData[0].amount || 0);
     }
@@ -6603,15 +6664,15 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
     if (match) paymentAmount = parseFloat(match.amount || 0);
   }
 
-  // 2. Delete payment from Supabase (with RLS fallback)
+  // 2. Delete payment from PostgreSQL Local (with RLS fallback)
   try {
-    const { error: delErr } = await supabase.from("payments").delete().eq('id', paymentId);
+    const { error: delErr } = await localDb.from("payments").delete().eq('id', paymentId);
     if (delErr) {
       console.warn("Hard delete payment failed (RLS), falling back to zeroing:", delErr.message);
-      await supabase.from("payments").update({ amount: 0, notes: '[ELIMINADO]' }).eq('id', paymentId);
+      await localDb.from("payments").update({ amount: 0, notes: '[ELIMINADO]' }).eq('id', paymentId);
     }
   } catch (e) {
-    console.warn("Delete payment error in supabase:", e);
+    console.warn("Delete payment error in PostgreSQL Local:", e);
   }
 
   // Also remove from local storage/backups
@@ -6621,7 +6682,7 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
   } catch (e) { }
 
   // 3. Update parent invoice balance
-  const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").eq('id', id);
+  const { data: invoices, error: invErr } = await localDb.from("invoices").select("*").eq('id', id);
   if (invErr || !invoices || invoices.length === 0) {
     return res.json({ success: true, deletedPaymentId: paymentId });
   }
@@ -6635,7 +6696,7 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
   }
 
   try {
-    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+    await localDb.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
   } catch (e) {
     console.error("Error updating invoice on payment delete:", e);
   }
@@ -6651,16 +6712,16 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
 app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
   let payments: any[] = [];
   try {
-    const { data, error } = await supabase.from("payments").select("*");
+    const { data, error } = await localDb.from("payments").select("*");
     if (error) {
       if (error.code !== '42P01' && !error.message.includes('schema cache') && !error.message.includes('does not exist')) {
-        console.error("Fetch all payments supabase error:", error.message);
+        console.error("Fetch all payments PostgreSQL Local error:", error.message);
       }
     } else if (data) {
       payments = data.map(normalizePayment);
     }
   } catch (e) {
-    console.error("Fetch all payments supabase catch error:", e);
+    console.error("Fetch all payments PostgreSQL Local catch error:", e);
   }
 
   // Merge with local payment file
@@ -6695,7 +6756,7 @@ app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req: any
 const debtsFile = path.resolve(process.cwd(), 'business-debts.json');
 const readDebts = async () => {
   try {
-    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-debts-store').single();
+    const { data, error } = await localDb.from('users').select('photo').eq('id', 'sys-debts-store').single();
     if (!error && data && data.photo) {
       const parsed = JSON.parse(data.photo);
       if (Array.isArray(parsed)) {
@@ -6704,7 +6765,7 @@ const readDebts = async () => {
       }
     }
   } catch (dbErr) {
-    console.warn("Could not read debts from Supabase, falling back to local file:", dbErr);
+    console.warn("Could not read debts from PostgreSQL Local, falling back to local file:", dbErr);
   }
 
   try {
@@ -6727,11 +6788,11 @@ const writeDebts = async (data: any) => {
   }
 
   try {
-    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-debts-store').single();
+    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-debts-store').single();
     if (existing) {
-      await supabase.from('users').update({ photo: payloadStr, name: 'Debts Store', email: 'system-debts@agricovet.com', role: 'system' }).eq('id', 'sys-debts-store');
+      await localDb.from('users').update({ photo: payloadStr, name: 'Debts Store', email: 'system-debts@agricovet.com', role: 'system' }).eq('id', 'sys-debts-store');
     } else {
-      await supabase.from('users').insert([{
+      await localDb.from('users').insert([{
         id: 'sys-debts-store',
         name: 'Debts Store',
         email: 'system-debts@agricovet.com',
@@ -6742,7 +6803,7 @@ const writeDebts = async (data: any) => {
       }]);
     }
   } catch (dbErr: any) {
-    console.error("Could not sync debts to Supabase:", dbErr.message);
+    console.error("Could not sync debts to PostgreSQL Local:", dbErr.message);
   }
 };
 
@@ -6756,7 +6817,7 @@ const readSuppliers = async () => {
   ];
 
   try {
-    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-suppliers-store').single();
+    const { data, error } = await localDb.from('users').select('photo').eq('id', 'sys-suppliers-store').single();
     if (!error && data && data.photo) {
       const parsed = JSON.parse(data.photo);
       if (Array.isArray(parsed)) {
@@ -6765,7 +6826,7 @@ const readSuppliers = async () => {
       }
     }
   } catch (dbErr) {
-    console.warn("Could not read suppliers from Supabase, falling back to local file:", dbErr);
+    console.warn("Could not read suppliers from PostgreSQL Local, falling back to local file:", dbErr);
   }
 
   try {
@@ -6788,11 +6849,11 @@ const writeSuppliers = async (data: any) => {
   }
 
   try {
-    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-suppliers-store').single();
+    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-suppliers-store').single();
     if (existing) {
-      await supabase.from('users').update({ photo: payloadStr, name: 'Suppliers Store', email: 'system-suppliers@agricovet.com', role: 'system' }).eq('id', 'sys-suppliers-store');
+      await localDb.from('users').update({ photo: payloadStr, name: 'Suppliers Store', email: 'system-suppliers@agricovet.com', role: 'system' }).eq('id', 'sys-suppliers-store');
     } else {
-      await supabase.from('users').insert([{
+      await localDb.from('users').insert([{
         id: 'sys-suppliers-store',
         name: 'Suppliers Store',
         email: 'system-suppliers@agricovet.com',
@@ -6803,7 +6864,7 @@ const writeSuppliers = async (data: any) => {
       }]);
     }
   } catch (dbErr: any) {
-    console.error("Could not sync suppliers to Supabase:", dbErr.message);
+    console.error("Could not sync suppliers to PostgreSQL Local:", dbErr.message);
   }
 };
 
@@ -6905,7 +6966,7 @@ app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload
       .jpeg({ quality: 85 })
       .toBuffer();
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: 'image/jpeg',
@@ -6917,7 +6978,7 @@ app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload
       console.error("Storage upload error for receipt, falling back to base64:", uploadError);
       imageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
@@ -6941,7 +7002,7 @@ app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, u
     return res.status(400).json({ error: "No se proporcionó ningún archivo de factura para analizar" });
   }
 
-  // Upload the original scanned invoice to Supabase as backup so it reflects on all devices
+  // Upload the original scanned invoice to PostgreSQL Local as backup so it reflects on all devices
   let uploadedImageUrl = '';
   try {
     const fileName = `invoice-${Date.now()}.jpg`;
@@ -6950,7 +7011,7 @@ app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, u
       .jpeg({ quality: 85 })
       .toBuffer();
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: 'image/jpeg',
@@ -6961,13 +7022,13 @@ app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, u
       console.error("Storage upload error for invoice OCR image, falling back to base64:", uploadError);
       uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
   } catch (uploadErr) {
-    console.error("Error uploading invoice to Supabase inside OCR:", uploadErr);
+    console.error("Error uploading invoice to PostgreSQL Local inside OCR:", uploadErr);
     try {
       uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     } catch (b64Err) {
@@ -7116,7 +7177,7 @@ app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide")
       .jpeg({ quality: 85 })
       .toBuffer();
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await localDb.storage
       .from('productos')
       .upload(fileName, buffer, {
         contentType: 'image/jpeg',
@@ -7127,13 +7188,13 @@ app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide")
       console.error("Storage upload error for shipping guide image, falling back to base64:", uploadError);
       uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } else {
-      const { data: publicUrlData } = supabase.storage
+      const { data: publicUrlData } = localDb.storage
         .from('productos')
         .getPublicUrl(fileName);
       uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
   } catch (uploadErr) {
-    console.error("Error uploading shipping guide to Supabase inside OCR:", uploadErr);
+    console.error("Error uploading shipping guide to PostgreSQL Local inside OCR:", uploadErr);
     try {
       uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     } catch (b64Err) {
@@ -7223,9 +7284,9 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any)
   // 1. Fetch all invoices
   let invoices: any[] = [];
   try {
-    let { data, error } = await supabase.from("invoices").select("*").eq('is_archived', false);
+    let { data, error } = await localDb.from("invoices").select("*").eq('is_archived', false);
     if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
-      const fallback = await supabase.from("invoices").select("*");
+      const fallback = await localDb.from("invoices").select("*");
       data = fallback.data;
     }
     if (data) invoices = data;
@@ -7240,9 +7301,9 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any)
   // 2. Fetch all regular payments
   let payments: any[] = [];
   try {
-    let { data, error } = await supabase.from("payments").select("*").eq('is_archived', false);
+    let { data, error } = await localDb.from("payments").select("*").eq('is_archived', false);
     if (error && (error.code === '42703' || error.message.includes('is_archived'))) {
-      const fallback = await supabase.from("payments").select("*");
+      const fallback = await localDb.from("payments").select("*");
       data = fallback.data;
     }
     if (data) payments = data;
@@ -7392,9 +7453,9 @@ async function internalSendWhatsApp(phone: string, message: string, templateName
   let waPhoneId = (process.env.WHATSAPP_PHONE_ID || "").trim().replace(/['"]/g, '');
   let waUrl = (process.env.WHATSAPP_API_URL || "").trim().replace(/['"]/g, '');
 
-  // Intentar leer configuración desde Supabase si existe (para respaldo en BD)
+  // Intentar leer configuración desde PostgreSQL Local si existe (para respaldo en BD)
   try {
-    const { data: configData } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
+    const { data: configData } = await localDb.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
     if (configData && configData.photo) {
       const parsed = JSON.parse(configData.photo);
       if (parsed.waToken) waToken = parsed.waToken.trim();
@@ -7641,7 +7702,7 @@ app.post("/api/whatsapp/send", requireAuth, asyncHandler(async (req: any, res: a
 // === WHATSAPP CONFIG BACKUP ENDPOINTS ===
 app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
   try {
-    const { data, error } = await supabase.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
+    const { data, error } = await localDb.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
     if (data && data.photo) {
       res.json(JSON.parse(data.photo));
     } else {
@@ -7655,13 +7716,13 @@ app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (r
 app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
   const { waToken, waPhoneId, waUrl } = req.body;
   try {
-    const { data: existing } = await supabase.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
+    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
     const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
 
     if (existing) {
-      await supabase.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
+      await localDb.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
     } else {
-      await supabase.from('users').insert([{
+      await localDb.from('users').insert([{
         id: 'sys-whatsapp-config',
         name: 'WhatsApp Config',
         email: 'system-whatsapp@agricovet.com',
@@ -7679,14 +7740,14 @@ app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (
 }));
 // ========================================
 // ========================================
-// BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by Supabase for Cloud / Serverless)
+// BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by PostgreSQL Local for Cloud / Serverless)
 const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
 
 async function savePendingBoleta(phone: string, data: any) {
   try {
     const payload = JSON.stringify({ ...data, timestamp: Date.now() });
     const recordId = 'bot-boleta-' + phone;
-    await supabase.from('users').upsert({
+    await localDb.from('users').upsert({
       id: recordId,
       name: 'Pending Boleta',
       email: `${recordId}@bot.local`,
@@ -7696,7 +7757,7 @@ async function savePendingBoleta(phone: string, data: any) {
       photo: payload
     });
   } catch (e) {
-    console.warn("Could not save pending boleta to Supabase:", e);
+    console.warn("Could not save pending boleta to PostgreSQL Local:", e);
   }
 }
 
@@ -7704,24 +7765,24 @@ async function popPendingBoleta(phone: string) {
   try {
     const now = Date.now();
     const recordId = 'bot-boleta-' + phone;
-    const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+    const { data: direct } = await localDb.from('users').select('*').eq('id', recordId).single();
     if (direct && direct.photo) {
       try {
         const parsed = JSON.parse(direct.photo);
         if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await supabase.from('users').delete().eq('id', recordId);
+          await localDb.from('users').delete().eq('id', recordId);
           return parsed;
         }
       } catch (e) { }
     }
-    const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-boleta-%');
+    const { data: recent } = await localDb.from('users').select('*').ilike('id', 'bot-boleta-%');
     if (recent && recent.length > 0) {
       for (const r of recent) {
         if (r.photo) {
           try {
             const parsed = JSON.parse(r.photo);
             if (now - (parsed.timestamp || 0) < 60000) {
-              await supabase.from('users').delete().eq('id', r.id);
+              await localDb.from('users').delete().eq('id', r.id);
               return parsed;
             }
           } catch (e) { }
@@ -7736,7 +7797,7 @@ async function savePendingFolio(phone: string, data: any) {
   try {
     const payload = JSON.stringify({ ...data, timestamp: Date.now() });
     const recordId = 'bot-folio-' + phone;
-    await supabase.from('users').upsert({
+    await localDb.from('users').upsert({
       id: recordId,
       name: 'Pending Folio',
       email: `${recordId}@bot.local`,
@@ -7746,7 +7807,7 @@ async function savePendingFolio(phone: string, data: any) {
       photo: payload
     });
   } catch (e) {
-    console.warn("Could not save pending folio to Supabase:", e);
+    console.warn("Could not save pending folio to PostgreSQL Local:", e);
   }
 }
 
@@ -7754,24 +7815,24 @@ async function popPendingFolio(phone: string) {
   try {
     const now = Date.now();
     const recordId = 'bot-folio-' + phone;
-    const { data: direct } = await supabase.from('users').select('*').eq('id', recordId).single();
+    const { data: direct } = await localDb.from('users').select('*').eq('id', recordId).single();
     if (direct && direct.photo) {
       try {
         const parsed = JSON.parse(direct.photo);
         if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await supabase.from('users').delete().eq('id', recordId);
+          await localDb.from('users').delete().eq('id', recordId);
           return parsed;
         }
       } catch (e) { }
     }
-    const { data: recent } = await supabase.from('users').select('*').ilike('id', 'bot-folio-%');
+    const { data: recent } = await localDb.from('users').select('*').ilike('id', 'bot-folio-%');
     if (recent && recent.length > 0) {
       for (const r of recent) {
         if (r.photo) {
           try {
             const parsed = JSON.parse(r.photo);
             if (now - (parsed.timestamp || 0) < 60000) {
-              await supabase.from('users').delete().eq('id', r.id);
+              await localDb.from('users').delete().eq('id', r.id);
               return parsed;
             }
           } catch (e) { }
@@ -7801,8 +7862,7 @@ async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
   if (!cleanFolio || cleanFolio === 'S/N') return null;
 
   // 1. Exact match on 'folio' column
-  const { data: byFolio } = await supabase
-    .from("invoices")
+  const { data: byFolio } = await localDb.from("invoices")
     .select("*")
     .eq('folio', cleanFolio);
 
@@ -7816,24 +7876,21 @@ async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
   }
 
   // 2. Exact match in notes with FOLIO:<cleanFolio>
-  const { data: byNotes } = await supabase
-    .from("invoices")
+  const { data: byNotes } = await localDb.from("invoices")
     .select("*")
     .ilike('notes', `%FOLIO:${cleanFolio}%`);
 
   if (byNotes && byNotes.length > 0) return byNotes[0];
 
   // 3. Exact match on 'id' column
-  const { data: byId } = await supabase
-    .from("invoices")
+  const { data: byId } = await localDb.from("invoices")
     .select("*")
     .eq('id', cleanFolio);
 
   if (byId && byId.length > 0) return byId[0];
 
   // 4. Exact prefix match on id (e.g. INV-831-...)
-  const { data: byPrefix } = await supabase
-    .from("invoices")
+  const { data: byPrefix } = await localDb.from("invoices")
     .select("*")
     .ilike('id', `INV-${cleanFolio}-%`);
 
@@ -7841,8 +7898,7 @@ async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
 
   // 5. Fallback: Search by clientHint if provided
   if (clientHint && clientHint.length > 3) {
-    const { data: byClient } = await supabase
-      .from("invoices")
+    const { data: byClient } = await localDb.from("invoices")
       .select("*")
       .ilike('clientName', `%${clientHint}%`)
       .order('date', { ascending: false })
@@ -7870,7 +7926,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
     try {
       const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ''), 'base64');
       const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await localDb.storage
         .from('productos')
         .upload(fileName, buffer, {
           contentType: 'image/jpeg',
@@ -7878,7 +7934,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
         });
 
       if (!uploadError) {
-        const { data: publicUrlData } = supabase.storage
+        const { data: publicUrlData } = localDb.storage
           .from('productos')
           .getPublicUrl(fileName);
         receiptUrl = publicUrlData.publicUrl;
@@ -7944,7 +8000,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
   let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
   let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
 
-  await supabase.from("invoices").update({
+  await localDb.from("invoices").update({
     paidAmount: newPaid,
     status: newStatus
   }).eq('id', invoice.id);
@@ -8048,7 +8104,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: an
   let newPaid = currentPaid + numAmount;
   let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
 
-  await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
+  await localDb.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
 
   if (numAmount > 0) {
     try {
@@ -8150,7 +8206,7 @@ app.post("/api/gemini/chat", requireAuth, asyncHandler(async (req: any, res: any
     // Intentar cargar productos del inventario actual para contextualizar la IA
     let productsContext = "";
     try {
-      const { data: products } = await supabase.from("products").select("name, category, price").limit(40);
+      const { data: products } = await localDb.from("products").select("name, category, price").limit(40);
       if (products && products.length > 0) {
         productsContext = `Inventario actual de Agricovet:\n` +
           products.map((p: any) => `- ${p.name} (${p.category}): Q${parseFloat(p.price || 0).toFixed(2)}`).join("\n") + "\n\n";
@@ -8206,7 +8262,7 @@ ${productsContext}`;
       const call = response.functionCalls[0];
       if (call.name === "check_inventory_quantity") {
         const product_name = (call.args as any).product_name;
-        const { data } = await supabase.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
+        const { data } = await localDb.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
 
         let dbResultMsg = "";
         if (data && data.length > 0) {
@@ -8241,7 +8297,7 @@ ${productsContext}`;
 }));
 
 app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { data: products } = await supabase.from("products").select("id, name, category").is("description", null);
+  const { data: products } = await localDb.from("products").select("id, name, category").is("description", null);
 
   if (!products || products.length === 0) {
     return res.json({ message: "No hay productos sin descripción." });
@@ -8295,7 +8351,7 @@ app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, 
   for (const product of productsToProcess) {
     try {
       const description = getLocalDescription(product.name, product.category);
-      await supabase.from("products").update({ description }).eq("id", product.id);
+      await localDb.from("products").update({ description }).eq("id", product.id);
       generatedCount++;
     } catch (err) {
       console.error(`Error updating ${product.name}:`, err);
@@ -8315,7 +8371,7 @@ app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, 
 
 // Configuracion del emisor. Incluye que campos faltan por llenar.
 app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
-  const config = await felServicio.obtenerConfig(supabase);
+  const config = await felServicio.obtenerConfig(localDb);
   const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
   res.json({
     config: publica,
@@ -8339,14 +8395,14 @@ app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: 
   if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
     return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
   }
-  const config = await felServicio.guardarConfig(supabase, cambios);
+  const config = await felServicio.guardarConfig(localDb, cambios);
   const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
   res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
 }));
 
 // Estado FEL de una factura, con el desglose fiscal ya calculado.
 app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
 
@@ -8355,11 +8411,11 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res:
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
 
-  const documento = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+  const documento = await felServicio.obtenerDocumentoPorFactura(localDb, req.params.id);
   const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
 
   // Datos del emisor para la representacion grafica (factura impresa).
-  const felConfig = await felServicio.obtenerConfig(supabase);
+  const felConfig = await felServicio.obtenerConfig(localDb);
   const emisor = {
     nit: felConfig?.nit_emisor ?? '',
     nombre: felConfig?.nombre_emisor ?? '',
@@ -8385,14 +8441,13 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res:
 // Listado para la pantalla de control FEL.
 // Un vendedor solo ve los documentos de sus propias facturas.
 app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
-  let documentos = await felServicio.listarDocumentos(supabase, {
+  let documentos = await felServicio.listarDocumentos(localDb, {
     estado: req.query.estado,
     limite: Number(req.query.limite) || 200,
   });
 
   if (req.user.role !== 'admin') {
-    const { data: propias } = await supabase
-      .from("invoices").select("id").eq("sellerId", req.user.id);
+    const { data: propias } = await localDb.from("invoices").select("id").eq("sellerId", req.user.id);
     const permitidas = new Set((propias || []).map((f: any) => f.id));
     documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
   }
@@ -8405,7 +8460,7 @@ app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: a
 
 // Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
 app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
 
@@ -8420,7 +8475,7 @@ app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHan
     ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
     : undefined;
 
-  const resultado = await felServicio.certificarFactura(supabase, invoice, {
+  const resultado = await felServicio.certificarFactura(localDb, invoice, {
     tipoDte: req.body?.tipoDte,
     receptor,
   });
@@ -8434,19 +8489,19 @@ app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler
     return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
   }
 
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
 
   try {
-    const resultado = await felServicio.anularFactura(supabase, invoice, motivo);
+    const resultado = await felServicio.anularFactura(localDb, invoice, motivo);
 
     // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
     // un documento fiscal anulado no puede seguir como venta activa. Se
     // restaura el stock igual que en una anulacion normal.
     if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
       await restaurarStockDeFactura(invoice);
-      await supabase.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
+      await localDb.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
       invalidateCache("products");
       invalidateCache("folio_map");
       (resultado as any).facturaAnulada = true;
@@ -8461,14 +8516,14 @@ app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler
 // Descarga el XML de un documento FEL (enviado o certificado). Pensado para
 // cuando el certificador pide "mandame el XML para revisar que paso".
 app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await supabase.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
   if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
 
-  const doc: any = await felServicio.obtenerDocumentoPorFactura(supabase, req.params.id);
+  const doc: any = await felServicio.obtenerDocumentoPorFactura(localDb, req.params.id);
   if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
 
   const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
@@ -8491,7 +8546,7 @@ app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, 
 
 // Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
 app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const config = await felServicio.obtenerConfig(supabase);
+  const config = await felServicio.obtenerConfig(localDb);
   if (!config?.infile_usuario || !config?.infile_llave_token) {
     return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
   }
@@ -8553,8 +8608,7 @@ function saveLocalReciboCaja(recibo: any) {
 
 app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
   try {
-    const { data, error } = await supabase
-      .from('recibos_caja')
+    const { data, error } = await localDb.from('recibos_caja')
       .select('*')
       .order('created_at', { ascending: false });
 
@@ -8568,7 +8622,7 @@ app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any
       return res.json(filtered);
     }
   } catch (e) {
-    console.warn("Supabase recibos_caja query fallback:", e);
+    console.warn("PostgreSQL Local recibos_caja query fallback:", e);
   }
 
   const localList = readLocalRecibosCaja();
@@ -8621,8 +8675,7 @@ app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: an
   };
 
   try {
-    const { data, error } = await supabase
-      .from('recibos_caja')
+    const { data, error } = await localDb.from('recibos_caja')
       .insert([newRecibo])
       .select();
 
@@ -8631,7 +8684,7 @@ app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: an
       return res.status(201).json(data[0]);
     }
   } catch (e) {
-    console.warn("Supabase insert recibo_caja fallback to local file:", e);
+    console.warn("PostgreSQL Local insert recibo_caja fallback to local file:", e);
   }
 
   saveLocalReciboCaja(newRecibo);
@@ -8643,10 +8696,9 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
 
-  // Soft-delete via UPDATE (Supabase RLS blocks DELETE, and is_deleted column doesn't exist)
+  // Soft-delete via UPDATE (PostgreSQL Local RLS blocks DELETE, and is_deleted column doesn't exist)
   // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
-  const { data: updated, error: updateErr } = await supabase
-    .from('recibos_caja')
+  const { data: updated, error: updateErr } = await localDb.from('recibos_caja')
     .update({
       observaciones: '[ELIMINADO]',
       cliente_nombre: '[ELIMINADO]'
@@ -8655,7 +8707,7 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
     .select();
 
   if (updateErr) {
-    console.error("Supabase UPDATE recibo_caja error:", updateErr);
+    console.error("PostgreSQL Local UPDATE recibo_caja error:", updateErr);
     return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
   }
 
@@ -8663,15 +8715,14 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
     return res.status(404).json({ error: 'Recibo no encontrado' });
   }
 
-  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
+  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
   res.json({ success: true, message: 'Recibo eliminado correctamente' });
 }));
 
 // VISITS & ROUTES ENDPOINTS
 app.get('/api/visits', asyncHandler(async (req: any, res: any) => {
   try {
-    const { data, error } = await supabase
-      .from('client_visits')
+    const { data, error } = await localDb.from('client_visits')
       .select('id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt')
       .order('created_at', { ascending: false });
     if (!error && data) return res.json(data);
@@ -8693,8 +8744,7 @@ app.get('/api/visits/stats', asyncHandler(async (req: any, res: any) => {
 
 app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
   try {
-    const { data, error } = await supabase
-      .from('seller_routes')
+    const { data, error } = await localDb.from('seller_routes')
       .select('*')
       .order('created_at', { ascending: false });
     if (!error && data) return res.json(data);
@@ -8706,7 +8756,7 @@ app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
 app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
   try {
     const { sellerId } = req.query;
-    let query = supabase.from('quotations').select('*').order('date', { ascending: false });
+    let query = localDb.from('quotations').select('*').order('date', { ascending: false });
     if (sellerId && req.user.role !== 'admin') {
       query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
     }
@@ -8715,14 +8765,14 @@ app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) 
       return res.json(data);
     }
   } catch (err: any) {
-    console.warn("Supabase quotations fetch error:", err?.message || err);
+    console.warn("PostgreSQL Local quotations fetch error:", err?.message || err);
   }
   res.json([]);
 }));
 
 app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
+  const { data, error } = await localDb.from('quotations').select('*').eq('id', id).single();
   if (error || !data) {
     return res.status(404).json({ error: 'Cotización no encontrada' });
   }
@@ -8736,7 +8786,7 @@ app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any)
   }
 
   // Calcular correlativo de folio (COT-0001)
-  const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
+  const { data: allQuotes } = await localDb.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
   const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
   const nextNum = lastNum + 1;
   const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
@@ -8767,7 +8817,7 @@ app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any)
     convertedInvoiceFolio: null
   };
 
-  const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
+  const { data, error } = await localDb.from('quotations').insert([newQuote]).select().single();
   if (error) {
     throw new Error(error.message);
   }
@@ -8777,24 +8827,24 @@ app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any)
 app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
   const updates = req.body;
-  const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
+  const { data, error } = await localDb.from('quotations').update(updates).eq('id', id).select().single();
   if (error) throw new Error(error.message);
   res.json(data);
 }));
 
 app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { error } = await supabase.from('quotations').delete().eq('id', id);
+  const { error } = await localDb.from('quotations').delete().eq('id', id);
   if (error) throw new Error(error.message);
   res.json({ success: true });
 }));
 
 app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
+  const { data: quote, error: qErr } = await localDb.from('quotations').select('*').eq('id', id).single();
   if (qErr || !quote) return res.status(404).json({ error: 'Cotización no encontrada' });
 
-  await supabase.from('quotations').update({
+  await localDb.from('quotations').update({
     status: 'convertida',
     updated_at: new Date().toISOString()
   }).eq('id', id);
@@ -8802,6 +8852,57 @@ app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async 
   res.json({ success: true, quotation: quote });
 }));
 
+// ======== RECIBOS CONFORMES ENDPOINTS ========
+app.get('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await localDb.from('recibos_conformes').select('*').order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) return res.json(data);
+  } catch (err: any) {
+    console.warn("Error fetching recibos_conformes:", err?.message || err);
+  }
+  res.json([]);
+}));
+
+app.get('/api/recibos-conformes/invoice/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    const { data, error } = await localDb.from('recibos_conformes').select('*').eq('invoice_id', id).order('created_at', { ascending: false }).limit(1);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return res.json(data[0]);
+    }
+  } catch (err: any) {
+    console.warn("Error fetching recibo by invoice id:", err?.message || err);
+  }
+  res.json(null);
+}));
+
+app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { invoice_id, folio, receiver_name, receiver_dpi, receiver_phone, receiver_relationship, delivery_location, delivery_notes, delivered_by, delivery_date, include_prices, signature_data, pdf_url, created_by } = req.body;
+  if (!invoice_id) {
+    return res.status(400).json({ error: 'invoice_id es requerido' });
+  }
+  const payload = {
+    invoice_id: String(invoice_id),
+    folio: String(folio || ''),
+    receiver_name: receiver_name || null,
+    receiver_dpi: receiver_dpi || null,
+    receiver_phone: receiver_phone || null,
+    receiver_relationship: receiver_relationship || null,
+    delivery_location: delivery_location || null,
+    delivery_notes: delivery_notes || null,
+    delivered_by: delivered_by || 'Piloto / Asesor',
+    delivery_date: delivery_date || new Date().toISOString(),
+    include_prices: include_prices !== false,
+    signature_data: signature_data || null,
+    pdf_url: pdf_url || null,
+    created_by: created_by || req.user?.name || null
+  };
+  const { data, error } = await localDb.from('recibos_conformes').insert([payload]).select().single();
+  if (error) {
+    return res.status(500).json({ error: error.message || 'Error al guardar Recibo Conforme' });
+  }
+  res.json(data);
+}));
 
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
@@ -8859,9 +8960,9 @@ async function startServer() {
       try {
         // Try to add sellerCode column if it doesn't exist
         try {
-          await supabase.rpc('exec_sql', { sql: 'ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;' });
-          await supabase.rpc('exec_sql', { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
-          await supabase.rpc('exec_sql', { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
+          await localDb.rpc('exec_sql', { sql: 'ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;' });
+          await localDb.rpc('exec_sql', { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
+          await localDb.rpc('exec_sql', { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
         } catch (e) {
           // If RPC doesn't exist or fails, we just log it and proceed with fallback in GET
           console.warn("Could not run migrations via RPC:", e);
@@ -8886,7 +8987,7 @@ async function startServer() {
               usedCodes.add(code);
               updateLocalClient(client.id, { clientCode: code });
               try {
-                await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
+                await localDb.from("clients").update({ clientCode: code }).eq("id", client.id);
               } catch (e) { }
             }
           }
@@ -8897,10 +8998,10 @@ async function startServer() {
         // One-time migration to ensure all users have a sellerCode
         let usersData: any[] = [];
         try {
-          const { data: users, error } = await supabase.from("users").select("*");
+          const { data: users, error } = await localDb.from("users").select("*");
           if (error) {
             if (error.message && error.message.includes("fetch failed")) {
-              console.warn("Supabase connection unavailable for user migration.");
+              console.warn("PostgreSQL Local connection unavailable for user migration.");
             } else {
               console.error("Could not fetch users for migration, possibly missing column:", error.message);
             }
@@ -8926,7 +9027,7 @@ async function startServer() {
             }
             if (unique) {
               try {
-                await supabase.from("users").update({ sellerCode: code }).eq('id', u.id);
+                await localDb.from("users").update({ sellerCode: code }).eq('id', u.id);
                 usedUserCodes.add(code);
               } catch (upErr) {
                 console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);

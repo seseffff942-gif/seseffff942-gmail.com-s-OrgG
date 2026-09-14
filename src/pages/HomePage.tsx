@@ -1110,7 +1110,7 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
                 <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-4">
                   <span className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-1">Logotipo de la Empresa</span>
                   <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                    Sube una imagen (PNG o JPG) de tu logotipo corporativo a Supabase Storage, o escribe una URL directa. Se aplicará a la cabecera del sistema, pantalla de inicio de sesión y plantillas de impresión PDF.
+                    Sube una imagen (PNG o JPG) de tu logotipo corporativo al almacenamiento local, o escribe una URL directa. Se aplicará a la cabecera del sistema, pantalla de inicio de sesión y plantillas de impresión PDF.
                   </p>
                   
                   <div className="flex flex-col md:flex-row items-center gap-6">

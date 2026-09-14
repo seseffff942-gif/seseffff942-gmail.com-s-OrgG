@@ -2,7 +2,7 @@
  * Servicio de FEL: prepara documentos a partir de las facturas del sistema,
  * los guarda y consulta su estado.
  *
- * Recibe el cliente de Supabase como parametro para no duplicar la conexion
+ * Recibe el cliente de base de datos como parametro para no duplicar la conexion
  * ni crear dependencias circulares con server.ts.
  */
 import { calcularTotales, validarCuadre, type LineaFactura, type TotalesFEL } from './calculos';
@@ -87,14 +87,14 @@ export function configIncompleta(config: ConfigFEL | null): string[] {
   }) as string[];
 }
 
-export async function obtenerConfig(supabase: any): Promise<ConfigFEL | null> {
-  const { data, error } = await supabase.from('fel_config').select('*').eq('id', 1).maybeSingle();
+export async function obtenerConfig(db: any): Promise<ConfigFEL | null> {
+  const { data, error } = await db.from('fel_config').select('*').eq('id', 1).maybeSingle();
   if (error) throw new Error(`No se pudo leer la configuracion FEL: ${error.message}`);
   return data ?? null;
 }
 
-export async function guardarConfig(supabase: any, cambios: Partial<ConfigFEL>): Promise<ConfigFEL> {
-  const { data, error } = await supabase
+export async function guardarConfig(db: any, cambios: Partial<ConfigFEL>): Promise<ConfigFEL> {
+  const { data, error } = await db
     .from('fel_config')
     .update({ ...cambios, actualizado_en: new Date().toISOString() })
     .eq('id', 1)
@@ -219,10 +219,10 @@ export function prepararDTE(invoice: any): PreparacionDTE {
 }
 
 export async function obtenerDocumentoPorFactura(
-  supabase: any,
+  db: any,
   invoiceId: string
 ): Promise<DocumentoFEL | null> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fel_documentos')
     .select('*')
     .eq('invoice_id', invoiceId)
@@ -233,10 +233,10 @@ export async function obtenerDocumentoPorFactura(
 }
 
 export async function listarDocumentos(
-  supabase: any,
+  db: any,
   filtros: { estado?: string; limite?: number } = {}
 ): Promise<DocumentoFEL[]> {
-  let q = supabase.from('fel_documentos').select('*').order('creado_en', { ascending: false });
+  let q = db.from('fel_documentos').select('*').order('creado_en', { ascending: false });
   if (filtros.estado) q = q.eq('estado', filtros.estado);
   q = q.limit(filtros.limite ?? 200);
   const { data, error } = await q;
@@ -244,9 +244,9 @@ export async function listarDocumentos(
   return data || [];
 }
 
-async function registrarBitacora(supabase: any, entrada: Record<string, any>) {
+async function registrarBitacora(db: any, entrada: Record<string, any>) {
   try {
-    await supabase.from('fel_bitacora').insert(entrada);
+    await db.from('fel_bitacora').insert(entrada);
   } catch {
     // La bitacora nunca debe tumbar la operacion principal.
   }
@@ -268,12 +268,12 @@ export interface ResultadoCertificacion {
  * puede probar hoy y, al llegar las credenciales, solo se conecta el ultimo paso.
  */
 export async function certificarFactura(
-  supabase: any,
+  db: any,
   invoice: any,
   opciones: { tipoDte?: TipoDTE; receptor?: ReceptorOverride } = {}
 ): Promise<ResultadoCertificacion> {
   const inicio = Date.now();
-  const config = await obtenerConfig(supabase);
+  const config = await obtenerConfig(db);
   const faltantes = configIncompleta(config);
   // El negocio factura con FACTURA CAMBIARIA (FCAM) por defecto; el tipo se
   // puede cambiar por peticion o en fel_config.tipo_dte_default.
@@ -302,7 +302,7 @@ export async function certificarFactura(
   }
 
   // Reutiliza el documento existente si ya hubo intentos previos.
-  const existente = await obtenerDocumentoPorFactura(supabase, invoice.id);
+  const existente = await obtenerDocumentoPorFactura(db, invoice.id);
   if (existente && existente.estado === 'certificado') {
     return {
       documento: existente,
@@ -376,14 +376,14 @@ export async function certificarFactura(
   if (!puedeCertificar) {
     const motivo = new InfileNoConfiguradoError().message;
     const registro = { ...base, estado: 'pendiente' as EstadoFEL, mensaje_error: motivo, xml_enviado: xmlEnviado };
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fel_documentos')
       .upsert(registro, { onConflict: 'id' })
       .select()
       .single();
     if (error) throw new Error(`No se pudo guardar el documento FEL: ${error.message}`);
 
-    await registrarBitacora(supabase, {
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: 'certificar',
@@ -413,14 +413,14 @@ export async function certificarFactura(
       mensaje_error: resp.exito ? null : resp.mensaje ?? 'Rechazado por el certificador',
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fel_documentos')
       .upsert(registro, { onConflict: 'id' })
       .select()
       .single();
     if (error) throw new Error(`No se pudo guardar el documento FEL: ${error.message}`);
 
-    await registrarBitacora(supabase, {
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: 'certificar',
@@ -441,13 +441,13 @@ export async function certificarFactura(
     };
   } catch (e: any) {
     const registro = { ...base, estado: 'error' as EstadoFEL, mensaje_error: e?.message ?? String(e), xml_enviado: xmlEnviado };
-    const { data } = await supabase
+    const { data } = await db
       .from('fel_documentos')
       .upsert(registro, { onConflict: 'id' })
       .select()
       .single();
 
-    await registrarBitacora(supabase, {
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: 'certificar',
@@ -478,14 +478,14 @@ export interface ResultadoAnulacion {
  * marcado como anulado ante SAT. Solo procede sobre documentos certificados.
  */
 export async function anularFactura(
-  supabase: any,
+  db: any,
   invoice: any,
   motivo: string
 ): Promise<ResultadoAnulacion> {
   const inicio = Date.now();
-  const config = await obtenerConfig(supabase);
+  const config = await obtenerConfig(db);
 
-  const documento = await obtenerDocumentoPorFactura(supabase, invoice.id);
+  const documento = await obtenerDocumentoPorFactura(db, invoice.id);
   if (!documento) throw new Error('Esta factura no tiene ningun documento FEL emitido.');
   if (documento.estado === 'anulado') {
     return { documento, anulado: true, mensaje: 'El documento ya estaba anulado.' };
@@ -531,7 +531,7 @@ export async function anularFactura(
     cambios.mensaje_error = `Anulacion rechazada: ${resp.mensaje ?? 'sin detalle'}`;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fel_documentos')
     .update(cambios)
     .eq('id', documento.id)
@@ -539,7 +539,7 @@ export async function anularFactura(
     .single();
   if (error) throw new Error(`No se pudo actualizar el documento FEL: ${error.message}`);
 
-  await registrarBitacora(supabase, {
+  await registrarBitacora(db, {
     documento_id: documento.id,
     invoice_id: invoice.id,
     operacion: 'anular',

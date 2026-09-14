@@ -25,7 +25,7 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
   const [photoUrl, setPhotoUrl] = useState<string>('');
   const [isLoadingPhoto, setIsLoadingPhoto] = useState<boolean>(false);
 
-  // Fetch visit photo on-demand from Supabase when modal opens
+  // Fetch visit photo on-demand from local API when modal opens
   useEffect(() => {
     if (!isOpen || !visit) {
       setPhotoUrl('');

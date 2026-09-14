@@ -9,9 +9,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
 import "dotenv/config";
 import express from "express";
 import compression from "compression";
-import path from "path";
+import path2 from "path";
 import multer from "multer";
-import fs from "fs";
+import fs2 from "fs";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import helmet from "helmet";
@@ -367,13 +367,13 @@ function configIncompleta(config) {
     return v === null || v === void 0 || v === "";
   });
 }
-async function obtenerConfig(supabase2) {
-  const { data, error } = await supabase2.from("fel_config").select("*").eq("id", 1).maybeSingle();
+async function obtenerConfig(db) {
+  const { data, error } = await db.from("fel_config").select("*").eq("id", 1).maybeSingle();
   if (error) throw new Error(`No se pudo leer la configuracion FEL: ${error.message}`);
   return data ?? null;
 }
-async function guardarConfig(supabase2, cambios) {
-  const { data, error } = await supabase2.from("fel_config").update({ ...cambios, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", 1).select().single();
+async function guardarConfig(db, cambios) {
+  const { data, error } = await db.from("fel_config").update({ ...cambios, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", 1).select().single();
   if (error) throw new Error(`No se pudo guardar la configuracion FEL: ${error.message}`);
   return data;
 }
@@ -428,28 +428,28 @@ function prepararDTE(invoice) {
   }
   return { totales, advertencias, nitReceptor };
 }
-async function obtenerDocumentoPorFactura(supabase2, invoiceId) {
-  const { data, error } = await supabase2.from("fel_documentos").select("*").eq("invoice_id", invoiceId).order("creado_en", { ascending: false }).limit(1);
+async function obtenerDocumentoPorFactura(db, invoiceId) {
+  const { data, error } = await db.from("fel_documentos").select("*").eq("invoice_id", invoiceId).order("creado_en", { ascending: false }).limit(1);
   if (error) throw new Error(`No se pudo leer el documento FEL: ${error.message}`);
   return data && data.length ? data[0] : null;
 }
-async function listarDocumentos(supabase2, filtros = {}) {
-  let q = supabase2.from("fel_documentos").select("*").order("creado_en", { ascending: false });
+async function listarDocumentos(db, filtros = {}) {
+  let q = db.from("fel_documentos").select("*").order("creado_en", { ascending: false });
   if (filtros.estado) q = q.eq("estado", filtros.estado);
   q = q.limit(filtros.limite ?? 200);
   const { data, error } = await q;
   if (error) throw new Error(`No se pudieron listar los documentos FEL: ${error.message}`);
   return data || [];
 }
-async function registrarBitacora(supabase2, entrada) {
+async function registrarBitacora(db, entrada) {
   try {
-    await supabase2.from("fel_bitacora").insert(entrada);
+    await db.from("fel_bitacora").insert(entrada);
   } catch {
   }
 }
-async function certificarFactura(supabase2, invoice, opciones = {}) {
+async function certificarFactura(db, invoice, opciones = {}) {
   const inicio = Date.now();
-  const config = await obtenerConfig(supabase2);
+  const config = await obtenerConfig(db);
   const faltantes = configIncompleta(config);
   const tipoDte = opciones.tipoDte ?? (config?.tipo_dte_default || "FCAM");
   const { totales, advertencias, nitReceptor } = prepararDTE(invoice);
@@ -464,7 +464,7 @@ async function certificarFactura(supabase2, invoice, opciones = {}) {
   if (faltantes.length) {
     advertencias.push(`Falta completar la configuracion del emisor: ${faltantes.join(", ")}.`);
   }
-  const existente = await obtenerDocumentoPorFactura(supabase2, invoice.id);
+  const existente = await obtenerDocumentoPorFactura(db, invoice.id);
   if (existente && existente.estado === "certificado") {
     return {
       documento: existente,
@@ -527,9 +527,9 @@ async function certificarFactura(supabase2, invoice, opciones = {}) {
   if (!puedeCertificar) {
     const motivo = new InfileNoConfiguradoError().message;
     const registro = { ...base, estado: "pendiente", mensaje_error: motivo, xml_enviado: xmlEnviado };
-    const { data, error } = await supabase2.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
+    const { data, error } = await db.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
     if (error) throw new Error(`No se pudo guardar el documento FEL: ${error.message}`);
-    await registrarBitacora(supabase2, {
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: "certificar",
@@ -554,9 +554,9 @@ async function certificarFactura(supabase2, invoice, opciones = {}) {
       fecha_certificacion: resp.exito ? resp.fecha ?? (/* @__PURE__ */ new Date()).toISOString() : null,
       mensaje_error: resp.exito ? null : resp.mensaje ?? "Rechazado por el certificador"
     };
-    const { data, error } = await supabase2.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
+    const { data, error } = await db.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
     if (error) throw new Error(`No se pudo guardar el documento FEL: ${error.message}`);
-    await registrarBitacora(supabase2, {
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: "certificar",
@@ -576,8 +576,8 @@ async function certificarFactura(supabase2, invoice, opciones = {}) {
     };
   } catch (e) {
     const registro = { ...base, estado: "error", mensaje_error: e?.message ?? String(e), xml_enviado: xmlEnviado };
-    const { data } = await supabase2.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
-    await registrarBitacora(supabase2, {
+    const { data } = await db.from("fel_documentos").upsert(registro, { onConflict: "id" }).select().single();
+    await registrarBitacora(db, {
       documento_id: id,
       invoice_id: invoice.id,
       operacion: "certificar",
@@ -593,10 +593,10 @@ async function certificarFactura(supabase2, invoice, opciones = {}) {
     };
   }
 }
-async function anularFactura(supabase2, invoice, motivo) {
+async function anularFactura(db, invoice, motivo) {
   const inicio = Date.now();
-  const config = await obtenerConfig(supabase2);
-  const documento = await obtenerDocumentoPorFactura(supabase2, invoice.id);
+  const config = await obtenerConfig(db);
+  const documento = await obtenerDocumentoPorFactura(db, invoice.id);
   if (!documento) throw new Error("Esta factura no tiene ningun documento FEL emitido.");
   if (documento.estado === "anulado") {
     return { documento, anulado: true, mensaje: "El documento ya estaba anulado." };
@@ -636,9 +636,9 @@ async function anularFactura(supabase2, invoice, motivo) {
   } else {
     cambios.mensaje_error = `Anulacion rechazada: ${resp.mensaje ?? "sin detalle"}`;
   }
-  const { data, error } = await supabase2.from("fel_documentos").update(cambios).eq("id", documento.id).select().single();
+  const { data, error } = await db.from("fel_documentos").update(cambios).eq("id", documento.id).select().single();
   if (error) throw new Error(`No se pudo actualizar el documento FEL: ${error.message}`);
-  await registrarBitacora(supabase2, {
+  await registrarBitacora(db, {
     documento_id: documento.id,
     invoice_id: invoice.id,
     operacion: "anular",
@@ -652,8 +652,425 @@ async function anularFactura(supabase2, invoice, motivo) {
 }
 
 // server.ts
-import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
+
+// localDb.ts
+import fs from "fs";
+import path from "path";
+function cleanCol(col) {
+  const trimmed = col.trim();
+  if (trimmed === "*" || trimmed.includes("(") || trimmed.includes(" AS ") || trimmed.includes(" as ")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed;
+  }
+  return `"${trimmed.replace(/"/g, "")}"`;
+}
+function parseColumns(cols) {
+  if (!cols || cols.trim() === "*" || cols.trim() === "") return "*";
+  return cols.split(",").map((c) => cleanCol(c)).join(", ");
+}
+var LocalQueryBuilder = class {
+  constructor(pool, table) {
+    this.op = "select";
+    this.selectCols = "*";
+    this.insertData = [];
+    this.updateData = {};
+    this.onConflictCol = "id";
+    this.conditions = [];
+    this.orderClauses = [];
+    this.isSingle = false;
+    this.isMaybeSingle = false;
+    this.pool = pool;
+    this.table = table.replace(/[^a-zA-Z0-9_]/g, "");
+  }
+  select(cols = "*") {
+    this.selectCols = parseColumns(cols);
+    return this;
+  }
+  insert(data) {
+    this.op = "insert";
+    this.insertData = Array.isArray(data) ? data : [data];
+    return this;
+  }
+  update(data) {
+    this.op = "update";
+    this.updateData = data || {};
+    return this;
+  }
+  delete() {
+    this.op = "delete";
+    return this;
+  }
+  upsert(data, options) {
+    this.op = "upsert";
+    this.insertData = Array.isArray(data) ? data : [data];
+    if (options?.onConflict) {
+      this.onConflictCol = options.onConflict;
+    }
+    return this;
+  }
+  eq(column, value) {
+    if (value === null || value === void 0) {
+      this.conditions.push({ sql: `${cleanCol(column)} IS NULL` });
+    } else {
+      this.conditions.push({ sql: `${cleanCol(column)} = $PARAM`, val: value });
+    }
+    return this;
+  }
+  neq(column, value) {
+    if (value === null || value === void 0) {
+      this.conditions.push({ sql: `${cleanCol(column)} IS NOT NULL` });
+    } else {
+      this.conditions.push({ sql: `${cleanCol(column)} != $PARAM`, val: value });
+    }
+    return this;
+  }
+  gt(column, value) {
+    this.conditions.push({ sql: `${cleanCol(column)} > $PARAM`, val: value });
+    return this;
+  }
+  gte(column, value) {
+    this.conditions.push({ sql: `${cleanCol(column)} >= $PARAM`, val: value });
+    return this;
+  }
+  lt(column, value) {
+    this.conditions.push({ sql: `${cleanCol(column)} < $PARAM`, val: value });
+    return this;
+  }
+  lte(column, value) {
+    this.conditions.push({ sql: `${cleanCol(column)} <= $PARAM`, val: value });
+    return this;
+  }
+  ilike(column, pattern) {
+    this.conditions.push({ sql: `${cleanCol(column)} ILIKE $PARAM`, val: pattern });
+    return this;
+  }
+  like(column, pattern) {
+    this.conditions.push({ sql: `${cleanCol(column)} LIKE $PARAM`, val: pattern });
+    return this;
+  }
+  in(column, values) {
+    if (!Array.isArray(values) || values.length === 0) {
+      this.conditions.push({ sql: "1 = 0" });
+    } else {
+      const placeholders = values.map(() => "$PARAM").join(", ");
+      this.conditions.push({ sql: `${cleanCol(column)} IN (${placeholders})`, val: values });
+    }
+    return this;
+  }
+  is(column, value) {
+    if (value === null) {
+      this.conditions.push({ sql: `${cleanCol(column)} IS NULL` });
+    } else if (value === false) {
+      this.conditions.push({ sql: `(${cleanCol(column)} IS FALSE OR ${cleanCol(column)} IS NULL)` });
+    } else if (value === true) {
+      this.conditions.push({ sql: `${cleanCol(column)} IS TRUE` });
+    } else {
+      this.conditions.push({ sql: `${cleanCol(column)} IS ${value}` });
+    }
+    return this;
+  }
+  or(filterString) {
+    if (!filterString || typeof filterString !== "string") return this;
+    const parts = filterString.split(",").map((p) => p.trim()).filter(Boolean);
+    const orSqlParts = [];
+    for (const part of parts) {
+      if (part.includes(".eq.")) {
+        const [c, val] = part.split(".eq.");
+        this.conditions.push({ sql: `_OR_DUMMY_`, val });
+        orSqlParts.push(`${cleanCol(c)} = $PARAM`);
+      } else if (part.includes(".ilike.")) {
+        const [c, val] = part.split(".ilike.");
+        this.conditions.push({ sql: `_OR_DUMMY_`, val });
+        orSqlParts.push(`${cleanCol(c)} ILIKE $PARAM`);
+      } else if (part.includes(".like.")) {
+        const [c, val] = part.split(".like.");
+        this.conditions.push({ sql: `_OR_DUMMY_`, val });
+        orSqlParts.push(`${cleanCol(c)} LIKE $PARAM`);
+      } else if (part.includes(".neq.")) {
+        const [c, val] = part.split(".neq.");
+        this.conditions.push({ sql: `_OR_DUMMY_`, val });
+        orSqlParts.push(`${cleanCol(c)} != $PARAM`);
+      }
+    }
+    if (orSqlParts.length > 0) {
+      const vals = [];
+      for (let i = 0; i < orSqlParts.length; i++) {
+        const dummy = this.conditions.pop();
+        if (dummy?.val !== void 0) vals.unshift(dummy.val);
+      }
+      this.conditions.push({
+        sql: `(${orSqlParts.join(" OR ")})`,
+        val: vals
+        // array of vals to unpack in buildWhere
+      });
+    }
+    return this;
+  }
+  order(column, options) {
+    const dir = options?.ascending === false ? "DESC" : "ASC";
+    let clause = `${cleanCol(column)} ${dir}`;
+    if (options?.nullsFirst === true) {
+      clause += " NULLS FIRST";
+    } else if (options?.nullsFirst === false) {
+      clause += " NULLS LAST";
+    }
+    this.orderClauses.push(clause);
+    return this;
+  }
+  limit(count) {
+    this.limitCount = count;
+    return this;
+  }
+  range(from, to) {
+    this.offsetCount = Math.max(0, from);
+    this.limitCount = Math.max(0, to - from + 1);
+    return this;
+  }
+  single() {
+    this.isSingle = true;
+    this.limitCount = 1;
+    return this;
+  }
+  maybeSingle() {
+    this.isMaybeSingle = true;
+    this.limitCount = 1;
+    return this;
+  }
+  buildWhere(params) {
+    if (this.conditions.length === 0) return "";
+    const parts = this.conditions.map((c) => {
+      if (Array.isArray(c.val)) {
+        let sql = c.sql;
+        for (const v of c.val) {
+          params.push(v);
+          sql = sql.replace("$PARAM", `$${params.length}`);
+        }
+        return sql;
+      }
+      if (c.val !== void 0) {
+        params.push(c.val);
+        return c.sql.replace("$PARAM", `$${params.length}`);
+      }
+      return c.sql;
+    });
+    return ` WHERE ${parts.join(" AND ")}`;
+  }
+  async execute() {
+    if (!this.pool) {
+      console.warn(`[LocalDb] Pool no disponible al consultar "${this.table}"`);
+      return { data: this.isSingle || this.isMaybeSingle ? null : [], error: { message: "Database pool not initialized" } };
+    }
+    try {
+      const params = [];
+      let queryText = "";
+      if (this.op === "select") {
+        const where = this.buildWhere(params);
+        let order = "";
+        if (this.orderClauses.length > 0) {
+          order = ` ORDER BY ${this.orderClauses.join(", ")}`;
+        }
+        let limitOffset = "";
+        if (this.limitCount !== void 0) {
+          limitOffset += ` LIMIT ${this.limitCount}`;
+        }
+        if (this.offsetCount !== void 0) {
+          limitOffset += ` OFFSET ${this.offsetCount}`;
+        }
+        queryText = `SELECT ${this.selectCols} FROM public."${this.table}"${where}${order}${limitOffset};`;
+      } else if (this.op === "insert") {
+        if (this.insertData.length === 0) {
+          return { data: this.isSingle ? null : [], error: null };
+        }
+        const sample = this.insertData[0];
+        const rawKeys = Object.keys(sample);
+        const colNames = rawKeys.map(cleanCol).join(", ");
+        const valuePlaceholders = [];
+        for (const row of this.insertData) {
+          const rowPlaceholders = [];
+          for (const key of rawKeys) {
+            let val = row[key];
+            if (typeof val === "object" && val !== null && !(val instanceof Date)) {
+              val = JSON.stringify(val);
+            }
+            params.push(val === void 0 ? null : val);
+            rowPlaceholders.push(`$${params.length}`);
+          }
+          valuePlaceholders.push(`(${rowPlaceholders.join(", ")})`);
+        }
+        queryText = `INSERT INTO public."${this.table}" (${colNames}) VALUES ${valuePlaceholders.join(", ")} RETURNING *;`;
+      } else if (this.op === "update") {
+        const setClauses = [];
+        for (const [key, rawVal] of Object.entries(this.updateData)) {
+          let val = rawVal;
+          if (typeof val === "object" && val !== null && !(val instanceof Date)) {
+            val = JSON.stringify(val);
+          }
+          params.push(val === void 0 ? null : val);
+          setClauses.push(`${cleanCol(key)} = $${params.length}`);
+        }
+        if (setClauses.length === 0) {
+          return { data: this.isSingle ? null : [], error: null };
+        }
+        const where = this.buildWhere(params);
+        queryText = `UPDATE public."${this.table}" SET ${setClauses.join(", ")}${where} RETURNING *;`;
+      } else if (this.op === "delete") {
+        const where = this.buildWhere(params);
+        queryText = `DELETE FROM public."${this.table}"${where} RETURNING *;`;
+      } else if (this.op === "upsert") {
+        if (this.insertData.length === 0) {
+          return { data: this.isSingle ? null : [], error: null };
+        }
+        const sample = this.insertData[0];
+        const rawKeys = Object.keys(sample);
+        const colNames = rawKeys.map(cleanCol).join(", ");
+        const valuePlaceholders = [];
+        for (const row of this.insertData) {
+          const rowPlaceholders = [];
+          for (const key of rawKeys) {
+            let val = row[key];
+            if (typeof val === "object" && val !== null && !(val instanceof Date)) {
+              val = JSON.stringify(val);
+            }
+            params.push(val === void 0 ? null : val);
+            rowPlaceholders.push(`$${params.length}`);
+          }
+          valuePlaceholders.push(`(${rowPlaceholders.join(", ")})`);
+        }
+        const conflictColClean = cleanCol(this.onConflictCol);
+        const updateSets = rawKeys.filter((k) => cleanCol(k) !== conflictColClean).map((k) => `${cleanCol(k)} = EXCLUDED.${cleanCol(k)}`).join(", ");
+        const onConflictClause = updateSets.length > 0 ? `ON CONFLICT (${conflictColClean}) DO UPDATE SET ${updateSets}` : `ON CONFLICT (${conflictColClean}) DO NOTHING`;
+        queryText = `INSERT INTO public."${this.table}" (${colNames}) VALUES ${valuePlaceholders.join(", ")} ${onConflictClause} RETURNING *;`;
+      }
+      const res = await this.pool.query(queryText, params);
+      const rows = res.rows || [];
+      if (this.isSingle) {
+        if (rows.length === 0) {
+          return { data: null, error: { message: "Row not found" } };
+        }
+        return { data: rows[0], error: null };
+      }
+      if (this.isMaybeSingle) {
+        return { data: rows[0] || null, error: null };
+      }
+      return { data: rows, error: null };
+    } catch (err) {
+      console.error(`[LocalDb Query Error on ${this.table}]:`, err?.message || err);
+      return { data: this.isSingle || this.isMaybeSingle ? null : [], error: err };
+    }
+  }
+  then(onfulfilled, onrejected) {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+};
+var LocalStorageBucket = class {
+  constructor(baseDir, bucketName) {
+    this.baseDir = baseDir;
+    this.bucketName = bucketName;
+  }
+  getBucketPath() {
+    const dir = path.join(this.baseDir, this.bucketName);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
+  async upload(fileName, buffer, options) {
+    try {
+      const bucketDir = this.getBucketPath();
+      const cleanFileName = fileName.replace(/^[\/\\]+/, "");
+      const filePath = path.join(bucketDir, cleanFileName);
+      const fileDir = path.dirname(filePath);
+      if (!fs.existsSync(fileDir)) {
+        fs.mkdirSync(fileDir, { recursive: true });
+      }
+      fs.writeFileSync(filePath, buffer);
+      return { data: { path: cleanFileName }, error: null };
+    } catch (err) {
+      console.error(`[LocalStorage Upload Error in ${this.bucketName}]:`, err?.message || err);
+      return { data: null, error: err };
+    }
+  }
+  getPublicUrl(fileName) {
+    const cleanFileName = fileName.replace(/^[\/\\]+/, "");
+    const publicUrl = `/storage/v1/object/public/${this.bucketName}/${cleanFileName}`;
+    return { data: { publicUrl } };
+  }
+  async download(fileName) {
+    try {
+      const bucketDir = this.getBucketPath();
+      const cleanFileName = fileName.replace(/^[\/\\]+/, "");
+      const filePath = path.join(bucketDir, cleanFileName);
+      if (!fs.existsSync(filePath)) {
+        return { data: null, error: new Error("File not found") };
+      }
+      const data = fs.readFileSync(filePath);
+      return { data, error: null };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  }
+};
+var LocalStorage = class {
+  constructor(baseDir) {
+    this.baseDir = baseDir;
+    if (!fs.existsSync(this.baseDir)) {
+      fs.mkdirSync(this.baseDir, { recursive: true });
+    }
+  }
+  async listBuckets() {
+    try {
+      if (!fs.existsSync(this.baseDir)) return { data: [], error: null };
+      const entries = fs.readdirSync(this.baseDir, { withFileTypes: true });
+      const buckets = entries.filter((e) => e.isDirectory()).map((e) => ({ name: e.name }));
+      return { data: buckets, error: null };
+    } catch (err) {
+      return { data: [], error: err };
+    }
+  }
+  async createBucket(name, _options) {
+    try {
+      const bucketDir = path.join(this.baseDir, name);
+      if (!fs.existsSync(bucketDir)) {
+        fs.mkdirSync(bucketDir, { recursive: true });
+      }
+      return { data: { name }, error: null };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  }
+  from(bucketName) {
+    return new LocalStorageBucket(this.baseDir, bucketName);
+  }
+};
+var LocalDbClient = class {
+  constructor(options) {
+    this.pool = options.pool;
+    const storagePath = options.storageDir || path.join(process.cwd(), "storage");
+    this.storage = new LocalStorage(storagePath);
+  }
+  from(table) {
+    return new LocalQueryBuilder(this.pool, table);
+  }
+  async rpc(fnName, args) {
+    if (fnName === "exec_sql" && args?.sql && this.pool) {
+      try {
+        const res = await this.pool.query(args.sql);
+        return { data: res.rows, error: null };
+      } catch (err) {
+        return { data: null, error: err };
+      }
+    }
+    return { data: null, error: new Error(`RPC function "${fnName}" not implemented in localDb`) };
+  }
+};
+function createLocalDb(options) {
+  return new LocalDbClient(options);
+}
+
+// server.ts
 var sharp = null;
 try {
   sharp = __require("sharp");
@@ -664,36 +1081,31 @@ function requireEnv(name) {
   if (!value || !value.trim()) {
     console.warn(`[WARN] Variable de entorno ${name} no configurada. Usando valor por defecto.`);
     if (name === "JWT_SECRET") return "agricovet_secret_key_2026";
-    if (name === "SUPABASE_URL") return "";
-    if (name === "SUPABASE_ANON_KEY") return "";
     return "default_value";
   }
   return value.trim();
 }
 var JWT_SECRET = requireEnv("JWT_SECRET");
-var supabaseUrl = requireEnv("SUPABASE_URL");
-var supabaseKey = requireEnv("SUPABASE_ANON_KEY");
-var supabase = createClient(supabaseUrl, supabaseKey);
-console.log(`[DB] Conectado a Supabase: ${supabaseUrl}`);
-var neonDbUrl = process.env.NEON_DATABASE_URL || "";
-var neonPool = neonDbUrl ? new pg.Pool({
+var neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || "postgresql://postgres:postgres123@localhost:5432/postgres";
+var isRemoteCloudPg = neonDbUrl.includes("neon.tech") || neonDbUrl.includes("sslmode=require") && !neonDbUrl.includes("172.") && !neonDbUrl.includes("185.166.39.49");
+var neonPool = new pg.Pool({
   connectionString: neonDbUrl,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
+  ssl: isRemoteCloudPg ? { rejectUnauthorized: false } : false,
+  max: 20,
   idleTimeoutMillis: 3e4,
   connectionTimeoutMillis: 5e3
-}) : null;
-if (neonPool) {
-  console.log(`[DB] Pool de Respaldo Neon inicializado.`);
-} else {
-  console.warn(`[DB] NEON_DATABASE_URL no configurada. Respaldo Neon inactivo.`);
-}
-var PANIC_STATE_FILE = path.join(process.cwd(), "panic_state.json");
+});
+console.log(`[DB] \u2705 Conectado a PostgreSQL: ${neonDbUrl}`);
+var localDb = createLocalDb({
+  pool: neonPool,
+  storageDir: path2.join(process.cwd(), "storage")
+});
+var PANIC_STATE_FILE = path2.join(process.cwd(), "panic_state.json");
 var lastDbModeCached = {
-  mode: "supabase",
+  mode: "neon",
   timestamp: 0
 };
-var activeDatabaseMode = "supabase";
+var activeDatabaseMode = "neon";
 async function fetchGlobalDbModeFromDb() {
   if (Date.now() - lastDbModeCached.timestamp < 15e3) {
     return lastDbModeCached.mode;
@@ -703,7 +1115,7 @@ async function fetchGlobalDbModeFromDb() {
       const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
       if (res.rows && res.rows.length > 0) {
         const val = res.rows[0].value;
-        if (val === "neon" || val === "supabase") {
+        if (val === "neon" || val === "local") {
           activeDatabaseMode = val;
           lastDbModeCached = { mode: val, timestamp: Date.now() };
           return val;
@@ -713,10 +1125,10 @@ async function fetchGlobalDbModeFromDb() {
     }
   }
   try {
-    if (fs.existsSync(PANIC_STATE_FILE)) {
-      const content = fs.readFileSync(PANIC_STATE_FILE, "utf-8");
+    if (fs2.existsSync(PANIC_STATE_FILE)) {
+      const content = fs2.readFileSync(PANIC_STATE_FILE, "utf-8");
       const parsed = JSON.parse(content);
-      if (parsed.activeMode === "neon" || parsed.activeMode === "supabase") {
+      if (parsed.activeMode === "neon" || parsed.activeMode === "local") {
         activeDatabaseMode = parsed.activeMode;
         lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
         return parsed.activeMode;
@@ -742,7 +1154,7 @@ async function persistGlobalDbMode(mode) {
     }
   }
   try {
-    fs.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
+    fs2.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
       activeMode: mode,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     }, null, 2), "utf-8");
@@ -932,40 +1344,40 @@ async function seedDatabase(force = false) {
   try {
     console.log(`[Seed] Inactive check for products. force=${force}`);
     try {
-      await supabase.from("products").delete().in("name", ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
+      await localDb.from("products").delete().in("name", ["Dexametasona 20 ml", "Simparica trio 20-40kg", "Simparica trio 10-20kg"]);
     } catch (e) {
     }
     try {
-      await supabase.from("users").update({ name: "Erick Ju\xE1rez" }).ilike("email", "jerickottoniel@gmail.com");
+      await localDb.from("users").update({ name: "Erick Ju\xE1rez" }).ilike("email", "jerickottoniel@gmail.com");
     } catch (e) {
     }
-    const { data: defaultUsers, error: uErr } = await supabase.from("users").select("id").limit(1);
+    const { data: defaultUsers, error: uErr } = await localDb.from("users").select("id").limit(1);
     if (uErr) {
       if (uErr.message && uErr.message.includes("fetch failed")) {
-        console.warn("[Seed] Supabase DB offline or fetch failed; using local fallbacks.");
+        console.warn("[Seed] PostgreSQL Local DB offline or fetch failed; using local fallbacks.");
         return;
       }
       console.warn("[Seed] Error checking users:", uErr.message);
     } else if (force || !defaultUsers || defaultUsers.length === 0) {
       console.log("[Seed] Seeding users...");
       const userInserts = initialDb.users.map((u) => ({ ...u, password: u.password }));
-      const { error: insErr } = await supabase.from("users").insert(userInserts);
+      const { error: insErr } = await localDb.from("users").insert(userInserts);
       if (insErr) console.error("[Seed] User insertion failed:", insErr.message);
     }
-    const { data: defaultProducts, error: pErr } = await supabase.from("products").select("id").limit(1);
+    const { data: defaultProducts, error: pErr } = await localDb.from("products").select("id").limit(1);
     if (pErr) {
       console.warn("[Seed] Error checking products:", pErr.message);
     } else if (force || !defaultProducts || defaultProducts.length === 0) {
       console.log("[Seed] Seeding products...");
-      const { error: insErr } = await supabase.from("products").insert(initialDb.products);
+      const { error: insErr } = await localDb.from("products").insert(initialDb.products);
       if (insErr) console.error("[Seed] Product insertion failed:", insErr.message);
     }
-    const { data: defaultOffers, error: oErr } = await supabase.from("offers").select("id").limit(1);
+    const { data: defaultOffers, error: oErr } = await localDb.from("offers").select("id").limit(1);
     if (oErr) {
       console.warn("[Seed] Error checking offers:", oErr.message);
     } else if (force || !defaultOffers || defaultOffers.length === 0) {
       console.log("[Seed] Seeding offers...");
-      const { error: insErr } = await supabase.from("offers").insert(initialDb.offers);
+      const { error: insErr } = await localDb.from("offers").insert(initialDb.offers);
       if (insErr) console.error("[Seed] Offer insertion failed:", insErr.message);
     }
     console.log("[Seed] Finished seeding process.");
@@ -1083,6 +1495,12 @@ var loginLimiter = rateLimit({
 });
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", loginLimiter);
+var storageLocalPath = path2.join(process.cwd(), "storage");
+if (!fs2.existsSync(storageLocalPath)) {
+  fs2.mkdirSync(storageLocalPath, { recursive: true });
+}
+app.use("/storage/v1/object/public", express.static(storageLocalPath, { maxAge: "7d" }));
+app.use("/storage", express.static(storageLocalPath, { maxAge: "7d" }));
 if (!process.env.VERCEL) {
   seedDatabase().catch((err) => console.error("Seeding DB failed", err));
 }
@@ -1113,7 +1531,7 @@ async function getFolioMap(forceRefresh = false) {
   let startFrom = 1;
   let resetDate = null;
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-folio-config").single();
     if (sysRow && sysRow.photo) {
       const config = JSON.parse(sysRow.photo);
       startFrom = config.startFrom || 1;
@@ -1122,10 +1540,10 @@ async function getFolioMap(forceRefresh = false) {
   } catch (e) {
   }
   if (startFrom === 1 && !resetDate) {
-    const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+    const FOLIO_CONFIG_FILE = path2.join(process.cwd(), "folio_config.json");
     try {
-      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-        const config = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+      if (fs2.existsSync(FOLIO_CONFIG_FILE)) {
+        const config = JSON.parse(fs2.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
         startFrom = config.startFrom || 1;
         resetDate = config.resetDate || null;
       }
@@ -1137,14 +1555,14 @@ async function getFolioMap(forceRefresh = false) {
   const PAGE_SIZE = 1e3;
   let hasMore = true;
   while (hasMore) {
-    let query = supabase.from("invoices").select("id, date, status, notes, folio").eq("is_archived", false);
+    let query = localDb.from("invoices").select("id, date, status, notes, folio").eq("is_archived", false);
     if (resetDate) {
       query = query.gte("date", resetDate);
     }
     const { data: pageData, error } = await query.order("date", { ascending: true, nullsFirst: false }).order("id", { ascending: true }).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (error) {
       if (error.code === "42703" || error.message?.includes("folio") || error.message?.includes("is_archived")) {
-        let retryQ = supabase.from("invoices").select("id, date, status, notes");
+        let retryQ = localDb.from("invoices").select("id, date, status, notes");
         if (resetDate) retryQ = retryQ.gte("date", resetDate);
         const retryRes = await retryQ.order("date", { ascending: true, nullsFirst: false }).order("id", { ascending: true }).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
         if (retryRes.data && retryRes.data.length > 0) {
@@ -1237,12 +1655,12 @@ var requireAuth = async (req, res, next) => {
     }
     if (!user) {
       try {
-        const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+        const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
         if (users && users.length > 0) {
           user = users[0];
         }
       } catch (dbErr) {
-        console.warn("Supabase error in requireAuth, trying Neon fallback:", dbErr);
+        console.warn("PostgreSQL Local error in requireAuth, trying Neon fallback:", dbErr);
         if (neonPool) {
           try {
             const rows = await queryNeon("SELECT * FROM public.users WHERE id = $1", [payload.id]);
@@ -1340,7 +1758,7 @@ async function acquireStockLocks(productIds) {
 }
 async function restaurarStockDeFactura(invoice) {
   for (const item of invoice.items || []) {
-    const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq("id", item.productId);
+    const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq("id", item.productId);
     const product = prods?.[0];
     if (product && !product.is_external) {
       let variantsToUpdate = product.variants ? [...product.variants] : [];
@@ -1354,10 +1772,10 @@ async function restaurarStockDeFactura(invoice) {
       if (variantObj && variantObj.stock !== void 0) {
         const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
         variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-        const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
+        const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
         if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
       } else {
-        const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
+        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
         if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
       }
     }
@@ -1380,22 +1798,22 @@ app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req, res) => {
     client,
     sellerId: sellerId || req.user.id
   };
-  await supabase.from("dispatches").insert([dispatchRecord]);
+  await localDb.from("dispatches").insert([dispatchRecord]);
   res.json({ success: true, dispatchId });
 }));
 app.post("/api/invoices/:id/dispatch", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { error } = await supabase.from("invoices").update({ status: "despachado" }).eq("id", id);
+  const { error } = await localDb.from("invoices").update({ status: "despachado" }).eq("id", id);
   if (error) throw error;
   await syncInvoiceToPermanentBackup(id);
   res.json({ success: true });
 }));
-var NOTIFICATIONS_FILE = path.join(process.cwd(), "notifications_local.json");
-var WAREHOUSE_CONFIG_FILE = path.join(process.cwd(), "warehouse_config.json");
+var NOTIFICATIONS_FILE = path2.join(process.cwd(), "notifications_local.json");
+var WAREHOUSE_CONFIG_FILE = path2.join(process.cwd(), "warehouse_config.json");
 function readWarehouseConfig() {
   try {
-    if (fs.existsSync(WAREHOUSE_CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(WAREHOUSE_CONFIG_FILE, "utf8"));
+    if (fs2.existsSync(WAREHOUSE_CONFIG_FILE)) {
+      return JSON.parse(fs2.readFileSync(WAREHOUSE_CONFIG_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading warehouse config:", err);
@@ -1404,7 +1822,7 @@ function readWarehouseConfig() {
 }
 function saveWarehouseConfig(config) {
   try {
-    fs.writeFileSync(WAREHOUSE_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+    fs2.writeFileSync(WAREHOUSE_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving warehouse config:", err);
   }
@@ -1415,17 +1833,17 @@ var vapidKeys = {
   publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
   privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
 };
-var VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
-var SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
-var FCM_TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
-var FIREBASE_SERVICE_ACCOUNT_FILE = path.join(process.cwd(), "firebase-service-account.json");
+var VAPID_FILE = path2.join(process.cwd(), "vapid_keys.json");
+var SUBSCRIPTIONS_FILE = path2.join(process.cwd(), "push_subscriptions.json");
+var FCM_TOKENS_FILE = path2.join(process.cwd(), "fcm_tokens.json");
+var FIREBASE_SERVICE_ACCOUNT_FILE = path2.join(process.cwd(), "firebase-service-account.json");
 var firebaseAdminApp = null;
 try {
   let serviceAccount = null;
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
-    serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  } else if (fs2.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
+    serviceAccount = JSON.parse(fs2.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
   }
   if (serviceAccount && serviceAccount.private_key) {
     firebaseAdminApp = admin.initializeApp({
@@ -1437,9 +1855,9 @@ try {
 } catch (err) {
   console.warn("[Firebase Admin] Init warning:", err.message || err);
 }
-if (fs.existsSync(VAPID_FILE)) {
+if (fs2.existsSync(VAPID_FILE)) {
   try {
-    const fileKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+    const fileKeys = JSON.parse(fs2.readFileSync(VAPID_FILE, "utf8"));
     if (fileKeys && fileKeys.publicKey && fileKeys.privateKey) {
       vapidKeys = fileKeys;
     }
@@ -1448,7 +1866,7 @@ if (fs.existsSync(VAPID_FILE)) {
   }
 } else {
   try {
-    fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
+    fs2.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf8");
   } catch (err) {
     console.warn("Notice: could not write VAPID file:", err);
   }
@@ -1464,8 +1882,8 @@ try {
 }
 function readPushSubscriptions() {
   try {
-    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
-      return JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, "utf8"));
+    if (fs2.existsSync(SUBSCRIPTIONS_FILE)) {
+      return JSON.parse(fs2.readFileSync(SUBSCRIPTIONS_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading push subscriptions:", err);
@@ -1474,7 +1892,7 @@ function readPushSubscriptions() {
 }
 function savePushSubscriptions(subs) {
   try {
-    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(subs, null, 2), "utf8");
+    fs2.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(subs, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving push subscriptions:", err);
   }
@@ -1486,7 +1904,7 @@ async function getPushSubscriptions() {
     if (s && s.endpoint) map.set(s.endpoint, s);
   });
   try {
-    const { data, error } = await supabase.from("push_subscriptions").select("*");
+    const { data, error } = await localDb.from("push_subscriptions").select("*");
     if (!error && Array.isArray(data)) {
       data.forEach((row) => {
         const sub = typeof row.subscription === "string" ? JSON.parse(row.subscription) : row.subscription || row;
@@ -1506,14 +1924,14 @@ async function savePushSubscription(subscription) {
   savePushSubscriptions(filtered);
   try {
     const subId = Buffer.from(subscription.endpoint).toString("base64").substring(0, 100);
-    await supabase.from("push_subscriptions").upsert([{
+    await localDb.from("push_subscriptions").upsert([{
       id: subId,
       endpoint: subscription.endpoint,
       subscription,
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
     }], { onConflict: "id" });
   } catch (err) {
-    console.warn("Could not upsert push subscription to Supabase:", err);
+    console.warn("Could not upsert push subscription to PostgreSQL Local:", err);
   }
 }
 async function removePushSubscription(endpoint) {
@@ -1522,14 +1940,14 @@ async function removePushSubscription(endpoint) {
   savePushSubscriptions(filtered);
   try {
     const subId = Buffer.from(endpoint).toString("base64").substring(0, 100);
-    await supabase.from("push_subscriptions").delete().eq("id", subId);
+    await localDb.from("push_subscriptions").delete().eq("id", subId);
   } catch (err) {
   }
 }
 function readFcmTokens() {
   try {
-    if (fs.existsSync(FCM_TOKENS_FILE)) {
-      return JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, "utf8"));
+    if (fs2.existsSync(FCM_TOKENS_FILE)) {
+      return JSON.parse(fs2.readFileSync(FCM_TOKENS_FILE, "utf8"));
     }
   } catch (err) {
   }
@@ -1537,7 +1955,7 @@ function readFcmTokens() {
 }
 function saveFcmTokens(tokens) {
   try {
-    fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
+    fs2.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
   } catch (err) {
   }
 }
@@ -1545,7 +1963,7 @@ async function getFcmTokens() {
   const local = readFcmTokens();
   const tokenSet = new Set(local);
   try {
-    const { data, error } = await supabase.from("fcm_tokens").select("token");
+    const { data, error } = await localDb.from("fcm_tokens").select("token");
     if (!error && Array.isArray(data)) {
       data.forEach((r) => {
         if (r?.token) tokenSet.add(r.token);
@@ -1563,7 +1981,7 @@ async function registerFcmToken(token) {
     saveFcmTokens(tokens);
   }
   try {
-    await supabase.from("fcm_tokens").upsert([{ token, updated_at: (/* @__PURE__ */ new Date()).toISOString() }], { onConflict: "token" });
+    await localDb.from("fcm_tokens").upsert([{ token, updated_at: (/* @__PURE__ */ new Date()).toISOString() }], { onConflict: "token" });
   } catch (e) {
   }
 }
@@ -1644,8 +2062,8 @@ async function broadcastPushNotification(title, message, url = "/") {
 }
 function readLocalNotifications() {
   try {
-    if (fs.existsSync(NOTIFICATIONS_FILE)) {
-      return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, "utf8"));
+    if (fs2.existsSync(NOTIFICATIONS_FILE)) {
+      return JSON.parse(fs2.readFileSync(NOTIFICATIONS_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading local notifications:", err);
@@ -1654,7 +2072,7 @@ function readLocalNotifications() {
 }
 function saveLocalNotifications(notifications) {
   try {
-    fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), "utf8");
+    fs2.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving local notifications:", err);
   }
@@ -1696,9 +2114,9 @@ async function createNotification(type, title, message, extra = {}) {
       invoiceId: ntf.invoiceId,
       invoice_id: ntf.invoice_id
     };
-    await supabase.from("notifications").insert([payload]);
+    await localDb.from("notifications").insert([payload]);
   } catch (err) {
-    console.warn("Error inserting notification into Supabase:", err);
+    console.warn("Error inserting notification into PostgreSQL Local:", err);
   }
   try {
     await broadcastPushNotification(title, message, "/");
@@ -1708,11 +2126,11 @@ async function createNotification(type, title, message, extra = {}) {
   console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
   return ntf;
 }
-var CLIENTS_FILE = path.join(process.cwd(), "clients_local.json");
+var CLIENTS_FILE = path2.join(process.cwd(), "clients_local.json");
 function readLocalClients() {
   try {
-    if (fs.existsSync(CLIENTS_FILE)) {
-      return JSON.parse(fs.readFileSync(CLIENTS_FILE, "utf8"));
+    if (fs2.existsSync(CLIENTS_FILE)) {
+      return JSON.parse(fs2.readFileSync(CLIENTS_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading local clients:", err);
@@ -1721,7 +2139,7 @@ function readLocalClients() {
 }
 function saveLocalClients(clients) {
   try {
-    fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2), "utf8");
+    fs2.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving local clients:", err);
   }
@@ -1857,10 +2275,10 @@ function updateLocalClient(id, updates, oldData) {
 function getDeletedClientKeys() {
   const current = /* @__PURE__ */ new Set();
   try {
-    const pathsToTry = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
+    const pathsToTry = ["deleted_clients.json", "/tmp/deleted_clients.json", path2.join(process.cwd(), "deleted_clients.json")];
     pathsToTry.forEach((fp) => {
-      if (fs.existsSync(fp)) {
-        const raw = fs.readFileSync(fp, "utf-8");
+      if (fs2.existsSync(fp)) {
+        const raw = fs2.readFileSync(fp, "utf-8");
         const list = JSON.parse(raw);
         if (Array.isArray(list)) {
           list.forEach((k) => {
@@ -1889,10 +2307,10 @@ function addDeletedClientKeys(...keys) {
     }
   });
   const arr = Array.from(current);
-  const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
+  const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path2.join(process.cwd(), "deleted_clients.json")];
   pathsToSave.forEach((fp) => {
     try {
-      fs.writeFileSync(fp, JSON.stringify(arr, null, 2));
+      fs2.writeFileSync(fp, JSON.stringify(arr, null, 2));
     } catch (e) {
     }
   });
@@ -1911,10 +2329,10 @@ function removeDeletedClientKey(...keys) {
   });
   if (changed) {
     const arr = Array.from(current);
-    const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path.join(process.cwd(), "deleted_clients.json")];
+    const pathsToSave = ["deleted_clients.json", "/tmp/deleted_clients.json", path2.join(process.cwd(), "deleted_clients.json")];
     pathsToSave.forEach((fp) => {
       try {
-        fs.writeFileSync(fp, JSON.stringify(arr, null, 2));
+        fs2.writeFileSync(fp, JSON.stringify(arr, null, 2));
       } catch (e) {
       }
     });
@@ -1968,9 +2386,9 @@ async function safeInsertClient(clientData) {
     if (!clientData.clientCode || clientData.clientCode.trim() === "") {
       clientData.clientCode = await generateUniqueClientCode();
     }
-    const { error } = await supabase.from("clients").insert([clientData]);
+    const { error } = await localDb.from("clients").insert([clientData]);
     if (!error) return true;
-    console.warn("Primary Supabase client insert failed, trying fallbacks:", error.message);
+    console.warn("Primary PostgreSQL Local client insert failed, trying fallbacks:", error.message);
     const payload = {
       id: clientData.id,
       name: clientData.name,
@@ -1986,7 +2404,7 @@ async function safeInsertClient(clientData) {
       clientCode: clientData.clientCode,
       isBlocked: clientData.isBlocked || false
     };
-    const { error: errorWithFallbacks } = await supabase.from("clients").insert([payload]);
+    const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
     if (!errorWithFallbacks) return true;
     console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
     let prunedPayload = { ...payload };
@@ -2017,7 +2435,7 @@ async function safeInsertClient(clientData) {
       needsRetry = true;
     }
     if (needsRetry) {
-      const { error: retryError } = await supabase.from("clients").insert([prunedPayload]);
+      const { error: retryError } = await localDb.from("clients").insert([prunedPayload]);
       if (!retryError) return true;
       console.warn("Client pruned insert failed:", retryError.message);
     }
@@ -2028,7 +2446,7 @@ async function safeInsertClient(clientData) {
       phone: clientData.phone || "",
       address: clientData.address || ""
     };
-    const { error: bareError } = await supabase.from("clients").insert([bareClient]);
+    const { error: bareError } = await localDb.from("clients").insert([bareClient]);
     if (!bareError) return true;
     console.error("Bare client backup insert failed:", bareError.message);
     return false;
@@ -2037,11 +2455,11 @@ async function safeInsertClient(clientData) {
     return false;
   }
 }
-var PAYMENTS_FILE = path.join(process.cwd(), "payments_local.json");
+var PAYMENTS_FILE = path2.join(process.cwd(), "payments_local.json");
 function readLocalPayments() {
   try {
-    if (fs.existsSync(PAYMENTS_FILE)) {
-      return JSON.parse(fs.readFileSync(PAYMENTS_FILE, "utf8"));
+    if (fs2.existsSync(PAYMENTS_FILE)) {
+      return JSON.parse(fs2.readFileSync(PAYMENTS_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading local payments:", err);
@@ -2050,7 +2468,7 @@ function readLocalPayments() {
 }
 function saveLocalPayments(payments) {
   try {
-    fs.writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2), "utf8");
+    fs2.writeFileSync(PAYMENTS_FILE, JSON.stringify(payments, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving local payments:", err);
   }
@@ -2090,12 +2508,12 @@ async function safeInsertPayment(payment) {
       receiptUrl: rUrl || null,
       notes: payment.notes || null
     };
-    const { error } = await supabase.from("payments").insert([paymentToInsert]);
+    const { error } = await localDb.from("payments").insert([paymentToInsert]);
     if (!error) return true;
-    console.warn("Primary Supabase payment insert failed, trying falling back without receiptUrl:", error.message);
+    console.warn("Primary PostgreSQL Local payment insert failed, trying falling back without receiptUrl:", error.message);
     delete paymentToInsert.receiptUrl;
     paymentToInsert.notes = rUrl || paymentToInsert.notes || null;
-    const { error: retryError } = await supabase.from("payments").insert([paymentToInsert]);
+    const { error: retryError } = await localDb.from("payments").insert([paymentToInsert]);
     if (!retryError) return true;
     console.error("Retry insert failed:", retryError.message);
     return false;
@@ -2108,24 +2526,24 @@ var JSON_BACKUP_ENABLED = process.env.ENABLE_JSON_BACKUP === "true";
 async function syncInvoiceToPermanentBackup(id, invoiceObj) {
   if (!JSON_BACKUP_ENABLED) return;
   try {
-    const backupPath = path.join(process.cwd(), "invoices_permanent_backup.json");
+    const backupPath = path2.join(process.cwd(), "invoices_permanent_backup.json");
     let invoicesList = [];
-    if (fs.existsSync(backupPath)) {
+    if (fs2.existsSync(backupPath)) {
       try {
-        invoicesList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+        invoicesList = JSON.parse(fs2.readFileSync(backupPath, "utf8"));
       } catch (e) {
         console.error("Error reading invoices permanent backup file:", e);
       }
     }
     let invoiceData = invoiceObj;
     if (!invoiceData) {
-      const { data } = await supabase.from("invoices").select("*").eq("id", id).single();
+      const { data } = await localDb.from("invoices").select("*").eq("id", id).single();
       invoiceData = data;
     }
     if (invoiceData) {
       invoicesList = invoicesList.filter((inv) => inv.id !== id);
       invoicesList.push(invoiceData);
-      fs.writeFileSync(backupPath, JSON.stringify(invoicesList, null, 2), "utf8");
+      fs2.writeFileSync(backupPath, JSON.stringify(invoicesList, null, 2), "utf8");
       console.log(`[Backup] Persisted invoice ${id} to invoices_permanent_backup.json`);
     }
   } catch (err) {
@@ -2135,34 +2553,34 @@ async function syncInvoiceToPermanentBackup(id, invoiceObj) {
 async function syncPaymentToPermanentBackup(id, paymentObj) {
   if (!JSON_BACKUP_ENABLED) return;
   try {
-    const backupPath = path.join(process.cwd(), "payments_permanent_backup.json");
+    const backupPath = path2.join(process.cwd(), "payments_permanent_backup.json");
     let paymentsList = [];
-    if (fs.existsSync(backupPath)) {
+    if (fs2.existsSync(backupPath)) {
       try {
-        paymentsList = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+        paymentsList = JSON.parse(fs2.readFileSync(backupPath, "utf8"));
       } catch (e) {
         console.error("Error reading payments permanent backup file:", e);
       }
     }
     let paymentData = paymentObj;
     if (!paymentData) {
-      const { data } = await supabase.from("payments").select("*").eq("id", id).single();
+      const { data } = await localDb.from("payments").select("*").eq("id", id).single();
       paymentData = data;
     }
     if (paymentData) {
       paymentsList = paymentsList.filter((p) => p.id !== id);
       paymentsList.push(paymentData);
-      fs.writeFileSync(backupPath, JSON.stringify(paymentsList, null, 2), "utf8");
+      fs2.writeFileSync(backupPath, JSON.stringify(paymentsList, null, 2), "utf8");
       console.log(`[Backup] Persisted payment ${id} to payments_permanent_backup.json`);
     }
   } catch (err) {
     console.error(`Error syncing payment ${id} to permanent backup:`, err.message);
   }
 }
-async function fetchPaymentsFromSupabase(invoiceId) {
+async function fetchPaymentsFromLocalDb(invoiceId) {
   const filterValid = (list) => (list || []).filter((p) => p && parseFloat(p.amount) > 0 && p.notes !== "[ELIMINADO]").map(normalizePayment);
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoiceId", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoiceId", invoiceId);
     if (!error && data) return filterValid(data);
     if (error) {
       console.warn("Fetch payments eq('invoiceId') failed, trying fallback columns:", error.message);
@@ -2171,17 +2589,17 @@ async function fetchPaymentsFromSupabase(invoiceId) {
     console.error("Exception fetching payments with invoiceId:", err);
   }
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoiceid", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoiceid", invoiceId);
     if (!error && data) return filterValid(data);
   } catch (err) {
   }
   try {
-    const { data, error } = await supabase.from("payments").select("*").eq("invoice_id", invoiceId);
+    const { data, error } = await localDb.from("payments").select("*").eq("invoice_id", invoiceId);
     if (!error && data) return filterValid(data);
   } catch (err) {
   }
   try {
-    const { data, error } = await supabase.from("payments").select("*");
+    const { data, error } = await localDb.from("payments").select("*");
     if (!error && data) {
       const filtered = data.filter((d) => {
         const val = d.invoiceId || d.invoiceid || d.invoice_id;
@@ -2209,7 +2627,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   }
   if (dbClients.length === 0) {
     try {
-      const { data, error } = await supabase.from("clients").select("*");
+      const { data, error } = await localDb.from("clients").select("*");
       if (!error && data) {
         dbClients = data;
       } else if (neonPool) {
@@ -2370,7 +2788,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   const normCompany = companyToSave.toLowerCase();
   let existingList = [];
   try {
-    const { data } = await supabase.from("clients").select("*");
+    const { data } = await localDb.from("clients").select("*");
     if (data) existingList = data;
   } catch (e) {
   }
@@ -2402,7 +2820,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     if (Object.keys(updates).length > 0) {
       updateLocalClient(matchedClient.id, updates);
       try {
-        await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+        await localDb.from("clients").update(updates).eq("id", matchedClient.id);
       } catch (e) {
       }
     }
@@ -2435,7 +2853,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     };
     updateLocalClient(deletedMatch.id, reactivatedPayload);
     try {
-      await supabase.from("clients").update({
+      await localDb.from("clients").update({
         name: nameToSave,
         company_name: companyToSave || deletedMatch.companyName || "",
         nit: nit || deletedMatch.nit || "",
@@ -2470,7 +2888,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   try {
     await safeInsertClient(clientData);
   } catch (e) {
-    console.error("Insert client catch error in Supabase (handled gracefully):", e);
+    console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
   res.json({ success: true, client: clientData });
 }));
@@ -2500,20 +2918,20 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     if (updates.isBlocked !== void 0) snakeUpdates.is_blocked = updates.isBlocked;
     let updatedInDb = false;
     try {
-      const res1 = await supabase.from("clients").update(updates).eq("id", id).select("*");
+      const res1 = await localDb.from("clients").update(updates).eq("id", id).select("*");
       if (!res1.error && res1.data && res1.data.length > 0) updatedInDb = true;
       if (!updatedInDb && !isNaN(Number(id))) {
-        const res1num = await supabase.from("clients").update(updates).eq("id", Number(id)).select("*");
+        const res1num = await localDb.from("clients").update(updates).eq("id", Number(id)).select("*");
         if (!res1num.error && res1num.data && res1num.data.length > 0) updatedInDb = true;
       }
     } catch (e) {
     }
     if (!updatedInDb) {
       try {
-        const res2 = await supabase.from("clients").update(snakeUpdates).eq("id", id).select("*");
+        const res2 = await localDb.from("clients").update(snakeUpdates).eq("id", id).select("*");
         if (!res2.error && res2.data && res2.data.length > 0) updatedInDb = true;
         if (!updatedInDb && !isNaN(Number(id))) {
-          const res2num = await supabase.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
+          const res2num = await localDb.from("clients").update(snakeUpdates).eq("id", Number(id)).select("*");
           if (!res2num.error && res2num.data && res2num.data.length > 0) updatedInDb = true;
         }
       } catch (e) {
@@ -2522,13 +2940,13 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     const codeToTry = clientCode || oldClientCode;
     if (!updatedInDb && codeToTry) {
       try {
-        const resCode = await supabase.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
+        const resCode = await localDb.from("clients").update(snakeUpdates).eq("client_code", codeToTry).select("*");
         if (!resCode.error && resCode.data && resCode.data.length > 0) updatedInDb = true;
       } catch (e) {
       }
       if (!updatedInDb) {
         try {
-          const resCodeCamel = await supabase.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
+          const resCodeCamel = await localDb.from("clients").update(updates).eq("clientCode", codeToTry).select("*");
           if (!resCodeCamel.error && resCodeCamel.data && resCodeCamel.data.length > 0) updatedInDb = true;
         } catch (e) {
         }
@@ -2537,7 +2955,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     const nitToTry = nit || oldNit;
     if (!updatedInDb && nitToTry && String(nitToTry).toUpperCase() !== "CF") {
       try {
-        const resNit = await supabase.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
+        const resNit = await localDb.from("clients").update(snakeUpdates).eq("nit", nitToTry).select("*");
         if (!resNit.error && resNit.data && resNit.data.length > 0) updatedInDb = true;
       } catch (e) {
       }
@@ -2546,7 +2964,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     for (const n of namesToTry) {
       if (updatedInDb) break;
       try {
-        const resName = await supabase.from("clients").update(snakeUpdates).eq("name", n).select("*");
+        const resName = await localDb.from("clients").update(snakeUpdates).eq("name", n).select("*");
         if (!resName.error && resName.data && resName.data.length > 0) {
           updatedInDb = true;
           break;
@@ -2555,7 +2973,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
       }
       if (!updatedInDb) {
         try {
-          const resNameIlike = await supabase.from("clients").update(snakeUpdates).ilike("name", n).select("*");
+          const resNameIlike = await localDb.from("clients").update(snakeUpdates).ilike("name", n).select("*");
           if (!resNameIlike.error && resNameIlike.data && resNameIlike.data.length > 0) {
             updatedInDb = true;
             break;
@@ -2567,7 +2985,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   } catch (e) {
-    console.error("Exception updating client in supabase:", e);
+    console.error("Exception updating client in PostgreSQL Local:", e);
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   }
@@ -2585,7 +3003,7 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     const localClients = readLocalClients();
     let dbClientsForDel = [];
     try {
-      const { data } = await supabase.from("clients").select("*");
+      const { data } = await localDb.from("clients").select("*");
       if (data) dbClientsForDel = data;
     } catch (e) {
     }
@@ -2610,71 +3028,71 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
   const softDeletePayload = {
     name: cleanDeleteName
   };
-  const safeSupabaseUpdate = async (conditionField, value) => {
+  const safeLocalDbUpdate = async (conditionField, value) => {
     if (!value) return;
     try {
-      await supabase.from("clients").update(softDeletePayload).eq(conditionField, value);
+      await localDb.from("clients").update(softDeletePayload).eq(conditionField, value);
     } catch (e) {
     }
   };
-  const safeSupabaseDelete = async (conditionField, value) => {
+  const safeLocalDbDelete = async (conditionField, value) => {
     if (!value) return;
     try {
-      await supabase.from("clients").delete().eq(conditionField, value);
+      await localDb.from("clients").delete().eq(conditionField, value);
     } catch (e) {
     }
   };
-  const safeSupabaseIlikeDelete = async (conditionField, value) => {
+  const safeLocalDbIlikeDelete = async (conditionField, value) => {
     if (!value) return;
     try {
-      await supabase.from("clients").delete().ilike(conditionField, value);
+      await localDb.from("clients").delete().ilike(conditionField, value);
     } catch (e) {
     }
   };
   try {
     if (idStr) {
-      await safeSupabaseUpdate("id", idStr);
+      await safeLocalDbUpdate("id", idStr);
       if (!isNaN(Number(idStr))) {
-        await safeSupabaseUpdate("id", Number(idStr));
+        await safeLocalDbUpdate("id", Number(idStr));
       }
     }
     if (targetCode) {
-      await safeSupabaseUpdate("clientCode", targetCode);
+      await safeLocalDbUpdate("clientCode", targetCode);
     }
     if (targetName) {
-      await safeSupabaseUpdate("name", targetName);
+      await safeLocalDbUpdate("name", targetName);
       if (targetName.includes(" - ")) {
         const parts = targetName.split(" - ");
-        await safeSupabaseUpdate("name", parts[0].trim());
+        await safeLocalDbUpdate("name", parts[0].trim());
       }
     }
     if (targetNit && targetNit.toUpperCase() !== "CF") {
-      await safeSupabaseUpdate("nit", targetNit);
+      await safeLocalDbUpdate("nit", targetNit);
     }
     if (idStr) {
-      await safeSupabaseDelete("id", idStr);
+      await safeLocalDbDelete("id", idStr);
       if (!isNaN(Number(idStr))) {
-        await safeSupabaseDelete("id", Number(idStr));
+        await safeLocalDbDelete("id", Number(idStr));
       }
     }
     if (targetCode) {
-      await safeSupabaseDelete("clientCode", targetCode);
+      await safeLocalDbDelete("clientCode", targetCode);
     }
     if (targetName) {
-      await safeSupabaseIlikeDelete("name", targetName);
-      await safeSupabaseDelete("name", targetName);
+      await safeLocalDbIlikeDelete("name", targetName);
+      await safeLocalDbDelete("name", targetName);
       if (targetName.includes(" - ")) {
         const parts = targetName.split(" - ");
-        await safeSupabaseIlikeDelete("name", parts[0].trim());
+        await safeLocalDbIlikeDelete("name", parts[0].trim());
       }
     }
     if (targetNit && targetNit.toUpperCase() !== "CF") {
-      await safeSupabaseDelete("nit", targetNit);
+      await safeLocalDbDelete("nit", targetNit);
     }
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
-    console.error("Exception deleting client in Supabase:", e);
+    console.error("Exception deleting client in PostgreSQL Local:", e);
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado en almacenamiento local." });
   }
@@ -2682,7 +3100,7 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
 app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req, res) => {
   let dbClients = [];
   try {
-    const { data } = await supabase.from("clients").select("*");
+    const { data } = await localDb.from("clients").select("*");
     if (data) dbClients = data;
   } catch (e) {
   }
@@ -2720,7 +3138,7 @@ app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req, re
         usedCodes.add(code);
         updateLocalClient(client.id, { clientCode: code });
         try {
-          await supabase.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
+          await localDb.from("clients").update({ clientCode: code, client_code: code }).eq("id", client.id);
         } catch (err) {
         }
         updatedCount++;
@@ -2730,11 +3148,11 @@ app.post("/api/clients/generate-codes", requireAuth, asyncHandler(async (req, re
   invalidateCache("clients");
   res.json({ success: true, updatedCount });
 }));
-var VISITS_FILE = path.join(process.cwd(), "client_visits_local.json");
+var VISITS_FILE = path2.join(process.cwd(), "client_visits_local.json");
 function readLocalVisits() {
   try {
-    if (fs.existsSync(VISITS_FILE)) {
-      return JSON.parse(fs.readFileSync(VISITS_FILE, "utf8"));
+    if (fs2.existsSync(VISITS_FILE)) {
+      return JSON.parse(fs2.readFileSync(VISITS_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading local client visits:", err);
@@ -2743,7 +3161,7 @@ function readLocalVisits() {
 }
 function saveLocalVisits(visits) {
   try {
-    fs.writeFileSync(VISITS_FILE, JSON.stringify(visits, null, 2), "utf8");
+    fs2.writeFileSync(VISITS_FILE, JSON.stringify(visits, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving local client visits:", err);
   }
@@ -2796,12 +3214,12 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
       geotagged_by: updaterName,
       geotaggedBy: updaterName
     };
-    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
-      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
     }
   } catch (err) {
-    console.warn("Supabase update client location error:", err?.message || err);
+    console.warn("PostgreSQL Local update client location error:", err?.message || err);
   }
   invalidateCache("clients");
   res.json({ success: true, client: { id, ...locationUpdates } });
@@ -2831,12 +3249,12 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, re
       geotagged_by: null,
       geotaggedBy: null
     };
-    const resStr = await supabase.from("clients").update(sbUpdate).eq("id", id);
+    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
-      await supabase.from("clients").update(sbUpdate).eq("id", Number(id));
+      await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
     }
   } catch (err) {
-    console.warn("Supabase clear client location error:", err?.message || err);
+    console.warn("PostgreSQL Local clear client location error:", err?.message || err);
   }
   invalidateCache("clients");
   res.json({ success: true, message: "Ubicaci\xF3n GPS eliminada con \xE9xito.", client: { id, ...locationUpdates } });
@@ -2849,7 +3267,7 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let visits = [];
   try {
-    const { data, error } = await supabase.from("client_visits").select("*").order("createdAt", { ascending: false });
+    const { data, error } = await localDb.from("client_visits").select("*").order("createdAt", { ascending: false });
     if (!error && data && data.length > 0) {
       visits = data;
     }
@@ -2950,7 +3368,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     if (clientId) {
       updateLocalClient(clientId, { lastVisitAt: nowIso });
       try {
-        await supabase.from("clients").update({
+        await localDb.from("clients").update({
           last_visit_at: nowIso,
           lastVisitAt: nowIso
         }).eq("id", clientId);
@@ -2990,7 +3408,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   }
   saveLocalRoutes(routes);
   try {
-    await supabase.from("seller_routes").upsert([activeRoute]);
+    await localDb.from("seller_routes").upsert([activeRoute]);
   } catch (e) {
   }
   const newVisit = {
@@ -3045,20 +3463,20 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       createdAt: newVisit.createdAt,
       created_at: newVisit.createdAt
     };
-    const { error } = await supabase.from("client_visits").insert([sbPayload]);
+    const { error } = await localDb.from("client_visits").insert([sbPayload]);
     if (error) {
-      console.warn("Supabase visit insert error:", error.message);
+      console.warn("PostgreSQL Local visit insert error:", error.message);
     }
   } catch (err) {
-    console.warn("Could not insert visit in Supabase, stored locally:", err?.message || err);
+    console.warn("Could not insert visit in PostgreSQL Local, stored locally:", err?.message || err);
   }
   res.json({ success: true, visit: newVisit, activeRoute });
 }));
-var SELLER_ROUTES_FILE = path.join(process.cwd(), "seller_routes_local.json");
+var SELLER_ROUTES_FILE = path2.join(process.cwd(), "seller_routes_local.json");
 function readLocalRoutes() {
   try {
-    if (fs.existsSync(SELLER_ROUTES_FILE)) {
-      return JSON.parse(fs.readFileSync(SELLER_ROUTES_FILE, "utf8"));
+    if (fs2.existsSync(SELLER_ROUTES_FILE)) {
+      return JSON.parse(fs2.readFileSync(SELLER_ROUTES_FILE, "utf8"));
     }
   } catch (err) {
     console.error("Error reading local seller routes:", err);
@@ -3067,7 +3485,7 @@ function readLocalRoutes() {
 }
 function saveLocalRoutes(routes) {
   try {
-    fs.writeFileSync(SELLER_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf8");
+    fs2.writeFileSync(SELLER_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf8");
   } catch (err) {
     console.error("Error saving local seller routes:", err);
   }
@@ -3080,7 +3498,7 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req, res) => {
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let routes = [];
   try {
-    let query = supabase.from("seller_routes").select("*").order("started_at", { ascending: false });
+    let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
     if (userRole === "seller") {
       if (userId) query = query.eq("seller_id", userId);
     } else if (sellerId && sellerId !== "all") {
@@ -3187,7 +3605,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   routes.unshift(newRoute);
   saveLocalRoutes(routes);
   try {
-    await supabase.from("seller_routes").insert([{
+    await localDb.from("seller_routes").insert([{
       id: newRoute.id,
       seller_id: newRoute.sellerId,
       seller_name: newRoute.sellerName,
@@ -3239,7 +3657,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
   routes[routeIndex] = targetRoute;
   saveLocalRoutes(routes);
   try {
-    await supabase.from("seller_routes").upsert([{
+    await localDb.from("seller_routes").upsert([{
       id: targetRoute.id,
       seller_id: targetRoute.sellerId,
       seller_name: targetRoute.sellerName,
@@ -3267,7 +3685,7 @@ app.get("/api/visits/stats", requireAuth, asyncHandler(async (req, res) => {
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let allVisits = readLocalVisits();
   try {
-    const { data } = await supabase.from("client_visits").select("*");
+    const { data } = await localDb.from("client_visits").select("*");
     if (data && data.length > 0) {
       const map = /* @__PURE__ */ new Map();
       allVisits.forEach((v) => map.set(v.id, v));
@@ -3350,7 +3768,7 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
   }
   if (cleanToken) {
     try {
-      const { data: directTokens, error: dtErr } = await supabase.from("login_tokens").select("*").eq("token", cleanToken).is("usedAt", null);
+      const { data: directTokens, error: dtErr } = await localDb.from("login_tokens").select("*").eq("token", cleanToken).is("usedAt", null);
       if (!dtErr && directTokens && directTokens.length > 0) {
         const validToken = directTokens.find((t) => {
           const exp = t.expiresAt ? new Date(t.expiresAt) : null;
@@ -3360,7 +3778,7 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
           matchedTokenRecord = validToken;
           const targetUserId = validToken.userId || validToken.user_id;
           if (targetUserId) {
-            const { data: userFromToken } = await supabase.from("users").select("*").eq("id", targetUserId);
+            const { data: userFromToken } = await localDb.from("users").select("*").eq("id", targetUserId);
             if (userFromToken && userFromToken.length > 0) {
               foundUser = userFromToken[0];
             }
@@ -3373,24 +3791,24 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
   }
   if (!foundUser && identifier) {
     try {
-      const { data: byCode } = await supabase.from("users").select("*").ilike("sellerCode", identifier);
+      const { data: byCode } = await localDb.from("users").select("*").ilike("sellerCode", identifier);
       if (byCode && byCode.length > 0) {
         foundUser = byCode[0];
       }
       if (!foundUser) {
-        const { data: byEmail } = await supabase.from("users").select("*").ilike("email", identifier);
+        const { data: byEmail } = await localDb.from("users").select("*").ilike("email", identifier);
         if (byEmail && byEmail.length > 0) {
           foundUser = byEmail[0];
         }
       }
       if (!foundUser) {
-        const { data: byId } = await supabase.from("users").select("*").eq("id", identifier);
+        const { data: byId } = await localDb.from("users").select("*").eq("id", identifier);
         if (byId && byId.length > 0) {
           foundUser = byId[0];
         }
       }
       if (!foundUser) {
-        const { data: byName } = await supabase.from("users").select("*").ilike("name", `%${identifier}%`);
+        const { data: byName } = await localDb.from("users").select("*").ilike("name", `%${identifier}%`);
         if (byName && byName.length > 0) {
           foundUser = byName[0];
         }
@@ -3437,20 +3855,20 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
   if (matchedTokenRecord) {
     isMatch = true;
     try {
-      await supabase.from("login_tokens").update({ usedAt: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", matchedTokenRecord.id);
+      await localDb.from("login_tokens").update({ usedAt: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", matchedTokenRecord.id);
     } catch (e) {
     }
   }
   if (!isMatch && cleanToken && foundUser.id) {
     try {
-      const { data: tokens, error: tokenErr } = await supabase.from("login_tokens").select("*").eq("userId", foundUser.id).eq("token", cleanToken).is("usedAt", null);
+      const { data: tokens, error: tokenErr } = await localDb.from("login_tokens").select("*").eq("userId", foundUser.id).eq("token", cleanToken).is("usedAt", null);
       if (!tokenErr && tokens && tokens.length > 0) {
         const tokenData = tokens[0];
         const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
         if (!expiresAt || expiresAt > /* @__PURE__ */ new Date()) {
           isMatch = true;
           try {
-            await supabase.from("login_tokens").update({ usedAt: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", tokenData.id);
+            await localDb.from("login_tokens").update({ usedAt: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", tokenData.id);
           } catch (e) {
           }
         }
@@ -3487,7 +3905,7 @@ app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(as
   const id = `lt_${Date.now()}`;
   const expiresAt = /* @__PURE__ */ new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
-  const { error } = await supabase.from("login_tokens").insert([{
+  const { error } = await localDb.from("login_tokens").insert([{
     id,
     userId,
     token,
@@ -3500,7 +3918,7 @@ app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(as
 app.post("/api/admin/force-logout", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId is required" });
-  const { error } = await supabase.from("users").update({ force_logout_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", userId);
+  const { error } = await localDb.from("users").update({ force_logout_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", userId);
   if (error) {
     console.error("Force logout error:", error);
     return res.status(500).json({ error: "Error al cerrar sesi\xF3n forzada" });
@@ -3517,7 +3935,7 @@ app.get("/api/auth/me", asyncHandler(async (req, res) => {
     const payload = jwt.verify(token, JWT_SECRET);
     let user = null;
     try {
-      const { data: users } = await supabase.from("users").select("*").eq("id", payload.id);
+      const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
       if (users && users.length > 0) {
         user = users[0];
       }
@@ -3549,7 +3967,7 @@ app.put("/api/users/:id/password", requireAuth, requireAdmin, asyncHandler(async
   const { id } = req.params;
   const { password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
-  await supabase.from("users").update({ password: hashedPassword }).eq("id", id);
+  await localDb.from("users").update({ password: hashedPassword }).eq("id", id);
   res.json({ success: true });
 }));
 app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -3561,7 +3979,7 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
     return res.status(403).json({ error: "No tienes permisos para suplantar identidades." });
   }
   let user = null;
-  const { data: users } = await supabase.from("users").select("*").eq("id", userId);
+  const { data: users } = await localDb.from("users").select("*").eq("id", userId);
   if (users && users.length > 0) {
     user = users[0];
   }
@@ -3589,7 +4007,7 @@ async function checkAndDispatchDailySales(options) {
   const endOfDay = `${todayLabel}T23:59:59`;
   const corte = options?.corteHora || (hour >= 16 ? "17:00" : "12:00");
   const esCierre = corte === "17:00" || hour >= 16;
-  const { data: invoicesData, error: invErr } = await supabase.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
+  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
   if (invErr) {
     console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
     return { error: `Error al consultar facturas: ${invErr.message}` };
@@ -3602,7 +4020,7 @@ async function checkAndDispatchDailySales(options) {
     if (digits.startsWith("502") && digits.length === 11) return digits;
     return digits;
   }
-  const { data: allUsersData } = await supabase.from("users").select("id, name, email, phone, role, sellerCode");
+  const { data: allUsersData } = await localDb.from("users").select("id, name, email, phone, role, sellerCode");
   const users = (allUsersData || []).filter((u) => u && u.role !== "system" && u.email);
   let targetUsers = [];
   if (Array.isArray(options?.targetSellerEmails) && options.targetSellerEmails.length > 0) {
@@ -3806,10 +4224,10 @@ app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
 }));
 app.get("/api/users", requireAuth, asyncHandler(async (req, res) => {
   try {
-    const { data: users, error } = await supabase.from("users").select("id, name, email, role, photo, phone, sellerCode");
+    const { data: users, error } = await localDb.from("users").select("id, name, email, role, photo, phone, sellerCode");
     if (error) {
       if (error.message.includes("sellerCode")) {
-        const { data: usersFallback, error: errFallback } = await supabase.from("users").select("id, name, email, role, photo, phone");
+        const { data: usersFallback, error: errFallback } = await localDb.from("users").select("id, name, email, role, photo, phone");
         if (errFallback) throw new Error(errFallback.message);
         return res.json((usersFallback || []).filter((u) => u.role !== "system"));
       }
@@ -3824,11 +4242,11 @@ app.get("/api/users", requireAuth, asyncHandler(async (req, res) => {
 app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { email, name, role, photo, phone, sellerCode, password } = req.body;
   if (email && email.trim() !== "") {
-    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    const { data: existing } = await localDb.from("users").select("id").ilike("email", email);
     if (existing && existing.length > 0) return res.status(400).json({ error: "El correo ya est\xE1 registrado" });
   }
   if (sellerCode) {
-    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    const { data: existingCode } = await localDb.from("users").select("id").ilike("sellerCode", sellerCode);
     if (existingCode && existingCode.length > 0) return res.status(400).json({ error: "El c\xF3digo de vendedor ya est\xE1 en uso" });
   }
   let finalSellerCode = sellerCode;
@@ -3836,7 +4254,7 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req, res) 
     let code = "";
     let unique = false;
     let attempts = 0;
-    const { data: allUsers } = await supabase.from("users").select("sellerCode");
+    const { data: allUsers } = await localDb.from("users").select("sellerCode");
     const usedCodes = new Set((allUsers || []).map((u) => u.sellerCode).filter(Boolean));
     while (!unique && attempts < 50) {
       code = Math.floor(1e3 + Math.random() * 9e3).toString();
@@ -3848,7 +4266,7 @@ app.post("/api/users", requireAuth, requireAdmin, asyncHandler(async (req, res) 
   const id = `u_${Date.now()}`;
   const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
   const newUser = { id, email: email || null, name, role, photo, phone, sellerCode: finalSellerCode, password: hashedPassword };
-  const { error } = await supabase.from("users").insert([newUser]);
+  const { error } = await localDb.from("users").insert([newUser]);
   if (error) throw new Error(error.message);
   res.json({ id, email, name, role, photo, phone, sellerCode: finalSellerCode });
 }));
@@ -3856,13 +4274,13 @@ app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req, re
   const { id } = req.params;
   const { name, email, role, phone, sellerCode, password } = req.body;
   if (email && email.trim() !== "") {
-    const { data: existing } = await supabase.from("users").select("id").ilike("email", email);
+    const { data: existing } = await localDb.from("users").select("id").ilike("email", email);
     if (existing && existing.length > 0 && existing[0].id !== id) {
       return res.status(400).json({ error: "El correo ya est\xE1 registrado" });
     }
   }
   if (sellerCode) {
-    const { data: existingCode } = await supabase.from("users").select("id").ilike("sellerCode", sellerCode);
+    const { data: existingCode } = await localDb.from("users").select("id").ilike("sellerCode", sellerCode);
     if (existingCode && existingCode.length > 0 && existingCode[0].id !== id) {
       return res.status(400).json({ error: "El c\xF3digo de vendedor ya est\xE1 en uso" });
     }
@@ -3871,7 +4289,7 @@ app.put("/api/users/:id", requireAuth, requireAdmin, asyncHandler(async (req, re
   if (password) {
     updates.password = await bcrypt.hash(password, 10);
   }
-  const { error } = await supabase.from("users").update(updates).eq("id", id);
+  const { error } = await localDb.from("users").update(updates).eq("id", id);
   if (error) throw new Error(error.message);
   res.json({ success: true, user: { id, name, email: email || null, role, phone, sellerCode } });
 }));
@@ -3880,11 +4298,11 @@ app.put("/api/users/:id/photo", requireAuth, requireAdmin, upload.single("image"
   if (!req.file) throw new Error("No file uploaded");
   const base64 = req.file.buffer.toString("base64");
   const photoUrl = `data:${req.file.mimetype};base64,${base64}`;
-  await supabase.from("users").update({ photo: photoUrl }).eq("id", id);
+  await localDb.from("users").update({ photo: photoUrl }).eq("id", id);
   res.json({ success: true, photo: photoUrl });
 }));
 app.get("/api/office-inventory", requireAuth, asyncHandler(async (req, res) => {
-  const { data, error } = await supabase.from("office_inventory").select("*");
+  const { data, error } = await localDb.from("office_inventory").select("*");
   if (error) {
     console.warn("Office inventory fetch error (probably table missing):", error);
     return res.json([]);
@@ -3910,7 +4328,7 @@ app.post("/api/office-inventory", requireAuth, asyncHandler(async (req, res) => 
     location: req.body.location,
     status: req.body.status
   };
-  const { data, error } = await supabase.from("office_inventory").insert([payload]).select().single();
+  const { data, error } = await localDb.from("office_inventory").insert([payload]).select().single();
   if (error) {
     console.error("Error creating office item:", error);
     return res.status(500).json({ error: "Error saving item: " + error.message });
@@ -3936,7 +4354,7 @@ app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req, res) 
     location: req.body.location,
     status: req.body.status
   };
-  const { data, error } = await supabase.from("office_inventory").update(payload).eq("id", id).select().single();
+  const { data, error } = await localDb.from("office_inventory").update(payload).eq("id", id).select().single();
   if (error) {
     console.error("Error updating office item:", error);
     return res.status(500).json({ error: "Error updating item: " + error.message });
@@ -3954,7 +4372,7 @@ app.put("/api/office-inventory/:id", requireAuth, asyncHandler(async (req, res) 
 app.delete("/api/office-inventory/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   console.log("DELETE office item ID:", id);
-  const { error } = await supabase.from("office_inventory").delete().eq("id", id);
+  const { error } = await localDb.from("office_inventory").delete().eq("id", id);
   if (error) {
     console.error("Error deleting office item:", error);
     return res.status(500).json({ error: "Error deleting item: " + error.message });
@@ -3983,7 +4401,7 @@ app.get("/api/products", requireAuth, asyncHandler(async (req, res) => {
   }
   if (products.length === 0) {
     try {
-      const { data, error } = await supabase.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
+      const { data, error } = await localDb.from("products").select("id, name, category, stock, price, description, image, variants, specifications, is_external, cost_price, hidden_from_sales");
       if (!error && data) {
         products = data;
       } else if (neonPool) {
@@ -4014,7 +4432,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req, re
   const { name, category, price, stock, image, description, variants, specifications, is_external, costPrice, hiddenFromSales } = req.body;
   if (name) {
     const trimmedName = name.trim();
-    const { data: existingProducts } = await supabase.from("products").select("id, name").ilike("name", trimmedName);
+    const { data: existingProducts } = await localDb.from("products").select("id, name").ilike("name", trimmedName);
     if (existingProducts && existingProducts.length > 0) {
       return res.status(409).json({ error: `Ya existe un producto con el nombre "${trimmedName}". No se admiten duplicados.` });
     }
@@ -4042,7 +4460,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req, re
   if (isAdmin) {
     if (hiddenFromSales !== void 0) product.hidden_from_sales = hiddenFromSales;
   }
-  const { error } = await supabase.from("products").insert([product]);
+  const { error } = await localDb.from("products").insert([product]);
   if (error) {
     const isColumnError = error.message.includes("specifications") || error.message.includes("variants") || error.message.includes("is_external") || error.message.includes("isExternalInventory") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales");
     if (isColumnError) {
@@ -4053,7 +4471,7 @@ app.post("/api/products", requireAuth, requireAdmin, asyncHandler(async (req, re
       delete retryProduct.cost_price;
       delete retryProduct.hidden_from_sales;
       delete retryProduct.isExternalInventory;
-      const { error: err2 } = await supabase.from("products").insert([retryProduct]);
+      const { error: err2 } = await localDb.from("products").insert([retryProduct]);
       if (err2) throw new Error(err2.message);
       return res.json({ ...retryProduct, variants: null, specifications: null, is_external: false, costPrice: 0, hiddenFromSales: false });
     }
@@ -4071,7 +4489,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
     if (stock !== void 0 || price !== void 0 || name !== void 0 || image !== void 0 || category !== void 0 || variants !== void 0 || specifications !== void 0 || is_external !== void 0) {
       return res.status(403).json({ error: "Solo los administradores pueden editar datos b\xE1sicos del producto." });
     }
-    const { data: results2 } = await supabase.from("products").select("description").eq("id", id);
+    const { data: results2 } = await localDb.from("products").select("description").eq("id", id);
     const existing = results2?.[0];
     if (existing && existing.description) {
       return res.status(403).json({ error: "Solo los administradores pueden modificar descripciones existentes." });
@@ -4093,7 +4511,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
   if (isAdmin) {
     if (hiddenFromSales !== void 0) updates.hidden_from_sales = hiddenFromSales;
   }
-  const { data: results, error: checkError } = await supabase.from("products").select("stock, name, id, price").eq("id", id);
+  const { data: results, error: checkError } = await localDb.from("products").select("stock, name, id, price").eq("id", id);
   const originalProduct = results?.[0];
   if (checkError || !originalProduct) {
     return res.status(404).json({ error: "Producto no encontrado o error en la base de datos" });
@@ -4102,7 +4520,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
   if (!hasUpdates) {
     return res.json({ ...originalProduct, ...updates });
   }
-  let { data, error } = await supabase.from("products").update(updates).eq("id", id).select();
+  let { data, error } = await localDb.from("products").update(updates).eq("id", id).select();
   if (error && (error.message.includes("specifications") || error.message.includes("is_external") || error.message.includes("cost_price") || error.message.includes("hidden_from_sales"))) {
     console.warn("Update failed, retrying granular fallback:", error.message);
     const retryUpdates = { ...updates };
@@ -4120,7 +4538,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
       delete retryUpdates.hidden_from_sales;
     }
     if (Object.keys(retryUpdates).length > 0) {
-      const { data: retryData, error: retryError } = await supabase.from("products").update(retryUpdates).eq("id", id).select();
+      const { data: retryData, error: retryError } = await localDb.from("products").update(retryUpdates).eq("id", id).select();
       data = retryData;
       error = retryError;
     } else {
@@ -4151,7 +4569,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
 app.get("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
   let dbNotifs = [];
   try {
-    const { data, error } = await supabase.from("notifications").select("*").order("createdAt", { ascending: false }).limit(60);
+    const { data, error } = await localDb.from("notifications").select("*").order("createdAt", { ascending: false }).limit(60);
     if (!error && data) {
       dbNotifs = data;
     }
@@ -4184,7 +4602,7 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
 app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
-    await supabase.from("notifications").delete().eq("id", id);
+    await localDb.from("notifications").delete().eq("id", id);
   } catch (e) {
   }
   const local = readLocalNotifications().filter((n) => n.id !== id);
@@ -4193,7 +4611,7 @@ app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req, res) 
 }));
 app.delete("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
   try {
-    await supabase.from("notifications").delete().neq("id", "clear-trigger");
+    await localDb.from("notifications").delete().neq("id", "clear-trigger");
   } catch (e) {
   }
   saveLocalNotifications([]);
@@ -4226,16 +4644,16 @@ app.post("/api/fcm/register", asyncHandler(async (req, res) => {
   res.json({ success: true, message: "FCM token registrado correctamente" });
 }));
 app.get("/api/panic/status", asyncHandler(async (req, res) => {
-  let supabaseHealthy = false;
+  let localDbHealthy = false;
   let neonHealthy = false;
   const currentMode = await fetchGlobalDbModeFromDb();
   try {
-    const sbPromise = supabase.from("users").select("id").limit(1);
+    const sbPromise = localDb.from("users").select("id").limit(1);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6e3));
     const { error } = await Promise.race([sbPromise, timeoutPromise]);
-    supabaseHealthy = !error;
+    localDbHealthy = !error;
   } catch (e) {
-    supabaseHealthy = false;
+    localDbHealthy = false;
   }
   if (neonPool) {
     try {
@@ -4249,19 +4667,20 @@ app.get("/api/panic/status", asyncHandler(async (req, res) => {
   }
   res.json({
     activeMode: currentMode,
-    supabaseHealthy,
+    localDbHealthy,
     neonHealthy,
-    neonConfigured: Boolean(neonPool)
+    neonConfigured: Boolean(neonPool),
+    server: "PostgreSQL Local"
   });
 }));
 app.post("/api/panic/switch", asyncHandler(async (req, res) => {
   const { mode } = req.body;
-  if (mode === "supabase" || mode === "neon") {
+  if (mode === "local" || mode === "neon") {
     await persistGlobalDbMode(mode);
     console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
     return res.json({ success: true, activeMode: mode });
   }
-  res.status(400).json({ error: "Modo no v\xE1lido. Usa 'supabase' o 'neon'." });
+  res.status(400).json({ error: "Modo no v\xE1lido. Usa 'PostgreSQL Local' o 'neon'." });
 }));
 app.post("/api/panic/sync", asyncHandler(async (req, res) => {
   if (!neonPool) {
@@ -4271,7 +4690,7 @@ app.post("/api/panic/sync", asyncHandler(async (req, res) => {
   let usersSynced = 0;
   let productsSynced = 0;
   try {
-    const { data: users } = await supabase.from("users").select("*");
+    const { data: users } = await localDb.from("users").select("*");
     if (users && users.length > 0) {
       for (const u of users) {
         await client.query(`
@@ -4289,7 +4708,7 @@ app.post("/api/panic/sync", asyncHandler(async (req, res) => {
         usersSynced++;
       }
     }
-    const { data: products } = await supabase.from("products").select("*");
+    const { data: products } = await localDb.from("products").select("*");
     if (products && products.length > 0) {
       for (const p of products) {
         await client.query(`
@@ -4319,7 +4738,7 @@ app.get("/api/app-logo", asyncHandler(async (req, res) => {
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4335,9 +4754,9 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
   }
   try {
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find((b) => b.name === "productos")) {
-        await supabase.storage.createBucket("productos", { public: true });
+        await localDb.storage.createBucket("productos", { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4350,10 +4769,10 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
     } catch (sharpError) {
       console.warn("Sharp logo optimization failed:", sharpError);
       contentType = req.file.mimetype;
-      const ext = req.file.originalname ? path.extname(req.file.originalname) : ".png";
+      const ext = req.file.originalname ? path2.extname(req.file.originalname) : ".png";
       fileName = `logo-${Date.now()}${ext}`;
     }
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType,
       upsert: true
     });
@@ -4362,22 +4781,22 @@ app.post("/api/app-logo/upload", requireAuth, requireAdmin, upload.single("logo"
       console.error("Storage logo upload error, failing back to base64:", uploadError);
       logoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       logoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
     const config = readWarehouseConfig();
     config.logoUrl = logoUrl;
     saveWarehouseConfig(config);
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-logo-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: logoUrl,
         name: "App Logo Configuration",
         email: "system-logo@agricovet.com",
         role: "system"
       }).eq("id", "sys-logo-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-logo-config",
         name: "App Logo Configuration",
         email: "system-logo@agricovet.com",
@@ -4399,9 +4818,9 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
   }
   try {
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find((b) => b.name === "productos")) {
-        await supabase.storage.createBucket("productos", { public: true });
+        await localDb.storage.createBucket("productos", { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4409,7 +4828,7 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
     let buffer = req.file.buffer;
     let contentType = req.file.mimetype;
     let fileName = `signature-${Date.now()}.png`;
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType,
       upsert: true
     });
@@ -4418,22 +4837,22 @@ app.post("/api/app-signature/upload", requireAuth, requireAdmin, upload.single("
       console.error("Storage signature upload error, failing back to base64:", uploadError);
       signatureUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       signatureUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
     const config = readWarehouseConfig();
     config.signatureUrl = signatureUrl;
     saveWarehouseConfig(config);
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-signature-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: signatureUrl,
         name: "App Signature Configuration",
         email: "system-signature@agricovet.com",
         role: "system"
       }).eq("id", "sys-signature-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-signature-config",
         name: "App Signature Configuration",
         email: "system-signature@agricovet.com",
@@ -4453,7 +4872,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req, res) => {
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4463,7 +4882,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req, res) => {
   }
   if (!config.signatureUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-signature-config").single();
       if (sysRow && sysRow.photo) {
         config.signatureUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4483,7 +4902,7 @@ app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req, r
   const config = readWarehouseConfig();
   if (!config.logoUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-logo-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
       if (sysRow && sysRow.photo) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4493,7 +4912,7 @@ app.post("/api/warehouse-config/verify", requireAuth, asyncHandler(async (req, r
   }
   if (!config.signatureUrl) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-signature-config").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-signature-config").single();
       if (sysRow && sysRow.photo) {
         config.signatureUrl = sysRow.photo;
         saveWarehouseConfig(config);
@@ -4522,16 +4941,16 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
   if (logoUrl !== void 0) {
     config.logoUrl = logoUrl;
     try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-logo-config").single();
+      const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-logo-config").single();
       if (existing) {
-        await supabase.from("users").update({
+        await localDb.from("users").update({
           photo: logoUrl,
           name: "App Logo Configuration",
           email: "system-logo@agricovet.com",
           role: "system"
         }).eq("id", "sys-logo-config");
       } else {
-        await supabase.from("users").insert([{
+        await localDb.from("users").insert([{
           id: "sys-logo-config",
           name: "App Logo Configuration",
           email: "system-logo@agricovet.com",
@@ -4542,22 +4961,22 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
         }]);
       }
     } catch (e) {
-      console.error("Failed to sync logoUrl to Supabase:", e);
+      console.error("Failed to sync logoUrl to PostgreSQL Local:", e);
     }
   }
   if (signatureUrl !== void 0) {
     config.signatureUrl = signatureUrl;
     try {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-signature-config").single();
+      const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-signature-config").single();
       if (existing) {
-        await supabase.from("users").update({
+        await localDb.from("users").update({
           photo: signatureUrl,
           name: "App Signature Configuration",
           email: "system-signature@agricovet.com",
           role: "system"
         }).eq("id", "sys-signature-config");
       } else {
-        await supabase.from("users").insert([{
+        await localDb.from("users").insert([{
           id: "sys-signature-config",
           name: "App Signature Configuration",
           email: "system-signature@agricovet.com",
@@ -4568,7 +4987,7 @@ app.post("/api/warehouse-config/update", requireAuth, requireAdmin, asyncHandler
         }]);
       }
     } catch (e) {
-      console.error("Failed to sync signatureUrl to Supabase:", e);
+      console.error("Failed to sync signatureUrl to PostgreSQL Local:", e);
     }
   }
   saveWarehouseConfig(config);
@@ -4623,7 +5042,7 @@ app.post("/api/warehouse-config/notify-share", requireAuth, asyncHandler(async (
 app.delete("/api/products/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   invalidateCache("products");
   const { id } = req.params;
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await localDb.from("products").delete().eq("id", id);
   if (error) {
     console.error("Error deleting product:", error);
     return res.status(500).json({ error: error.message });
@@ -4636,9 +5055,9 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
   if (!req.file) return res.status(400).json({ error: "No image file provided" });
   try {
     try {
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await localDb.storage.listBuckets();
       if (buckets && !buckets.find((b) => b.name === "productos")) {
-        await supabase.storage.createBucket("productos", { public: true });
+        await localDb.storage.createBucket("productos", { public: true });
       }
     } catch (bucketErr) {
       console.warn("Could not check/create bucket:", bucketErr);
@@ -4652,10 +5071,10 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
       console.warn("Sharp optimization failed, using original upload buffer:", sharpError);
       buffer = req.file.buffer;
       contentType = req.file.mimetype;
-      const ext = req.file.originalname ? path.extname(req.file.originalname) : ".jpg";
+      const ext = req.file.originalname ? path2.extname(req.file.originalname) : ".jpg";
       fileName = `${id}-${Date.now()}${ext}`;
     }
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType,
       upsert: true
     });
@@ -4670,10 +5089,10 @@ app.post("/api/products/:id/image", requireAuth, requireAdmin, upload.single("im
       }
       imageUrl = `data:${req.file.mimetype};base64,${base64Buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
-    const { error: dbError } = await supabase.from("products").update({ image: imageUrl }).eq("id", id);
+    const { error: dbError } = await localDb.from("products").update({ image: imageUrl }).eq("id", id);
     if (dbError) {
       console.error("DB update error:", dbError);
       return res.status(500).json({ error: `Error en base de datos: ${dbError.message}` });
@@ -4689,7 +5108,7 @@ app.get("/api/offers", requireAuth, asyncHandler(async (req, res) => {
   if (cached) {
     return res.json(cached);
   }
-  let { data: offers, error } = await supabase.from("offers").select("*");
+  let { data: offers, error } = await localDb.from("offers").select("*");
   if (error) {
     if (error.code === "42P01" || error.message.includes("schema cache") || error.message.includes("does not exist")) {
       offers = [];
@@ -4699,8 +5118,8 @@ app.get("/api/offers", requireAuth, asyncHandler(async (req, res) => {
   }
   offers = offers || [];
   try {
-    if (fs.existsSync("offers_extra.json")) {
-      const extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
+    if (fs2.existsSync("offers_extra.json")) {
+      const extra = JSON.parse(fs2.readFileSync("offers_extra.json", "utf-8"));
       offers.forEach((o) => {
         if (extra[o.id]) {
           o.price = extra[o.id].price;
@@ -4720,18 +5139,18 @@ app.post("/api/offers", requireAuth, requireAdmin, asyncHandler(async (req, res)
   const offer = { id, title, description, badge, startsAt, endsAt, appliesTo, photoUrl };
   const offerPrice = price;
   const offerSellerPrices = sellerPrices;
-  const { error } = await supabase.from("offers").insert([offer]);
+  const { error } = await localDb.from("offers").insert([offer]);
   if (error) {
-    console.error("Supabase insert error for offers:", error);
+    console.error("PostgreSQL Local insert error for offers:", error);
     throw new Error(error.message);
   }
   try {
     let extra = {};
-    if (fs.existsSync("offers_extra.json")) {
-      extra = JSON.parse(fs.readFileSync("offers_extra.json", "utf-8"));
+    if (fs2.existsSync("offers_extra.json")) {
+      extra = JSON.parse(fs2.readFileSync("offers_extra.json", "utf-8"));
     }
     extra[id] = { price: offerPrice, sellerPrices: offerSellerPrices };
-    fs.writeFileSync("offers_extra.json", JSON.stringify(extra));
+    fs2.writeFileSync("offers_extra.json", JSON.stringify(extra));
   } catch (e) {
   }
   offer.price = offerPrice;
@@ -4743,9 +5162,9 @@ app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (re
     let currentInvoices = [];
     let currentPayments = [];
     try {
-      const { data: invs } = await supabase.from("invoices").select("*");
+      const { data: invs } = await localDb.from("invoices").select("*");
       if (invs) currentInvoices = invs;
-      const { data: pmts } = await supabase.from("payments").select("*");
+      const { data: pmts } = await localDb.from("payments").select("*");
       if (pmts) currentPayments = pmts;
     } catch (dbErr) {
       console.error("Error fetching data for archive preparation:", dbErr);
@@ -4757,9 +5176,9 @@ app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (re
       await syncPaymentToPermanentBackup(pmt.id, pmt);
     }
     try {
-      const backupsDir = path.join(process.cwd(), "backups");
-      if (!fs.existsSync(backupsDir)) {
-        fs.mkdirSync(backupsDir, { recursive: true });
+      const backupsDir = path2.join(process.cwd(), "backups");
+      if (!fs2.existsSync(backupsDir)) {
+        fs2.mkdirSync(backupsDir, { recursive: true });
       }
       const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
       const backupFileName = `sales_backup_${timestamp}.json`;
@@ -4770,20 +5189,20 @@ app.delete("/api/sales/clear", requireAuth, requireAdmin, asyncHandler(async (re
         invoices: currentInvoices,
         payments: currentPayments
       };
-      fs.writeFileSync(path.join(backupsDir, backupFileName), JSON.stringify(backupData, null, 2), "utf8");
+      fs2.writeFileSync(path2.join(backupsDir, backupFileName), JSON.stringify(backupData, null, 2), "utf8");
       console.log(`[Backup] Previous day archived successfully to ${backupFileName}`);
     } catch (err) {
       console.error("Error creating dated backup file:", err.message);
     }
     try {
-      const { error: arcPayErr } = await supabase.from("payments").update({ is_archived: true }).neq("id", "borrar-todos").eq("is_archived", false);
+      const { error: arcPayErr } = await localDb.from("payments").update({ is_archived: true }).neq("id", "borrar-todos").eq("is_archived", false);
       if (arcPayErr && (arcPayErr.code === "42703" || arcPayErr.message.includes("is_archived"))) {
         console.log("Archive payments failed (likely column missing), skipping DB clear to protect data.");
       }
     } catch (e) {
     }
     try {
-      const { error: arcInvErr } = await supabase.from("invoices").update({ is_archived: true }).neq("id", "borrar-todos").eq("is_archived", false);
+      const { error: arcInvErr } = await localDb.from("invoices").update({ is_archived: true }).neq("id", "borrar-todos").eq("is_archived", false);
       if (arcInvErr && (arcInvErr.code === "42703" || arcInvErr.message.includes("is_archived"))) {
         console.log("Archive invoices failed (likely column missing), skipping DB clear to protect data.");
       }
@@ -4821,7 +5240,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     const normCompany = companyToSave.toLowerCase();
     let existingList = [];
     try {
-      const { data } = await supabase.from("clients").select("*");
+      const { data } = await localDb.from("clients").select("*");
       if (data) existingList = data;
     } catch (e) {
     }
@@ -4841,7 +5260,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       if (Object.keys(updates).length > 0) {
         updateLocalClient(matchedClient.id, updates);
         try {
-          await supabase.from("clients").update(updates).eq("id", matchedClient.id);
+          await localDb.from("clients").update(updates).eq("id", matchedClient.id);
         } catch (e) {
         }
       }
@@ -4885,7 +5304,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           description: "Costo de env\xEDo"
         };
       } else {
-        const { data: products, error } = await supabase.from("products").select("*").eq("id", item.productId);
+        const { data: products, error } = await localDb.from("products").select("*").eq("id", item.productId);
         if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
         product = products[0];
       }
@@ -4912,7 +5331,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         if (newStock <= 0 && !isExemptFromStock) {
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
           const stockMessage = `\u26A0\uFE0F *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
-          const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
+          const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
           if (admins) {
             for (const admin2 of admins) {
               if (admin2.phone) {
@@ -4929,7 +5348,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           if (currentStock > threshold && newStock <= threshold && newStock > 0) {
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
             const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
-            const { data: admins } = await supabase.from("users").select("phone, name").eq("role", "admin");
+            const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin2 of admins) {
                 if (admin2.phone) {
@@ -4945,10 +5364,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         if (variantObj && variantObj.stock !== void 0) {
           const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
           variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq("id", product.id);
+          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", product.id);
           if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
         } else {
-          const { error: sErr } = await supabase.from("products").update({ stock: newStock }).eq("id", product.id);
+          const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq("id", product.id);
           if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
         }
         if (!isExemptFromStock) {
@@ -4969,9 +5388,9 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     const maxFolio = existingFolioValues.reduce((max, val) => val > max ? val : max, 0);
     let startFromConfig = 1;
     try {
-      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-        const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+      const FOLIO_CONFIG_FILE = path2.join(process.cwd(), "folio_config.json");
+      if (fs2.existsSync(FOLIO_CONFIG_FILE)) {
+        const cfg = JSON.parse(fs2.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
         startFromConfig = cfg.startFrom || 1;
       }
     } catch (e) {
@@ -5016,7 +5435,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     invoiceDataRaw["seller_pays_shipping"] = !!sellerPaysShipping;
     invoiceDataRaw["auth_status"] = requiresAuth ? "pending" : "approved";
     if (sellerSignature) invoiceDataRaw["seller_signature"] = sellerSignature;
-    let { error: insertError } = await supabase.from("invoices").insert([invoiceDataRaw]);
+    let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
     if (insertError) {
       console.warn("Primary insert invoice error:", insertError.message);
       const fallbackInvoice1 = { ...invoiceDataRaw };
@@ -5027,13 +5446,13 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       fallbackInvoice1["phone"] = phone || "";
       fallbackInvoice1["address"] = address || "";
       fallbackInvoice1["folio"] = String(assignedFolio);
-      const { error: retryError1 } = await supabase.from("invoices").insert([fallbackInvoice1]);
+      const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
       if (retryError1) {
         const bareInvoice = { ...fallbackInvoice1 };
         delete bareInvoice["phone"];
         delete bareInvoice["address"];
         delete bareInvoice["nit"];
-        const { error: retryError2 } = await supabase.from("invoices").insert([bareInvoice]);
+        const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
         if (retryError2) throw new Error(retryError2.message);
       }
     }
@@ -5046,7 +5465,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       console.warn(`[StockRollback] Fall\xF3 la creaci\xF3n de factura. Revirtiendo ${deductedStockRecords.length} \xEDtems descontados.`);
       for (const ded of deductedStockRecords) {
         try {
-          const { data: pList } = await supabase.from("products").select("stock, variants").eq("id", ded.productId);
+          const { data: pList } = await localDb.from("products").select("stock, variants").eq("id", ded.productId);
           const p = pList?.[0];
           if (p) {
             if (ded.variantId && p.variants) {
@@ -5054,10 +5473,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
               const vIdx = vars.findIndex((v) => v.id === ded.variantId);
               if (vIdx !== -1) {
                 vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                await supabase.from("products").update({ variants: vars }).eq("id", ded.productId);
+                await localDb.from("products").update({ variants: vars }).eq("id", ded.productId);
               }
             } else {
-              await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq("id", ded.productId);
+              await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq("id", ded.productId);
             }
           }
         } catch (rbErr) {
@@ -5073,7 +5492,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
   try {
     const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : "https://" + req.headers.host;
     const invoiceUrl = `${baseUrl}/#billing`;
-    const { data: admins } = await supabase.from("users").select("name, phone").eq("role", "admin");
+    const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
     if (admins && admins.length > 0) {
       const itemSummary = processedItems && processedItems.length > 0 ? processedItems.map((item) => `${item.quantity}x ${item.productName || "Producto"}`).join(", ") : "Sin productos";
       const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
@@ -5181,7 +5600,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   const { id } = req.params;
   let { client, nit, phone, address, items, isOwed, notes, sellerSignature, sellerId, customDate, date } = req.body;
   isOwed = true;
-  const { data: invoices } = await supabase.from("invoices").select("*").eq("id", id);
+  const { data: invoices } = await localDb.from("invoices").select("*").eq("id", id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
   if (oldInvoice.status === "cancelled" || oldInvoice.status === "rejected") {
@@ -5206,7 +5625,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
         variants: []
       };
     } else {
-      const { data: products } = await supabase.from("products").select("stock, price, name, is_external, variants").eq("id", item.productId);
+      const { data: products } = await localDb.from("products").select("stock, price, name, is_external, variants").eq("id", item.productId);
       prod = products?.[0];
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
@@ -5254,7 +5673,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
   try {
     for (const [prodId, changes] of Object.entries(netStockChanges)) {
-      const { data: pData } = await supabase.from("products").select("stock, is_external, variants").eq("id", prodId);
+      const { data: pData } = await localDb.from("products").select("stock, is_external, variants").eq("id", prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
       let varsToUpdate = p.variants ? [...p.variants] : [];
@@ -5266,9 +5685,9 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
         }
       }
       if (Object.keys(changes.variants).length > 0) {
-        await supabase.from("products").update({ variants: varsToUpdate }).eq("id", prodId);
+        await localDb.from("products").update({ variants: varsToUpdate }).eq("id", prodId);
       } else if (changes.total !== 0) {
-        await supabase.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq("id", prodId);
+        await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq("id", prodId);
       }
     }
   } finally {
@@ -5318,7 +5737,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   updatedDataRaw["deliveryAddress"] = address || "";
   updatedDataRaw["nit"] = effectiveNit;
   updatedDataRaw["customerNit"] = effectiveNit;
-  const { error: updateError } = await supabase.from("invoices").update(updatedDataRaw).eq("id", id);
+  const { error: updateError } = await localDb.from("invoices").update(updatedDataRaw).eq("id", id);
   if (updateError) {
     console.warn("Primary update invoice error:", updateError.message);
     const fallbackData = { ...updatedDataRaw };
@@ -5330,21 +5749,21 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     fallbackData["phone"] = phone || "";
     fallbackData["address"] = address || "";
     fallbackData["nit"] = effectiveNit;
-    const { error: retryError1 } = await supabase.from("invoices").update(fallbackData).eq("id", id);
+    const { error: retryError1 } = await localDb.from("invoices").update(fallbackData).eq("id", id);
     if (retryError1) {
       const bareData = { ...fallbackData };
       delete bareData["phone"];
       delete bareData["address"];
       delete bareData["nit"];
-      await supabase.from("invoices").update(bareData).eq("id", id);
+      await localDb.from("invoices").update(bareData).eq("id", id);
     }
   }
   if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
     try {
-      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      const { data: matchedClients } = await localDb.from("clients").select("id, nit").ilike("name", String(client).trim());
       if (matchedClients && matchedClients.length > 0) {
         for (const mc of matchedClients) {
-          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          await localDb.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
           updateLocalClient(mc.id, { nit: effectiveNit });
         }
       }
@@ -5376,7 +5795,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
 app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { nit, client, phone, address } = req.body;
-  const { data: invoices } = await supabase.from("invoices").select("*").eq("id", id);
+  const { data: invoices } = await localDb.from("invoices").select("*").eq("id", id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
   let baseNotesParts = (oldInvoice.notes || "").split("|||");
@@ -5402,18 +5821,18 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res)
     updatePayload.deliveryAddress = address.trim();
     updatePayload.address = address.trim();
   }
-  const { error: updateError } = await supabase.from("invoices").update(updatePayload).eq("id", id);
+  const { error: updateError } = await localDb.from("invoices").update(updatePayload).eq("id", id);
   if (updateError) {
     const fallback = { notes: newNotes };
-    await supabase.from("invoices").update(fallback).eq("id", id);
+    await localDb.from("invoices").update(fallback).eq("id", id);
   }
   await syncInvoiceToPermanentBackup(id);
   if (client && effectiveNit && effectiveNit.toUpperCase() !== "CF") {
     try {
-      const { data: matchedClients } = await supabase.from("clients").select("id, nit").ilike("name", String(client).trim());
+      const { data: matchedClients } = await localDb.from("clients").select("id, nit").ilike("name", String(client).trim());
       if (matchedClients && matchedClients.length > 0) {
         for (const mc of matchedClients) {
-          await supabase.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
+          await localDb.from("clients").update({ nit: effectiveNit }).eq("id", mc.id);
           updateLocalClient(mc.id, { nit: effectiveNit });
         }
       }
@@ -5425,13 +5844,13 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res)
 app.put("/api/invoices/:id/review", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { adminSignature, reviewedBy } = req.body;
-  const { data: invoices } = await supabase.from("invoices").select("notes").eq("id", id);
+  const { data: invoices } = await localDb.from("invoices").select("notes").eq("id", id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   let currentNotes = invoices[0].notes || "";
   currentNotes = updateTagInNotes(currentNotes, "ADMIN_SIG", adminSignature);
   currentNotes = updateTagInNotes(currentNotes, "REVIEWED_BY", reviewedBy);
   currentNotes = updateTagInNotes(currentNotes, "AUTH", "authorized");
-  const { error } = await supabase.from("invoices").update({ notes: currentNotes }).eq("id", id);
+  const { error } = await localDb.from("invoices").update({ notes: currentNotes }).eq("id", id);
   if (error) throw error;
   res.json({ success: true });
 }));
@@ -5439,7 +5858,7 @@ app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler
   const { id } = req.params;
   const { creditDays } = req.body;
   try {
-    const { data, error: selectError } = await supabase.from("invoices").select("notes").eq("id", id).single();
+    const { data, error: selectError } = await localDb.from("invoices").select("notes").eq("id", id).single();
     if (selectError) console.error("Select error:", selectError);
     if (data) {
       let notes = data.notes || "";
@@ -5455,7 +5874,7 @@ app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler
           notes = notes + "|||CREDIT:" + creditDays;
         }
       }
-      const { error: updateError } = await supabase.from("invoices").update({ notes }).eq("id", id);
+      const { error: updateError } = await localDb.from("invoices").update({ notes }).eq("id", id);
       if (updateError) console.error("Update error:", updateError);
       await syncInvoiceToPermanentBackup(id);
     }
@@ -5467,7 +5886,7 @@ app.put("/api/invoices/:id/credit-days", requireAuth, requireAdmin, asyncHandler
 app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { itemIndex, newPrice } = req.body;
-  const { data: invoices, error } = await supabase.from("invoices").select("*").eq("id", id);
+  const { data: invoices, error } = await localDb.from("invoices").select("*").eq("id", id);
   if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
   const invoice = invoices[0];
   if (invoice.status === "paid" || invoice.status === "cancelled") {
@@ -5479,7 +5898,7 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
   }
   const newTotalAmount = invoice.items.reduce((acc, item) => acc + item.total, 0);
   invoice.totalAmount = newTotalAmount;
-  await supabase.from("invoices").update({
+  await localDb.from("invoices").update({
     items: invoice.items,
     totalAmount: newTotalAmount
   }).eq("id", id);
@@ -5489,10 +5908,10 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
 app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, guideNumber, folio, deliveryLetterUrl, shippingGuideUrl, clientName, shippingDate, sellerId } = req.body;
-  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq("id", id).single();
   if (!invoice) return res.status(404).json({ error: "No encontrada" });
   if ((status === "cancelled" || status === "rejected") && invoice.status !== "cancelled" && invoice.status !== "rejected") {
-    const docFel = await obtenerDocumentoPorFactura(supabase, id);
+    const docFel = await obtenerDocumentoPorFactura(localDb, id);
     if (docFel && docFel.estado === "certificado" && docFel.numero_autorizacion) {
       return res.status(409).json({
         error: 'Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. Para anularla, usa "Anular documento ante SAT" en el panel FEL: ese proceso anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.',
@@ -5514,7 +5933,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
     }
   }
   if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
-    const { data: inv } = await supabase.from("invoices").select("notes").eq("id", id).single();
+    const { data: inv } = await localDb.from("invoices").select("notes").eq("id", id).single();
     if (inv) {
       let notes = inv.notes || "";
       if (guideNumber) {
@@ -5527,7 +5946,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
           const previousFolio = currentMap[String(id)];
           if (previousFolio !== parsedFolio) {
             console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-            const { data: otherInvoices } = await supabase.from("invoices").select("id, notes, status").eq("is_archived", false).neq("id", id);
+            const { data: otherInvoices } = await localDb.from("invoices").select("id, notes, status").eq("is_archived", false).neq("id", id);
             if (otherInvoices && otherInvoices.length > 0) {
               const updates = [];
               for (const otherInv of otherInvoices) {
@@ -5548,7 +5967,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
               if (updates.length > 0) {
                 console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
                 for (const update of updates) {
-                  await supabase.from("invoices").update({ notes: update.notes }).eq("id", update.id);
+                  await localDb.from("invoices").update({ notes: update.notes }).eq("id", update.id);
                   await syncInvoiceToPermanentBackup(update.id);
                 }
               }
@@ -5573,14 +5992,14 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
       if (sellerId !== void 0) {
         updateData.sellerId = sellerId;
       }
-      await supabase.from("invoices").update(updateData).eq("id", id);
+      await localDb.from("invoices").update(updateData).eq("id", id);
       invalidateCache("folio_map");
       invalidateCache("products");
       await syncInvoiceToPermanentBackup(id);
       return res.json({ success: true, guideNumber, folio });
     }
   }
-  await supabase.from("invoices").update(updateData).eq("id", id);
+  await localDb.from("invoices").update(updateData).eq("id", id);
   invalidateCache("folio_map");
   invalidateCache("products");
   await syncInvoiceToPermanentBackup(id);
@@ -5588,21 +6007,21 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
 }));
 app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq("id", id).single();
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
   if (req.user.role !== "admin" && invoice.sellerId !== req.user.email) {
     return res.status(403).json({ error: "No autorizado para archivar esta factura" });
   }
-  await supabase.from("invoices").update({ is_archived: true }).eq("id", id);
+  await localDb.from("invoices").update({ is_archived: true }).eq("id", id);
   invalidateCache("folio_map");
   await syncInvoiceToPermanentBackup(id);
   res.json({ success: true });
 }));
 app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", id).single();
+  const { data: invoice } = await localDb.from("invoices").select("*").eq("id", id).single();
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
@@ -5611,7 +6030,7 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
   }
   if (invoice.status !== "cancelled" && invoice.status !== "rejected") {
     for (const item of invoice.items) {
-      const { data: prods } = await supabase.from("products").select("stock, is_external, variants").eq("id", item.productId);
+      const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq("id", item.productId);
       const product = prods?.[0];
       if (product && !product.is_external) {
         let variantsToUpdate = product.variants ? [...product.variants] : [];
@@ -5625,16 +6044,16 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
         if (variantObj && variantObj.stock !== void 0) {
           const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
           variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-          const { error: vErr } = await supabase.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
+          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
           if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
         } else {
-          const { error: sErr } = await supabase.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
+          const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
           if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
         }
       }
     }
   }
-  await supabase.from("invoices").delete().eq("id", id);
+  await localDb.from("invoices").delete().eq("id", id);
   invalidateCache("folio_map");
   invalidateCache("products");
   res.json({ success: true });
@@ -5646,18 +6065,33 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
   } else if (req.user.role !== "admin" && !client) {
     if (!sellerId) {
       sellerId = req.user.email;
-    } else if (sellerId !== req.user.email && sellerId !== req.user.id) {
-      return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+    } else {
+      const allowed = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].map((s) => String(s || "").trim().toLowerCase());
+      if (!allowed.includes(String(sellerId).trim().toLowerCase())) {
+        return res.status(403).json({ error: "No autorizado para ver estas facturas" });
+      }
     }
   }
+  let sellerFilterList = [];
+  if (sellerId) {
+    sellerFilterList.push(String(sellerId).trim());
+  }
+  if (req.user && req.user.role !== "admin") {
+    if (req.user.email) sellerFilterList.push(String(req.user.email).trim());
+    if (req.user.id) sellerFilterList.push(String(req.user.id).trim());
+    if (req.user.name) sellerFilterList.push(String(req.user.name).trim());
+    if (req.user.sellerCode) sellerFilterList.push(String(req.user.sellerCode).trim());
+  }
+  sellerFilterList = Array.from(new Set(sellerFilterList)).filter(Boolean);
   const fetchInvoices = async () => {
     if (isNeonActive() && neonPool) {
       try {
         let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
         const params = [];
-        if (sellerId) {
-          params.push(sellerId);
-          sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+        if (sellerFilterList.length > 0) {
+          const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(", ");
+          params.push(...sellerFilterList);
+          sql += ` AND "sellerId" IN (${placeholders})`;
         }
         sql += " ORDER BY date DESC, id DESC";
         const rows = await queryNeon(sql, params);
@@ -5672,12 +6106,14 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     let hasMore = true;
     let useFallback = false;
     while (hasMore) {
-      let query = supabase.from("invoices").select("*");
+      let query = localDb.from("invoices").select("*");
       if (!useFallback) {
         query = query.eq("is_archived", false);
       }
-      if (sellerId) {
-        query = query.eq("sellerId", sellerId);
+      if (sellerFilterList.length === 1) {
+        query = query.eq("sellerId", sellerFilterList[0]);
+      } else if (sellerFilterList.length > 1) {
+        query = query.in("sellerId", sellerFilterList);
       }
       const res2 = await query.order("date", { ascending: false }).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
       if (res2.error) {
@@ -5691,9 +6127,10 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           try {
             let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
             const params = [];
-            if (sellerId) {
-              params.push(sellerId);
-              sql += ` AND ("sellerId" = $1 OR "seller_id" = $1)`;
+            if (sellerFilterList.length > 0) {
+              const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(", ");
+              params.push(...sellerFilterList);
+              sql += ` AND "sellerId" IN (${placeholders})`;
             }
             sql += " ORDER BY date DESC, id DESC";
             const rows = await queryNeon(sql, params);
@@ -5805,6 +6242,9 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       nit: mappedInv.nit || "",
       phone: mappedInv.phone || mappedInv.customerPhone || "",
       address: mappedInv.address || mappedInv.deliveryAddress || "",
+      totalAmount: Number(mappedInv.totalAmount || 0),
+      paidAmount: Number(mappedInv.paidAmount || 0),
+      total: Number(mappedInv.total || mappedInv.totalAmount || 0),
       trackingNumber: mappedInv.trackingNumber
     };
   });
@@ -5826,15 +6266,15 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
 }));
 app.get("/api/invoices/folio-config", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   let folioConfig = { resetDate: null, startFrom: 1 };
-  const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-  if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+  const FOLIO_CONFIG_FILE = path2.join(process.cwd(), "folio_config.json");
+  if (fs2.existsSync(FOLIO_CONFIG_FILE)) {
     try {
-      folioConfig = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+      folioConfig = JSON.parse(fs2.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
     } catch (err) {
     }
   }
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-folio-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-folio-config").single();
     if (sysRow && sysRow.photo) {
       folioConfig = JSON.parse(sysRow.photo);
     }
@@ -5848,22 +6288,22 @@ app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(as
     resetDate: resetDate || (/* @__PURE__ */ new Date()).toISOString(),
     startFrom: startFrom !== void 0 ? parseInt(startFrom, 10) : 1
   };
-  const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+  const FOLIO_CONFIG_FILE = path2.join(process.cwd(), "folio_config.json");
   try {
-    fs.writeFileSync(FOLIO_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+    fs2.writeFileSync(FOLIO_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
   } catch (err) {
   }
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-folio-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-folio-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: JSON.stringify(config),
         name: "Folio Configuration",
         email: "system-folio@agricovet.com",
         role: "system"
       }).eq("id", "sys-folio-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-folio-config",
         name: "Folio Configuration",
         email: "system-folio@agricovet.com",
@@ -5874,22 +6314,22 @@ app.post("/api/invoices/reset-folio", requireAuth, requireAdmin, asyncHandler(as
       }]);
     }
   } catch (e) {
-    console.error("Failed to save folio config to Supabase:", e);
+    console.error("Failed to save folio config to PostgreSQL Local:", e);
   }
   res.json({ success: true, config });
   invalidateCache("folio_map");
 }));
 app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req, res) => {
   let excludedIds = [];
-  const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
-  if (fs.existsSync(EXCLUDED_FILE)) {
+  const EXCLUDED_FILE = path2.join(process.cwd(), "excluded_critical.json");
+  if (fs2.existsSync(EXCLUDED_FILE)) {
     try {
-      excludedIds = JSON.parse(fs.readFileSync(EXCLUDED_FILE, "utf-8"));
+      excludedIds = JSON.parse(fs2.readFileSync(EXCLUDED_FILE, "utf-8"));
     } catch (err) {
     }
   }
   try {
-    const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-critical-config").single();
+    const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-critical-config").single();
     if (sysRow && sysRow.photo) {
       const parsed = JSON.parse(sysRow.photo);
       if (Array.isArray(parsed)) {
@@ -5904,22 +6344,22 @@ app.get("/api/inventory/excluded-critical", requireAuth, asyncHandler(async (req
 app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { excludedIds } = req.body;
   const list = Array.isArray(excludedIds) ? excludedIds : [];
-  const EXCLUDED_FILE = path.join(process.cwd(), "excluded_critical.json");
+  const EXCLUDED_FILE = path2.join(process.cwd(), "excluded_critical.json");
   try {
-    fs.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
+    fs2.writeFileSync(EXCLUDED_FILE, JSON.stringify(list, null, 2), "utf8");
   } catch (err) {
   }
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-critical-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-critical-config").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: JSON.stringify(list),
         name: "Critical Stock Exclusions",
         email: "system-critical@agricovet.com",
         role: "system"
       }).eq("id", "sys-critical-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-critical-config",
         name: "Critical Stock Exclusions",
         email: "system-critical@agricovet.com",
@@ -5930,22 +6370,22 @@ app.post("/api/inventory/excluded-critical", requireAuth, requireAdmin, asyncHan
       }]);
     }
   } catch (e) {
-    console.error("Failed to save critical stock exclusions to Supabase:", e);
+    console.error("Failed to save critical stock exclusions to PostgreSQL Local:", e);
   }
   res.json({ success: true, excludedIds: list });
 }));
 app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req, res) => {
   let template = "";
-  const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
-  if (fs.existsSync(TEMPLATE_FILE)) {
+  const TEMPLATE_FILE = path2.join(process.cwd(), "print_template.txt");
+  if (fs2.existsSync(TEMPLATE_FILE)) {
     try {
-      template = fs.readFileSync(TEMPLATE_FILE, "utf-8");
+      template = fs2.readFileSync(TEMPLATE_FILE, "utf-8");
     } catch (err) {
     }
   }
   if (!template) {
     try {
-      const { data: sysRow } = await supabase.from("users").select("photo").eq("id", "sys-print-template").single();
+      const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-print-template").single();
       if (sysRow && sysRow.photo) {
         template = sysRow.photo;
       }
@@ -5956,22 +6396,22 @@ app.get("/api/invoices/print-template", requireAuth, asyncHandler(async (req, re
 }));
 app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { template } = req.body;
-  const TEMPLATE_FILE = path.join(process.cwd(), "print_template.txt");
+  const TEMPLATE_FILE = path2.join(process.cwd(), "print_template.txt");
   try {
-    fs.writeFileSync(TEMPLATE_FILE, template || "", "utf8");
+    fs2.writeFileSync(TEMPLATE_FILE, template || "", "utf8");
   } catch (err) {
   }
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-print-template").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-print-template").single();
     if (existing) {
-      await supabase.from("users").update({
+      await localDb.from("users").update({
         photo: template || "",
         name: "Print Template Configuration",
         email: "system-print-template@agricovet.com",
         role: "system"
       }).eq("id", "sys-print-template");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-print-template",
         name: "Print Template Configuration",
         email: "system-print-template@agricovet.com",
@@ -5982,7 +6422,7 @@ app.post("/api/invoices/print-template", requireAuth, requireAdmin, asyncHandler
       }]);
     }
   } catch (e) {
-    console.error("Failed to save print template to Supabase:", e);
+    console.error("Failed to save print template to PostgreSQL Local:", e);
   }
   res.json({ success: true });
 }));
@@ -5990,7 +6430,7 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
   const { id } = req.params;
   const { status } = req.body;
   try {
-    const { data: rawData, error: selectErr } = await supabase.from("invoices").select("*").eq("id", id).single();
+    const { data: rawData, error: selectErr } = await localDb.from("invoices").select("*").eq("id", id).single();
     if (selectErr) {
       console.error("Error fetching invoice in auth endpoint:", JSON.stringify(selectErr));
       return res.status(400).json({ error: "Fallo al obtener la factura: " + selectErr.message });
@@ -6007,7 +6447,7 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
           notes = notes + "|||AUTH:" + status;
         }
       }
-      const { error: updateErr } = await supabase.from("invoices").update({ notes }).eq("id", id);
+      const { error: updateErr } = await localDb.from("invoices").update({ notes }).eq("id", id);
       if (updateErr) {
         console.error("Error updating invoice auth status notes:", updateErr);
         return res.status(400).json({ error: "Fallo al actualizar estado de autorizaci\xF3n: " + updateErr.message });
@@ -6022,10 +6462,10 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
         const clientName = data.clientName || data.client || "el cliente";
         if (sellerId) {
           let seller = null;
-          const { data: sellerDataByEmail } = await supabase.from("users").select("name, phone").eq("email", sellerId).single();
+          const { data: sellerDataByEmail } = await localDb.from("users").select("name, phone").eq("email", sellerId).single();
           if (sellerDataByEmail) seller = sellerDataByEmail;
           else {
-            const { data: sellerDataById } = await supabase.from("users").select("name, phone").eq("id", sellerId).single();
+            const { data: sellerDataById } = await localDb.from("users").select("name, phone").eq("id", sellerId).single();
             if (sellerDataById) seller = sellerDataById;
           }
           if (seller && seller.phone) {
@@ -6069,7 +6509,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   const { id } = req.params;
   const { amount, notes } = req.body;
   const numAmount = parseFloat(amount);
-  const { data: invoices, error } = await supabase.from("invoices").select("*").eq("id", id);
+  const { data: invoices, error } = await localDb.from("invoices").select("*").eq("id", id);
   if (error || !invoices || invoices.length === 0) return res.status(404).json({ error: "Invoice not found" });
   const invoice = invoices[0];
   if (req.user.role !== "admin" && invoice.sellerId !== req.user.email && invoice.sellerId !== req.user.id) {
@@ -6084,15 +6524,15 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
     try {
       const buffer = await sharp(req.file.buffer).resize(800, 800, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
       const fileName = `boletas/boleta-${id}-${Date.now()}.jpg`;
-      const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+      const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
         contentType: "image/jpeg",
         upsert: true
       });
       if (!uploadError) {
-        const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+        const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
         receiptUrl = publicUrlData.publicUrl;
       } else {
-        console.error("Payment receipt upload to Supabase storage error, failing back directly to base64:", uploadError);
+        console.error("Payment receipt upload to PostgreSQL Local storage error, failing back directly to base64:", uploadError);
         receiptUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
       }
     } catch (err) {
@@ -6106,9 +6546,9 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
     newStatus = "paid";
   }
   try {
-    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq("id", id);
+    await localDb.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq("id", id);
   } catch (e) {
-    console.error("Error updating invoice in Supabase handled gracefully:", e);
+    console.error("Error updating invoice in PostgreSQL Local handled gracefully:", e);
   }
   invoice.paidAmount = newPaidAmount;
   invoice.status = newStatus;
@@ -6128,7 +6568,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   try {
     await safeInsertPayment(payment);
   } catch (e) {
-    console.error("Error inserting payment in Supabase handled gracefully:", e);
+    console.error("Error inserting payment in PostgreSQL Local handled gracefully:", e);
   }
   await syncInvoiceToPermanentBackup(id, invoice);
   await syncPaymentToPermanentBackup(paymentId, payment);
@@ -6138,9 +6578,9 @@ app.get("/api/invoices/:id/payments", requireAuth, asyncHandler(async (req, res)
   const { id } = req.params;
   let payments = [];
   try {
-    payments = await fetchPaymentsFromSupabase(id);
+    payments = await fetchPaymentsFromLocalDb(id);
   } catch (e) {
-    console.error("Fetch payments supabase catch error:", e);
+    console.error("Fetch payments PostgreSQL Local catch error:", e);
   }
   const localPayments = readLocalPayments().filter((p) => p.invoiceId === id).map(normalizePayment);
   const dbPaymentIds = new Set(payments.map((p) => p.id));
@@ -6175,7 +6615,7 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
   const { id, paymentId } = req.params;
   let paymentAmount = 0;
   try {
-    const { data: pmtData } = await supabase.from("payments").select("*").eq("id", paymentId);
+    const { data: pmtData } = await localDb.from("payments").select("*").eq("id", paymentId);
     if (pmtData && pmtData.length > 0) {
       paymentAmount = parseFloat(pmtData[0].amount || 0);
     }
@@ -6187,20 +6627,20 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
     if (match) paymentAmount = parseFloat(match.amount || 0);
   }
   try {
-    const { error: delErr } = await supabase.from("payments").delete().eq("id", paymentId);
+    const { error: delErr } = await localDb.from("payments").delete().eq("id", paymentId);
     if (delErr) {
       console.warn("Hard delete payment failed (RLS), falling back to zeroing:", delErr.message);
-      await supabase.from("payments").update({ amount: 0, notes: "[ELIMINADO]" }).eq("id", paymentId);
+      await localDb.from("payments").update({ amount: 0, notes: "[ELIMINADO]" }).eq("id", paymentId);
     }
   } catch (e) {
-    console.warn("Delete payment error in supabase:", e);
+    console.warn("Delete payment error in PostgreSQL Local:", e);
   }
   try {
     const localPayments = readLocalPayments().filter((p) => p.id !== paymentId);
-    fs.writeFileSync(path.join(process.cwd(), "payments_local.json"), JSON.stringify(localPayments, null, 2), "utf8");
+    fs2.writeFileSync(path2.join(process.cwd(), "payments_local.json"), JSON.stringify(localPayments, null, 2), "utf8");
   } catch (e) {
   }
-  const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").eq("id", id);
+  const { data: invoices, error: invErr } = await localDb.from("invoices").select("*").eq("id", id);
   if (invErr || !invoices || invoices.length === 0) {
     return res.json({ success: true, deletedPaymentId: paymentId });
   }
@@ -6212,7 +6652,7 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
     newStatus = "pending";
   }
   try {
-    await supabase.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq("id", id);
+    await localDb.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq("id", id);
   } catch (e) {
     console.error("Error updating invoice on payment delete:", e);
   }
@@ -6224,16 +6664,16 @@ app.delete("/api/invoices/:id/payments/:paymentId", requireAuth, requireAdmin, a
 app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   let payments = [];
   try {
-    const { data, error } = await supabase.from("payments").select("*");
+    const { data, error } = await localDb.from("payments").select("*");
     if (error) {
       if (error.code !== "42P01" && !error.message.includes("schema cache") && !error.message.includes("does not exist")) {
-        console.error("Fetch all payments supabase error:", error.message);
+        console.error("Fetch all payments PostgreSQL Local error:", error.message);
       }
     } else if (data) {
       payments = data.map(normalizePayment);
     }
   } catch (e) {
-    console.error("Fetch all payments supabase catch error:", e);
+    console.error("Fetch all payments PostgreSQL Local catch error:", e);
   }
   const localPayments = readLocalPayments().map(normalizePayment);
   const mergedMap = /* @__PURE__ */ new Map();
@@ -6258,26 +6698,26 @@ app.get("/api/payments", requireAuth, requireAdmin, asyncHandler(async (req, res
   });
   res.json(Array.from(mergedMap.values()));
 }));
-var debtsFile = path.resolve(process.cwd(), "business-debts.json");
+var debtsFile = path2.resolve(process.cwd(), "business-debts.json");
 var readDebts = async () => {
   try {
-    const { data, error } = await supabase.from("users").select("photo").eq("id", "sys-debts-store").single();
+    const { data, error } = await localDb.from("users").select("photo").eq("id", "sys-debts-store").single();
     if (!error && data && data.photo) {
       const parsed = JSON.parse(data.photo);
       if (Array.isArray(parsed)) {
         try {
-          fs.writeFileSync(debtsFile, data.photo, "utf-8");
+          fs2.writeFileSync(debtsFile, data.photo, "utf-8");
         } catch {
         }
         return parsed;
       }
     }
   } catch (dbErr) {
-    console.warn("Could not read debts from Supabase, falling back to local file:", dbErr);
+    console.warn("Could not read debts from PostgreSQL Local, falling back to local file:", dbErr);
   }
   try {
-    if (fs.existsSync(debtsFile)) {
-      const parsed = JSON.parse(fs.readFileSync(debtsFile, "utf-8"));
+    if (fs2.existsSync(debtsFile)) {
+      const parsed = JSON.parse(fs2.readFileSync(debtsFile, "utf-8"));
       if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
@@ -6288,16 +6728,16 @@ var readDebts = async () => {
 var writeDebts = async (data) => {
   const payloadStr = JSON.stringify(data, null, 2);
   try {
-    fs.writeFileSync(debtsFile, payloadStr, "utf-8");
+    fs2.writeFileSync(debtsFile, payloadStr, "utf-8");
   } catch (e) {
     console.warn("Could not write debts to local file:", e);
   }
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-debts-store").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-debts-store").single();
     if (existing) {
-      await supabase.from("users").update({ photo: payloadStr, name: "Debts Store", email: "system-debts@agricovet.com", role: "system" }).eq("id", "sys-debts-store");
+      await localDb.from("users").update({ photo: payloadStr, name: "Debts Store", email: "system-debts@agricovet.com", role: "system" }).eq("id", "sys-debts-store");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-debts-store",
         name: "Debts Store",
         email: "system-debts@agricovet.com",
@@ -6308,10 +6748,10 @@ var writeDebts = async (data) => {
       }]);
     }
   } catch (dbErr) {
-    console.error("Could not sync debts to Supabase:", dbErr.message);
+    console.error("Could not sync debts to PostgreSQL Local:", dbErr.message);
   }
 };
-var suppliersFile = path.resolve(process.cwd(), "suppliers.json");
+var suppliersFile = path2.resolve(process.cwd(), "suppliers.json");
 var readSuppliers = async () => {
   const hardcodedSuppliers = [
     { id: "sup_1", name: "Droguer\xEDa El Sol, S.A.", phone: "+502 2345-6789", email: "contacto@drogueriaelsol.com", address: "Zona 10, Ciudad de Guatemala", category: "Medicamentos", creditDays: 30 },
@@ -6319,23 +6759,23 @@ var readSuppliers = async () => {
     { id: "sup_3", name: "Nutri-Av\xEDcola Industrial", phone: "+502 5544-3322", email: "pedidos@nutriavicola.com", address: "Tecp\xE1n, Chimaltenango", category: "Concentrados", creditDays: 45 }
   ];
   try {
-    const { data, error } = await supabase.from("users").select("photo").eq("id", "sys-suppliers-store").single();
+    const { data, error } = await localDb.from("users").select("photo").eq("id", "sys-suppliers-store").single();
     if (!error && data && data.photo) {
       const parsed = JSON.parse(data.photo);
       if (Array.isArray(parsed)) {
         try {
-          fs.writeFileSync(suppliersFile, data.photo, "utf-8");
+          fs2.writeFileSync(suppliersFile, data.photo, "utf-8");
         } catch {
         }
         return parsed;
       }
     }
   } catch (dbErr) {
-    console.warn("Could not read suppliers from Supabase, falling back to local file:", dbErr);
+    console.warn("Could not read suppliers from PostgreSQL Local, falling back to local file:", dbErr);
   }
   try {
-    if (fs.existsSync(suppliersFile)) {
-      const parsed = JSON.parse(fs.readFileSync(suppliersFile, "utf-8"));
+    if (fs2.existsSync(suppliersFile)) {
+      const parsed = JSON.parse(fs2.readFileSync(suppliersFile, "utf-8"));
       if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
@@ -6346,16 +6786,16 @@ var readSuppliers = async () => {
 var writeSuppliers = async (data) => {
   const payloadStr = JSON.stringify(data, null, 2);
   try {
-    fs.writeFileSync(suppliersFile, payloadStr, "utf-8");
+    fs2.writeFileSync(suppliersFile, payloadStr, "utf-8");
   } catch (e) {
     console.warn("Could not write suppliers to local file:", e);
   }
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-suppliers-store").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-suppliers-store").single();
     if (existing) {
-      await supabase.from("users").update({ photo: payloadStr, name: "Suppliers Store", email: "system-suppliers@agricovet.com", role: "system" }).eq("id", "sys-suppliers-store");
+      await localDb.from("users").update({ photo: payloadStr, name: "Suppliers Store", email: "system-suppliers@agricovet.com", role: "system" }).eq("id", "sys-suppliers-store");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-suppliers-store",
         name: "Suppliers Store",
         email: "system-suppliers@agricovet.com",
@@ -6366,7 +6806,7 @@ var writeSuppliers = async (data) => {
       }]);
     }
   } catch (dbErr) {
-    console.error("Could not sync suppliers to Supabase:", dbErr.message);
+    console.error("Could not sync suppliers to PostgreSQL Local:", dbErr.message);
   }
 };
 app.get("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -6451,7 +6891,7 @@ app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload
   try {
     const fileName = `receipt-${Date.now()}.jpg`;
     const buffer = await sharp(req.file.buffer).resize(1e3, 1e3, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType: "image/jpeg",
       upsert: true
     });
@@ -6460,7 +6900,7 @@ app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload
       console.error("Storage upload error for receipt, falling back to base64:", uploadError);
       imageUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       imageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
     res.json({ success: true, imageUrl });
@@ -6482,7 +6922,7 @@ app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, u
   try {
     const fileName = `invoice-${Date.now()}.jpg`;
     const buffer = await sharp(req.file.buffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType: "image/jpeg",
       upsert: true
     });
@@ -6490,11 +6930,11 @@ app.post("/api/business-debts/detect-invoice-text", requireAuth, requireAdmin, u
       console.error("Storage upload error for invoice OCR image, falling back to base64:", uploadError);
       uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
   } catch (uploadErr) {
-    console.error("Error uploading invoice to Supabase inside OCR:", uploadErr);
+    console.error("Error uploading invoice to PostgreSQL Local inside OCR:", uploadErr);
     try {
       uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     } catch (b64Err) {
@@ -6627,7 +7067,7 @@ app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide")
   try {
     const fileName = `shipping-guide-${Date.now()}.jpg`;
     const buffer = await sharp(req.file.buffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+    const { data: uploadData, error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
       contentType: "image/jpeg",
       upsert: true
     });
@@ -6635,11 +7075,11 @@ app.post("/api/sales/detect-shipping-guide", requireAuth, upload.single("guide")
       console.error("Storage upload error for shipping guide image, falling back to base64:", uploadError);
       uploadedImageUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
     } else {
-      const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+      const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
       uploadedImageUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     }
   } catch (uploadErr) {
-    console.error("Error uploading shipping guide to Supabase inside OCR:", uploadErr);
+    console.error("Error uploading shipping guide to PostgreSQL Local inside OCR:", uploadErr);
     try {
       uploadedImageUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     } catch (b64Err) {
@@ -6718,9 +7158,9 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req, res) => {
   const todayStr = clientDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   let invoices = [];
   try {
-    let { data, error } = await supabase.from("invoices").select("*").eq("is_archived", false);
+    let { data, error } = await localDb.from("invoices").select("*").eq("is_archived", false);
     if (error && (error.code === "42703" || error.message.includes("is_archived"))) {
-      const fallback = await supabase.from("invoices").select("*");
+      const fallback = await localDb.from("invoices").select("*");
       data = fallback.data;
     }
     if (data) invoices = data;
@@ -6733,9 +7173,9 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req, res) => {
   }));
   let payments = [];
   try {
-    let { data, error } = await supabase.from("payments").select("*").eq("is_archived", false);
+    let { data, error } = await localDb.from("payments").select("*").eq("is_archived", false);
     if (error && (error.code === "42703" || error.message.includes("is_archived"))) {
-      const fallback = await supabase.from("payments").select("*");
+      const fallback = await localDb.from("payments").select("*");
       data = fallback.data;
     }
     if (data) payments = data;
@@ -6745,9 +7185,9 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req, res) => {
   const localFiles = ["payments.json", "payments_local.json"];
   localFiles.forEach((file) => {
     try {
-      const filePath = path.resolve(process.cwd(), file);
-      if (fs.existsSync(filePath)) {
-        const arr = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      const filePath = path2.resolve(process.cwd(), file);
+      if (fs2.existsSync(filePath)) {
+        const arr = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
         if (Array.isArray(arr)) {
           localPayments = [...localPayments, ...arr];
         }
@@ -6861,7 +7301,7 @@ async function internalSendWhatsApp(phone, message, templateName, templateLangua
   let waPhoneId = (process.env.WHATSAPP_PHONE_ID || "").trim().replace(/['"]/g, "");
   let waUrl = (process.env.WHATSAPP_API_URL || "").trim().replace(/['"]/g, "");
   try {
-    const { data: configData } = await supabase.from("users").select("photo").eq("id", "sys-whatsapp-config").single();
+    const { data: configData } = await localDb.from("users").select("photo").eq("id", "sys-whatsapp-config").single();
     if (configData && configData.photo) {
       const parsed = JSON.parse(configData.photo);
       if (parsed.waToken) waToken = parsed.waToken.trim();
@@ -7079,7 +7519,7 @@ app.post("/api/whatsapp/send", requireAuth, asyncHandler(async (req, res) => {
 }));
 app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   try {
-    const { data, error } = await supabase.from("users").select("photo").eq("id", "sys-whatsapp-config").single();
+    const { data, error } = await localDb.from("users").select("photo").eq("id", "sys-whatsapp-config").single();
     if (data && data.photo) {
       res.json(JSON.parse(data.photo));
     } else {
@@ -7092,12 +7532,12 @@ app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (r
 app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { waToken, waPhoneId, waUrl } = req.body;
   try {
-    const { data: existing } = await supabase.from("users").select("id").eq("id", "sys-whatsapp-config").single();
+    const { data: existing } = await localDb.from("users").select("id").eq("id", "sys-whatsapp-config").single();
     const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
     if (existing) {
-      await supabase.from("users").update({ photo: payloadStr }).eq("id", "sys-whatsapp-config");
+      await localDb.from("users").update({ photo: payloadStr }).eq("id", "sys-whatsapp-config");
     } else {
-      await supabase.from("users").insert([{
+      await localDb.from("users").insert([{
         id: "sys-whatsapp-config",
         name: "WhatsApp Config",
         email: "system-whatsapp@agricovet.com",
@@ -7118,7 +7558,7 @@ async function savePendingBoleta(phone, data) {
   try {
     const payload = JSON.stringify({ ...data, timestamp: Date.now() });
     const recordId = "bot-boleta-" + phone;
-    await supabase.from("users").upsert({
+    await localDb.from("users").upsert({
       id: recordId,
       name: "Pending Boleta",
       email: `${recordId}@bot.local`,
@@ -7128,32 +7568,32 @@ async function savePendingBoleta(phone, data) {
       photo: payload
     });
   } catch (e) {
-    console.warn("Could not save pending boleta to Supabase:", e);
+    console.warn("Could not save pending boleta to PostgreSQL Local:", e);
   }
 }
 async function popPendingBoleta(phone) {
   try {
     const now = Date.now();
     const recordId = "bot-boleta-" + phone;
-    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    const { data: direct } = await localDb.from("users").select("*").eq("id", recordId).single();
     if (direct && direct.photo) {
       try {
         const parsed = JSON.parse(direct.photo);
         if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await supabase.from("users").delete().eq("id", recordId);
+          await localDb.from("users").delete().eq("id", recordId);
           return parsed;
         }
       } catch (e) {
       }
     }
-    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-boleta-%");
+    const { data: recent } = await localDb.from("users").select("*").ilike("id", "bot-boleta-%");
     if (recent && recent.length > 0) {
       for (const r of recent) {
         if (r.photo) {
           try {
             const parsed = JSON.parse(r.photo);
             if (now - (parsed.timestamp || 0) < 6e4) {
-              await supabase.from("users").delete().eq("id", r.id);
+              await localDb.from("users").delete().eq("id", r.id);
               return parsed;
             }
           } catch (e) {
@@ -7169,7 +7609,7 @@ async function savePendingFolio(phone, data) {
   try {
     const payload = JSON.stringify({ ...data, timestamp: Date.now() });
     const recordId = "bot-folio-" + phone;
-    await supabase.from("users").upsert({
+    await localDb.from("users").upsert({
       id: recordId,
       name: "Pending Folio",
       email: `${recordId}@bot.local`,
@@ -7179,32 +7619,32 @@ async function savePendingFolio(phone, data) {
       photo: payload
     });
   } catch (e) {
-    console.warn("Could not save pending folio to Supabase:", e);
+    console.warn("Could not save pending folio to PostgreSQL Local:", e);
   }
 }
 async function popPendingFolio(phone) {
   try {
     const now = Date.now();
     const recordId = "bot-folio-" + phone;
-    const { data: direct } = await supabase.from("users").select("*").eq("id", recordId).single();
+    const { data: direct } = await localDb.from("users").select("*").eq("id", recordId).single();
     if (direct && direct.photo) {
       try {
         const parsed = JSON.parse(direct.photo);
         if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await supabase.from("users").delete().eq("id", recordId);
+          await localDb.from("users").delete().eq("id", recordId);
           return parsed;
         }
       } catch (e) {
       }
     }
-    const { data: recent } = await supabase.from("users").select("*").ilike("id", "bot-folio-%");
+    const { data: recent } = await localDb.from("users").select("*").ilike("id", "bot-folio-%");
     if (recent && recent.length > 0) {
       for (const r of recent) {
         if (r.photo) {
           try {
             const parsed = JSON.parse(r.photo);
             if (now - (parsed.timestamp || 0) < 6e4) {
-              await supabase.from("users").delete().eq("id", r.id);
+              await localDb.from("users").delete().eq("id", r.id);
               return parsed;
             }
           } catch (e) {
@@ -7230,7 +7670,7 @@ async function waitForPendingBoleta(phone, maxWaitMs = 6e3) {
 async function findInvoiceByFolio(folioInput, clientHint) {
   const cleanFolio = String(folioInput || "").replace(/^#/, "").trim();
   if (!cleanFolio || cleanFolio === "S/N") return null;
-  const { data: byFolio } = await supabase.from("invoices").select("*").eq("folio", cleanFolio);
+  const { data: byFolio } = await localDb.from("invoices").select("*").eq("folio", cleanFolio);
   if (byFolio && byFolio.length > 0) {
     if (byFolio.length > 1 && clientHint) {
       const hint = clientHint.toLowerCase().trim();
@@ -7239,14 +7679,14 @@ async function findInvoiceByFolio(folioInput, clientHint) {
     }
     return byFolio[0];
   }
-  const { data: byNotes } = await supabase.from("invoices").select("*").ilike("notes", `%FOLIO:${cleanFolio}%`);
+  const { data: byNotes } = await localDb.from("invoices").select("*").ilike("notes", `%FOLIO:${cleanFolio}%`);
   if (byNotes && byNotes.length > 0) return byNotes[0];
-  const { data: byId } = await supabase.from("invoices").select("*").eq("id", cleanFolio);
+  const { data: byId } = await localDb.from("invoices").select("*").eq("id", cleanFolio);
   if (byId && byId.length > 0) return byId[0];
-  const { data: byPrefix } = await supabase.from("invoices").select("*").ilike("id", `INV-${cleanFolio}-%`);
+  const { data: byPrefix } = await localDb.from("invoices").select("*").ilike("id", `INV-${cleanFolio}-%`);
   if (byPrefix && byPrefix.length > 0) return byPrefix[0];
   if (clientHint && clientHint.length > 3) {
-    const { data: byClient } = await supabase.from("invoices").select("*").ilike("clientName", `%${clientHint}%`).order("date", { ascending: false }).limit(5);
+    const { data: byClient } = await localDb.from("invoices").select("*").ilike("clientName", `%${clientHint}%`).order("date", { ascending: false }).limit(5);
     if (byClient && byClient.length > 0) {
       const withBalance = byClient.find((inv) => parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0) > 0);
       if (withBalance) return withBalance;
@@ -7265,12 +7705,12 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
     try {
       const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ""), "base64");
       const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage.from("productos").upload(fileName, buffer, {
+      const { error: uploadError } = await localDb.storage.from("productos").upload(fileName, buffer, {
         contentType: "image/jpeg",
         upsert: true
       });
       if (!uploadError) {
-        const { data: publicUrlData } = supabase.storage.from("productos").getPublicUrl(fileName);
+        const { data: publicUrlData } = localDb.storage.from("productos").getPublicUrl(fileName);
         receiptUrl = publicUrlData.publicUrl;
       } else {
         receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
@@ -7325,7 +7765,7 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   let total = parseFloat(invoice.totalAmount || 0);
   let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
   let newStatus = newPaid >= total - 0.01 ? "paid" : invoice.status === "despachado" ? "despachado" : "pending";
-  await supabase.from("invoices").update({
+  await localDb.from("invoices").update({
     paidAmount: newPaid,
     status: newStatus
   }).eq("id", invoice.id);
@@ -7410,7 +7850,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
   }
   let newPaid = currentPaid + numAmount;
   let newStatus = newPaid >= total - 0.01 ? "paid" : invoice.status === "despachado" ? "despachado" : "pending";
-  await supabase.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq("id", invoice.id);
+  await localDb.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq("id", invoice.id);
   if (numAmount > 0) {
     try {
       await safeInsertPayment({
@@ -7495,7 +7935,7 @@ app.post("/api/gemini/chat", requireAuth, asyncHandler(async (req, res) => {
     const client = getGeminiClient();
     let productsContext = "";
     try {
-      const { data: products } = await supabase.from("products").select("name, category, price").limit(40);
+      const { data: products } = await localDb.from("products").select("name, category, price").limit(40);
       if (products && products.length > 0) {
         productsContext = `Inventario actual de Agricovet:
 ` + products.map((p) => `- ${p.name} (${p.category}): Q${parseFloat(p.price || 0).toFixed(2)}`).join("\n") + "\n\n";
@@ -7545,7 +7985,7 @@ ${productsContext}`;
       const call = response.functionCalls[0];
       if (call.name === "check_inventory_quantity") {
         const product_name = call.args.product_name;
-        const { data } = await supabase.from("products").select("*").ilike("name", `%${product_name}%`).limit(10);
+        const { data } = await localDb.from("products").select("*").ilike("name", `%${product_name}%`).limit(10);
         let dbResultMsg = "";
         if (data && data.length > 0) {
           dbResultMsg = data.map((p) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join("; ");
@@ -7576,7 +8016,7 @@ ${productsContext}`;
   }
 }));
 app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { data: products } = await supabase.from("products").select("id, name, category").is("description", null);
+  const { data: products } = await localDb.from("products").select("id, name, category").is("description", null);
   if (!products || products.length === 0) {
     return res.json({ message: "No hay productos sin descripci\xF3n." });
   }
@@ -7624,7 +8064,7 @@ app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, 
   for (const product of productsToProcess) {
     try {
       const description = getLocalDescription(product.name, product.category);
-      await supabase.from("products").update({ description }).eq("id", product.id);
+      await localDb.from("products").update({ description }).eq("id", product.id);
       generatedCount++;
     } catch (err) {
       console.error(`Error updating ${product.name}:`, err);
@@ -7637,7 +8077,7 @@ app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, 
   });
 }));
 app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req, res) => {
-  const config = await obtenerConfig(supabase);
+  const config = await obtenerConfig(localDb);
   const { infile_llave_firma, infile_llave_token, ...publica } = config || {};
   res.json({
     config: publica,
@@ -7672,20 +8112,20 @@ app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req, 
   if (cambios.ambiente && !["pruebas", "produccion"].includes(cambios.ambiente)) {
     return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
   }
-  const config = await guardarConfig(supabase, cambios);
+  const config = await guardarConfig(localDb, cambios);
   const { infile_llave_firma, infile_llave_token, ...publica } = config;
   res.json({ config: publica, camposFaltantes: configIncompleta(config) });
 }));
 app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req, res) => {
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
   if (req.user.role !== "admin" && invoice.sellerId !== req.user.id) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
-  const documento = await obtenerDocumentoPorFactura(supabase, req.params.id);
+  const documento = await obtenerDocumentoPorFactura(localDb, req.params.id);
   const { totales, advertencias, nitReceptor } = prepararDTE(invoice);
-  const felConfig = await obtenerConfig(supabase);
+  const felConfig = await obtenerConfig(localDb);
   const emisor = {
     nit: felConfig?.nit_emisor ?? "",
     nombre: felConfig?.nombre_emisor ?? "",
@@ -7707,12 +8147,12 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req, res) => {
   });
 }));
 app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req, res) => {
-  let documentos = await listarDocumentos(supabase, {
+  let documentos = await listarDocumentos(localDb, {
     estado: req.query.estado,
     limite: Number(req.query.limite) || 200
   });
   if (req.user.role !== "admin") {
-    const { data: propias } = await supabase.from("invoices").select("id").eq("sellerId", req.user.id);
+    const { data: propias } = await localDb.from("invoices").select("id").eq("sellerId", req.user.id);
     const permitidas = new Set((propias || []).map((f) => f.id));
     documentos = documentos.filter((d) => permitidas.has(d.invoice_id));
   }
@@ -7723,7 +8163,7 @@ app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req, res) => {
   res.json({ documentos, resumen, total: documentos.length });
 }));
 app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
   if (invoice.status === "cancelled" || invoice.status === "rejected") {
@@ -7731,7 +8171,7 @@ app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHan
   }
   const receptorBody = req.body?.receptor;
   const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre) ? { nit: receptorBody.nit, nombre: receptorBody.nombre } : void 0;
-  const resultado = await certificarFactura(supabase, invoice, {
+  const resultado = await certificarFactura(localDb, invoice, {
     tipoDte: req.body?.tipoDte,
     receptor
   });
@@ -7742,14 +8182,14 @@ app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler
   if (motivo.length < 5) {
     return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
   }
-  const { data: facturas } = await supabase.from("invoices").select("*").eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
   try {
-    const resultado = await anularFactura(supabase, invoice, motivo);
+    const resultado = await anularFactura(localDb, invoice, motivo);
     if (resultado.anulado && invoice.status !== "cancelled" && invoice.status !== "rejected") {
       await restaurarStockDeFactura(invoice);
-      await supabase.from("invoices").update({ status: "cancelled" }).eq("id", invoice.id);
+      await localDb.from("invoices").update({ status: "cancelled" }).eq("id", invoice.id);
       invalidateCache("products");
       invalidateCache("folio_map");
       resultado.facturaAnulada = true;
@@ -7760,13 +8200,13 @@ app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler
   }
 }));
 app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req, res) => {
-  const { data: facturas } = await supabase.from("invoices").select('id, "sellerId"').eq("id", req.params.id);
+  const { data: facturas } = await localDb.from("invoices").select('id, "sellerId"').eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
   if (req.user.role !== "admin" && invoice.sellerId !== req.user.id) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
-  const doc = await obtenerDocumentoPorFactura(supabase, req.params.id);
+  const doc = await obtenerDocumentoPorFactura(localDb, req.params.id);
   if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
   const tipo = req.query.tipo === "certificado" ? "certificado" : "enviado";
   let xml = tipo === "certificado" ? doc.xml_certificado : doc.xml_enviado;
@@ -7784,7 +8224,7 @@ app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req, res) 
   res.send(xml);
 }));
 app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req, res) => {
-  const config = await obtenerConfig(supabase);
+  const config = await obtenerConfig(localDb);
   if (!config?.infile_usuario || !config?.infile_llave_token) {
     return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
   }
@@ -7794,12 +8234,12 @@ app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req, res)
   });
   res.json(resultado);
 }));
-var RECIBOS_CAJA_FILE = path.join(process.cwd(), "recibos_caja_local.json");
-var DELETED_RECIBOS_FILE = path.join(process.cwd(), "deleted_recibos_ids.json");
+var RECIBOS_CAJA_FILE = path2.join(process.cwd(), "recibos_caja_local.json");
+var DELETED_RECIBOS_FILE = path2.join(process.cwd(), "deleted_recibos_ids.json");
 function readLocalRecibosCaja() {
   try {
-    if (fs.existsSync(RECIBOS_CAJA_FILE)) {
-      const raw = fs.readFileSync(RECIBOS_CAJA_FILE, "utf-8");
+    if (fs2.existsSync(RECIBOS_CAJA_FILE)) {
+      const raw = fs2.readFileSync(RECIBOS_CAJA_FILE, "utf-8");
       return JSON.parse(raw) || [];
     }
   } catch (e) {
@@ -7811,14 +8251,14 @@ function saveLocalReciboCaja(recibo) {
   try {
     const list = readLocalRecibosCaja();
     list.unshift(recibo);
-    fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
+    fs2.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
   } catch (e) {
     console.warn("Could not save to local recibos_caja file:", e);
   }
 }
 app.get("/api/recibos-caja", requireAuth, asyncHandler(async (req, res) => {
   try {
-    const { data, error } = await supabase.from("recibos_caja").select("*").order("created_at", { ascending: false });
+    const { data, error } = await localDb.from("recibos_caja").select("*").order("created_at", { ascending: false });
     if (!error && Array.isArray(data)) {
       const filtered = data.filter(
         (r) => r.observaciones !== "[ELIMINADO]" && !r.observaciones?.includes("[ELIMINADO]") && r.cliente_nombre !== "[ELIMINADO]" && !r.cliente_nombre?.includes("[ELIMINADO]")
@@ -7826,7 +8266,7 @@ app.get("/api/recibos-caja", requireAuth, asyncHandler(async (req, res) => {
       return res.json(filtered);
     }
   } catch (e) {
-    console.warn("Supabase recibos_caja query fallback:", e);
+    console.warn("PostgreSQL Local recibos_caja query fallback:", e);
   }
   const localList = readLocalRecibosCaja();
   const resultList = localList.filter(
@@ -7872,13 +8312,13 @@ app.post("/api/recibos-caja", requireAuth, asyncHandler(async (req, res) => {
     created_at: (/* @__PURE__ */ new Date()).toISOString()
   };
   try {
-    const { data, error } = await supabase.from("recibos_caja").insert([newRecibo]).select();
+    const { data, error } = await localDb.from("recibos_caja").insert([newRecibo]).select();
     if (!error && data && data[0]) {
       saveLocalReciboCaja(data[0]);
       return res.status(201).json(data[0]);
     }
   } catch (e) {
-    console.warn("Supabase insert recibo_caja fallback to local file:", e);
+    console.warn("PostgreSQL Local insert recibo_caja fallback to local file:", e);
   }
   saveLocalReciboCaja(newRecibo);
   res.status(201).json(newRecibo);
@@ -7886,23 +8326,23 @@ app.post("/api/recibos-caja", requireAuth, asyncHandler(async (req, res) => {
 app.delete("/api/recibos-caja/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "ID del recibo es obligatorio" });
-  const { data: updated, error: updateErr } = await supabase.from("recibos_caja").update({
+  const { data: updated, error: updateErr } = await localDb.from("recibos_caja").update({
     observaciones: "[ELIMINADO]",
     cliente_nombre: "[ELIMINADO]"
   }).eq("id", id).select();
   if (updateErr) {
-    console.error("Supabase UPDATE recibo_caja error:", updateErr);
+    console.error("PostgreSQL Local UPDATE recibo_caja error:", updateErr);
     return res.status(500).json({ error: "Error al eliminar el recibo en la base de datos", details: updateErr.message });
   }
   if (!updated || updated.length === 0) {
     return res.status(404).json({ error: "Recibo no encontrado" });
   }
-  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en Supabase`);
+  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
   res.json({ success: true, message: "Recibo eliminado correctamente" });
 }));
 app.get("/api/visits", asyncHandler(async (req, res) => {
   try {
-    const { data, error } = await supabase.from("client_visits").select("id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt").order("created_at", { ascending: false });
+    const { data, error } = await localDb.from("client_visits").select("id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt").order("created_at", { ascending: false });
     if (!error && data) return res.json(data);
   } catch (e) {
   }
@@ -7921,7 +8361,7 @@ app.get("/api/visits/stats", asyncHandler(async (req, res) => {
 }));
 app.get("/api/routes", asyncHandler(async (req, res) => {
   try {
-    const { data, error } = await supabase.from("seller_routes").select("*").order("created_at", { ascending: false });
+    const { data, error } = await localDb.from("seller_routes").select("*").order("created_at", { ascending: false });
     if (!error && data) return res.json(data);
   } catch (e) {
   }
@@ -7930,7 +8370,7 @@ app.get("/api/routes", asyncHandler(async (req, res) => {
 app.get("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
   try {
     const { sellerId } = req.query;
-    let query = supabase.from("quotations").select("*").order("date", { ascending: false });
+    let query = localDb.from("quotations").select("*").order("date", { ascending: false });
     if (sellerId && req.user.role !== "admin") {
       query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
     }
@@ -7939,13 +8379,13 @@ app.get("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
       return res.json(data);
     }
   } catch (err) {
-    console.warn("Supabase quotations fetch error:", err?.message || err);
+    console.warn("PostgreSQL Local quotations fetch error:", err?.message || err);
   }
   res.json([]);
 }));
 app.get("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { data, error } = await supabase.from("quotations").select("*").eq("id", id).single();
+  const { data, error } = await localDb.from("quotations").select("*").eq("id", id).single();
   if (error || !data) {
     return res.status(404).json({ error: "Cotizaci\xF3n no encontrada" });
   }
@@ -7956,7 +8396,7 @@ app.post("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
   if (!client || !items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Cliente y al menos un producto son requeridos" });
   }
-  const { data: allQuotes } = await supabase.from("quotations").select("folioNumber").order("folioNumber", { ascending: false }).limit(1);
+  const { data: allQuotes } = await localDb.from("quotations").select("folioNumber").order("folioNumber", { ascending: false }).limit(1);
   const lastNum = allQuotes && allQuotes[0]?.folioNumber || 0;
   const nextNum = lastNum + 1;
   const folioStr = `COT-${String(nextNum).padStart(4, "0")}`;
@@ -7984,7 +8424,7 @@ app.post("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
     convertedInvoiceId: null,
     convertedInvoiceFolio: null
   };
-  const { data, error } = await supabase.from("quotations").insert([newQuote]).select().single();
+  const { data, error } = await localDb.from("quotations").insert([newQuote]).select().single();
   if (error) {
     throw new Error(error.message);
   }
@@ -7993,25 +8433,73 @@ app.post("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
 app.put("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
-  const { data, error } = await supabase.from("quotations").update(updates).eq("id", id).select().single();
+  const { data, error } = await localDb.from("quotations").update(updates).eq("id", id).select().single();
   if (error) throw new Error(error.message);
   res.json(data);
 }));
 app.delete("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { error } = await supabase.from("quotations").delete().eq("id", id);
+  const { error } = await localDb.from("quotations").delete().eq("id", id);
   if (error) throw new Error(error.message);
   res.json({ success: true });
 }));
 app.post("/api/quotations/:id/convert-to-sale", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { data: quote, error: qErr } = await supabase.from("quotations").select("*").eq("id", id).single();
+  const { data: quote, error: qErr } = await localDb.from("quotations").select("*").eq("id", id).single();
   if (qErr || !quote) return res.status(404).json({ error: "Cotizaci\xF3n no encontrada" });
-  await supabase.from("quotations").update({
+  await localDb.from("quotations").update({
     status: "convertida",
     updated_at: (/* @__PURE__ */ new Date()).toISOString()
   }).eq("id", id);
   res.json({ success: true, quotation: quote });
+}));
+app.get("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const { data, error } = await localDb.from("recibos_conformes").select("*").order("created_at", { ascending: false });
+    if (!error && Array.isArray(data)) return res.json(data);
+  } catch (err) {
+    console.warn("Error fetching recibos_conformes:", err?.message || err);
+  }
+  res.json([]);
+}));
+app.get("/api/recibos-conformes/invoice/:id", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data, error } = await localDb.from("recibos_conformes").select("*").eq("invoice_id", id).order("created_at", { ascending: false }).limit(1);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return res.json(data[0]);
+    }
+  } catch (err) {
+    console.warn("Error fetching recibo by invoice id:", err?.message || err);
+  }
+  res.json(null);
+}));
+app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) => {
+  const { invoice_id, folio, receiver_name, receiver_dpi, receiver_phone, receiver_relationship, delivery_location, delivery_notes, delivered_by, delivery_date, include_prices, signature_data, pdf_url, created_by } = req.body;
+  if (!invoice_id) {
+    return res.status(400).json({ error: "invoice_id es requerido" });
+  }
+  const payload = {
+    invoice_id: String(invoice_id),
+    folio: String(folio || ""),
+    receiver_name: receiver_name || null,
+    receiver_dpi: receiver_dpi || null,
+    receiver_phone: receiver_phone || null,
+    receiver_relationship: receiver_relationship || null,
+    delivery_location: delivery_location || null,
+    delivery_notes: delivery_notes || null,
+    delivered_by: delivered_by || "Piloto / Asesor",
+    delivery_date: delivery_date || (/* @__PURE__ */ new Date()).toISOString(),
+    include_prices: include_prices !== false,
+    signature_data: signature_data || null,
+    pdf_url: pdf_url || null,
+    created_by: created_by || req.user?.name || null
+  };
+  const { data, error } = await localDb.from("recibos_conformes").insert([payload]).select().single();
+  if (error) {
+    return res.status(500).json({ error: error.message || "Error al guardar Recibo Conforme" });
+  }
+  res.json(data);
 }));
 app.use((err, req, res, next) => {
   const isProduction = process.env.NODE_ENV === "production";
@@ -8039,7 +8527,7 @@ async function startServer() {
     console.log("Vite server created, attaching middlewares...");
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path2.join(process.cwd(), "dist");
     app.use((req, res, next) => {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
@@ -8049,7 +8537,7 @@ async function startServer() {
     app.use(express.static(distPath, { maxAge: 0, etag: false, lastModified: false }));
     app.get("*", (req, res) => {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      res.sendFile(path.join(distPath, "index.html"));
+      res.sendFile(path2.join(distPath, "index.html"));
     });
   }
   if (!process.env.VERCEL) {
@@ -8057,9 +8545,9 @@ async function startServer() {
       console.log(`Server running on http://localhost:${PORT}`);
       try {
         try {
-          await supabase.rpc("exec_sql", { sql: "ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;" });
-          await supabase.rpc("exec_sql", { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
-          await supabase.rpc("exec_sql", { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
+          await localDb.rpc("exec_sql", { sql: "ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;" });
+          await localDb.rpc("exec_sql", { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
+          await localDb.rpc("exec_sql", { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
         } catch (e) {
           console.warn("Could not run migrations via RPC:", e);
         }
@@ -8082,7 +8570,7 @@ async function startServer() {
               usedCodes.add(code);
               updateLocalClient(client.id, { clientCode: code });
               try {
-                await supabase.from("clients").update({ clientCode: code }).eq("id", client.id);
+                await localDb.from("clients").update({ clientCode: code }).eq("id", client.id);
               } catch (e) {
               }
             }
@@ -8092,10 +8580,10 @@ async function startServer() {
         }
         let usersData = [];
         try {
-          const { data: users, error } = await supabase.from("users").select("*");
+          const { data: users, error } = await localDb.from("users").select("*");
           if (error) {
             if (error.message && error.message.includes("fetch failed")) {
-              console.warn("Supabase connection unavailable for user migration.");
+              console.warn("PostgreSQL Local connection unavailable for user migration.");
             } else {
               console.error("Could not fetch users for migration, possibly missing column:", error.message);
             }
@@ -8120,7 +8608,7 @@ async function startServer() {
             }
             if (unique) {
               try {
-                await supabase.from("users").update({ sellerCode: code }).eq("id", u.id);
+                await localDb.from("users").update({ sellerCode: code }).eq("id", u.id);
                 usedUserCodes.add(code);
               } catch (upErr) {
                 console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);
@@ -8146,6 +8634,7 @@ export {
   fetchGlobalDbModeFromDb,
   getGlobalDbMode,
   isNeonActive,
+  localDb,
   neonPool,
   persistGlobalDbMode,
   queryNeon,

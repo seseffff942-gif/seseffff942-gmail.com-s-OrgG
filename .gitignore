@@ -30,4 +30,6 @@ android/app/build/
 android/build/
 *.bak
 *.apk
+*.tar.gz
+storage/
 _git_push.cjs

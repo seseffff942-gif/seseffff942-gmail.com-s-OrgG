@@ -67,10 +67,7 @@ export default defineConfig(async ({ command }) => {
   }
 
   return {
-    define: {
-      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || ''),
-      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '')
-    },
+    define: {},
     plugins,
     resolve: {
       alias: {
@@ -91,9 +88,6 @@ export default defineConfig(async ({ command }) => {
               }
               if (id.includes('recharts') || id.includes('d3')) {
                 return 'charts';
-              }
-              if (id.includes('supabase') || id.includes('@supabase')) {
-                return 'supabase';
               }
               if (id.includes('lucide-react')) {
                 return 'lucide';

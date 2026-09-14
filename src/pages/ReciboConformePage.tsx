@@ -178,7 +178,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
-  const handleSaveToSupabase = async () => {
+  const handleSaveRecibo = async () => {
     if (!selectedInvoice) return;
     setIsSaving(true);
     setSaveStatus(null);
@@ -200,11 +200,11 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
       if (saved) {
         setSavedRecibos(prev => [saved, ...prev.filter(r => r.id !== saved.id)]);
       }
-      setSaveStatus('¡Recibo Conforme guardado en Supabase con éxito!');
+      setSaveStatus('¡Recibo Conforme guardado con éxito!');
       setTimeout(() => setSaveStatus(null), 4000);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Error al guardar en Supabase');
+      alert(err.message || 'Error al guardar Recibo Conforme');
     } finally {
       setIsSaving(false);
     }
@@ -291,12 +291,12 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
           {activeTab === 'editor' && (
             <>
               <button
-                onClick={handleSaveToSupabase}
+                onClick={handleSaveRecibo}
                 disabled={!selectedInvoice || isSaving}
                 className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
               >
                 <Check size={14} />
-                <span>{isSaving ? 'Guardando...' : 'Guardar en Supabase'}</span>
+                <span>{isSaving ? 'Guardando...' : 'Guardar Recibo Conforme'}</span>
               </button>
               <button
                 onClick={handlePrint}
@@ -309,9 +309,9 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
               <button
                 onClick={handleDownloadPdf}
                 disabled={!selectedInvoice}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
               >
-                <Download size={14} />
+                <Download size={14} className="text-emerald-700" />
                 <span>Descargar PDF</span>
               </button>
             </>
@@ -319,8 +319,8 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
         </div>
       </div>
 
-      {/* TABS SWITCHER */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+      {/* TABS HEADER */}
+      <div className="flex items-center gap-2">
         <button
           onClick={() => setActiveTab('editor')}
           className={cn(
@@ -330,7 +330,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
               : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
           )}
         >
-          <PenTool size={14} />
+          <FileText size={14} />
           <span>Generar / Imprimir Recibo</span>
         </button>
 
@@ -344,7 +344,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
           )}
         >
           <FolderCheck size={14} />
-          <span>Historial Guardado en Supabase</span>
+          <span>Historial de Recibos Guardados</span>
           <span className={cn(
             "px-2 py-0.5 rounded-full text-[10px] font-black",
             activeTab === 'historial' ? "bg-emerald-900 text-white" : "bg-emerald-100 text-emerald-800"
@@ -361,7 +361,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
             <div>
               <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
                 <FolderCheck size={20} className="text-emerald-700" />
-                <span>Historial de Recibos Guardados en Supabase</span>
+                <span>Historial de Recibos Conformes</span>
               </h2>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
                 Consulta los recibos conformes registrados en la base de datos con su piloto, receptor y firma digital.
@@ -386,11 +386,11 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
                 <FolderCheck size={32} />
               </div>
               <h3 className="text-sm font-black text-slate-800">
-                {savedRecibos.length === 0 ? "Aún no hay recibos guardados en Supabase" : "No se encontraron recibos con esa búsqueda"}
+                {savedRecibos.length === 0 ? "Aún no hay recibos guardados" : "No se encontraron recibos con esa búsqueda"}
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
                 {savedRecibos.length === 0 
-                  ? "Para guardar un recibo conforme, selecciona un Folio en la pestaña 'Generar / Imprimir Recibo', llena los datos de entrega y haz clic en 'Guardar en Supabase'."
+                  ? "Para guardar un recibo conforme, selecciona un Folio en la pestaña 'Generar / Imprimir Recibo', llena los datos de entrega y haz clic en 'Guardar Recibo Conforme'."
                   : "Prueba buscando por otro término de Folio, DPI o nombre de receptor."}
               </p>
               {savedRecibos.length === 0 && (

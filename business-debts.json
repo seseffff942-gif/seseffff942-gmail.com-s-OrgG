@@ -11,7 +11,7 @@
     "notes": "Compra de 10 litros de producto químico Nuvan para AGRONORSA. (Escaneado digitalmente)",
     "isPaid": false,
     "receipts": [],
-    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312282066.jpg?t=1782312282315",
+    "invoiceImageUrl": "/storage/v1/object/public/productos/invoice-1782312282066.jpg?t=1782312282315",
     "orderReceivedBy": "Emanuel Lima",
     "status": "pendiente",
     "items": [
@@ -35,7 +35,7 @@
     "notes": "Factura de compra de insumos agrícolas (Nuvan 100ml) emitida por AGRONORSA. (Escaneado digitalmente)",
     "isPaid": false,
     "receipts": [],
-    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312324492.jpg?t=1782312324770",
+    "invoiceImageUrl": "/storage/v1/object/public/productos/invoice-1782312324492.jpg?t=1782312324770",
     "orderReceivedBy": "Emanuel Lima",
     "status": "pendiente",
     "items": [
@@ -59,7 +59,7 @@
     "notes": "Factura cambiaria por la compra de CIPERMETRINA 25 EC. (Escaneado digitalmente)",
     "isPaid": false,
     "receipts": [],
-    "invoiceImageUrl": "https://vedgedsbuajueynnyvpn.supabase.co/storage/v1/object/public/productos/invoice-1782312412923.jpg?t=1782312413115",
+    "invoiceImageUrl": "/storage/v1/object/public/productos/invoice-1782312412923.jpg?t=1782312413115",
     "orderReceivedBy": "Emanuel Lima",
     "status": "pendiente",
     "items": [

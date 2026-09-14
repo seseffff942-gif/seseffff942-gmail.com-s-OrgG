@@ -829,9 +829,11 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       if (i.status === 'cancelled' || i.status === 'rejected') {
         cancelledCount++;
       } else {
-        sales += i.totalAmount || 0;
-        payments += i.paidAmount || 0;
-        pending += (i.totalAmount || 0) - (i.paidAmount || 0);
+        const tAmt = Number(i.totalAmount) || 0;
+        const pAmt = Number(i.paidAmount) || 0;
+        sales += tAmt;
+        payments += pAmt;
+        pending += (tAmt - pAmt);
         totalInvoices++;
         if (i.status === 'sent') {
           sentCount++;
@@ -869,8 +871,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             return false;
           }
         })
-        .reduce((sum, inv) => sum + inv.totalAmount, 0);
-      return { hora: displayHour, Ventas: Number(amount.toFixed(4)) };
+        .reduce((sum, inv) => sum + (Number(inv.totalAmount) || 0), 0);
+      return { hora: displayHour, Ventas: Number((Number(amount) || 0).toFixed(4)) };
     });
   }, [filteredInvoices]);
 
@@ -884,13 +886,13 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       if (!dataMap[key]) {
         dataMap[key] = { seller: name, Ventas: 0, Cobrado: 0 };
       }
-      dataMap[key].Ventas += inv.totalAmount || 0;
-      dataMap[key].Cobrado += inv.paidAmount || 0;
+      dataMap[key].Ventas += Number(inv.totalAmount) || 0;
+      dataMap[key].Cobrado += Number(inv.paidAmount) || 0;
     });
     return Object.values(dataMap).map(item => ({
       ...item,
-      Ventas: Number(item.Ventas.toFixed(4)),
-      Cobrado: Number(item.Cobrado.toFixed(4))
+      Ventas: Number((Number(item.Ventas) || 0).toFixed(4)),
+      Cobrado: Number((Number(item.Cobrado) || 0).toFixed(4))
     }));
   }, [filteredInvoices, users]);
 
@@ -1126,7 +1128,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Deuda Pendiente</p>
             <h4 className="text-2xl md:text-3xl font-black text-orange-600 mt-2 font-mono tracking-tight">{formatMoney(computedStats.pending)}</h4>
             <div className="flex items-center gap-1 text-[10px] text-orange-700 font-bold mt-3 bg-orange-50/80 px-2 py-0.5 rounded-lg border border-orange-100/30 w-fit">
-              <span>{(computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0)}% Por Recaudar</span>
+              <span>{Number(computedStats.sales > 0 ? (computedStats.pending / computedStats.sales * 100) : 0).toFixed(0)}% Por Recaudar</span>
             </div>
           </motion.div>
         </div>
@@ -1244,7 +1246,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                           }}
                           itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: '800' }}
                           labelStyle={{ color: '#fbbf24', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', marginBottom: '6px' }}
-                          formatter={(value) => [`Q${parseFloat(value as string).toFixed(4)}`, 'Vendido']}
+                          formatter={(value) => [`Q${(parseFloat(String(value || 0)) || 0).toFixed(2)}`, 'Vendido']}
                         />
                         <Area 
                           type="monotone" 
@@ -1279,7 +1281,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                             }}
                             itemStyle={{ fontSize: '11px', fontWeight: '800', color: '#f1f5f9' }}
                             labelStyle={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '900', marginBottom: '6px' }}
-                            formatter={(value, name) => [`Q${parseFloat(value as string).toFixed(4)}`, name]}
+                            formatter={(value, name) => [`Q${(parseFloat(String(value || 0)) || 0).toFixed(2)}`, name]}
                           />
                           <RechartsLegend wrapperStyle={{ fontSize: '11px', fontWeight: '800', fill: '#64748b' }} />
                           <Bar dataKey="Ventas" fill="#0b4d2c" radius={[8, 8, 0, 0]} maxBarSize={38} />

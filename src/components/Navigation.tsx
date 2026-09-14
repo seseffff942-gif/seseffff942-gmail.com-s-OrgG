@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Product, AppNotification } from '../types';
 import { cn } from '../utils';
 import { Leaf, LogOut, Package, ShoppingCart, FileText, Users, BadgeCheck, Menu, X, ClipboardList, Bell, BellOff, AlertTriangle, XCircle, Box, CheckCircle, CreditCard, Volume2, VolumeX, Search, Trash2, Sparkles, ExternalLink, RefreshCw, Clock, Tag, Download, Shield, Receipt, FileSpreadsheet, FileCheck, MapPin, Send } from 'lucide-react';
-import { api, supabase } from '../api';
+import { api } from '../api';
 import { motion, AnimatePresence } from 'motion/react';
 import { LOGO_PLACEHOLDER } from './ProductImage';
 import { PanicButton } from './PanicButton';
@@ -978,70 +978,6 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     };
     window.addEventListener('agricovet-mutate', handleMutation);
 
-    // Supabase Live Realtime WebSocket subscription for Instant Notifications across all devices
-    const realtimeChannel = supabase
-      .channel('app_notifications_live_feed')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications' },
-        (payload) => {
-          const newNtf = payload.new as AppNotification;
-          if (newNtf && newNtf.id) {
-            if (!knownNotificationIdsRef.current.has(newNtf.id)) {
-              knownNotificationIdsRef.current.add(newNtf.id);
-              dispatchNotificationAlert(newNtf);
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'invoices' },
-        (payload) => {
-          checkNotifications();
-          const inv = payload.new as any;
-          if (inv && inv.id) {
-            const ntfId = `inv-${inv.id}`;
-            if (!knownNotificationIdsRef.current.has(ntfId)) {
-              knownNotificationIdsRef.current.add(ntfId);
-              const clientName = inv.client || inv.clientName || 'Cliente';
-              const totalAmount = Number(inv.total || 0).toFixed(2);
-              dispatchNotificationAlert({
-                id: ntfId,
-                title: '🛒 ¡Nuevo Pedido!',
-                message: `👤 ${clientName} • 💰 Total: Q${totalAmount}`,
-                type: 'sale',
-                read: false,
-                createdAt: new Date().toISOString()
-              });
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'payments' },
-        (payload) => {
-          checkNotifications();
-          const payment = payload.new as any;
-          if (payment && payment.id) {
-            const ntfId = `pay-${payment.id}`;
-            if (!knownNotificationIdsRef.current.has(ntfId)) {
-              knownNotificationIdsRef.current.add(ntfId);
-              dispatchNotificationAlert({
-                id: ntfId,
-                title: '💰 ¡Pago Recibido!',
-                message: `Q${Number(payment.amount || 0).toFixed(2)} registrado con éxito`,
-                type: 'sale',
-                read: false,
-                createdAt: new Date().toISOString()
-              });
-            }
-          }
-        }
-      )
-      .subscribe();
-
     const interval = setInterval(() => {
       checkNotifications();
     }, 15000);
@@ -1051,7 +987,6 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
     return () => {
       clearInterval(interval);
-      supabase.removeChannel(realtimeChannel);
       document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('agricovet-mutate', handleMutation);
     };
@@ -1141,7 +1076,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                 )} />
               </span>
               <span>
-                {isOnline ? "Nube" : "Offline"}
+                {isOnline ? "Local" : "Offline"}
               </span>
             </button>
             <div className="hidden xs:block">

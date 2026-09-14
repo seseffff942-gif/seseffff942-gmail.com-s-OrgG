@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Client, ClientVisit, User, VisitStats, VisitType, SellerRoute } from '../types';
-import { api, supabase } from '../api';
+import { api } from '../api';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
 import { RegisterVisitModal } from '../components/RegisterVisitModal';
@@ -138,30 +138,10 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     loadData();
     requestLocation();
 
-    // 1. Silent Background Auto-Polling (Cada 4 segundos para actualización en vivo garantizada)
+    // 1. Silent Background Auto-Polling (Cada 4 segundos para sincronización garantizada)
     const syncInterval = setInterval(() => {
       loadData(true);
     }, 4000);
-
-    // 2. Supabase Realtime Live Subscription (Transmisión instantánea de visitas entre todos los dispositivos)
-    const channel = supabase
-      .channel('client_visits_live_feed')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'client_visits' },
-        (payload) => {
-          console.log('[Live Visitas] Cambio detectado en tiempo real:', payload);
-          loadData(true);
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'seller_routes' },
-        () => {
-          loadData(true);
-        }
-      )
-      .subscribe();
 
     let watchId: number | null = null;
     if (navigator.geolocation) {
@@ -180,7 +160,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
     return () => {
       clearInterval(syncInterval);
-      supabase.removeChannel(channel);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, []);

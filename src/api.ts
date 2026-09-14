@@ -1,37 +1,10 @@
 import { Capacitor } from '@capacitor/core';
-import { createClient } from '@supabase/supabase-js';
 import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats, SellerRoute } from './types';
 import { isTodayGuatemala, getGuatemalaTodayIso } from './utils';
 import preloadedData from './data/preloadedData.json';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-
-// Inicializar cliente Supabase de forma segura sin exponer credenciales en el código fuente.
-// Si no hay variables de entorno configuradas, se utiliza un placeholder válido para evitar excepciones fatales al cargar el módulo.
-export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY)
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : createClient('https://placeholder.supabase.co', 'placeholder-anon-key');
-
-export const isNeonMode = (): boolean => {
-  return typeof localStorage !== 'undefined' && localStorage.getItem('app_db_mode') === 'neon';
-};
-
-export const SUPABASE_REST_BASE = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1`;
-
-export const fetchSupabaseRest = async (table: string, queryParams: string = 'select=*') => {
-  const cleanParams = queryParams.startsWith('?') ? queryParams.substring(1) : queryParams;
-  const url = `${SUPABASE_REST_BASE}/${table}?${cleanParams}`;
-  const res = await fetch(url, {
-    headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  if (!res.ok) throw new Error(`Supabase REST fetch error (${res.status}): ${res.statusText}`);
-  return res.json();
-};
+// Modo 100% PostgreSQL Local Permanente
+export const isNeonMode = (): boolean => true;
 
 export const CUSTOM_FOLIO_OVERRIDES: Record<string, number> = {
   'INV-1783096985871': 881, // Felipe Contreras - Agropecuaria Mardoqueo -> Folio 881
@@ -134,7 +107,7 @@ export const getApiUrl = (endpoint: string): string => {
     (window.location.origin.includes('localhost') && (!window.location.port || window.location.port === '80' || window.location.port === '443'))
   );
   if (isCapacitorNative || isLocalOriginWithoutDevPort) {
-    const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.agricovet.lat').replace(/\/$/, '');
+    const baseUrl = (import.meta.env.VITE_API_URL || 'https://agricovet.lat').replace(/\/$/, '');
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     return `${baseUrl}${cleanEndpoint}`;
   }
@@ -347,7 +320,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1
     }
     const errText = String(err?.message || err || '');
     if (errText.includes('Failed to fetch') || err?.name === 'TypeError') {
-      throw new Error('Sin conexión con el servidor (www.agricovet.lat). Revisa tu conexión a internet o intenta de nuevo.');
+      throw new Error('Sin conexión con el servidor (agricovet.lat). Revisa tu conexión a internet o intenta de nuevo.');
     }
     throw err;
   }
@@ -435,21 +408,6 @@ export const api = {
     if (!force) {
       const cached = getCachedApi('clients');
       if (cached && Array.isArray(cached) && cached.length > 0) return cached.map(normalizeClient);
-    }
-    if (!isNeonMode()) {
-      try {
-        const { data, error } = await supabase.from('clients').select('*').order('name', { ascending: true });
-        if (!error && data && Array.isArray(data) && data.length > 0) {
-          const normalized = data.map(normalizeClient);
-          setCachedApi('clients', normalized);
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('offline_clients', JSON.stringify(normalized));
-          }
-          return normalized;
-        }
-      } catch (e) {
-        console.warn('Direct Supabase clients fetch fallback:', e);
-      }
     }
     try {
       const res = await fetchWithAuth('/api/clients');
@@ -626,25 +584,7 @@ export const api = {
         return data;
       }
     } catch (err) {
-      console.warn('API /location failed, attempting direct Supabase update:', err);
-    }
-
-    // Direct Supabase Fallback
-    try {
-      const sbPayload = {
-        latitude,
-        longitude,
-        location_address: locationAddress || '',
-        locationAddress: locationAddress || '',
-        geotagged_at: nowIso,
-        geotaggedAt: nowIso
-      };
-      const res1 = await supabase.from('clients').update(sbPayload).eq('id', id);
-      if (res1.error && !isNaN(Number(id))) {
-        await supabase.from('clients').update(sbPayload).eq('id', Number(id));
-      }
-    } catch (sbErr) {
-      console.warn('Direct Supabase location update error:', sbErr);
+      console.warn('API /location error:', err);
     }
 
     clearApiCache('clients');
@@ -689,27 +629,7 @@ export const api = {
         return data;
       }
     } catch (err) {
-      console.warn('API DELETE /location failed, attempting direct Supabase update:', err);
-    }
-
-    // Direct Supabase Fallback
-    try {
-      const sbPayload = {
-        latitude: null,
-        longitude: null,
-        location_address: null,
-        locationAddress: null,
-        geotagged_at: null,
-        geotaggedAt: null,
-        geotagged_by: null,
-        geotaggedBy: null
-      };
-      const res1 = await supabase.from('clients').update(sbPayload).eq('id', id);
-      if (res1.error && !isNaN(Number(id))) {
-        await supabase.from('clients').update(sbPayload).eq('id', Number(id));
-      }
-    } catch (sbErr) {
-      console.warn('Direct Supabase location clear error:', sbErr);
+      console.warn('API DELETE /location error:', err);
     }
 
     clearApiCache('clients');
@@ -720,48 +640,8 @@ export const api = {
   },
 
   getVisits: async (params?: { sellerId?: string; clientId?: string; date?: string; startDate?: string; endDate?: string }): Promise<ClientVisit[]> => {
-    // 1. Direct Supabase Query (Lightweight columns for instant 10ms real-time sync across all devices)
-    try {
-      const columns = 'id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, createdAt, created_at';
-      let query = supabase.from('client_visits').select(columns).order('created_at', { ascending: false });
-      if (params?.sellerId && params.sellerId !== 'all') {
-        query = query.or(`sellerId.eq.${params.sellerId},seller_id.eq.${params.sellerId}`);
-      }
-      if (params?.clientId) {
-        query = query.or(`clientId.eq.${params.clientId},client_id.eq.${params.clientId}`);
-      }
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
-        const normalized = data.map((v: any) => ({
-          id: v.id,
-          clientId: String(v.clientId || v.client_id || ''),
-          clientName: v.clientName || v.client_name || '',
-          clientCode: v.clientCode || v.client_code || '',
-          companyName: v.companyName || v.company_name || '',
-          sellerId: String(v.sellerId || v.seller_id || ''),
-          sellerName: v.sellerName || v.seller_name || '',
-          sellerEmail: v.sellerEmail || v.seller_email || '',
-          latitude: Number(v.latitude),
-          longitude: Number(v.longitude),
-          accuracy: v.accuracy ? Number(v.accuracy) : undefined,
-          distanceMeters: v.distanceMeters ?? v.distance_meters,
-          visitType: v.visitType || v.visit_type || 'rutina',
-          notes: v.notes || '',
-          photoUrl: v.photoUrl || v.photo_url || '',
-          createdAt: v.createdAt || v.created_at
-        }));
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('cached_client_visits', JSON.stringify(normalized));
-        }
-        return normalized as ClientVisit[];
-      }
-    } catch (sbErr) {
-      console.warn('Direct Supabase getVisits error, fallback to API:', sbErr);
-    }
-
-    // 2. Fallback via backend API
     const query = new URLSearchParams();
-    if (params?.sellerId) query.append('sellerId', params.sellerId);
+    if (params?.sellerId && params.sellerId !== 'all') query.append('sellerId', params.sellerId);
     if (params?.clientId) query.append('clientId', params.clientId);
     if (params?.date) query.append('date', params.date);
     if (params?.startDate) query.append('startDate', params.startDate);
@@ -775,7 +655,7 @@ export const api = {
         if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
           localStorage.setItem('cached_client_visits', JSON.stringify(data));
         }
-        return data;
+        return Array.isArray(data) ? data : [];
       }
     } catch (err) {}
 
@@ -833,58 +713,19 @@ export const api = {
         return data;
       }
     } catch (err) {
-      console.warn('API /visits failed, trying direct Supabase insert:', err);
+      console.warn('API /visits failed:', err);
     }
 
-    // Direct Supabase Fallback
-    try {
-      const sbDirectPayload = {
-        id: fallbackVisit.id,
-        clientId: fallbackVisit.clientId,
-        client_id: fallbackVisit.clientId,
-        clientName: fallbackVisit.clientName,
-        client_name: fallbackVisit.clientName,
-        clientCode: fallbackVisit.clientCode,
-        client_code: fallbackVisit.clientCode,
-        companyName: fallbackVisit.companyName,
-        company_name: fallbackVisit.companyName,
-        sellerId: fallbackVisit.sellerId,
-        seller_id: fallbackVisit.sellerId,
-        sellerName: fallbackVisit.sellerName,
-        seller_name: fallbackVisit.sellerName,
-        sellerEmail: fallbackVisit.sellerEmail,
-        seller_email: fallbackVisit.sellerEmail,
-        latitude: fallbackVisit.latitude,
-        longitude: fallbackVisit.longitude,
-        accuracy: fallbackVisit.accuracy,
-        distanceMeters: fallbackVisit.distanceMeters,
-        distance_meters: fallbackVisit.distanceMeters,
-        visitType: fallbackVisit.visitType,
-        visit_type: fallbackVisit.visitType,
-        notes: fallbackVisit.notes,
-        photoUrl: fallbackVisit.photoUrl,
-        photo_url: fallbackVisit.photoUrl,
-        createdAt: fallbackVisit.createdAt,
-        created_at: fallbackVisit.createdAt
-      };
-      await supabase.from('client_visits').insert([sbDirectPayload]);
-    } catch (sbErr) {
-      console.warn('Direct Supabase visit insert error:', sbErr);
-    }
-    
     clearApiCache('clients');
     return { success: true, visit: fallbackVisit };
   },
 
   getVisitPhoto: async (visitId: string): Promise<string | null> => {
     try {
-      const { data, error } = await supabase
-        .from('client_visits')
-        .select('photoUrl, photo_url')
-        .eq('id', visitId)
-        .single();
-      if (!error && data) {
-        return data.photoUrl || data.photo_url || null;
+      const res = await fetchWithAuth(`/api/visits/${encodeURIComponent(visitId)}/photo`);
+      if (res.ok) {
+        const data = await safeJson(res);
+        return data?.photoUrl || data?.photo_url || null;
       }
     } catch (e) {
       console.warn('Error fetching visit photo:', e);
@@ -936,19 +777,22 @@ export const api = {
 
   getSellerRoutes: async (params?: { sellerId?: string; status?: string }): Promise<SellerRoute[]> => {
     try {
-      let query = supabase.from('seller_routes').select('*').order('created_at', { ascending: false });
-      if (params?.sellerId && params.sellerId !== 'all') {
-        query = query.or(`sellerId.eq.${params.sellerId},seller_id.eq.${params.sellerId}`);
-      }
-      if (params?.status && params.status !== 'all') {
-        query = query.eq('status', params.status);
-      }
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
-        return data as SellerRoute[];
+      const q = new URLSearchParams();
+      if (params?.sellerId && params.sellerId !== 'all') q.append('sellerId', params.sellerId);
+      if (params?.status && params.status !== 'all') q.append('status', params.status);
+      const url = `/api/routes${q.toString() ? `?${q.toString()}` : ''}`;
+      const res = await fetchWithAuth(url);
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (Array.isArray(data)) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('cached_seller_routes', JSON.stringify(data));
+          }
+          return data as SellerRoute[];
+        }
       }
     } catch (e) {
-      console.warn('Direct Supabase getSellerRoutes error:', e);
+      console.warn('Error getSellerRoutes:', e);
     }
 
     // Local storage fallback
@@ -963,20 +807,15 @@ export const api = {
 
   getActiveRoute: async (): Promise<SellerRoute | null> => {
     try {
-      const user = api.getSavedUser();
-      if (!user) return null;
-      const { data, error } = await supabase
-        .from('seller_routes')
-        .select('*')
-        .eq('status', 'active')
-        .or(`sellerId.eq.${user.id},seller_id.eq.${user.id},sellerEmail.eq.${user.email}`)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (!error && data && data.length > 0) {
-        return data[0] as SellerRoute;
+      const res = await fetchWithAuth('/api/routes?status=active');
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (Array.isArray(data) && data.length > 0) {
+          return data[0] as SellerRoute;
+        }
       }
     } catch (e) {
-      console.warn('Direct Supabase getActiveRoute error:', e);
+      console.warn('Error getActiveRoute:', e);
     }
     return null;
   },
@@ -1001,32 +840,17 @@ export const api = {
     };
 
     try {
-      await supabase.from('seller_routes').insert([{
-        id: newRoute.id,
-        sellerId: newRoute.sellerId,
-        seller_id: newRoute.sellerId,
-        sellerName: newRoute.sellerName,
-        seller_name: newRoute.sellerName,
-        sellerEmail: newRoute.sellerEmail,
-        seller_email: newRoute.sellerEmail,
-        date: newRoute.date,
-        status: newRoute.status,
-        startedAt: newRoute.startedAt,
-        started_at: newRoute.startedAt,
-        startLatitude: newRoute.startLatitude,
-        start_latitude: newRoute.startLatitude,
-        startLongitude: newRoute.startLongitude,
-        start_longitude: newRoute.startLongitude,
-        notes: newRoute.notes,
-        totalVisits: 0,
-        total_visits: 0,
-        totalDistanceKm: 0,
-        total_distance_km: 0,
-        createdAt: nowIso,
-        created_at: nowIso
-      }]);
-    } catch (sbErr) {
-      console.warn('Direct Supabase startRoute insert error:', sbErr);
+      const res = await fetchWithAuth('/api/routes/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {})
+      });
+      if (res.ok) {
+        const resData = await safeJson(res);
+        if (resData?.route) return { success: true, route: resData.route };
+      }
+    } catch (err) {
+      console.warn('startRoute API error:', err);
     }
 
     return { success: true, route: newRoute };
@@ -1035,18 +859,17 @@ export const api = {
   finishRoute: async (routeId: string, data?: { endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
     const nowIso = new Date().toISOString();
     try {
-      await supabase.from('seller_routes').update({
-        status: 'completed',
-        finishedAt: nowIso,
-        finished_at: nowIso,
-        endLatitude: data?.endLatitude,
-        end_latitude: data?.endLatitude,
-        endLongitude: data?.endLongitude,
-        end_longitude: data?.endLongitude,
-        notes: data?.notes
-      }).eq('id', routeId);
-    } catch (sbErr) {
-      console.warn('Direct Supabase finishRoute error:', sbErr);
+      const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {})
+      });
+      if (res.ok) {
+        const resData = await safeJson(res);
+        if (resData?.route) return { success: true, route: resData.route };
+      }
+    } catch (err) {
+      console.warn('finishRoute API error:', err);
     }
 
     return { success: true, route: { id: routeId, status: 'completed', finishedAt: nowIso } as any };
@@ -1109,10 +932,10 @@ export const api = {
       if (err.message && (err.message.includes('Credenciales') || err.message.includes('Token') || err.message.includes('desactivado') || err.message.includes('no encontrado'))) {
         throw err;
       }
-      console.warn('API login server error, executing direct Supabase fallback...', err);
+      console.warn('API login server error, executing local auth fallback...', err);
     }
 
-    // Direct Supabase Fallback
+    // Offline / Local Users Fallback
     const identifier = (email || '').trim().toLowerCase();
     const tokenProvided = (password || '').trim();
     const cleanToken = tokenProvided.toUpperCase();
@@ -1123,77 +946,6 @@ export const api = {
 
     let foundUser: any = null;
     let isValidToken = false;
-
-    // 1. Intentar validar por token directo en Supabase si está disponible
-    if (cleanToken) {
-      try {
-        const { data: directTokens, error: dtErr } = await supabase
-          .from('login_tokens')
-          .select('*')
-          .eq('token', cleanToken)
-          .is('usedAt', null);
-
-        if (!dtErr && directTokens && directTokens.length > 0) {
-          const matchedToken = directTokens.find(t => {
-            const exp = t.expiresAt ? new Date(t.expiresAt) : null;
-            return !exp || exp > new Date();
-          });
-          if (matchedToken) {
-            isValidToken = true;
-            const targetUserId = matchedToken.userId || (matchedToken as any).user_id;
-            if (targetUserId) {
-              const { data: uData } = await supabase.from('users').select('*').eq('id', targetUserId);
-              if (uData && uData.length > 0) {
-                foundUser = uData[0];
-              }
-            }
-            try {
-              await supabase.from('login_tokens').update({ usedAt: new Date().toISOString() }).eq('id', matchedToken.id);
-            } catch (e) {}
-          }
-        }
-      } catch (err) {
-        console.warn('Direct token check failed:', err);
-      }
-    }
-
-    // 2. Si no se halló por token directo, buscar por identificador
-    if (!foundUser && identifier) {
-      try {
-        // a) Por sellerCode
-        const { data: usersByCode } = await supabase
-          .from('users')
-          .select('*')
-          .ilike('sellerCode', identifier);
-        if (usersByCode && usersByCode.length > 0) {
-          foundUser = usersByCode[0];
-        }
-
-        // b) Por email
-        if (!foundUser) {
-          const { data: usersByEmail } = await supabase
-            .from('users')
-            .select('*')
-            .ilike('email', identifier);
-          if (usersByEmail && usersByEmail.length > 0) {
-            foundUser = usersByEmail[0];
-          }
-        }
-
-        // c) Por id
-        if (!foundUser) {
-          const { data: usersById } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', identifier);
-          if (usersById && usersById.length > 0) {
-            foundUser = usersById[0];
-          }
-        }
-      } catch (e) {
-        console.warn('Direct Supabase users query failed, checking preloaded data:', e);
-      }
-    }
 
     if (!foundUser) {
       const allDefault = [
@@ -1314,39 +1066,8 @@ export const api = {
       if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot POST') && !apiErr.message.includes('fetch failed')) {
         throw apiErr;
       }
+      throw new Error('Error al conectar con el servidor para crear producto');
     }
-
-    // 2. Respaldo directo a Supabase en caso de error de enrutador en servidor
-    const id = `p${Date.now()}`;
-    const newDbProd: any = {
-      id,
-      name: product.name,
-      category: product.category,
-      price: product.price,
-      stock: product.is_external ? 0 : product.stock,
-      cost_price: finalCost || 0,
-      hidden_from_sales: finalHidden || false,
-      is_external: product.is_external || false,
-      variants: product.variants || null,
-      specifications: product.specifications || null
-    };
-
-    const { data, error } = await supabase.from('products').insert([newDbProd]).select().single();
-    if (error) {
-      const cleanProd = { id, name: product.name, category: product.category, price: product.price, stock: product.stock };
-      const { data: d2, error: e2 } = await supabase.from('products').insert([cleanProd]).select().single();
-      if (e2) throw new Error(e2.message);
-      return { ...cleanProd, is_external: false, costPrice: 0, hiddenFromSales: false } as Product;
-    }
-    return {
-      ...data,
-      costPrice: Number(data.cost_price) || 0,
-      cost_price: Number(data.cost_price) || 0,
-      hiddenFromSales: Boolean(data.hidden_from_sales),
-      hidden_from_sales: Boolean(data.hidden_from_sales),
-      variants: typeof data.variants === 'string' ? JSON.parse(data.variants) : data.variants,
-      specifications: typeof data.specifications === 'string' ? JSON.parse(data.specifications) : data.specifications
-    } as Product;
   },
 
   getProducts: async (force: boolean = false): Promise<Product[]> => {
@@ -1363,21 +1084,6 @@ export const api = {
     if (!force) {
       const cachedMem = getCachedApi('products');
       if (cachedMem && Array.isArray(cachedMem)) return cachedMem.map(mapProduct);
-    }
-    if (!isNeonMode()) {
-      try {
-        const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
-        if (!error && data && Array.isArray(data) && data.length > 0) {
-          const normalized = data.map(mapProduct);
-          setCachedApi('products', normalized);
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('cached_products', JSON.stringify(normalized));
-          }
-          return normalized;
-        }
-      } catch (e) {
-        console.warn('Direct Supabase products fetch fallback:', e);
-      }
     }
     try {
       const res = await fetchWithAuth('/api/products');
@@ -1436,26 +1142,9 @@ export const api = {
         throw new Error(err.error || 'Failed to update product');
       }
     } catch (apiErr: any) {
-      console.warn("API update failed, falling back to direct Supabase:", apiErr?.message || apiErr);
+      throw apiErr;
     }
-
-    // Respaldo directo a Supabase
-    const updateObj: any = { ...updates };
-    if (finalCost !== undefined) updateObj.cost_price = finalCost;
-    if (finalHidden !== undefined) updateObj.hidden_from_sales = finalHidden;
-    delete updateObj.costPrice;
-    delete updateObj.hiddenFromSales;
-    const { data, error } = await supabase.from('products').update(updateObj).eq('id', id).select().single();
-    if (error) throw new Error(error.message);
-    return {
-      ...data,
-      costPrice: Number(data.cost_price) || 0,
-      cost_price: Number(data.cost_price) || 0,
-      hiddenFromSales: Boolean(data.hidden_from_sales),
-      hidden_from_sales: Boolean(data.hidden_from_sales),
-      variants: typeof data.variants === 'string' ? JSON.parse(data.variants) : data.variants,
-      specifications: typeof data.specifications === 'string' ? JSON.parse(data.specifications) : data.specifications
-    } as Product;
+    throw new Error('No se pudo actualizar el producto en el servidor');
   },
 
   deleteProduct: async (id: string): Promise<{ success: boolean }> => {
@@ -1464,11 +1153,9 @@ export const api = {
         method: 'DELETE'
       });
       if (res.ok) return res.json();
-    } catch (e) {
-      console.warn("API delete failed, falling back to direct Supabase:", e);
+    } catch (e: any) {
+      throw new Error(e?.message || 'Error al eliminar el producto');
     }
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) throw new Error(error.message);
     return { success: true };
   },
 
@@ -1652,46 +1339,36 @@ export const api = {
       const res = await fetchWithAuth(url, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        const list = Array.isArray(data) ? data : [];
+        const rawList = Array.isArray(data) ? data : [];
+        const list = rawList.map((inv: any) => ({
+          ...inv,
+          totalAmount: Number(inv.totalAmount || 0),
+          paidAmount: Number(inv.paidAmount || 0),
+          total: Number(inv.total || inv.totalAmount || 0),
+          folio: inv.folio ? Number(inv.folio) || inv.folio : 1
+        }));
         if (typeof localStorage !== 'undefined' && !options?.offset) {
           localStorage.setItem('cached_invoices', JSON.stringify(list));
         }
         return list;
       }
     } catch (e) {
-      console.warn('Backend invoices fetch fallback:', e);
-    }
-    try {
-      let query = supabase.from('invoices').select('*').order('date', { ascending: false });
-      if (sellerId && sellerId !== 'global' && sellerId !== 'all') {
-        query = query.eq('sellerId', sellerId);
-      }
-      if (options?.status && options.status !== 'all') {
-        query = query.eq('status', options.status);
-      }
-      if (options?.limit) {
-        const offset = options.offset || 0;
-        query = query.range(offset, offset + options.limit - 1);
-      } else {
-        query = query.range(0, 4999);
-      }
-      const { data, error } = await query;
-      if (!error && data && Array.isArray(data) && data.length > 0) {
-        const parsedList = data.map(inv => parseInvoiceFlags(inv));
-        if (typeof localStorage !== 'undefined' && !options?.offset) {
-          localStorage.setItem('cached_invoices', JSON.stringify(parsedList));
-        }
-        return parsedList;
-      }
-    } catch (e) {
-      console.warn('Direct Supabase invoices fetch fallback:', e);
+      console.warn('Backend invoices fetch error:', e);
     }
     if (typeof localStorage !== 'undefined') {
       const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((inv: any) => ({
+              ...inv,
+              totalAmount: Number(inv.totalAmount || 0),
+              paidAmount: Number(inv.paidAmount || 0),
+              total: Number(inv.total || inv.totalAmount || 0),
+              folio: inv.folio ? Number(inv.folio) || inv.folio : 1
+            }));
+          }
         } catch (e) {}
       }
     }
@@ -1788,17 +1465,6 @@ export const api = {
 
   getUsers: async (): Promise<User[]> => {
     try {
-      const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
-      if (!error && data && Array.isArray(data) && data.length > 0) {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('cached_users', JSON.stringify(data));
-        }
-        return data as User[];
-      }
-    } catch (e) {
-      console.warn('Direct Supabase users fetch fallback:', e);
-    }
-    try {
       const res = await fetchWithAuth('/api/users');
       if (!res.ok) throw new Error('Failed to fetch users');
       const data = await res.json();
@@ -1877,47 +1543,9 @@ export const api = {
         return data;
       }
     } catch (e) {
-      console.warn('Backend generate-token error, falling back to direct Supabase...', e);
+      console.warn('Backend generate-token error:', e);
     }
-
-    // Direct Supabase Fallback
-    const token = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const id = `lt_${Date.now()}`;
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + (parseInt(String(expiryHours)) || 24));
-
-    const payload = {
-      id,
-      userId,
-      token,
-      createdAt: new Date().toISOString(),
-      expiresAt: expiresAt.toISOString()
-    };
-
-    try {
-      const { error } = await supabase.from('login_tokens').insert([payload]);
-      if (!error) {
-        return { token };
-      }
-    } catch (err) {
-      console.warn('Supabase JS login_tokens insert error, trying REST...', err);
-    }
-
-    // Direct REST fallback
-    try {
-      await fetch(`${SUPABASE_REST_BASE}/login_tokens`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-      return { token };
-    } catch (restErr) {
-      return { token };
-    }
+    throw new Error('Error al generar token en servidor');
   },
 
   forceLogout: async (userId: string): Promise<{ success: boolean }> => {
@@ -1930,14 +1558,6 @@ export const api = {
       const data = await safeJson(res);
       if (res.ok) return { success: true };
     } catch (e) {}
-
-    // Direct Supabase fallback
-    try {
-      await supabase
-        .from('users')
-        .update({ force_logout_at: new Date().toISOString() })
-        .eq('id', userId);
-    } catch (err) {}
 
     return { success: true };
   },
@@ -2502,23 +2122,7 @@ export const api = {
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas diarias');
 
-    // Si el servidor está en la nube (Vercel) y no puede alcanzar el webhook, reenviar directo desde el navegador del usuario
-    if (options?.sendToWebhook && (data?.reports || data?.data)) {
-      const reportsToSend = Array.isArray(data.reports) && data.reports.length > 0 ? data.reports : (data.data ? [data.data] : []);
-      const localWebhookUrl = options?.webhookUrl || 'http://185.166.39.49:5678/webhook/ventas-reporte';
-      for (const rep of reportsToSend) {
-        try {
-          await fetch(localWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(rep),
-          });
-        } catch (clientErr) {
-          console.warn('Clientside webhook direct fetch failed for report:', rep?.vendedor, clientErr);
-        }
-      }
-    }
-
+    // El backend en server.ts ya despacha el webhook a n8n directamente en el servidor
     return data;
   },
 
@@ -2532,33 +2136,16 @@ export const api = {
       if (res.ok && Array.isArray(data)) return data;
       if (Array.isArray(data?.quotations)) return data.quotations;
     } catch (e) {
-      console.warn('API getQuotations fallback to Supabase:', e);
-    }
-
-    // Direct Supabase Fallback
-    try {
-      let query = supabase.from('quotations').select('*').order('date', { ascending: false });
-      if (sellerId) {
-        query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
-      }
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) return data;
-    } catch (sbErr) {
-      console.error('Supabase getQuotations error:', sbErr);
+      console.warn('API getQuotations error:', e);
     }
     return [];
   },
 
   getQuotationById: async (id: string) => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
-      const data = await safeJson(res);
-      if (res.ok && data && !data.error) return data;
-    } catch (e) {}
-
-    const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
-    if (error || !data) throw new Error(error?.message || 'No se pudo obtener la cotización');
-    return data;
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`);
+    const data = await safeJson(res);
+    if (res.ok && data && !data.error) return data;
+    throw new Error(data?.error || 'No se pudo obtener la cotización');
   },
 
   createQuotation: async (quotation: {
@@ -2573,94 +2160,34 @@ export const api = {
     sellerId?: string;
     sellerName?: string;
   }) => {
-    try {
-      const res = await fetchWithAuth('/api/quotations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(quotation),
-      });
-      const data = await safeJson(res);
-      if (res.ok && data && !data.error) return data;
-      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
-        throw new Error(data?.error || 'No se pudo crear la cotización');
-      }
-    } catch (apiErr: any) {
-      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
-        throw apiErr;
-      }
-    }
-
-    // Direct Supabase Fallback
-    const { data: allQuotes } = await supabase.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
-    const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
-    const nextNum = lastNum + 1;
-    const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
-    const totalAmount = quotation.items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
-    const quoteDate = quotation.date || new Date().toISOString();
-    const days = quotation.validityDays || 15;
-    const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-
-    const newQuote = {
-      id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-      folio: folioStr,
-      folioNumber: nextNum,
-      sellerId: quotation.sellerId || '',
-      sellerName: quotation.sellerName || '',
-      client: quotation.client.trim(),
-      nit: quotation.nit?.trim() || 'CF',
-      phone: quotation.phone?.trim() || '',
-      address: quotation.address?.trim() || '',
-      items: quotation.items,
-      totalAmount,
-      status: 'pendiente',
-      date: quoteDate,
-      validityDays: days,
-      validUntil,
-      notes: quotation.notes?.trim() || '',
-      convertedInvoiceId: null,
-      convertedInvoiceFolio: null
-    };
-
-    const { data, error } = await supabase.from('quotations').insert([newQuote]).select().single();
-    if (error) throw new Error(error.message);
-    return data || newQuote;
+    const res = await fetchWithAuth('/api/quotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotation),
+    });
+    const data = await safeJson(res);
+    if (res.ok && data && !data.error) return data;
+    throw new Error(data?.error || 'No se pudo crear la cotización');
   },
 
   updateQuotation: async (id: string, updates: Partial<Quotation> & { validityDays?: number }) => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      const data = await safeJson(res);
-      if (res.ok && data && !data.error) return data;
-      if (res.status !== 404 && res.status !== 502 && res.status !== 503 && res.status !== 504 && res.status !== 405) {
-        throw new Error(data?.error || 'No se pudo actualizar la cotización');
-      }
-    } catch (apiErr: any) {
-      if (apiErr.message && !apiErr.message.includes('404') && !apiErr.message.includes('Cannot') && !apiErr.message.includes('fetch failed')) {
-        throw apiErr;
-      }
-    }
-
-    const { data, error } = await supabase.from('quotations').update(updates).eq('id', id).select().single();
-    if (error) throw new Error(error.message);
-    return data;
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await safeJson(res);
+    if (res.ok && data && !data.error) return data;
+    throw new Error(data?.error || 'No se pudo actualizar la cotización');
   },
 
   deleteQuotation: async (id: string) => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-      const data = await safeJson(res);
-      if (res.ok) return data;
-    } catch (e) {}
-
-    const { error } = await supabase.from('quotations').delete().eq('id', id);
-    if (error) throw new Error(error.message);
-    return { success: true };
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    const data = await safeJson(res);
+    if (res.ok) return data;
+    throw new Error(data?.error || 'Error al eliminar cotización');
   },
 
   convertQuotationToSale: async (id: string, options?: {
@@ -2671,25 +2198,14 @@ export const api = {
     sellerPaysShipping?: boolean;
     sellerSignature?: string;
   }) => {
-    try {
-      const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options || {}),
-      });
-      const data = await safeJson(res);
-      if (res.ok) return data;
-    } catch (e) {}
-
-    const { data: quote, error: qErr } = await supabase.from('quotations').select('*').eq('id', id).single();
-    if (qErr || !quote) throw new Error(qErr?.message || 'Cotización no encontrada');
-
-    await supabase.from('quotations').update({
-      status: 'convertida',
-      updated_at: new Date().toISOString()
-    }).eq('id', id);
-
-    return { success: true, quotation: quote };
+    const res = await fetchWithAuth(`/api/quotations/${encodeURIComponent(id)}/convert-to-sale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    });
+    const data = await safeJson(res);
+    if (res.ok) return data;
+    throw new Error(data?.error || 'Error al convertir cotización en venta');
   },
 
   getCustomServerUrl: (): string => {
@@ -2700,29 +2216,19 @@ export const api = {
   },
 
   // ==========================================
-  // RECIBOS CONFORMES (SUPABASE)
+  // RECIBOS CONFORMES (LOCAL API / POSTGRESQL)
   // ==========================================
   getRecibosConformes: async (): Promise<ReciboConforme[]> => {
     try {
-      const { data, error } = await supabase
-        .from('recibos_conformes')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (!error && Array.isArray(data)) {
+      const res = await fetchWithAuth('/api/recibos-conformes');
+      const data = await safeJson(res);
+      if (res.ok && Array.isArray(data)) {
         return data;
       }
-    } catch (e) {
-      console.warn('Supabase client error for recibos_conformes, trying REST...', e);
-    }
-
-    try {
-      const data = await fetchSupabaseRest('recibos_conformes', 'order=created_at.desc');
-      return Array.isArray(data) ? data : [];
     } catch (err) {
-      console.warn('Error fetching recibos_conformes from REST:', err);
-      return [];
+      console.warn('Error fetching recibos_conformes from local API:', err);
     }
+    return [];
   },
 
   createReciboConforme: async (recibo: Partial<ReciboConforme>): Promise<ReciboConforme> => {
@@ -2743,65 +2249,35 @@ export const api = {
       created_by: recibo.created_by || null,
     };
 
-    try {
-      const { data, error } = await supabase
-        .from('recibos_conformes')
-        .insert([payload])
-        .select()
-        .single();
-      
-      if (!error && data) {
-        return data;
-      }
-      if (error) {
-        console.warn('Supabase JS insert error, attempting REST...', error);
-      }
-    } catch (e) {
-      console.warn('Supabase JS error inserting recibo_conforme, trying REST...', e);
-    }
-
-    // Direct REST fallback
-    const res = await fetch(`${SUPABASE_REST_BASE}/recibos_conformes`, {
+    const res = await fetchWithAuth('/api/recibos-conformes', {
       method: 'POST',
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
+    const resData = await safeJson(res);
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Error al guardar Recibo Conforme en Supabase (${res.status}): ${errText}`);
+      throw new Error(resData?.error || `Error al guardar Recibo Conforme (${res.status})`);
     }
-
-    const resData = await res.json();
-    return Array.isArray(resData) ? resData[0] : resData;
+    return resData;
   },
 
   getReciboConformeByInvoice: async (invoiceId: string): Promise<ReciboConforme | null> => {
     try {
-      const { data, error } = await supabase
-        .from('recibos_conformes')
-        .select('*')
-        .eq('invoice_id', String(invoiceId))
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return data[0];
+      const res = await fetchWithAuth(`/api/recibos-conformes/invoice/${encodeURIComponent(invoiceId)}`);
+      if (res.ok) {
+        const data = await safeJson(res);
+        return data || null;
       }
     } catch (e) {
-      console.warn('Error fetching recibo by invoice id:', e);
+      console.warn('Error fetching recibo by invoice id from local API:', e);
     }
     return null;
   },
 
-  // BOTÓN DE PÁNICO Y ESTADO DE BASES DE DATOS
+  // ESTADO DE BASE DE DATOS LOCAL POSTGRESQL
   isNeonMode: (): boolean => {
-    return isNeonMode();
+    return true;
   },
 
   getDbStatus: async () => {
@@ -2809,39 +2285,22 @@ export const api = {
       const res = await fetch(getApiUrl('/api/panic/status'));
       if (res.ok) {
         const data = await safeJson(res);
-        if (data && data.activeMode) return data;
+        if (data) return data;
       }
     } catch (e) {
-      console.warn('Error al consultar estado de BD:', e);
+      console.warn('Error al consultar estado de BD local:', e);
     }
-    const currentMode = (typeof localStorage !== 'undefined' ? localStorage.getItem('app_db_mode') : 'supabase') || 'supabase';
-    return { activeMode: currentMode as 'supabase' | 'neon', supabaseHealthy: true, neonHealthy: true, neonConfigured: true };
+    return { activeMode: 'neon', server: 'PostgreSQL Local', healthy: true, neonHealthy: true, neonConfigured: true };
   },
 
-  switchDb: async (mode: 'supabase' | 'neon') => {
-    try {
-      const res = await fetch(getApiUrl('/api/panic/switch'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      });
-      if (res.ok) {
-        localStorage.setItem('app_db_mode', mode);
-        return await safeJson(res);
-      }
-    } catch (err) {}
-    localStorage.setItem('app_db_mode', mode);
-    return { success: true, activeMode: mode };
+  switchDb: async (_mode: string) => {
+    return { success: true, activeMode: 'neon' };
   },
 
   syncNeon: async () => {
-    const res = await fetch(getApiUrl('/api/panic/sync'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    if (!res.ok) throw new Error('Error al sincronizar con Neon');
-    return await safeJson(res);
+    return { success: true, message: 'Base de datos PostgreSQL local activa' };
   }
 };
+
 
 

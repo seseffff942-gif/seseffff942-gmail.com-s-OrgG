@@ -20,6 +20,7 @@ RUN test -f clients_local.json || echo "[]" > clients_local.json
 RUN test -f client_visits_local.json || echo "[]" > client_visits_local.json
 RUN test -f warehouse_config.json || echo "{}" > warehouse_config.json
 RUN test -f folio_config.json || echo "{}" > folio_config.json
+RUN mkdir -p storage/productos
 
 # Compilar Frontend (Vite) y Backend (esbuild server.ts -> dist/server.cjs)
 RUN npm run build
@@ -47,6 +48,7 @@ COPY --from=builder /app/clients_local.json ./clients_local.json
 COPY --from=builder /app/client_visits_local.json ./client_visits_local.json
 COPY --from=builder /app/warehouse_config.json ./warehouse_config.json
 COPY --from=builder /app/folio_config.json ./folio_config.json
+COPY --from=builder /app/storage ./storage
 
 # Puerto expuesto por Express
 EXPOSE 3000
