@@ -3990,6 +3990,35 @@ app.post("/api/auth/impersonate", requireAuth, requireAdmin, asyncHandler(async 
   res.json({ token, user });
 }));
 var lastDispatchedCorteKey = "";
+async function acquireCorteDispatchLock(corteKey) {
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        CREATE TABLE IF NOT EXISTS public.corte_sales_dispatches (
+          corte_key TEXT PRIMARY KEY,
+          dispatched_at TIMESTAMPTZ DEFAULT NOW(),
+          dispatched_by TEXT
+        );
+      `);
+      const res = await neonPool.query(
+        `INSERT INTO public.corte_sales_dispatches (corte_key, dispatched_at, dispatched_by)
+         VALUES ($1, NOW(), $2)
+         ON CONFLICT (corte_key) DO NOTHING
+         RETURNING corte_key;`,
+        [corteKey, process.env.HOSTNAME || "server"]
+      );
+      if (res.rows && res.rows.length > 0) {
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("[AUTO-SALES-CRON] Error verificando bloqueo en base de datos:", err?.message || err);
+    }
+  }
+  if (lastDispatchedCorteKey === corteKey) return false;
+  lastDispatchedCorteKey = corteKey;
+  return true;
+}
 async function checkAndDispatchDailySales(options) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
@@ -4007,6 +4036,18 @@ async function checkAndDispatchDailySales(options) {
   const endOfDay = `${todayLabel}T23:59:59`;
   const corte = options?.corteHora || (hour >= 16 ? "17:00" : "12:00");
   const esCierre = corte === "17:00" || hour >= 16;
+  const corteKey = `${todayLabel}_${corte}`;
+  if (options?.isAutomatedCron) {
+    const lockAcquired = await acquireCorteDispatchLock(corteKey);
+    if (!lockAcquired) {
+      console.log(`[AUTO-SALES-CRON] \u{1F6D1} El corte ${corteKey} YA FUE ENVIADO previamente hoy. Omitiendo despacho para evitar duplicados.`);
+      return {
+        success: true,
+        skipped: true,
+        message: `El corte ${corteKey} ya fue enviado previamente hoy.`
+      };
+    }
+  }
   const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
   if (invErr) {
     console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
@@ -4198,7 +4239,7 @@ function initAutoDailySalesCron() {
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] \u{1F55B} Disparando corte autom\xE1tico de las 12:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "12:00" });
+          await checkAndDispatchDailySales({ corteHora: "12:00", isAutomatedCron: true });
         }
       }
       if (hour === 17 && minute === 0) {
@@ -4206,7 +4247,7 @@ function initAutoDailySalesCron() {
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] \u{1F554} Disparando corte autom\xE1tico de las 5:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "17:00" });
+          await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
         }
       }
     } catch (e) {
@@ -5434,6 +5475,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     invoiceDataRaw["transport_method"] = transportMethod || "";
     invoiceDataRaw["seller_pays_shipping"] = !!sellerPaysShipping;
     invoiceDataRaw["auth_status"] = requiresAuth ? "pending" : "approved";
+    invoiceDataRaw["is_archived"] = false;
     if (sellerSignature) invoiceDataRaw["seller_signature"] = sellerSignature;
     let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
     if (insertError) {
@@ -6086,7 +6128,7 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
   const fetchInvoices = async () => {
     if (isNeonActive() && neonPool) {
       try {
-        let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
+        let sql = "SELECT * FROM public.invoices WHERE (is_archived IS NOT TRUE)";
         const params = [];
         if (sellerFilterList.length > 0) {
           const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(", ");
@@ -6125,7 +6167,7 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         }
         if (neonPool) {
           try {
-            let sql = "SELECT * FROM public.invoices WHERE is_archived = false";
+            let sql = "SELECT * FROM public.invoices WHERE (is_archived IS NOT TRUE)";
             const params = [];
             if (sellerFilterList.length > 0) {
               const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(", ");

@@ -5276,6 +5276,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     invoiceDataRaw['transport_method'] = transportMethod || "";
     invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
     invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
+    invoiceDataRaw['is_archived'] = false;
     if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
 
     let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
@@ -6040,7 +6041,7 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
   const fetchInvoices = async () => {
     if (isNeonActive() && neonPool) {
       try {
-        let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+        let sql = 'SELECT * FROM public.invoices WHERE (is_archived IS NOT TRUE)';
         const params: any[] = [];
         if (sellerFilterList.length > 0) {
           const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(', ');
@@ -6084,7 +6085,7 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
         }
         if (neonPool) {
           try {
-            let sql = 'SELECT * FROM public.invoices WHERE is_archived = false';
+            let sql = 'SELECT * FROM public.invoices WHERE (is_archived IS NOT TRUE)';
             const params: any[] = [];
             if (sellerFilterList.length > 0) {
               const placeholders = sellerFilterList.map((_, i) => `$${params.length + i + 1}`).join(', ');
