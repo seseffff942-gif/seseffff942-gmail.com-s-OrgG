@@ -44,7 +44,7 @@ import pg from 'pg';
 import { createLocalDb } from './localDb';
 
 // Configuración de Base de Datos Local (PostgreSQL)
-const neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || 'postgresql://postgres:postgres123@localhost:5432/postgres';
+const neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || 'postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db';
 const isRemoteCloudPg = neonDbUrl.includes('neon.tech') || (neonDbUrl.includes('sslmode=require') && !neonDbUrl.includes('172.') && !neonDbUrl.includes('185.166.39.49'));
 export const neonPool = new pg.Pool({
   connectionString: neonDbUrl,
