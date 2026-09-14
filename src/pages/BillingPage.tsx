@@ -1887,7 +1887,15 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   <FileText size={22} />
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura</span>
+                    {selectedInvoiceForModal.status !== 'cancelled' && (
+                      <FelBadge
+                        estado={felEstados[selectedInvoiceForModal.id] ?? 'sin_emitir'}
+                        onClick={() => setInvoiceFel(selectedInvoiceForModal)}
+                      />
+                    )}
+                  </div>
                   <h3 className="text-xl font-black text-slate-800 leading-none mt-0.5">{selectedInvoiceForModal.client}</h3>
                   <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
                 </div>
@@ -1971,13 +1979,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                               <button 
                                 onClick={async () => {
                                    try {
+                                      const nF = manualFolio ? parseInt(manualFolio) : undefined;
                                       await api.updateInvoiceStatus(
                                         selectedInvoiceForModal.id, 
                                         selectedInvoiceForModal.status, 
                                         undefined,
-                                        manualFolio ? parseInt(manualFolio) : undefined
+                                        nF
                                       );
                                       alert("Folio actualizado.");
+                                      setSelectedInvoiceForModal(prev => prev ? { ...prev, folio: nF } : null);
+                                      setInvoices(prev => prev.map(inv => inv.id === selectedInvoiceForModal.id ? { ...inv, folio: nF } : inv));
                                       loadInvoices();
                                       const refreshed = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
                                       const current = refreshed.find(v => v.id === selectedInvoiceForModal.id);

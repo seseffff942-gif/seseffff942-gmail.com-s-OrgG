@@ -5862,7 +5862,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
     }
   }
 
-  if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
+  if (guideNumber || folio !== undefined || deliveryLetterUrl || shippingGuideUrl) {
     const { data: inv } = await localDb.from("invoices").select("notes").eq('id', id).single();
     if (inv) {
       let notes = inv.notes || "";
@@ -5882,7 +5882,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
 
             // Query all active (non-archived) invoices excluding the current invoice
             const { data: otherInvoices } = await localDb.from("invoices")
-              .select("id, notes, status")
+              .select("id, notes, status, folio")
               .eq("is_archived", false)
               .neq("id", id);
 
@@ -5902,7 +5902,8 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
 
                   updates.push({
                     id: otherInv.id,
-                    notes: otherNotes
+                    notes: otherNotes,
+                    folio: String(otherNewFolio)
                   });
                 }
               }
@@ -5910,7 +5911,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
               if (updates.length > 0) {
                 console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
                 for (const update of updates) {
-                  await localDb.from("invoices").update({ notes: update.notes }).eq('id', update.id);
+                  await localDb.from("invoices").update({ notes: update.notes, folio: update.folio }).eq('id', update.id);
                   await syncInvoiceToPermanentBackup(update.id);
                 }
               }
@@ -5918,6 +5919,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
           }
         }
         notes = updateTagInNotes(notes, "FOLIO", folio);
+        updateData.folio = String(folio);
       }
 
       if (deliveryLetterUrl) {
@@ -5944,6 +5946,10 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
       await syncInvoiceToPermanentBackup(id);
       return res.json({ success: true, guideNumber, folio });
     }
+  }
+
+  if (folio !== undefined) {
+    updateData.folio = String(folio);
   }
 
   await localDb.from("invoices").update(updateData).eq('id', id);

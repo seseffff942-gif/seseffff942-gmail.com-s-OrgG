@@ -1086,7 +1086,7 @@ function requireEnv(name) {
   return value.trim();
 }
 var JWT_SECRET = requireEnv("JWT_SECRET");
-var neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || "postgresql://postgres:postgres123@localhost:5432/postgres";
+var neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || "postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db";
 var isRemoteCloudPg = neonDbUrl.includes("neon.tech") || neonDbUrl.includes("sslmode=require") && !neonDbUrl.includes("172.") && !neonDbUrl.includes("185.166.39.49");
 var neonPool = new pg.Pool({
   connectionString: neonDbUrl,
@@ -5974,7 +5974,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
       await restaurarStockDeFactura(invoice);
     }
   }
-  if (guideNumber || folio || deliveryLetterUrl || shippingGuideUrl) {
+  if (guideNumber || folio !== void 0 || deliveryLetterUrl || shippingGuideUrl) {
     const { data: inv } = await localDb.from("invoices").select("notes").eq("id", id).single();
     if (inv) {
       let notes = inv.notes || "";
@@ -5988,7 +5988,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
           const previousFolio = currentMap[String(id)];
           if (previousFolio !== parsedFolio) {
             console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-            const { data: otherInvoices } = await localDb.from("invoices").select("id, notes, status").eq("is_archived", false).neq("id", id);
+            const { data: otherInvoices } = await localDb.from("invoices").select("id, notes, status, folio").eq("is_archived", false).neq("id", id);
             if (otherInvoices && otherInvoices.length > 0) {
               const updates = [];
               for (const otherInv of otherInvoices) {
@@ -6002,14 +6002,15 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
                   otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
                   updates.push({
                     id: otherInv.id,
-                    notes: otherNotes
+                    notes: otherNotes,
+                    folio: String(otherNewFolio)
                   });
                 }
               }
               if (updates.length > 0) {
                 console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
                 for (const update of updates) {
-                  await localDb.from("invoices").update({ notes: update.notes }).eq("id", update.id);
+                  await localDb.from("invoices").update({ notes: update.notes, folio: update.folio }).eq("id", update.id);
                   await syncInvoiceToPermanentBackup(update.id);
                 }
               }
@@ -6017,6 +6018,7 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
           }
         }
         notes = updateTagInNotes(notes, "FOLIO", folio);
+        updateData.folio = String(folio);
       }
       if (deliveryLetterUrl) {
         notes = updateTagInNotes(notes, "DELIVERY_LETTER", deliveryLetterUrl);
@@ -6040,6 +6042,9 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
       await syncInvoiceToPermanentBackup(id);
       return res.json({ success: true, guideNumber, folio });
     }
+  }
+  if (folio !== void 0) {
+    updateData.folio = String(folio);
   }
   await localDb.from("invoices").update(updateData).eq("id", id);
   invalidateCache("folio_map");
