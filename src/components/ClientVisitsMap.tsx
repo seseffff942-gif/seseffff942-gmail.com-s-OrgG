@@ -70,7 +70,7 @@ export function ClientVisitsMap({
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const clientMarkersMapRef = useRef<Map<string, L.Marker>>(new Map());
 
-  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
+  const [mapType, setMapType] = useState<'satellite' | 'streets' | 'terrain' | 'nasa'>('satellite');
   // Handler to clear all client pins from the map
   const handleClearAllPins = () => {
     // Remove all client markers from the layer group
@@ -99,35 +99,31 @@ export function ClientVisitsMap({
     const map = L.map(mapContainerRef.current, {
       center: [initialLat, initialLng],
       zoom: initialZoom,
-      zoomControl: false
+      zoomControl: false,
+      attributionControl: false
     });
 
-    // Add Clear All Pins control button
-    const clearBtn = (L as any).control({ position: 'topright' });
-    clearBtn.onAdd = function () {
-      const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-touch');
-      btn.title = 'Clear All Pins';
-      btn.style.width = '30px';
-      btn.style.height = '30px';
-      btn.style.backgroundColor = 'white';
-      btn.style.display = 'flex';
-      btn.style.alignItems = 'center';
-      btn.style.justifyContent = 'center';
-      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 5h4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0V6H6v6.5a.5.5 0 0 1-1 0v-7z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2h3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3a.5.5 0 0 0-.5.5V4h12v-.5a.5.5 0 0 0-.5-.5h-11z"/></svg>';
-      L.DomEvent.on(btn, 'click', (e) => {
-        L.DomEvent.stopPropagation(e);
+    // Custom clear pins control
+    const clearBtn = new (L as any).Control({ position: 'topright' });
+    clearBtn.onAdd = () => {
+      const btn = L.DomUtil.create('button', 'hidden');
+      btn.id = 'leaflet-clear-pins-btn';
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         handleClearAllPins();
-      });
+      };
       return btn;
     };
     clearBtn.addTo(map);
 
-    const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+    const initialTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      subdomains: '0123',
+      maxZoom: 20,
+      attribution: '&copy; Google Maps'
     });
 
-    streetTiles.addTo(map);
+    initialTiles.addTo(map);
 
     const markersGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = markersGroup;
@@ -156,7 +152,7 @@ export function ClientVisitsMap({
     };
   }, []);
 
-  // Switch Layer (Streets vs Satellite)
+  // Switch Layer (Satellite vs Streets vs Terrain vs NASA)
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -168,14 +164,27 @@ export function ClientVisitsMap({
     });
 
     if (mapType === 'satellite') {
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        attribution: '&copy; Esri World Imagery'
+      L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        subdomains: '0123',
+        maxZoom: 20,
+        attribution: '&copy; Google Maps'
+      }).addTo(map);
+    } else if (mapType === 'terrain') {
+      L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+        subdomains: '0123',
+        maxZoom: 18,
+        attribution: '&copy; Google Maps'
+      }).addTo(map);
+    } else if (mapType === 'nasa') {
+      L.tileLayer('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg', {
+        maxZoom: 9,
+        attribution: '&copy; NASA EOSDIS GIBS'
       }).addTo(map);
     } else {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        maxZoom: 20,
+        attribution: '&copy; CARTO &copy; OpenStreetMap'
       }).addTo(map);
     }
   }, [mapType]);
@@ -691,16 +700,20 @@ export function ClientVisitsMap({
             </select>
           </div>
 
-          {/* Layer Toggle */}
-          <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
-            <button
-              onClick={() => setMapType(mapType === 'streets' ? 'satellite' : 'streets')}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1.5 cursor-pointer"
-              title="Alternar entre Satélite y Calles"
+          {/* Layer Selector */}
+          <div className="flex items-center bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xs border border-slate-200/80 gap-1.5">
+            <Layers size={14} className="text-teal-600 shrink-0" />
+            <select
+              value={mapType}
+              onChange={(e) => setMapType(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
+              title="Seleccionar capa de mapa"
             >
-              <Layers size={14} className="text-teal-600" />
-              <span>{mapType === 'streets' ? 'Satélite' : 'Calles'}</span>
-            </button>
+              <option value="satellite">🛰️ Satélite Híbrido (Google)</option>
+              <option value="streets">🗺️ Calles (CartoDB)</option>
+              <option value="terrain">⛰️ Relieve / Fincas (Google)</option>
+              <option value="nasa">🌍 Satélite Reciente (NASA GIBS)</option>
+            </select>
           </div>
         </div>
       </div>
