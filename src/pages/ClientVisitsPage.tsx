@@ -111,14 +111,14 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     else setRefreshing(true);
 
     try {
-      const [clientsData, visitsData, statsData, routesData, activeRouteData, usersData] = await Promise.all([
+      const [clientsData, visitsData, routesData, activeRouteData, usersData] = await Promise.all([
         api.getClients(),
         api.getVisits(),
-        api.getVisitStats(),
         api.getSellerRoutes(),
         api.getActiveRoute(),
         api.getUsers().catch(() => [])
       ]);
+      const statsData = await api.getVisitStats(visitsData);
 
       setClients(clientsData || []);
       setVisits(visitsData || []);
@@ -138,10 +138,10 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     loadData();
     requestLocation();
 
-    // 1. Silent Background Auto-Polling (Cada 4 segundos para sincronización garantizada)
+    // 1. Silent Background Auto-Polling (Cada 25 segundos para balance óptimo de red y batería)
     const syncInterval = setInterval(() => {
       loadData(true);
-    }, 4000);
+    }, 25000);
 
     let watchId: number | null = null;
     if (navigator.geolocation) {

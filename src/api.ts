@@ -653,7 +653,9 @@ export const api = {
       if (res.ok) {
         const data = await safeJson(res);
         if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
-          localStorage.setItem('cached_client_visits', JSON.stringify(data));
+          try {
+            localStorage.setItem('cached_client_visits', JSON.stringify(data));
+          } catch (storageErr) {}
         }
         return Array.isArray(data) ? data : [];
       }
@@ -733,9 +735,9 @@ export const api = {
     return null;
   },
 
-  getVisitStats: async (): Promise<VisitStats> => {
+  getVisitStats: async (existingVisits?: ClientVisit[]): Promise<VisitStats> => {
     try {
-      const visits = await api.getVisits();
+      const visits = existingVisits || await api.getVisits();
       const todayVisits = visits.filter(v => isTodayGuatemala(v.createdAt));
       const todayClients = new Set(todayVisits.map(v => v.clientId || v.clientName)).size;
       
@@ -1325,7 +1327,38 @@ export const api = {
     return res.json();
   },
 
-  getInvoices: async (sellerId?: string, options?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<Invoice[]> => {
+  getInvoices: async (sellerId?: string, options?: { limit?: number; offset?: number; search?: string; status?: string }, force: boolean = false): Promise<Invoice[]> => {
+    const cacheKey = `invoices_${sellerId || 'all'}_${options?.status || 'all'}_${options?.search || ''}`;
+
+    // Instant local memory cache return (0ms latency)
+    if (!force && !options?.offset) {
+      const mem = getCachedApi(cacheKey);
+      if (mem && Array.isArray(mem) && mem.length > 0) return mem;
+
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const mapped = parsed.map((inv: any) => ({
+                ...inv,
+                totalAmount: Number(inv.totalAmount || 0),
+                paidAmount: Number(inv.paidAmount || 0),
+                total: Number(inv.total || inv.totalAmount || 0),
+                folio: inv.folio ? Number(inv.folio) || inv.folio : 1
+              }));
+              setCachedApi(cacheKey, mapped);
+              setTimeout(() => {
+                api.getInvoices(sellerId, options, true).catch(() => {});
+              }, 50);
+              return mapped;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
     try {
       const params = new URLSearchParams();
       if (sellerId && sellerId !== 'global' && sellerId !== 'all') params.append('sellerId', sellerId);
@@ -1347,8 +1380,11 @@ export const api = {
           total: Number(inv.total || inv.totalAmount || 0),
           folio: inv.folio ? Number(inv.folio) || inv.folio : 1
         }));
+        setCachedApi(cacheKey, list);
         if (typeof localStorage !== 'undefined' && !options?.offset) {
-          localStorage.setItem('cached_invoices', JSON.stringify(list));
+          try {
+            localStorage.setItem('cached_invoices', JSON.stringify(list));
+          } catch (e) {}
         }
         return list;
       }

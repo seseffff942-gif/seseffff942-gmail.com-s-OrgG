@@ -1251,8 +1251,8 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{adminSignature\}\}/g, invoice.adminSignature || '');
     t = t.replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '');
 
-    const origin = window.location.origin;
-    const storedLogo = localStorage.getItem('app_logo_url');
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const storedLogo = typeof localStorage !== 'undefined' ? localStorage.getItem('app_logo_url') : null;
     let finalLogoUrl = storedLogo || `${origin}/agricovet.png`;
 
     if (finalLogoUrl && !finalLogoUrl.startsWith('http') && !finalLogoUrl.startsWith('data:')) {
@@ -1260,8 +1260,8 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       finalLogoUrl = `${origin}${cleanPath}`;
     }
 
-    // Replace all logo placeholders
-    if (finalLogoUrl === `${origin}/agricovet.png` || finalLogoUrl === '/agricovet.png') {
+    // Replace all logo placeholders: if it's default agricovet or missing/dead storage url, use defaultLogoBase64
+    if (!finalLogoUrl || finalLogoUrl.includes('agricovet.png') || finalLogoUrl.includes('logo-1782250004615')) {
       t = t.replace(/\{\{logoUrl\}\}/g, defaultLogoBase64);
       t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, defaultLogoBase64);
     } else {

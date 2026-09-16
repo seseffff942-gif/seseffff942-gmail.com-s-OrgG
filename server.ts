@@ -526,7 +526,9 @@ const setCachedData = (key: string, data: any, ttlMs: number = DEFAULT_CACHE_TTL
 };
 
 const invalidateCache = (key: string): void => {
-  delete memoryCache[key];
+  Object.keys(memoryCache).forEach(k => {
+    if (k === key || k.startsWith(key)) delete memoryCache[k];
+  });
 };
 
 async function getFolioMap(forceRefresh: boolean = false) {
@@ -2593,7 +2595,9 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
 
   let visits: any[] = [];
   try {
-    const { data, error } = await localDb.from("client_visits").select("*").order("createdAt", { ascending: false });
+    const { data, error } = await localDb.from("client_visits")
+      .select("id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, routeId, route_id, createdAt, created_at, has_photo")
+      .order("createdAt", { ascending: false });
     if (!error && data && data.length > 0) {
       visits = data;
     }
@@ -2605,25 +2609,29 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
   }
 
   // Normalize all visit records
-  const normalizedVisits = visits.map((v: any) => ({
-    id: v.id,
-    clientId: String(v.clientId || v.client_id || ''),
-    clientName: v.clientName || v.client_name || '',
-    clientCode: v.clientCode || v.client_code || '',
-    companyName: v.companyName || v.company_name || '',
-    sellerId: String(v.sellerId || v.seller_id || ''),
-    sellerName: v.sellerName || v.seller_name || '',
-    sellerEmail: v.sellerEmail || v.seller_email || '',
-    latitude: v.latitude,
-    longitude: v.longitude,
-    accuracy: v.accuracy,
-    distanceMeters: v.distanceMeters ?? v.distance_meters,
-    visitType: v.visitType || v.visit_type || 'rutina',
-    notes: v.notes || '',
-    photoUrl: v.photoUrl || v.photo_url || '',
-    routeId: v.routeId || v.route_id,
-    createdAt: v.createdAt || v.created_at
-  }));
+  const normalizedVisits = visits.map((v: any) => {
+    const hasPhoto = Boolean(v.has_photo || v.hasPhoto || v.photoUrl || v.photo_url);
+    return {
+      id: v.id,
+      clientId: String(v.clientId || v.client_id || ''),
+      clientName: v.clientName || v.client_name || '',
+      clientCode: v.clientCode || v.client_code || '',
+      companyName: v.companyName || v.company_name || '',
+      sellerId: String(v.sellerId || v.seller_id || ''),
+      sellerName: v.sellerName || v.seller_name || '',
+      sellerEmail: v.sellerEmail || v.seller_email || '',
+      latitude: v.latitude,
+      longitude: v.longitude,
+      accuracy: v.accuracy,
+      distanceMeters: v.distanceMeters ?? v.distance_meters,
+      visitType: v.visitType || v.visit_type || 'rutina',
+      notes: v.notes || '',
+      hasPhoto,
+      photoUrl: hasPhoto ? `/api/visits/${v.id}/photo` : '',
+      routeId: v.routeId || v.route_id,
+      createdAt: v.createdAt || v.created_at
+    };
+  });
 
   // Apply strict filtering
   let filtered = normalizedVisits;
@@ -2669,6 +2677,44 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
   filtered.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
   res.json(filtered);
+}));
+
+// Dedicated single visit photo endpoint with direct binary streaming & browser caching
+app.get("/api/visits/:id/photo", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    const { data } = await localDb.from("client_visits").select("photo_url, photoUrl").eq("id", id).maybeSingle();
+    const raw = data?.photo_url || data?.photoUrl;
+    if (raw) {
+      if (raw.startsWith("data:image/")) {
+        const matches = raw.match(/^data:(image\/[a-zA-Z0-9+]+);base64,(.+)$/);
+        if (matches) {
+          const contentType = matches[1];
+          const imgBuffer = Buffer.from(matches[2], 'base64');
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(imgBuffer);
+        }
+      }
+      return res.json({ photoUrl: raw });
+    }
+  } catch (e) {}
+
+  const localVisits = readLocalVisits();
+  const found = localVisits.find((v: any) => v.id === id);
+  if (found && found.photoUrl) {
+    if (found.photoUrl.startsWith("data:image/")) {
+      const matches = found.photoUrl.match(/^data:(image\/[a-zA-Z0-9+]+);base64,(.+)$/);
+      if (matches) {
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(matches[2], 'base64'));
+      }
+    }
+    return res.json({ photoUrl: found.photoUrl });
+  }
+
+  return res.status(404).json({ error: "Foto no encontrada" });
 }));
 
 // Create a new visit checkpoint
@@ -2821,6 +2867,8 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
       notes: newVisit.notes,
       photoUrl: newVisit.photoUrl,
       photo_url: newVisit.photoUrl,
+      has_photo: Boolean(newVisit.photoUrl),
+      hasPhoto: Boolean(newVisit.photoUrl),
       createdAt: newVisit.createdAt,
       created_at: newVisit.createdAt
     };
@@ -3096,7 +3144,7 @@ app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any
 
   let allVisits = readLocalVisits();
   try {
-    const { data } = await localDb.from("client_visits").select("*");
+    const { data } = await localDb.from("client_visits").select("id, clientId, client_id, clientName, client_name, clientCode, client_code, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, visitType, visit_type, notes, createdAt, created_at");
     if (data && data.length > 0) {
       // Merge with local visits
       const map = new Map<string, any>();
@@ -5443,6 +5491,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     returnInvoice.notes = realNotes;
   }
 
+  invalidateCache("invoices");
   const folioMap = await getFolioMap();
 
   res.json({
@@ -5991,11 +6040,18 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: 
   await localDb.from("invoices").delete().eq('id', id);
   invalidateCache("folio_map");
   invalidateCache("products");
+  invalidateCache("invoices");
   res.json({ success: true });
 }));
 
 app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) => {
   let { sellerId, client } = req.query;
+
+  const cacheKey = `invoices_${sellerId || 'all'}_${client || ''}_${req.user?.role}_${req.user?.id || ''}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
 
   // If searching by client, we allow a global search even for sellers to facilitate debt checking accurately
   if (sellerId === 'global') {
@@ -6225,6 +6281,7 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =>
     return rest;
   });
 
+  setCachedData(cacheKey, lightInvoices, 15000);
   res.json(lightInvoices);
 }));
 
@@ -6425,6 +6482,7 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
         }
       }
       const { error: updateErr } = await localDb.from("invoices").update({ notes }).eq('id', id);
+      invalidateCache("invoices");
       if (updateErr) {
         console.error("Error updating invoice auth status notes:", updateErr);
         return res.status(400).json({ error: "Fallo al actualizar estado de autorización: " + updateErr.message });
@@ -6549,6 +6607,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
 
   try {
     await localDb.from("invoices").update({ paidAmount: newPaidAmount, status: newStatus }).eq('id', id);
+    invalidateCache("invoices");
   } catch (e) {
     console.error("Error updating invoice in PostgreSQL Local handled gracefully:", e);
   }
@@ -8706,28 +8765,7 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
   res.json({ success: true, message: 'Recibo eliminado correctamente' });
 }));
 
-// VISITS & ROUTES ENDPOINTS
-app.get('/api/visits', asyncHandler(async (req: any, res: any) => {
-  try {
-    const { data, error } = await localDb.from('client_visits')
-      .select('id, clientId, clientName, sellerId, sellerName, latitude, longitude, visitType, notes, createdAt')
-      .order('created_at', { ascending: false });
-    if (!error && data) return res.json(data);
-  } catch (e) { }
-  res.json([]);
-}));
-
-app.get('/api/visits/stats', asyncHandler(async (req: any, res: any) => {
-  res.json({
-    totalVisitsToday: 0,
-    totalVisitsMonth: 0,
-    activeSellersCount: 0,
-    clientsVisitedCount: 0,
-    unvisitedClientsCount: 0,
-    sellerRankings: [],
-    recentVisits: []
-  });
-}));
+// ROUTES ENDPOINTS
 
 app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
   try {
