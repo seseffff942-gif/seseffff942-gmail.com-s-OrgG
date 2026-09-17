@@ -3882,6 +3882,20 @@ function initAutoDailySalesCron() {
 initAutoDailySalesCron();
 
 app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any) => {
+  const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
+
+  if (isMultiSeller && req.body?.sendToWebhook) {
+    res.json({
+      success: true,
+      message: `Envío iniciado para ${req.body.targetSellerEmails.length} vendedores con pausas anti-baneo de 1 minuto.`,
+      background: true
+    });
+    checkAndDispatchDailySales(req.body).catch(err => {
+      console.error('[MANUAL-SALES-DISPATCH] Error en segundo plano:', err?.message || err);
+    });
+    return;
+  }
+
   const result: any = await checkAndDispatchDailySales(req.body);
   if (result?.error) {
     return res.status(500).json(result);

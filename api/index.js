@@ -4244,12 +4244,10 @@ async function checkAndDispatchDailySales(options) {
         webhookResult = { error: err.message, ok: false };
         console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
       }
-
-      // Pausa de 60 segundos (1 minuto) entre asesores para proteger el numero contra baneos
       const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
       if (!isLastSeller) {
-        console.log(`[AUTO-SALES-CRON] ⏳ Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el número...`);
-        await new Promise((resolve) => setTimeout(resolve, 60000));
+        console.log(`[AUTO-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+        await new Promise((resolve) => setTimeout(resolve, 6e4));
       }
     }
     results.push({
@@ -4309,6 +4307,18 @@ function initAutoDailySalesCron() {
 }
 initAutoDailySalesCron();
 app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
+  const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
+  if (isMultiSeller && req.body?.sendToWebhook) {
+    res.json({
+      success: true,
+      message: `Env\xEDo iniciado para ${req.body.targetSellerEmails.length} vendedores con pausas anti-baneo de 1 minuto.`,
+      background: true
+    });
+    checkAndDispatchDailySales(req.body).catch((err) => {
+      console.error("[MANUAL-SALES-DISPATCH] Error en segundo plano:", err?.message || err);
+    });
+    return;
+  }
   const result = await checkAndDispatchDailySales(req.body);
   if (result?.error) {
     return res.status(500).json(result);

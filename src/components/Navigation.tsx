@@ -1114,7 +1114,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           <button 
             onClick={() => setIsN8nModalOpen(true)} 
             className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-1.5 rounded-lg border border-emerald-200 relative transition-transform active:scale-95 flex items-center justify-center cursor-pointer shadow-xs" 
-            title="Enviar Reporte de Ventas del Día a n8n"
+            title="Enviar Reporte de Ventas por WhatsApp (Evolution)"
           >
             <Send size={16} className="text-emerald-600" />
           </button>
@@ -1356,12 +1356,12 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           <button 
             onClick={() => setIsN8nModalOpen(true)} 
             className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-bold transition-all text-left active:scale-95 cursor-pointer shadow-sm" 
-            title="Enviar reporte de ventas del día a n8n"
+            title="Enviar reporte de ventas del día por WhatsApp (Evolution)"
           >
             <div className="flex items-center gap-2">
               <Send size={13} className="text-emerald-400" />
               <span className="font-bold text-[11px] tracking-wide text-white">
-                Enviar Reporte n8n
+                Enviar Reporte WhatsApp
               </span>
             </div>
             <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded font-black">

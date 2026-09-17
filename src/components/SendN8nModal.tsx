@@ -39,7 +39,9 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
       try {
         const data = await api.getUsers();
         const validUsers = (data || []).filter(u => 
-          u && u.email && (u.role as string) !== 'system' && (u.role === 'seller' || u.role === 'admin')
+          u && u.email && (u.role as string) !== 'system' && (u.role === 'seller' || u.role === 'admin') &&
+          !u.email.toLowerCase().includes('susana') &&
+          !(u.name || '').toLowerCase().includes('susana')
         );
         setUsers(validUsers);
 
@@ -101,8 +103,8 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
 
       const count = selectedEmails.length;
       const successText = count === 1 
-        ? `✅ ¡Reporte de ${selectedNames[0]} enviado exitosamente a n8n!`
-        : `✅ ¡Reporte enviado exitosamente a n8n para ${count} vendedores (${selectedNames.join(', ')})!`;
+        ? `✅ ¡Reporte de ${selectedNames[0]} enviado exitosamente por WhatsApp!`
+        : `✅ ¡Envío iniciado para ${count} asesores con pausas de 1 minuto anti-baneo!`;
 
       setStatusMessage({ type: 'success', text: successText });
 
@@ -140,13 +142,13 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-base sm:text-lg tracking-tight">Enviar Reporte a n8n</h3>
+                <h3 className="font-extrabold text-base sm:text-lg tracking-tight">Enviar Reporte por WhatsApp</h3>
                 <span className="bg-emerald-400/20 text-emerald-200 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-emerald-300/30">
-                  Webhook
+                  Evolution API
                 </span>
               </div>
               <p className="text-xs text-emerald-100/90 font-medium">
-                Escoge qué vendedores se incluirán en el reporte del día
+                Selecciona qué asesores recibirán su corte del día por WhatsApp
               </p>
             </div>
           </div>
@@ -330,8 +332,8 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
             <Send size={14} className={isSending ? 'animate-spin' : ''} />
             <span>
               {isSending 
-                ? 'Enviando a n8n...' 
-                : `🚀 Enviar a n8n (${selectedEmails.length})`
+                ? 'Enviando por WhatsApp...' 
+                : `🚀 Enviar por WhatsApp (${selectedEmails.length})`
               }
             </span>
           </button>

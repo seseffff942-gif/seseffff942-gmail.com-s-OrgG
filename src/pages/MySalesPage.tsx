@@ -1001,10 +1001,10 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
           <button
             onClick={() => setIsN8nModalOpen(true)}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-4 py-3 rounded-xl shadow-sm transition-all cursor-pointer text-xs"
-            title="Enviar reporte de ventas del día a n8n"
+            title="Enviar reporte de ventas del día por WhatsApp (Evolution)"
           >
             <Send size={15} />
-            <span>Enviar Reporte n8n</span>
+            <span>Enviar Reporte WhatsApp</span>
           </button>
 
           {user.role === 'admin' && (
