@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from '../api';
 
 /**
  * Imagen de producto con respaldo a prueba de fallos.
@@ -62,11 +63,12 @@ export function ProductImage({
     setFalloSecundario(false);
   }, [src]);
 
-  const tieneSrc = !!src && src.trim() !== '' && !urlsFallidas.has(src);
+  const targetUrl = src && src.trim() !== '' ? getApiUrl(src.trim()) : null;
+  const tieneSrc = !!targetUrl && !urlsFallidas.has(targetUrl);
   
   let fuente = BOTE_BLANCO_FALLBACK;
   if (tieneSrc && !fallo) {
-    fuente = src as string;
+    fuente = targetUrl;
   } else if (falloSecundario) {
     fuente = PLACEHOLDER_BOTELLA_SVG;
   }
@@ -79,7 +81,7 @@ export function ProductImage({
       referrerPolicy="no-referrer"
       onError={() => {
         if (tieneSrc && !fallo) {
-          if (src) urlsFallidas.add(src);
+          if (targetUrl) urlsFallidas.add(targetUrl);
           setFallo(true);
         } else {
           setFalloSecundario(true);

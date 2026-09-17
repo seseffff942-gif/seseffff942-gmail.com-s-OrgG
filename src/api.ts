@@ -1922,7 +1922,10 @@ export const api = {
     try {
       const res = await fetch(getApiUrl('/api/app-logo'));
       if (res.ok) {
-        return res.json();
+        const data = await res.json();
+        if (data && data.logoUrl && !data.logoUrl.includes('logo-1782250004615')) {
+          return data;
+        }
       }
     } catch (e) {
       console.warn("Error fetching app logo:", e);

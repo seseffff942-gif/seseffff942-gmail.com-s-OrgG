@@ -4820,10 +4820,14 @@ app.post("/api/panic/sync", asyncHandler(async (req, res) => {
 }));
 app.get("/api/app-logo", asyncHandler(async (req, res) => {
   const config = readWarehouseConfig();
+  if (config.logoUrl && config.logoUrl.includes("logo-1782250004615")) {
+    config.logoUrl = "/agricovet.png";
+    saveWarehouseConfig(config);
+  }
   if (!config.logoUrl) {
     try {
       const { data: sysRow } = await localDb.from("users").select("photo").eq("id", "sys-logo-config").single();
-      if (sysRow && sysRow.photo) {
+      if (sysRow && sysRow.photo && !sysRow.photo.includes("logo-1782250004615")) {
         config.logoUrl = sysRow.photo;
         saveWarehouseConfig(config);
       }

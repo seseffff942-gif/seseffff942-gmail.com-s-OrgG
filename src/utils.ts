@@ -989,6 +989,20 @@ function construirFragmentosFel(fel?: FelPrintData): FragmentosFel | null {
   return { emisorLinea, detalles, ivaRows, leyenda, tagline: tipoTexto, bloqueFallback };
 }
 
+export function getAppLogoBase64(): string {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('app_logo_url');
+      if (stored && stored.startsWith('data:image/')) {
+        return stored;
+      }
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return defaultLogoBase64;
+}
+
 export function compilePrintTemplate(templateText: string, invoice: any, sellerName?: string, fel?: FelPrintData): string {
   try {
     const formatGT = (num: number) => {
@@ -1252,22 +1266,10 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{reviewedBy\}\}/g, invoice.reviewedBy || '');
 
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const storedLogo = typeof localStorage !== 'undefined' ? localStorage.getItem('app_logo_url') : null;
-    let finalLogoUrl = storedLogo || `${origin}/agricovet.png`;
+    const finalLogoUrl = getAppLogoBase64();
 
-    if (finalLogoUrl && !finalLogoUrl.startsWith('http') && !finalLogoUrl.startsWith('data:')) {
-      const cleanPath = finalLogoUrl.startsWith('/') ? finalLogoUrl : `/${finalLogoUrl}`;
-      finalLogoUrl = `${origin}${cleanPath}`;
-    }
-
-    // Replace all logo placeholders: if it's default agricovet or missing/dead storage url, use defaultLogoBase64
-    if (!finalLogoUrl || finalLogoUrl.includes('agricovet.png') || finalLogoUrl.includes('logo-1782250004615')) {
-      t = t.replace(/\{\{logoUrl\}\}/g, defaultLogoBase64);
-      t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, defaultLogoBase64);
-    } else {
-      t = t.replace(/\{\{logoUrl\}\}/g, finalLogoUrl);
-      t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, finalLogoUrl);
-    }
+    t = t.replace(/\{\{logoUrl\}\}/g, finalLogoUrl);
+    t = t.replace(/\{\{origin\}\}\/agricovet\.png/g, finalLogoUrl);
 
     // Signatures
     t = t.replace(/\{\{#if sellerSignature\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
@@ -1298,7 +1300,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
 
 export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): string {
   const dateStr = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const logoUrl = localStorage.getItem('app_logo_url') || `${window.location.origin}/agricovet.png`;
+  const logoUrl = getAppLogoBase64();
 
   const effectiveSellerName =
     (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
@@ -1315,10 +1317,12 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
   return `
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #333; line-height: 1.6;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #0b4d2c; padding-bottom: 20px;">
-        <div>
-          <img src="${logoUrl}" alt="Agricovet Logo" style="max-width: 150px; max-height: 80px; object-fit: contain;" />
-          <h1 style="color: #0b4d2c; margin: 10px 0 5px 0; font-size: 24px;">Carta de Entrega de Mercadería</h1>
-          <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || invoice.id.substring(0, 8)}</p>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <img src="${logoUrl}" alt="Agricovet Logo" style="width: 68px; height: 68px; min-width: 68px; min-height: 68px; object-fit: contain; border-radius: 50%; border: 1.5px solid #0b4d2c; background: #ffffff;" />
+          <div>
+            <h1 style="color: #0b4d2c; margin: 0 0 5px 0; font-size: 24px;">Carta de Entrega de Mercadería</h1>
+            <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || invoice.id.substring(0, 8)}</p>
+          </div>
         </div>
         <div style="text-align: right; font-size: 14px;">
           <p style="margin: 0;">Fecha de Emisión: ${dateStr}</p>
@@ -1412,8 +1416,7 @@ export interface ReciboConformeOptions {
 export function generateReciboConformeHtml(invoice: any, options: ReciboConformeOptions = {}): string {
   if (!invoice) return '<h1>No hay datos de venta para generar el recibo</h1>';
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const logoUrl = localStorage.getItem('app_logo_url') || `${origin}/agricovet.png`;
+  const logoUrl = getAppLogoBase64();
   const companyName = options.companyName || 'AGRICOVET DE GUATEMALA';
 
   const formatGT = (num: number | string | undefined) => {
@@ -1530,9 +1533,15 @@ export function generateReciboConformeHtml(invoice: any, options: ReciboConforme
           gap: 14px;
         }
         .logo-img {
-          max-width: 140px;
-          max-height: 65px;
+          width: 68px;
+          height: 68px;
+          min-width: 68px;
+          min-height: 68px;
           object-fit: contain;
+          border-radius: 50%;
+          border: 1.5px solid #1A4D2E;
+          background: #ffffff;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         }
         .doc-title {
           font-size: 17px;
@@ -1856,7 +1865,7 @@ export function generateReciboConformeHtml(invoice: any, options: ReciboConforme
 export function compileQuotationTemplate(quote: any, sellerName?: string): string {
   try {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const logoUrl = localStorage.getItem('app_logo_url') || `${origin}/agricovet.png`;
+    const logoUrl = getAppLogoBase64();
 
     const formatGT = (num: number | string | undefined) => {
       const n = Number(num);
@@ -1931,7 +1940,7 @@ export function compileQuotationTemplate(quote: any, sellerName?: string): strin
     /* Header */
     .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 12px; border-bottom: 2.5px solid #00696a; }
     .brand-section { display: flex; gap: 14px; align-items: center; }
-    .brand-logo { width: 68px; height: 68px; object-fit: contain; }
+    .brand-logo { width: 68px; height: 68px; min-width: 68px; min-height: 68px; object-fit: contain; border-radius: 50%; border: 1.5px solid #00696a; background: #ffffff; }
     .company-title { font-size: 15pt; font-weight: 900; color: #00696a; letter-spacing: -0.3px; margin: 0; }
     .company-tagline { font-size: 8pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 1px; }
     .company-info { font-size: 8pt; color: #475569; margin-top: 3px; line-height: 1.35; }
