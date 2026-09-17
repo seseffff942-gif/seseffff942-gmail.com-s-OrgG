@@ -1208,10 +1208,10 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to generate invoice');
+      const err = await safeJson(res);
+      throw new Error(err?.error || err?.message || `Error al procesar factura (${res.status})`);
     }
-    return res.json();
+    return safeJson(res);
   },
 
   updateInvoiceCreditDays: async (invoiceId: string, creditDays: number): Promise<void> => {
@@ -1221,7 +1221,8 @@ export const api = {
       body: JSON.stringify({ creditDays })
     });
     if (!res.ok) {
-      throw new Error('Failed to update credit days');
+      const err = await safeJson(res);
+      throw new Error(err?.error || err?.message || 'Failed to update credit days');
     }
   },
 
@@ -1232,10 +1233,10 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update invoice');
+      const err = await safeJson(res);
+      throw new Error(err?.error || err?.message || 'Failed to update invoice');
     }
-    return res.json();
+    return safeJson(res);
   },
 
   updateInvoiceCustomer: async (id: string, data: { nit?: string; client?: string; phone?: string; address?: string }): Promise<any> => {
@@ -1245,10 +1246,10 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update invoice customer');
+      const err = await safeJson(res);
+      throw new Error(err?.error || err?.message || 'Failed to update invoice customer');
     }
-    return res.json();
+    return safeJson(res);
   },
 
   updateInvoiceStatus: async (id: string, status: string, guideNumber?: string, folio?: number | string, deliveryLetterUrl?: string, shippingGuideUrl?: string, clientName?: string, shippingDate?: string): Promise<void> => {
