@@ -70,7 +70,7 @@ export function ClientVisitsMap({
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const clientMarkersMapRef = useRef<Map<string, L.Marker>>(new Map());
 
-  const [mapType, setMapType] = useState<'satellite' | 'earth' | 'streets' | 'terrain' | 'esri' | 'osm'>('satellite');
+  const [mapType, setMapType] = useState<'satellite' | 'earth' | 'streets' | 'terrain' | 'esri'>('satellite');
   // Handler to clear all client pins from the map
   const handleClearAllPins = () => {
     // Remove all client markers from the layer group
@@ -100,7 +100,8 @@ export function ClientVisitsMap({
       center: [initialLat, initialLng],
       zoom: initialZoom,
       zoomControl: false,
-      attributionControl: false
+      attributionControl: false,
+      maxZoom: 21
     });
 
     // Custom clear pins control
@@ -119,7 +120,8 @@ export function ClientVisitsMap({
 
     const initialTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
       subdomains: '0123',
-      maxZoom: 20,
+      maxZoom: 21,
+      maxNativeZoom: 20,
       attribution: '&copy; Google Maps'
     });
 
@@ -166,36 +168,35 @@ export function ClientVisitsMap({
     if (mapType === 'satellite') {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
         subdomains: '0123',
-        maxZoom: 20,
+        maxZoom: 21,
+        maxNativeZoom: 20,
         attribution: '&copy; Google Maps'
       }).addTo(map);
     } else if (mapType === 'terrain') {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
         subdomains: '0123',
-        maxZoom: 18,
+        maxZoom: 20,
+        maxNativeZoom: 18,
         attribution: '&copy; Google Maps'
       }).addTo(map);
     } else if (mapType === 'esri') {
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
+        maxZoom: 21,
+        maxNativeZoom: 17,
         attribution: '&copy; Esri World Imagery'
-      }).addTo(map);
-    } else if (mapType === 'osm') {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        subdomains: 'abc',
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
     } else if (mapType === 'earth') {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
         subdomains: '0123',
-        maxZoom: 20,
+        maxZoom: 21,
+        maxNativeZoom: 20,
         attribution: '&copy; Google Earth'
       }).addTo(map);
     } else {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         subdomains: '0123',
-        maxZoom: 20,
+        maxZoom: 21,
+        maxNativeZoom: 20,
         attribution: '&copy; Google Maps'
       }).addTo(map);
     }
@@ -723,10 +724,9 @@ export function ClientVisitsMap({
             >
               <option value="satellite">🛰️ Satélite Híbrido (Google)</option>
               <option value="earth">🌎 Google Earth (Satélite Limpio)</option>
-              <option value="streets">🗺️ Calles (Google Maps)</option>
+              <option value="streets">🗺️ Calles y Rutas (Google Maps)</option>
               <option value="terrain">⛰️ Relieve / Fincas (Google)</option>
               <option value="esri">🛰️ Satélite HD (Esri / Maxar)</option>
-              <option value="osm">🌐 Calles Libres (OpenStreetMap)</option>
             </select>
           </div>
         </div>

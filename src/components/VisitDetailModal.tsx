@@ -77,12 +77,14 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
         center: [lat, lng],
         zoom: 16,
         zoomControl: false,
-        attributionControl: false
+        attributionControl: false,
+        maxZoom: 21
       });
 
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         subdomains: '0123',
-        maxZoom: 20
+        maxZoom: 21,
+        maxNativeZoom: 20
       }).addTo(map);
 
       // Custom visit pin
