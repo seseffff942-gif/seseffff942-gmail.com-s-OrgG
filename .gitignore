@@ -33,3 +33,6 @@ android/build/
 *.tar.gz
 storage/
 _git_push.cjs
+.chrome-live-session/
+.chrome-shots-session/
+*.pptx

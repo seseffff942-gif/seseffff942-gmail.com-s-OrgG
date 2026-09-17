@@ -80,6 +80,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/nodemailer": "^8.0.1",
     "@types/react-signature-canvas": "^1.0.7",
-    "@types/web-push": "^3.6.4"
+    "@types/web-push": "^3.6.4",
+    "puppeteer-core": "^25.11.0"
   }
 }

@@ -4126,7 +4126,9 @@ async function checkAndDispatchDailySales(options) {
   } else {
     targetUsers = users.filter((u) => {
       const email = (u.email || "").toLowerCase().trim();
+      const name = (u.name || "").toLowerCase().trim();
       const role = (u.role || "").toLowerCase();
+      if (email.includes("susana") || name.includes("susana")) return false;
       return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
     });
   }

@@ -3664,7 +3664,9 @@ async function checkAndDispatchDailySales(options?: {
   } else {
     targetUsers = users.filter((u: any) => {
       const email = (u.email || "").toLowerCase().trim();
+      const name = (u.name || "").toLowerCase().trim();
       const role = (u.role || "").toLowerCase();
+      if (email.includes("susana") || name.includes("susana")) return false;
       return (
         email === "seseffff942@gmail.com" ||
         email === "jerickottoniel@gmail.com" ||
