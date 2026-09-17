@@ -4244,6 +4244,13 @@ async function checkAndDispatchDailySales(options) {
         webhookResult = { error: err.message, ok: false };
         console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
       }
+
+      // Pausa de 60 segundos (1 minuto) entre asesores para proteger el numero contra baneos
+      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
+      if (!isLastSeller) {
+        console.log(`[AUTO-SALES-CRON] ⏳ Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el número...`);
+        await new Promise((resolve) => setTimeout(resolve, 60000));
+      }
     }
     results.push({
       vendedor: sellerDisplayName,
