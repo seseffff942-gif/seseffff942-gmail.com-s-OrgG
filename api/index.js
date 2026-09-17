@@ -5392,7 +5392,8 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
   }
   let total = 0;
   const processedItems = [];
-  let requiresAuth = debtAlert === true;
+  const OMITIR_LIMITACION_DEUDA_SERVER = true;
+  let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && debtAlert === true;
   const id = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   let invoice = null;
   const releaseStockLocks = await acquireStockLocks(items.map((i) => i.productId));
@@ -5516,7 +5517,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
     let authFlag = requiresAuth ? "|||AUTH:pending" : "";
     let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (requiresAuth && debtAlert) {
+    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }
     const isUserAdmin = req.user && req.user.role === "admin";

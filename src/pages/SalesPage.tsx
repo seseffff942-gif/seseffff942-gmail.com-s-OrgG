@@ -8,6 +8,13 @@ import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
 
+// =========================================================================
+// OMITIR LIMITACIÓN / BLOQUEO POR FACTURAS VENCIDAS
+// true  = Omitir limitación por mora (permite vender libremente sin bloqueo)
+// false = Reactivar limitación y modal de bloqueo por deuda
+// =========================================================================
+export const OMITIR_LIMITACION_FACTURAS_VENCIDAS = true;
+
 interface SalesPageProps {
   user: User;
   isMobile?: boolean;
@@ -511,13 +518,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
       
       setDebtType(type);
-      if (type !== 'none') {
+      if (type !== 'none' && !OMITIR_LIMITACION_FACTURAS_VENCIDAS) {
         setIsDebtAuthorized(false);
         if (!silente) setShowDebtModal(true);
       } else {
         setIsDebtAuthorized(true);
       }
-      return type;
+      return OMITIR_LIMITACION_FACTURAS_VENCIDAS ? 'none' : type;
     } catch (err) {
       console.error("Debt check failed:", err);
       return 'none';
@@ -812,7 +819,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           isOwed,
           invoiceType: invoiceType as 'agricola' | 'veterinaria',
           creditDays: invoiceType === 'agricola' ? 60 : 30,
-          debtAlert: debtType !== 'none',
+          debtAlert: OMITIR_LIMITACION_FACTURAS_VENCIDAS ? false : (debtType !== 'none'),
           customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
           transportMethod: transportMethod || undefined
         };
@@ -827,7 +834,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   ? new Date(`${invoicePayload.customDate}T12:00:00-06:00`).toISOString()
                   : new Date(invoicePayload.customDate).toISOString())
               : new Date().toISOString(),
-            authStatus: debtType !== 'none' || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
+            authStatus: (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && debtType !== 'none') || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
             total: items.reduce((sum, item) => sum + (item.price * item.quantity), 0),
             isOffline: true
           };
@@ -850,7 +857,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                        ? new Date(`${invoicePayload.customDate}T12:00:00-06:00`).toISOString()
                        : new Date(invoicePayload.customDate).toISOString())
                    : new Date().toISOString(),
-                 authStatus: debtType !== 'none' || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
+                 authStatus: (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && debtType !== 'none') || invoicePayload.items.some(i => i.isPriceAlert) ? 'pending' : 'approved',
                  total: items.reduce((sum, item) => sum + (item.price * item.quantity), 0),
                  isOffline: true
                };
@@ -891,9 +898,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       setLastCreatedInvoice(newInvoice);
 
       if (newInvoice.authStatus === 'pending') {
-         const reason = debtType !== 'none' ? 'por DEUDA pendiente del cliente' : 'por precio de oferta/rebajado';
+         const reason = (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && debtType !== 'none') ? 'por DEUDA pendiente del cliente' : 'por precio de oferta/rebajado';
          alert(`${newInvoice.isOffline ? '[OFFLINE] Venta guardada sin conexión' : 'Venta registrada'} a ${originalClient}, PERO REQUIERE AUTORIZACIÓN ${reason}.`);
-         setSuccessMsg(`${newInvoice.isOffline ? '📡 Guardada sin internet (Pendiente)' : '⚠️ Venta en revisión'} (${debtType !== 'none' ? 'Deuda Cliente' : 'Precio Especial'})`);
+         setSuccessMsg(`${newInvoice.isOffline ? '📡 Guardada sin internet (Pendiente)' : '⚠️ Venta en revisión'} (${(!OMITIR_LIMITACION_FACTURAS_VENCIDAS && debtType !== 'none') ? 'Deuda Cliente' : 'Precio Especial'})`);
       } else {
          setSuccessMsg(`${newInvoice.isOffline ? '📡 Venta guardada pendiente de conexión para: ' : '¡Venta registrada exitosamente a '} ${originalClient}!`);
       }
@@ -1022,7 +1029,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
 
     try {
-      if (debtType === 'none' || !isDebtAuthorized) {
+      if (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && (debtType === 'none' || !isDebtAuthorized)) {
          const type = await checkClientDebt(client, true);
          if (type !== 'none' && !isDebtAuthorized) {
            setShowDebtModal(true);

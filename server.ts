@@ -5174,7 +5174,9 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
   let total = 0;
   const processedItems: any[] = [];
-  let requiresAuth = debtAlert === true;
+  // Bandera para omitir limitación por facturas vencidas (fácil de reactivar cambiando a false)
+  const OMITIR_LIMITACION_DEUDA_SERVER = true;
+  let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && (debtAlert === true);
   const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   let invoice: any = null;
 
@@ -5316,7 +5318,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
     let authFlag = requiresAuth ? "|||AUTH:pending" : "";
     let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (requiresAuth && debtAlert) {
+    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }
 
