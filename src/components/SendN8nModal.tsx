@@ -20,8 +20,10 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
     return [];
   });
 
-  const [corteHora, setCorteHora] = useState<'12:00' | '17:00'>(() => {
-    const hour = new Date().getHours();
+  const [tipoCorte, setTipoCorte] = useState<'12:00' | '17:00' | 'semanal'>(() => {
+    const now = new Date();
+    if (now.getDay() === 6 && now.getHours() >= 15) return 'semanal';
+    const hour = now.getHours();
     return hour >= 15 ? '17:00' : '12:00';
   });
 
@@ -91,20 +93,28 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
     setStatusMessage(null);
 
     try {
-      const res = await api.checkDailySales({
-        sendToWebhook: true,
-        corteHora,
-        targetSellerEmails: selectedEmails,
-      });
+      if (tipoCorte === 'semanal') {
+        await api.checkWeeklySales({
+          sendToWebhook: true,
+          targetSellerEmails: selectedEmails,
+        });
+      } else {
+        await api.checkDailySales({
+          sendToWebhook: true,
+          corteHora: tipoCorte,
+          targetSellerEmails: selectedEmails,
+        });
+      }
 
       const selectedNames = users
         .filter(u => selectedEmails.includes((u.email || '').toLowerCase().trim()))
         .map(u => u.name || u.email);
 
       const count = selectedEmails.length;
+      const tipoLabel = tipoCorte === 'semanal' ? 'Cierre Semanal' : `Corte de las ${tipoCorte === '12:00' ? '12:00 PM' : '5:00 PM'}`;
       const successText = count === 1 
-        ? `✅ ¡Reporte de ${selectedNames[0]} enviado exitosamente por WhatsApp!`
-        : `✅ ¡Envío iniciado para ${count} asesores con pausas de 1 minuto anti-baneo!`;
+        ? `✅ ¡${tipoLabel} de ${selectedNames[0]} enviado exitosamente por WhatsApp!`
+        : `✅ ¡Envío de ${tipoLabel} iniciado para ${count} asesores con pausas de 1 minuto anti-baneo!`;
 
       setStatusMessage({ type: 'success', text: successText });
 
@@ -148,7 +158,9 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
                 </span>
               </div>
               <p className="text-xs text-emerald-100/90 font-medium">
-                Selecciona qué asesores recibirán su corte del día por WhatsApp
+                {tipoCorte === 'semanal' 
+                  ? 'Envía el cierre consolidado semanal (Lun - Sáb) con desglose de facturas' 
+                  : 'Selecciona qué asesores recibirán su corte del día por WhatsApp'}
               </p>
             </div>
           </div>
@@ -164,34 +176,53 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
         {/* Contenido con scroll */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-slate-800">
           
-          {/* Selector de Horario de Corte */}
+          {/* Selector de Horario / Tipo de Corte */}
           <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-            <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-2">
-              <Clock size={13} className="text-teal-600" />
-              Tipo de Corte Horario
-            </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Clock size={13} className="text-teal-600" />
+                Tipo de Reporte a Enviar
+              </label>
+              <span className="text-[10px] font-bold text-slate-400">
+                {tipoCorte === 'semanal' ? 'Meta Q52,500 (Semanal)' : 'Meta Q8,750 (Diaria)'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setCorteHora('12:00')}
-                className={`py-2 px-3 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer ${
-                  corteHora === '12:00'
+                onClick={() => setTipoCorte('12:00')}
+                className={`py-2 px-1.5 rounded-lg text-[11px] sm:text-xs font-bold border transition flex flex-col sm:flex-row items-center justify-center gap-1 cursor-pointer ${
+                  tipoCorte === '12:00'
                     ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span>🕛 Mediodía (12:00 PM)</span>
+                <span>🕛</span>
+                <span className="truncate">12:00 PM</span>
               </button>
               <button
                 type="button"
-                onClick={() => setCorteHora('17:00')}
-                className={`py-2 px-3 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer ${
-                  corteHora === '17:00'
+                onClick={() => setTipoCorte('17:00')}
+                className={`py-2 px-1.5 rounded-lg text-[11px] sm:text-xs font-bold border transition flex flex-col sm:flex-row items-center justify-center gap-1 cursor-pointer ${
+                  tipoCorte === '17:00'
                     ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span>🕔 Cierre (5:00 PM)</span>
+                <span>🕔</span>
+                <span className="truncate">5:00 PM</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipoCorte('semanal')}
+                className={`py-2 px-1.5 rounded-lg text-[11px] sm:text-xs font-bold border transition flex flex-col sm:flex-row items-center justify-center gap-1 cursor-pointer ${
+                  tipoCorte === 'semanal'
+                    ? 'bg-teal-700 text-white border-teal-800 shadow-sm ring-2 ring-teal-400/40'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span>🏆</span>
+                <span className="truncate">Semanal</span>
               </button>
             </div>
           </div>

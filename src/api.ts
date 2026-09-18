@@ -2166,6 +2166,29 @@ export const api = {
     return data;
   },
 
+  checkWeeklySales: async (options?: { 
+    sendToWebhook?: boolean; 
+    threshold?: number; 
+    webhookUrl?: string;
+    targetSellerEmail?: string;
+    targetSellerEmails?: string[];
+  }) => {
+    const res = await fetchWithAuth('/api/admin/check-weekly-sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sendToWebhook: options?.sendToWebhook ?? false,
+        threshold: options?.threshold ?? 52500,
+        webhookUrl: options?.webhookUrl,
+        targetSellerEmail: options?.targetSellerEmail,
+        targetSellerEmails: options?.targetSellerEmails,
+      }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data?.error || 'Error al verificar ventas semanales');
+    return data;
+  },
+
 
   // ======== COTIZACIONES (QUOTATIONS) ========
   getQuotations: async (sellerId?: string) => {

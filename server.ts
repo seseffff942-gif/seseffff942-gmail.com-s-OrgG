@@ -3578,6 +3578,27 @@ async function acquireCorteDispatchLock(corteKey: string): Promise<boolean> {
   return true;
 }
 
+let cachedLogoTiBase64 = "";
+function getLogoTiBase64(): string {
+  if (cachedLogoTiBase64) return cachedLogoTiBase64;
+  try {
+    const candidates = [
+      path.join(process.cwd(), "public", "logo_ti_v2.jpg"),
+      path.join(__dirname, "public", "logo_ti_v2.jpg"),
+      "/opt/evolution-api/boletas_guardadas/logo_ti_v2.jpg"
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        cachedLogoTiBase64 = fs.readFileSync(p).toString("base64");
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn("[LOGO-TI] Error loading logo_ti_v2.jpg:", e);
+  }
+  return cachedLogoTiBase64;
+}
+
 async function checkAndDispatchDailySales(options?: {
   corteHora?: string;
   threshold?: number;
@@ -3786,6 +3807,7 @@ async function checkAndDispatchDailySales(options?: {
         : `Hola ${sellerDisplayName}, corte de las ${corte === '17:00' ? '5:00 PM' : '12:00 PM'}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
       destinatarios,
       ventas,
+      logoBase64: getLogoTiBase64(),
     };
 
     allReports.push(payload);
@@ -3837,6 +3859,258 @@ async function checkAndDispatchDailySales(options?: {
   };
 }
 
+async function checkAndDispatchWeeklySales(options?: {
+  threshold?: number;
+  webhookUrl?: string;
+  sendToWebhook?: boolean;
+  targetSellerEmail?: string;
+  targetSellerEmails?: string[];
+  isAutomatedCron?: boolean;
+}) {
+  const WEEKLY_THRESHOLD = Number(options?.threshold) || 52500;
+  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
+  const sendToWebhook = options?.sendToWebhook !== false;
+
+  const now = new Date();
+  const gtOffset = -6 * 60; // UTC-6 Guatemala
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const gtNow = new Date(utcMs + (gtOffset * 60000));
+  const year = gtNow.getFullYear();
+  const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+  const day = String(gtNow.getDate()).padStart(2, "0");
+  const todayLabel = `${year}-${month}-${day}`;
+
+  // Calcular Lunes de la semana en curso (0 = Domingo, 1 = Lunes, ..., 6 = Sábado)
+  const gtDay = gtNow.getDay();
+  const diffToMonday = gtDay === 0 ? 6 : gtDay - 1;
+  const mondayDate = new Date(gtNow);
+  mondayDate.setDate(gtNow.getDate() - diffToMonday);
+  const mYear = mondayDate.getFullYear();
+  const mMonth = String(mondayDate.getMonth() + 1).padStart(2, "0");
+  const mDay = String(mondayDate.getDate()).padStart(2, "0");
+  const startOfWeek = `${mYear}-${mMonth}-${mDay}T00:00:00`;
+  const endOfWeek = `${todayLabel}T23:59:59`;
+  const periodoLabel = `${mDay}/${mMonth}/${mYear} al ${day}/${month}/${year}`;
+
+  const corteKey = `${todayLabel}_semanal`;
+
+  if (options?.isAutomatedCron) {
+    const lockAcquired = await acquireCorteDispatchLock(corteKey);
+    if (!lockAcquired) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] 🛑 El corte semanal ${corteKey} YA FUE ENVIADO previamente. Omitiendo despacho para evitar duplicados.`);
+      return {
+        success: true,
+        skipped: true,
+        message: `El corte semanal ${corteKey} ya fue enviado previamente.`
+      };
+    }
+  }
+
+  const { data: invoicesData, error: invErr } = await localDb.from("invoices")
+    .select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId")
+    .gte("date", startOfWeek)
+    .lte("date", endOfWeek);
+
+  if (invErr) {
+    console.error("[AUTO-WEEKLY-SALES-CRON] Error al consultar facturas semanales:", invErr.message);
+    return { error: `Error al consultar facturas semanales: ${invErr.message}` };
+  }
+
+  function formatTelefonoDestinatario(rawPhone: string | null | undefined): string {
+    if (!rawPhone) return "";
+    const digits = String(rawPhone).replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length === 8) return `502${digits}`;
+    if (digits.startsWith("502") && digits.length === 11) return digits;
+    return digits;
+  }
+
+  const { data: allUsers } = await localDb.from("users").select("id, name, email, role, phone, sellerCode");
+  const targetSellerEmailsList = options?.targetSellerEmails && options.targetSellerEmails.length > 0
+    ? options.targetSellerEmails.map(e => e.toLowerCase())
+    : options?.targetSellerEmail
+      ? [options.targetSellerEmail.toLowerCase()]
+      : null;
+
+  const activeSellers = (allUsers || []).filter((u: any) => {
+    if (!u) return false;
+    const email = (u.email || "").toLowerCase();
+    const name = (u.name || "").trim();
+    if (email === "susyherrera2014@gmail.com" || name === "Susana" || name === "Susana Herrera" || name === "Susy") {
+      return false;
+    }
+    if (targetSellerEmailsList) {
+      return targetSellerEmailsList.includes(email);
+    }
+    return (
+      u.role === "seller" ||
+      email === "gruasytransportesali@gmail.com" ||
+      email === "erickjuarez02@gmail.com" ||
+      email === "seseffff942@gmail.com"
+    );
+  });
+
+  const uniqueTargetUsers = activeSellers.filter(
+    (u: any, idx: number, arr: any[]) => arr.findIndex((x: any) => (x.email || "").toLowerCase() === (u.email || "").toLowerCase()) === idx
+  );
+
+  console.log(`[AUTO-WEEKLY-SALES-CRON] 📊 Procesando corte semanal (${periodoLabel}) para ${uniqueTargetUsers.length} vendedores.`);
+
+  const allReports: any[] = [];
+  const results: any[] = [];
+
+  for (const seller of uniqueTargetUsers) {
+    const sellerEmail = (seller.email || "").toLowerCase();
+    const sellerIdKeys = [
+      seller.id ? String(seller.id).toLowerCase() : null,
+      sellerEmail,
+      seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
+      seller.name ? seller.name.toLowerCase() : null
+    ].filter(Boolean);
+
+    const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
+    const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
+    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+
+    const destinatarios = [{
+      nombreDestinatario: sellerDisplayName,
+      telefono: sellerPhoneClean,
+      numero: sellerPhoneClean,
+      email: seller.email,
+      rol: seller.role || "seller"
+    }].filter((d: any) => Boolean(d.telefono));
+
+    let cantidadVendida = 0;
+    let cantidadFacturas = 0;
+    const ventas: any[] = [];
+
+    for (const inv of invoicesData || []) {
+      if (!inv || inv.status === 'cancelled' || inv.status === 'rejected') continue;
+      const sId = (inv.sellerId || "").toLowerCase();
+      if (sellerIdKeys.includes(sId) || sId === sellerEmail || (inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase())) {
+        const amount = Number(inv.totalAmount) || 0;
+        cantidadVendida += amount;
+        cantidadFacturas += 1;
+
+        let fechaVenta = (inv.date || '').slice(0, 10);
+        ventas.push({
+          id: inv.id,
+          folio: inv.folio || "",
+          cliente: inv.clientName || "Cliente",
+          nit: inv.nit || "CF",
+          monto: amount,
+          tipo: inv.invoice_type || "contado",
+          estado: inv.status || "completado",
+          fecha: fechaVenta
+        });
+      }
+    }
+
+    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+    const cantidadFaltante = Math.max(0, Math.round((WEEKLY_THRESHOLD - cantidadVendida) * 100) / 100);
+    const alcanzoMeta = cantidadVendida >= WEEKLY_THRESHOLD;
+    const superavit = Math.max(0, Math.round((cantidadVendida - WEEKLY_THRESHOLD) * 100) / 100);
+    const porcentajeCumplimiento = WEEKLY_THRESHOLD > 0 ? ((cantidadVendida / WEEKLY_THRESHOLD) * 100).toFixed(1) : '100.0';
+
+    const codigoAsesor = seller.sellerCode || (sellerDisplayName === 'Herbert Argueta' ? '1521' : '');
+
+    // Generar formato de desglose para WhatsApp
+    let detalleVentas = '';
+    if (ventas.length > 0) {
+      detalleVentas = ventas.map(v => {
+        const fol = v.folio ? `#${v.folio}` : 'S/F';
+        let fStr = '';
+        if (v.fecha) {
+          fStr = ` (${v.fecha.slice(8, 10)}/${v.fecha.slice(5, 7)})`;
+        }
+        const montoStr = Number(v.monto || 0).toLocaleString('es-GT', { minimumFractionDigits: 2 });
+        return `▫️ *${fol}*${fStr}: Q${montoStr} - ${v.cliente}`;
+      }).join('\n');
+    }
+
+    const formattedWhatsAppMessage = alcanzoMeta
+      ? `🏆 *CIERRE SEMANAL DE VENTAS - SÁBADO 5:00 PM* 🏁\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nEstimado(a) *${sellerDisplayName}*, ¡excelente trabajo! Has culminado la semana cumpliendo exitosamente tu objetivo comercial:\n\n📅 *Semana:* ${periodoLabel}\n💼 *Código Asesor:* #${codigoAsesor}\n📄 *Facturas Emitidas:* ${cantidadFacturas} facturas\n\n📊 *RESUMEN FINANCIERO:*\n💰 *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n🎯 *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📈 *Superávit Logrado:* Q. ${superavit.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n🔥 *Cumplimiento Semanal:* ${porcentajeCumplimiento}%\n\n⭐ *¡Felicitaciones por tu entrega y constancia esta semana! A descansar y recargar energías para arrancar con fuerza el lunes.* 🚀\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rendimiento Comercial Agricovet_`
+      : `📊 *CIERRE SEMANAL DE VENTAS - SÁBADO 5:00 PM* 🏁\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nEstimado(a) *${sellerDisplayName}*, te compartimos el informe consolidado de tu cierre semanal de ventas:\n\n📅 *Semana:* ${periodoLabel}\n💼 *Código Asesor:* #${codigoAsesor}\n📄 *Facturas Emitidas:* ${cantidadFacturas} facturas\n\n📊 *RESUMEN FINANCIERO:*\n💰 *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n🎯 *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📉 *Faltante para la Meta:* Q. ${cantidadFaltante.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📈 *Cumplimiento Semanal:* ${porcentajeCumplimiento}%\n\n${detalleVentas ? '📋 *DETALLE DE VENTAS DE LA SEMANA:*\n' + detalleVentas + '\n\n' : ''}💪 *¡Buen esfuerzo durante estos días! Analicemos oportunidades con nuestros clientes para que la próxima semana alcancemos la meta completa.* 🎯\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rendimiento Comercial Agricovet_`;
+
+    const payload = {
+      fecha: todayLabel,
+      corte: 'semanal',
+      tipoCorte: 'semanal',
+      tipoReporte: 'semanal',
+      tipo: 'semanal',
+      esSemanal: true,
+      hora: '17:00',
+      horaCorte: '17:00',
+      corteHora: '17:00',
+      titulo: `Cierre Semanal de Ventas - ${sellerDisplayName}`,
+      vendedor: sellerDisplayName,
+      nombreDestinatario: sellerDisplayName,
+      codigoAsesor,
+      periodo: periodoLabel,
+      email: seller.email,
+      numero: sellerPhoneClean,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFaltante,
+      alcanzoMeta,
+      superavit,
+      umbral: WEEKLY_THRESHOLD,
+      metaSemanal: WEEKLY_THRESHOLD,
+      cantidadFacturas,
+      porcentajeCumplimiento,
+      textoWhatsApp: formattedWhatsAppMessage,
+      destinatarios,
+      ventas,
+      logoBase64: getLogoTiBase64(),
+    };
+
+    allReports.push(payload);
+
+    let webhookResult: any = null;
+    if (sendToWebhook) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (Cierre Semanal): ${N8N_WEBHOOK_URL}`);
+      try {
+        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const resText = await webhookRes.text().catch(() => "");
+        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+        console.log(`[AUTO-WEEKLY-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+      } catch (err: any) {
+        webhookResult = { error: err.message, ok: false };
+        console.error(`[AUTO-WEEKLY-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+      }
+
+      // Pausa de 60 segundos (1 minuto) entre asesores para evitar baneo
+      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
+      if (!isLastSeller) {
+        console.log(`[AUTO-WEEKLY-SALES-CRON] ⏳ Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el número...`);
+        await new Promise((resolve) => setTimeout(resolve, 60000));
+      }
+    }
+
+    results.push({
+      vendedor: sellerDisplayName,
+      email: seller.email,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFacturas,
+      webhookResult,
+      payload
+    });
+  }
+
+  return {
+    success: true,
+    totalVendedores: uniqueTargetUsers.length,
+    periodo: periodoLabel,
+    reports: allReports,
+    results
+  };
+}
+
 // Iniciar programador en segundo plano para cortes a las 12:00 PM y 5:00 PM (Hora Guatemala UTC-6)
 function initAutoDailySalesCron() {
   console.log('[AUTO-SALES-CRON] ⏰ Programador automático activo para cortes de 12:00 PM y 5:00 PM (Guatemala).');
@@ -3871,6 +4145,28 @@ function initAutoDailySalesCron() {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] 🕔 Disparando corte automático de las 5:00 PM para ${todayDateStr}`);
           await checkAndDispatchDailySales({ corteHora: '17:00', isAutomatedCron: true });
+
+          // Si es sábado (gtNow.getDay() === 6), disparar cierre semanal después del corte diario
+          if (gtNow.getDay() === 6) {
+            console.log(`[AUTO-SALES-CRON] 🏁 Sábado 5:00 PM detectado. Esperando 60 segundos tras el corte diario para iniciar el CIERRE SEMANAL de ${todayDateStr}...`);
+            setTimeout(async () => {
+              try {
+                await checkAndDispatchWeeklySales({ isAutomatedCron: true });
+              } catch (err: any) {
+                console.error('[AUTO-SALES-CRON] Error en despacho automático de cierre semanal:', err?.message || err);
+              }
+            }, 60000);
+          }
+        }
+      }
+
+      // 8:00 PM en punto (20:00) - Cierre nocturno / consolidado
+      if (hour === 20 && minute === 0) {
+        const corteKey = `${todayDateStr}_20:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] 🕗 Disparando corte automático de las 8:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: '17:00', isAutomatedCron: true });
         }
       }
     } catch (e: any) {
@@ -3897,6 +4193,28 @@ app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any)
   }
 
   const result: any = await checkAndDispatchDailySales(req.body);
+  if (result?.error) {
+    return res.status(500).json(result);
+  }
+  return res.json(result);
+}));
+
+app.post("/api/admin/check-weekly-sales", asyncHandler(async (req: any, res: any) => {
+  const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
+
+  if (isMultiSeller && req.body?.sendToWebhook) {
+    res.json({
+      success: true,
+      message: `Envío de cierre semanal iniciado para ${req.body.targetSellerEmails.length} vendedores con pausas anti-baneo de 1 minuto.`,
+      background: true
+    });
+    checkAndDispatchWeeklySales(req.body).catch(err => {
+      console.error('[MANUAL-WEEKLY-SALES-DISPATCH] Error en segundo plano:', err?.message || err);
+    });
+    return;
+  }
+
+  const result: any = await checkAndDispatchWeeklySales(req.body);
   if (result?.error) {
     return res.status(500).json(result);
   }
