@@ -27,18 +27,24 @@ function NotificationsPopover({
   isOpen, 
   onClose, 
   onClearAll, 
-  onChangeTab,
-  user,
-  soundsEnabled,
-  setSoundsEnabled
+  onChangeTab, 
+  user, 
+  soundsEnabled, 
+  setSoundsEnabled,
+  isSilentModeActive,
+  onToggleSilentMode,
+  isUpdatingSilentMode
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
-  onClearAll: () => void;
-  onChangeTab: (tab: string) => void;
-  user: User;
-  soundsEnabled: boolean;
+  onClearAll: () => void; 
+  onChangeTab: (tab: string) => void; 
+  user: User; 
+  soundsEnabled: boolean; 
   setSoundsEnabled: (v: boolean) => void;
+  isSilentModeActive: boolean;
+  onToggleSilentMode: () => void;
+  isUpdatingSilentMode?: boolean;
 }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -199,28 +205,65 @@ function NotificationsPopover({
             />
 
             {/* Header with Premium Corporate Emerald-Teal Gradient */}
-            <div className="bg-gradient-to-br from-[#0c5c35] to-[#042616] text-white px-6 py-6 flex flex-col gap-4 shadow-md relative overflow-hidden shrink-0">
+            <div className={cn(
+              "text-white px-6 py-6 flex flex-col gap-4 shadow-md relative overflow-hidden shrink-0 transition-colors duration-300",
+              isSilentModeActive
+                ? "bg-gradient-to-br from-[#471515] to-[#1e0707]"
+                : "bg-gradient-to-br from-[#0c5c35] to-[#042616]"
+            )}>
               <div className="absolute top-0 right-0 w-36 h-36 bg-emerald-500/10 rounded-full blur-[40px] pointer-events-none" />
               <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-teal-400/10 rounded-full blur-[30px] pointer-events-none" />
               
               <div className="flex items-center justify-between z-10">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-white/10 backdrop-blur-md rounded-xl border border-white/10 shadow-inner">
-                    <Bell className="text-emerald-300 animate-pulse" size={20} />
+                  <div className={cn(
+                    "p-2.5 backdrop-blur-md rounded-xl border shadow-inner transition-colors",
+                    isSilentModeActive
+                      ? "bg-rose-500/20 border-rose-400/30 text-rose-300"
+                      : "bg-white/10 border-white/10 text-emerald-300"
+                  )}>
+                    {isSilentModeActive ? <BellOff size={20} /> : <Bell className="animate-pulse" size={20} />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="flex h-1.5 w-1.5 relative">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                        <span className={cn(
+                          "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                          isSilentModeActive ? "bg-rose-400" : "bg-emerald-400"
+                        )}></span>
+                        <span className={cn(
+                          "relative inline-flex rounded-full h-1.5 w-1.5",
+                          isSilentModeActive ? "bg-rose-500" : "bg-emerald-500"
+                        )}></span>
                       </span>
-                      <span className="text-[9px] text-emerald-300 font-extrabold uppercase tracking-widest font-mono">Monitoreo Activo</span>
+                      <span className={cn(
+                        "text-[9px] font-extrabold uppercase tracking-widest font-mono",
+                        isSilentModeActive ? "text-rose-300" : "text-emerald-300"
+                      )}>
+                        {isSilentModeActive ? "🔕 Modo Silencioso Activo" : "🔔 Monitoreo Activo"}
+                      </span>
                     </div>
                     <h3 className="font-sans font-bold text-[20px] tracking-tight text-white leading-tight">Canal de Alertas</h3>
                   </div>
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  {/* Botón Silenciar / Activar App */}
+                  <button
+                    onClick={onToggleSilentMode}
+                    disabled={isUpdatingSilentMode}
+                    title={isSilentModeActive ? "Las notificaciones y sonidos están apagados. Haz clic para activar" : "Silenciar todas las notificaciones y sonidos de la app"}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 border shadow-sm",
+                      isSilentModeActive
+                        ? "bg-rose-500/25 border-rose-400/40 text-rose-200 hover:bg-rose-500/35"
+                        : "bg-white/10 border-white/15 text-emerald-200 hover:bg-white/20"
+                    )}
+                  >
+                    {isSilentModeActive ? <BellOff size={13} className="text-rose-400" /> : <Bell size={13} className="text-emerald-300" />}
+                    <span>{isUpdatingSilentMode ? "..." : isSilentModeActive ? "Silenciado (Activar)" : "Silenciar App"}</span>
+                  </button>
+
                   {/* Sound Toggle Button with Testing option */}
                   <div className="flex items-center bg-white/10 backdrop-blur-md rounded-xl border border-white/5 p-0.5">
                     <button 
@@ -605,7 +648,11 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const [isActivatingPush, setIsActivatingPush] = useState(false);
   const [pushErrorMsg, setPushErrorMsg] = useState('');
   const [isSendingTestPush, setIsSendingTestPush] = useState(false);
-  const [isSilentModeActive, setIsSilentModeActive] = useState(false);
+  const [isSilentModeActive, setIsSilentModeActive] = useState(() => {
+    const saved = localStorage.getItem('agricovet_app_silenced');
+    if (saved !== null) return saved === 'true';
+    return true; // Silenciado por defecto
+  });
   const [isUpdatingSilentMode, setIsUpdatingSilentMode] = useState(false);
 
   const urlBase64ToUint8Array = (base64String: string) => {
@@ -657,23 +704,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
       sw.ready.then(async (registration) => {
         try {
-          let subscription = await registration.pushManager.getSubscription();
-          if (!subscription && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            const publicKey = await api.getPushPublicKey();
-            if (publicKey) {
-              const applicationServerKey = urlBase64ToUint8Array(publicKey);
-              subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey
-              });
-            }
+          const subscription = await registration.pushManager.getSubscription();
+          setIsSubscribedToPush(!!subscription);
+          if (typeof Notification !== 'undefined') {
+            setPushStatus(Notification.permission);
           }
-          if (subscription) {
-            await api.sendPushSubscription(subscription);
-            setIsSubscribedToPush(true);
-          }
-        } catch (err) {
-          console.warn("Error al verificar/sincronizar suscripción push en montaje:", err);
+        } catch (subErr) {
+          console.warn("Error al consultar suscripción push activa:", subErr);
         }
       }).catch(err => {
         console.warn("Error al acceder a sw.ready:", err);
@@ -681,6 +718,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
       const handlePushMessage = (event: MessageEvent) => {
         if (event.data && event.data.type === 'PUSH_NOTIFICATION_RECEIVED') {
+          if (isSilentModeActive || localStorage.getItem('agricovet_app_silenced') === 'true') return;
           const saved = localStorage.getItem('notifications_sounds_enabled');
           const isSoundsEnabled = saved === null ? true : saved === 'true';
           if (isSoundsEnabled) {
@@ -770,27 +808,27 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   useEffect(() => {
-    if (showSyncInfoModal) {
-      api.getWarehouseConfig()
-        .then(res => {
-          if (res && res.isSilentModeActive !== undefined) {
-            setIsSilentModeActive(res.isSilentModeActive);
-          }
-        })
-        .catch(err => console.error("Error al obtener configuración de bodega:", err));
-    }
+    api.getWarehouseConfig()
+      .then(res => {
+        if (res && res.isSilentModeActive !== undefined) {
+          setIsSilentModeActive(res.isSilentModeActive);
+          localStorage.setItem('agricovet_app_silenced', String(res.isSilentModeActive));
+        }
+      })
+      .catch(err => console.error("Error al sincronizar configuración de bodega:", err));
   }, [showSyncInfoModal]);
 
   const handleToggleSilentMode = async () => {
-    if (user.role !== 'admin') return;
     setIsUpdatingSilentMode(true);
     try {
       const nextSilentState = !isSilentModeActive;
-      await api.updateWarehouseConfig({ isSilentModeActive: nextSilentState });
       setIsSilentModeActive(nextSilentState);
+      localStorage.setItem('agricovet_app_silenced', String(nextSilentState));
+      try {
+        await api.updateWarehouseConfig({ isSilentModeActive: nextSilentState });
+      } catch (e) {}
     } catch (err) {
       console.error("Error al actualizar modo silencioso:", err);
-      alert("No se pudo actualizar el modo silencioso de notificaciones.");
     } finally {
       setIsUpdatingSilentMode(false);
     }
@@ -847,6 +885,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const isFirstLoadRef = useRef(true);
 
   const playNotificationChime = () => {
+    if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+      return;
+    }
     try {
       const audio = new Audio('/whatsapp.wav');
       audio.play().catch(() => {
@@ -878,6 +919,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   const dispatchNotificationAlert = (n: AppNotification) => {
+    // Si la app está en modo silencioso, BLOQUEAR todo sonido, alerta nativa y popup
+    if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+      console.log('[Agricovet Alertas] Modo silencioso activo: Alerta sonora y emergente suprimida.');
+      setHasUnread(true);
+      return;
+    }
+
     // 1. Native APK Notification (Capacitor Android)
     if (Capacitor.isNativePlatform()) {
       showNativeAlert({
@@ -1118,8 +1166,15 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           >
             <Send size={16} className="text-emerald-600" />
           </button>
-          <button onClick={() => setShowNotifications(!showNotifications)} className="text-slate-500 hover:text-slate-700 relative p-1.5 hover:bg-slate-50 rounded-lg transition-transform active:scale-95 cursor-pointer" title="Ver notificaciones">
-             <Bell size={20} />
+          <button 
+            onClick={() => setShowNotifications(!showNotifications)} 
+            className={cn(
+              "relative p-1.5 rounded-lg transition-transform active:scale-95 cursor-pointer",
+              isSilentModeActive ? "text-rose-600 hover:bg-rose-50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+            )} 
+            title={isSilentModeActive ? "Modo Silencioso Activo (Click para ver)" : "Ver notificaciones"}
+          >
+             {isSilentModeActive ? <BellOff size={20} /> : <Bell size={20} />}
              {hasUnread && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#ba1a1a] rounded-full border-2 border-white animate-pulse"></span>}
           </button>
           <div 
@@ -1504,8 +1559,15 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         </div>
         <div className="flex items-center gap-6 ml-8 relative">
           <div className="flex items-center gap-4 relative">
-            <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 text-[#44474c] hover:text-[#00696a] transition-all relative flex items-center justify-center rounded-xl hover:bg-slate-50 cursor-pointer active:scale-95" title="Ver notificaciones">
-              <Bell size={22} />
+            <button 
+              onClick={() => setShowNotifications(!showNotifications)} 
+              className={cn(
+                "p-2 transition-all relative flex items-center justify-center rounded-xl cursor-pointer active:scale-95",
+                isSilentModeActive ? "text-rose-600 hover:bg-rose-50" : "text-[#44474c] hover:text-[#00696a] hover:bg-slate-50"
+              )} 
+              title={isSilentModeActive ? "Modo Silencioso: Alertas y sonidos apagados (Click para ver)" : "Ver notificaciones"}
+            >
+              {isSilentModeActive ? <BellOff size={22} /> : <Bell size={22} />}
               {hasUnread && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-[#ba1a1a] rounded-full border-2 border-white animate-bounce"></span>}
             </button>
           </div>
@@ -1689,16 +1751,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                       <span>Modo Silencioso Activo</span>
                     </div>
 
-                    {user.role === 'admin' && (
-                      <button
-                        onClick={handleToggleSilentMode}
-                        disabled={isUpdatingSilentMode}
-                        className="w-full py-1.5 mt-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[10px] rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
-                      >
-                        <Bell size={11} />
-                        {isUpdatingSilentMode ? "Reactivando..." : "Desactivar Modo Silencioso (Admin)"}
-                      </button>
-                    )}
+                    <button
+                      onClick={handleToggleSilentMode}
+                      disabled={isUpdatingSilentMode}
+                      className="w-full py-2 mt-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform shadow-xs"
+                    >
+                      <Bell size={12} />
+                      {isUpdatingSilentMode ? "Reactivando..." : "Desactivar Modo Silencioso"}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -1797,16 +1857,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                       </div>
                     )}
 
-                    {user.role === 'admin' && (
-                      <button
-                        onClick={handleToggleSilentMode}
-                        disabled={isUpdatingSilentMode}
-                        className="w-full py-1.5 mt-1 bg-slate-205 rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors font-bold text-[10px] flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
-                      >
-                        <BellOff size={11} className="text-slate-500" />
-                        {isUpdatingSilentMode ? "Procesando..." : "Activar Modo Silencioso (Admin)"}
-                      </button>
-                    )}
+                    <button
+                      onClick={handleToggleSilentMode}
+                      disabled={isUpdatingSilentMode}
+                      className="w-full py-2 mt-1 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 transition-colors font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
+                    >
+                      <BellOff size={12} className="text-slate-500" />
+                      {isUpdatingSilentMode ? "Procesando..." : "Activar Modo Silencioso"}
+                    </button>
                   </div>
                 </div>
               )}
@@ -1957,6 +2015,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         user={user}
         soundsEnabled={soundsEnabled}
         setSoundsEnabled={setSoundsEnabled}
+        isSilentModeActive={isSilentModeActive}
+        onToggleSilentMode={handleToggleSilentMode}
+        isUpdatingSilentMode={isUpdatingSilentMode}
       />
 
       {/* Modal para Envío Selectivo de Reportes a n8n */}

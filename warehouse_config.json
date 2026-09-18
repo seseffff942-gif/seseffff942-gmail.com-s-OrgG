@@ -2,6 +2,6 @@
   "location": "",
   "password": "123",
   "logoUrl": "/agricovet.png",
-  "isSilentModeActive": false,
+  "isSilentModeActive": true,
   "signatureUrl": "/storage/v1/object/public/productos/signature-1782279629667.png?t=1782279629914"
 }

@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { api } from './api';
+import { loadNotificationPreferences, shouldDeliverNotification } from './utils/notificationSettings';
 
 let isInitialized = false;
 
@@ -93,11 +94,37 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
       // 6. Listen for incoming push notification while app is active
       PushNotifications.addListener('pushNotificationReceived', (notification) => {
         console.log('[Native Push] Notification received in foreground:', notification);
-        showNativeAlert({
-          title: notification.title || (notification.data && notification.data.title) || 'Agricovet',
-          body: notification.body || (notification.data && (notification.data.message || notification.data.body)) || '',
-          data: notification.data
-        });
+        
+        let canNotify = true;
+        let canPlaySound = true;
+        try {
+          const userRaw = localStorage.getItem('app_user');
+          const userId = userRaw ? JSON.parse(userRaw)?.id : undefined;
+          const prefs = loadNotificationPreferences(userId);
+          const check = shouldDeliverNotification(
+            { type: notification.data?.type, title: notification.title },
+            prefs,
+            false
+          );
+          canNotify = check.canNotify;
+          canPlaySound = check.canPlaySound;
+        } catch (e) {
+          const saved = localStorage.getItem('notifications_sounds_enabled');
+          canPlaySound = saved === null ? true : saved === 'true';
+        }
+
+        if (canNotify) {
+          showNativeAlert(
+            {
+              title: notification.title || (notification.data && notification.data.title) || 'Agricovet',
+              body: notification.body || (notification.data && (notification.data.message || notification.data.body)) || '',
+              data: notification.data
+            },
+            { sound: canPlaySound }
+          );
+        } else {
+          console.log('[Native Push] Silenced by user notification schedule/preferences.');
+        }
       });
 
       PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
@@ -129,18 +156,42 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
   }
 }
 
-export async function showNativeAlert(notification: {
-  id?: string | number;
-  title: string;
-  body: string;
-  data?: any;
-}) {
-  // Always play audio immediately in-app for audio feedback
-  try {
-    const audio = new Audio('/whatsapp.wav');
-    audio.volume = 1.0;
-    audio.play().catch(() => {});
-  } catch (e) {}
+export interface NativeAlertOptions {
+  sound?: boolean;
+  silent?: boolean;
+}
+
+export async function showNativeAlert(
+  notification: {
+    id?: string | number;
+    title: string;
+    body: string;
+    data?: any;
+  },
+  options?: NativeAlertOptions
+) {
+  // If explicitly silenced or app is silenced, bypass completely
+  if (options?.silent || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+    return false;
+  }
+
+  // Play in-app audio only if sounds are enabled
+  const soundRequested = options?.sound !== false;
+  let soundsEnabled = soundRequested;
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('notifications_sounds_enabled');
+    if (saved === 'false') {
+      soundsEnabled = false;
+    }
+  }
+
+  if (soundsEnabled) {
+    try {
+      const audio = new Audio('/whatsapp.wav');
+      audio.volume = 1.0;
+      audio.play().catch(() => {});
+    } catch (e) {}
+  }
 
   if (!Capacitor.isNativePlatform()) {
     return false;
@@ -162,7 +213,7 @@ export async function showNativeAlert(notification: {
           largeBody: notification.body || '',
           summaryText: 'Agricovet Alertas',
           channelId: 'agricovet_orders_channel_v4',
-          sound: 'whatsapp.wav',
+          sound: soundsEnabled ? 'whatsapp.wav' : undefined,
           smallIcon: 'ic_stat_notification',
           iconColor: '#10b981',
           extra: notification.data || {},
@@ -171,7 +222,7 @@ export async function showNativeAlert(notification: {
       ]
     });
 
-    console.log('[Native Notifications] Scheduled notification:', intId, notification.title);
+    console.log('[Native Notifications] Scheduled notification:', intId, notification.title, soundsEnabled ? 'with sound' : 'silent');
     return true;
   } catch (err) {
     console.error('[Native Notifications] Schedule error:', err);
