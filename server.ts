@@ -955,12 +955,31 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       ORDER BY name
     `);
 
-    // 4. Group invoices by clientName
-    const salesByClient: Record<string, any[]> = {};
+    // 4. Group invoices by client with intelligent normalization
+    const normalizeText = (str: string) => {
+      if (!str) return '';
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const clientData = clientRows.map((c: any) => ({
+      ...c,
+      normName: normalizeText(c.name),
+      normCompany: normalizeText(c.companyName)
+    }));
+
+    const salesByClientId = new Map<string, any[]>();
+
     for (const inv of invoiceRows) {
-      const key = inv.clientName || '';
-      if (!salesByClient[key]) salesByClient[key] = [];
-      salesByClient[key].push({
+      const invNorm = normalizeText(inv.clientName);
+      if (!invNorm) continue;
+
+      const saleObj = {
         id: inv.id,
         folio: inv.folio,
         sellerId: inv.sellerId,
@@ -969,12 +988,27 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         totalAmount: parseFloat(inv.totalAmount || 0),
         status: inv.status,
         invoiceType: inv.invoice_type
+      };
+
+      const matchedClient = clientData.find((c: any) => {
+        if (c.normName && invNorm === c.normName) return true;
+        if (c.normCompany && invNorm === c.normCompany) return true;
+        if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) return true;
+        if (c.normCompany && (invNorm.includes(c.normCompany) || c.normCompany.includes(invNorm))) return true;
+        return false;
       });
+
+      if (matchedClient) {
+        if (!salesByClientId.has(matchedClient.id)) {
+          salesByClientId.set(matchedClient.id, []);
+        }
+        salesByClientId.get(matchedClient.id)!.push(saleObj);
+      }
     }
 
     // 5. Build client tracking data
-    const trackingData = clientRows.map((c: any) => {
-      const clientSales = salesByClient[c.name] || [];
+    const trackingData = clientData.map((c: any) => {
+      const clientSales = salesByClientId.get(c.id) || [];
       const activeSales = clientSales.filter((s: any) => s.status !== 'cancelled');
       
       let avgFrequencyDays = 0;

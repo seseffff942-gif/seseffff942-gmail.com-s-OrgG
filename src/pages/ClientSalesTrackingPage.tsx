@@ -3,6 +3,7 @@ import { User } from '../types';
 import { api } from '../api';
 import { resolveClientLocation } from '../utils/guatemalaGeo';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { 
   Map as MapIcon, Search, Filter, Calendar, Users, ShoppingBag, 
   TrendingUp, Clock, AlertTriangle, CheckCircle2, ChevronRight, 
@@ -47,7 +48,6 @@ interface ClientTrackingItem {
   daysSinceLastPurchase: number;
   uniqueSellers: string[];
   sales: SaleItem[];
-  // Resolved Geo info
   resolvedGeo?: {
     latitude: number;
     longitude: number;
@@ -68,15 +68,15 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
   const [sellers, setSellers] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
+  // Filters (Date from empty by default so it shows all historical sales)
   const [selectedSeller, setSelectedSeller] = useState<string>('all');
-  const [dateFrom, setDateFrom] = useState<string>('2026-07-01');
+  const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'moderate' | 'inactive' | 'no-sales'>('all');
   const [locationFilter, setLocationFilter] = useState<'all' | 'exact' | 'approx' | 'missing'>('all');
 
-  // Selected client for detail drawer / modal
+  // Selected client for detail drawer
   const [selectedClient, setSelectedClient] = useState<ClientTrackingItem | null>(null);
 
   // Pin placing mode
@@ -86,6 +86,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
   // Map state
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const clientMarkersRef = useRef<Map<string, L.Marker>>(new Map());
   const [mapType, setMapType] = useState<'satellite' | 'streets' | 'terrain'>('satellite');
@@ -102,7 +103,6 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
       });
 
       if (res && res.clients) {
-        // Resolve locations for all clients
         const clientsWithGeo = res.clients.map((c: any) => {
           const resolved = resolveClientLocation({
             id: c.id,
@@ -121,7 +121,6 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
         setClients(clientsWithGeo);
         setSellers(res.sellers || []);
 
-        // If a client was open in modal, refresh its data
         if (selectedClient) {
           const updated = clientsWithGeo.find((c: any) => c.id === selectedClient.id);
           if (updated) setSelectedClient(updated);
@@ -142,7 +141,6 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
   // Filtered clients list
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
-      // Search term
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         const matchName = c.name?.toLowerCase().includes(term);
@@ -153,13 +151,11 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
         if (!matchName && !matchCompany && !matchCode && !matchAddress && !matchFolio) return false;
       }
 
-      // Status filter
       if (statusFilter === 'active' && (c.totalSales === 0 || c.daysSinceLastPurchase > 15)) return false;
       if (statusFilter === 'moderate' && (c.totalSales === 0 || c.daysSinceLastPurchase <= 15 || c.daysSinceLastPurchase > 45)) return false;
       if (statusFilter === 'inactive' && (c.totalSales === 0 || c.daysSinceLastPurchase <= 45)) return false;
       if (statusFilter === 'no-sales' && c.totalSales > 0) return false;
 
-      // Location filter
       if (locationFilter === 'exact' && (!c.resolvedGeo || !c.resolvedGeo.isExact)) return false;
       if (locationFilter === 'approx' && (!c.resolvedGeo || c.resolvedGeo.isExact)) return false;
       if (locationFilter === 'missing' && c.resolvedGeo) return false;
@@ -182,70 +178,101 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
     return { total, withSales, exactGeo, approxGeo, missingGeo, totalRevenue, activeClients, inactiveClients };
   }, [clients]);
 
-  // Initialize Map
+  // Initialize Leaflet Map (Guaranteed tiles + resize observer)
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
-      center: [15.2, -90.35], // Guatemala center
+      center: [15.2, -90.35],
       zoom: 8,
       zoomControl: true
     });
+
+    // Default satellite tile layer
+    const initialTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      subdomains: '0123',
+      maxZoom: 21,
+      maxNativeZoom: 20,
+      attribution: '&copy; Google Maps'
+    });
+    initialTiles.addTo(map);
+    tileLayerRef.current = initialTiles;
 
     const markersGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = markersGroup;
     mapInstanceRef.current = map;
 
-    // Click handler for manual pin placing
-    map.on('click', async (e: L.LeafletMouseEvent) => {
-      if (pinningClient) {
-        await handleSavePinLocation(pinningClient.id, e.latlng.lat, e.latlng.lng);
-      }
-    });
-
+    // Invalidate size on mount and container resize
     setTimeout(() => {
       map.invalidateSize();
-    }, 250);
+    }, 200);
+
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    if (mapContainerRef.current) {
+      resizeObserver.observe(mapContainerRef.current);
+    }
 
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
     };
-  }, [pinningClient]);
+  }, []);
 
-  // Update Map Tile Layer
+  // Update Map Tile Layer when mapType changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
 
-    map.eachLayer((layer) => {
-      if (layer instanceof L.TileLayer) {
-        map.removeLayer(layer);
-      }
-    });
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
 
+    let newTileLayer: L.TileLayer;
     if (mapType === 'satellite') {
-      L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      newTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
         subdomains: '0123',
         maxZoom: 21,
         maxNativeZoom: 20,
         attribution: '&copy; Google Maps'
-      }).addTo(map);
+      });
     } else if (mapType === 'terrain') {
-      L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+      newTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
         subdomains: '0123',
         maxZoom: 20,
         attribution: '&copy; Google Maps'
-      }).addTo(map);
+      });
     } else {
-      L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      newTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         subdomains: '0123',
         maxZoom: 21,
         attribution: '&copy; Google Maps'
-      }).addTo(map);
+      });
     }
+
+    newTileLayer.addTo(map);
+    tileLayerRef.current = newTileLayer;
   }, [mapType]);
+
+  // Click handler for manual pin placing
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+
+    const onMapClick = async (e: L.LeafletMouseEvent) => {
+      if (pinningClient) {
+        await handleSavePinLocation(pinningClient.id, e.latlng.lat, e.latlng.lng);
+      }
+    };
+
+    map.on('click', onMapClick);
+    return () => {
+      map.off('click', onMapClick);
+    };
+  }, [pinningClient]);
 
   // Render client markers on map
   useEffect(() => {
@@ -262,26 +289,19 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
       const { latitude, longitude, isExact, locationLabel } = client.resolvedGeo;
       bounds.extend([latitude, longitude]);
 
-      // Determine pin color based on purchase recency
-      let pinColor = '#94a3b8'; // gray - no sales
-      let statusText = 'Sin compras';
-
+      let pinColor = '#94a3b8'; // gray
       if (client.totalSales > 0) {
         if (client.daysSinceLastPurchase <= 15) {
-          pinColor = '#10b981'; // green - active
-          statusText = `Compra hace ${client.daysSinceLastPurchase}d`;
+          pinColor = '#10b981'; // green
         } else if (client.daysSinceLastPurchase <= 45) {
-          pinColor = '#f59e0b'; // yellow - moderate
-          statusText = `Compra hace ${client.daysSinceLastPurchase}d`;
+          pinColor = '#f59e0b'; // yellow
         } else {
-          pinColor = '#ef4444'; // red - inactive
-          statusText = `Inactivo (${client.daysSinceLastPurchase}d)`;
+          pinColor = '#ef4444'; // red
         }
       }
 
-      // Marker HTML
       const markerHtml = `
-        <div class="relative group cursor-pointer">
+        <div class="relative group cursor-pointer" style="transform: translate3d(0,0,0);">
           <div class="w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 ${isExact ? 'border-white ring-2 ring-emerald-400' : 'border-dashed border-amber-200'} transition-transform group-hover:scale-125" style="background-color: ${pinColor}">
             <span class="text-white text-[10px] font-black">${client.totalSales}</span>
           </div>
@@ -299,9 +319,8 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
       const marker = L.marker([latitude, longitude], { icon: customIcon }).addTo(markersGroup);
       clientMarkersRef.current.set(client.id, marker);
 
-      // Popup Content
       const popupHtml = `
-        <div class="p-3 text-xs font-sans max-w-xs">
+        <div class="p-3 text-xs font-sans max-w-xs text-slate-900">
           <div class="flex items-center gap-1.5 mb-1">
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isExact ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
               ${isExact ? '📍 GPS Exacto' : '📍 ' + locationLabel}
@@ -313,7 +332,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
           ${client.companyName ? `<p class="text-slate-600 text-[11px] font-medium mt-0.5">🏢 ${client.companyName}</p>` : ''}
           <p class="text-slate-500 text-[10px] mt-1 truncate">📌 ${client.address || 'Sin dirección'}</p>
           
-          <div class="grid grid-cols-2 gap-1.5 my-2.5 p-2 bg-slate-50 rounded-lg border border-slate-200">
+          <div class="grid grid-cols-2 gap-1.5 my-2.5 p-2 bg-slate-100 rounded-lg border border-slate-200">
             <div>
               <p class="text-[9px] text-slate-400 font-semibold uppercase">Ventas</p>
               <p class="text-xs font-bold text-slate-800">${client.totalSales} facturas</p>
@@ -324,7 +343,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
             </div>
             <div>
               <p class="text-[9px] text-slate-400 font-semibold uppercase">Frecuencia</p>
-              <p class="text-xs font-bold text-slate-700">${client.avgFrequencyDays > 0 ? `Cada ${client.avgFrequencyDays} días` : '1 sola compra'}</p>
+              <p class="text-xs font-bold text-slate-700">${client.avgFrequencyDays > 0 ? `Cada ${client.avgFrequencyDays} días` : 'Compra única'}</p>
             </div>
             <div>
               <p class="text-[9px] text-slate-400 font-semibold uppercase">Última compra</p>
@@ -336,7 +355,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
             👤 Vendedor: <strong class="text-slate-700">${client.sellerName}</strong>
           </div>
 
-          <button id="btn-view-client-${client.id}" class="w-full py-1.5 px-3 bg-[#00696a] hover:bg-[#004f50] text-white rounded font-bold text-xs transition-colors shadow-xs flex items-center justify-center gap-1">
+          <button id="btn-view-client-${client.id}" class="w-full py-1.5 px-3 bg-[#00696a] hover:bg-[#004f50] text-white rounded font-bold text-xs transition-colors shadow-xs flex items-center justify-center gap-1 cursor-pointer">
             <span>Ver Historial Detallado</span>
           </button>
         </div>
@@ -355,13 +374,12 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
       });
     });
 
-    // Fit bounds if markers exist and not in pinning mode
     if (bounds.isValid() && filteredClients.length > 0 && !pinningClient) {
-      mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+      mapInstanceRef.current.invalidateSize();
     }
   }, [filteredClients, pinningClient]);
 
-  // Center map on client
   const centerOnClient = (client: ClientTrackingItem) => {
     if (!client.resolvedGeo || !mapInstanceRef.current) return;
     mapInstanceRef.current.flyTo(
@@ -375,7 +393,6 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
     }
   };
 
-  // Save manual pin location
   const handleSavePinLocation = async (clientId: string, lat: number, lng: number) => {
     setSavingLocation(true);
     try {
@@ -391,51 +408,47 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
     }
   };
 
-  // Render sales timeline breakdown (Order dates, folios, frequency calculation)
   const renderSalesTimeline = (client: ClientTrackingItem) => {
     if (!client.sales || client.sales.length === 0) {
       return (
-        <div className="text-center py-8 bg-slate-50 rounded-xl border border-slate-200">
-          <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-          <p className="text-sm font-bold text-slate-700">Sin historial de ventas</p>
+        <div className="text-center py-8 bg-slate-800/60 rounded-xl border border-slate-700">
+          <ShoppingBag className="w-10 h-10 text-slate-500 mx-auto mb-2" />
+          <p className="text-sm font-bold text-slate-300">Sin historial de ventas</p>
           <p className="text-xs text-slate-400 mt-1">Este cliente no registra facturas emitidas en el periodo seleccionado.</p>
         </div>
       );
     }
 
-    // Sort sales chronologically ascending
     const sortedSales = [...client.sales].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     return (
       <div className="space-y-4">
-        {/* Frequency Summary Banner */}
-        <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-xl p-3.5">
+        <div className="bg-gradient-to-r from-teal-950/60 to-emerald-950/60 border border-teal-700/60 rounded-xl p-3.5">
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-4 h-4 text-teal-700" />
-            <h5 className="text-xs font-bold text-teal-900 uppercase tracking-wider">Análisis de Frecuencia y Fidelidad</h5>
+            <TrendingUp className="w-4 h-4 text-teal-400" />
+            <h5 className="text-xs font-bold text-teal-200 uppercase tracking-wider">Análisis de Frecuencia y Fidelidad</h5>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="bg-white/80 p-2 rounded-lg border border-teal-100 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Total Compras</span>
-              <span className="text-sm font-black text-slate-800">{sortedSales.length} facturas</span>
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-teal-800/60 shadow-xs">
+              <span className="text-[10px] text-slate-400 block font-semibold">Total Compras</span>
+              <span className="text-sm font-black text-white">{sortedSales.length} facturas</span>
             </div>
-            <div className="bg-white/80 p-2 rounded-lg border border-teal-100 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Frecuencia Media</span>
-              <span className="text-sm font-black text-teal-700">
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-teal-800/60 shadow-xs">
+              <span className="text-[10px] text-slate-400 block font-semibold">Frecuencia Media</span>
+              <span className="text-sm font-black text-teal-300">
                 {client.avgFrequencyDays > 0 ? `Cada ${client.avgFrequencyDays} días` : 'Compra única'}
               </span>
             </div>
-            <div className="bg-white/80 p-2 rounded-lg border border-teal-100 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Último Pedido</span>
-              <span className={cn("text-sm font-black", client.daysSinceLastPurchase > 45 ? "text-rose-600" : "text-emerald-700")}>
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-teal-800/60 shadow-xs">
+              <span className="text-[10px] text-slate-400 block font-semibold">Último Pedido</span>
+              <span className={cn("text-sm font-black", client.daysSinceLastPurchase > 45 ? "text-rose-400" : "text-emerald-400")}>
                 {client.daysSinceLastPurchase === 0 ? 'Hoy' : `Hace ${client.daysSinceLastPurchase} días`}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Chronological Timeline */}
-        <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+        <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-700">
           {sortedSales.map((sale, idx) => {
             let daysFromPrevious: number | null = null;
             if (idx > 0) {
@@ -446,29 +459,28 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
 
             return (
               <div key={sale.id || idx} className="relative group">
-                {/* Timeline node */}
-                <div className="absolute -left-[27px] top-1.5 w-4 h-4 rounded-full bg-white border-2 border-[#00696a] flex items-center justify-center shadow-xs">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#00696a]"></div>
+                <div className="absolute -left-[27px] top-1.5 w-4 h-4 rounded-full bg-slate-900 border-2 border-teal-400 flex items-center justify-center shadow-xs">
+                  <div className="w-1.5 h-1.5 rounded-full bg-teal-400"></div>
                 </div>
 
-                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs hover:border-teal-300 transition-all">
+                <div className="bg-slate-800/90 p-3 rounded-xl border border-slate-700 shadow-xs hover:border-teal-500 transition-all">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-800 font-mono font-bold text-[11px] rounded">
+                        <span className="px-1.5 py-0.5 bg-slate-900 text-teal-300 font-mono font-bold text-[11px] rounded border border-slate-700">
                           Folio: {sale.folio || 'S/F'}
                         </span>
-                        <span className="text-[11px] text-slate-500 font-semibold">
+                        <span className="text-[11px] text-slate-400 font-semibold">
                           {new Date(sale.date).toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
-                        👤 Vendedor: <strong className="text-slate-800">{sale.sellerName || sale.sellerId}</strong>
+                      <p className="text-xs text-slate-300 mt-1 flex items-center gap-1">
+                        👤 Vendedor: <strong className="text-white">{sale.sellerName || sale.sellerId}</strong>
                       </p>
                     </div>
 
                     <div className="text-right">
-                      <span className="text-sm font-black text-emerald-700">
+                      <span className="text-sm font-black text-emerald-400">
                         Q{sale.totalAmount.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                       </span>
                       <span className="block text-[10px] text-slate-400 capitalize">
@@ -477,16 +489,15 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                     </div>
                   </div>
 
-                  {/* Interval Tag */}
                   {daysFromPrevious !== null && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1 text-[11px] text-teal-700 font-bold bg-teal-50/60 px-2 py-1 rounded">
-                      <Clock className="w-3 h-3 text-teal-600" />
+                    <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center gap-1 text-[11px] text-teal-300 font-bold bg-teal-950/40 px-2 py-1 rounded">
+                      <Clock className="w-3 h-3 text-teal-400" />
                       <span>{daysFromPrevious} días transcurridos desde el pedido anterior</span>
                     </div>
                   )}
 
                   {idx === 0 && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                    <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center gap-1 text-[10px] text-slate-400 font-medium">
                       <span>🏁 Primer pedido registrado en el periodo</span>
                     </div>
                   )}
@@ -500,31 +511,30 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+    <div className="h-[calc(100vh-64px)] w-full flex flex-col bg-slate-900 text-slate-100 overflow-hidden select-none">
       {/* Top Header */}
-      <header className="bg-slate-800/90 border-b border-slate-700 px-4 py-3 backdrop-blur sticky top-0 z-30 shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 max-w-7xl mx-auto">
+      <header className="bg-slate-800/95 border-b border-slate-700 px-4 py-2.5 shrink-0 z-20 shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 max-w-7xl mx-auto">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 flex items-center justify-center text-white shadow-md">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 flex items-center justify-center text-white shadow-md shrink-0">
               <MapIcon className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base md:text-lg font-black text-white tracking-tight">Control de Clientes & Ventas</h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                <h1 className="text-sm md:text-base font-black text-white tracking-tight">Control de Clientes & Ventas</h1>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   Solo Admin
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Geolocalización, análisis de frecuencia de compras y auditoría de vendedores</p>
+              <p className="text-[11px] text-slate-400">Geolocalización, análisis de frecuencia y compras</p>
             </div>
           </div>
 
-          {/* Quick Action Buttons */}
           <div className="flex items-center gap-2">
             <button
               onClick={loadData}
               disabled={loading}
-              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors border border-slate-600 cursor-pointer"
+              className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors border border-slate-600 cursor-pointer"
             >
               <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-teal-400")} />
               <span>Actualizar</span>
@@ -535,7 +545,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                 <span>📍 Haz clic en el mapa para ubicar a: <strong>{pinningClient.name}</strong></span>
                 <button
                   onClick={() => setPinningClient(null)}
-                  className="p-1 hover:bg-amber-600 rounded text-white"
+                  className="p-0.5 hover:bg-amber-600 rounded text-white cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -545,57 +555,56 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
         </div>
       </header>
 
-      {/* KPI Stats Bar */}
-      <section className="bg-slate-800/50 border-b border-slate-700/60 px-4 py-3">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 text-xs">
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Clientes Totales</span>
-            <span className="text-base font-black text-white">{stats.total}</span>
+      {/* KPI Stats Ribbon */}
+      <section className="bg-slate-850/80 border-b border-slate-700/80 px-4 py-2 shrink-0">
+        <div className="max-w-7xl mx-auto grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-7 gap-2 text-xs">
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-slate-400 font-bold uppercase block">Clientes</span>
+            <span className="text-sm font-black text-white">{stats.total}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-teal-400 font-bold uppercase block">Con Ventas</span>
-            <span className="text-base font-black text-teal-300">{stats.withSales}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-teal-400 font-bold uppercase block">Con Ventas</span>
+            <span className="text-sm font-black text-teal-300">{stats.withSales}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-emerald-400 font-bold uppercase block">GPS Exacto</span>
-            <span className="text-base font-black text-emerald-300">{stats.exactGeo}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-emerald-400 font-bold uppercase block">GPS Exacto</span>
+            <span className="text-sm font-black text-emerald-300">{stats.exactGeo}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-amber-400 font-bold uppercase block">Aprox. Municipio</span>
-            <span className="text-base font-black text-amber-300">{stats.approxGeo}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-amber-400 font-bold uppercase block">Aprox. Ciudad</span>
+            <span className="text-sm font-black text-amber-300">{stats.approxGeo}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-rose-400 font-bold uppercase block">Sin Ubicación</span>
-            <span className="text-base font-black text-rose-300">{stats.missingGeo}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-rose-400 font-bold uppercase block">Sin Ubicación</span>
+            <span className="text-sm font-black text-rose-300">{stats.missingGeo}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80">
-            <span className="text-[10px] text-emerald-400 font-bold uppercase block">Activos (&le;30d)</span>
-            <span className="text-base font-black text-emerald-400">{stats.activeClients}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-emerald-400 font-bold uppercase block">Activos (&le;30d)</span>
+            <span className="text-sm font-black text-emerald-400">{stats.activeClients}</span>
           </div>
 
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700/80 col-span-2 sm:col-span-1">
-            <span className="text-[10px] text-teal-300 font-bold uppercase block">Facturado Global</span>
-            <span className="text-base font-black text-white">Q{stats.totalRevenue.toLocaleString('es-GT', { maximumFractionDigits: 0 })}</span>
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80 col-span-3 sm:col-span-1">
+            <span className="text-[9px] text-teal-300 font-bold uppercase block">Facturado Global</span>
+            <span className="text-sm font-black text-white">Q{stats.totalRevenue.toLocaleString('es-GT', { maximumFractionDigits: 0 })}</span>
           </div>
         </div>
       </section>
 
-      {/* Main Content Area: Split View (Map + Side Panel) */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      {/* Main Content Area: Split View (Map on Left, Directory on Right) */}
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative">
         
         {/* Left Side: Filter Bar + Map View */}
-        <div className="flex-1 flex flex-col min-h-[420px] lg:min-h-0 relative">
+        <div className="flex-1 flex flex-col min-h-0 relative">
           
-          {/* Map Controls & Filter Ribbon */}
-          <div className="bg-slate-800 p-3 border-b border-slate-700 flex flex-wrap items-center justify-between gap-2.5 z-10">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Vendedor Filter */}
-              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1">
+          {/* Filter Ribbon */}
+          <div className="bg-slate-800/90 p-2 border-b border-slate-700 flex flex-wrap items-center justify-between gap-2 z-10 shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
                 <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
                 <select
                   value={selectedSeller}
@@ -605,13 +614,12 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                   <option value="all" className="bg-slate-800">Todos los Vendedores</option>
                   {sellers.map((s) => (
                     <option key={s.id || s.email} value={s.email || s.id} className="bg-slate-800">
-                      {s.name} ({s.role})
+                      {s.name}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Fecha Desde Filter */}
               <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
                 <Calendar className="w-3.5 h-3.5 text-teal-400 shrink-0" />
                 <span className="text-[10px] text-slate-400 font-bold">Desde:</span>
@@ -623,7 +631,6 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                 />
               </div>
 
-              {/* Status Filter */}
               <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
                 <Filter className="w-3.5 h-3.5 text-teal-400 shrink-0" />
                 <select
@@ -644,19 +651,19 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
             <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-xs">
               <button
                 onClick={() => setMapType('satellite')}
-                className={cn("px-2 py-1 rounded font-bold transition-all", mapType === 'satellite' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
+                className={cn("px-2 py-1 rounded font-bold transition-all cursor-pointer", mapType === 'satellite' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
               >
                 Satélite
               </button>
               <button
                 onClick={() => setMapType('streets')}
-                className={cn("px-2 py-1 rounded font-bold transition-all", mapType === 'streets' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
+                className={cn("px-2 py-1 rounded font-bold transition-all cursor-pointer", mapType === 'streets' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
               >
                 Calles
               </button>
               <button
                 onClick={() => setMapType('terrain')}
-                className={cn("px-2 py-1 rounded font-bold transition-all", mapType === 'terrain' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
+                className={cn("px-2 py-1 rounded font-bold transition-all cursor-pointer", mapType === 'terrain' ? "bg-teal-600 text-white shadow-xs" : "text-slate-400 hover:text-white")}
               >
                 Relieve
               </button>
@@ -664,35 +671,34 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
           </div>
 
           {/* Leaflet Map Canvas */}
-          <div ref={mapContainerRef} className="flex-1 w-full h-full min-h-[350px] z-0" />
+          <div ref={mapContainerRef} className="flex-1 w-full h-full min-h-[300px] z-0 relative bg-slate-950" />
 
           {/* Map Legend */}
-          <div className="absolute bottom-4 left-4 z-20 bg-slate-900/90 backdrop-blur-md p-2.5 rounded-xl border border-slate-700 shadow-xl text-[11px] space-y-1.5 hidden sm:block">
-            <span className="font-bold text-slate-300 block mb-1 text-[10px] uppercase">Leyenda de Clientes</span>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shadow-xs"></span>
+          <div className="absolute bottom-4 left-4 z-10 bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-slate-700 shadow-xl text-[10px] space-y-1 hidden sm:block">
+            <span className="font-bold text-slate-300 block text-[9px] uppercase">Leyenda de Clientes</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-xs"></span>
               <span className="text-slate-300">Activo (Compra en &le;15 días)</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shadow-xs"></span>
-              <span className="text-slate-300">Moderado (Compra en 15-45 días)</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-xs"></span>
+              <span className="text-slate-300">Moderado (15-45 días)</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-rose-500 inline-block shadow-xs"></span>
-              <span className="text-slate-300">Inactivo (&gt;45 días sin comprar)</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shadow-xs"></span>
+              <span className="text-slate-300">Inactivo (&gt;45 días)</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-slate-400 inline-block shadow-xs"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block shadow-xs"></span>
               <span className="text-slate-300">Sin compras registradas</span>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Client Directory / Sales Auditor Panel */}
-        <aside className="w-full lg:w-[460px] bg-slate-800/95 border-l border-slate-700 flex flex-col h-[500px] lg:h-auto z-10">
+        {/* Right Side: Client Directory */}
+        <aside className="w-full lg:w-[440px] bg-slate-800/95 border-t lg:border-t-0 lg:border-l border-slate-700 flex flex-col h-[380px] lg:h-full z-10 shrink-0">
           
-          {/* Search & Location Filter Bar */}
-          <div className="p-3 border-b border-slate-700 space-y-2 bg-slate-850">
+          <div className="p-2.5 border-b border-slate-700 space-y-1.5 bg-slate-850">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
@@ -700,45 +706,44 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Buscar cliente, folio, empresa, municipio..."
-                className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-teal-500"
+                className="w-full pl-9 pr-8 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-teal-500"
               />
               {searchTerm && (
-                <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white">
+                <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-2 text-slate-400 hover:text-white cursor-pointer">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
 
-            {/* Location Type Filter Tabs */}
             <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900 rounded-lg text-[10px] font-bold text-center">
               <button
                 onClick={() => setLocationFilter('all')}
-                className={cn("py-1 rounded transition-colors", locationFilter === 'all' ? "bg-teal-600 text-white" : "text-slate-400 hover:text-white")}
+                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'all' ? "bg-teal-600 text-white" : "text-slate-400 hover:text-white")}
               >
                 Todos ({clients.length})
               </button>
               <button
                 onClick={() => setLocationFilter('exact')}
-                className={cn("py-1 rounded transition-colors", locationFilter === 'exact' ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-emerald-300")}
+                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'exact' ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-emerald-300")}
               >
                 GPS ({stats.exactGeo})
               </button>
               <button
                 onClick={() => setLocationFilter('approx')}
-                className={cn("py-1 rounded transition-colors", locationFilter === 'approx' ? "bg-amber-600 text-white" : "text-slate-400 hover:text-amber-300")}
+                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'approx' ? "bg-amber-600 text-white" : "text-slate-400 hover:text-amber-300")}
               >
                 Aprox ({stats.approxGeo})
               </button>
               <button
                 onClick={() => setLocationFilter('missing')}
-                className={cn("py-1 rounded transition-colors", locationFilter === 'missing' ? "bg-rose-600 text-white" : "text-slate-400 hover:text-rose-300")}
+                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'missing' ? "bg-rose-600 text-white" : "text-slate-400 hover:text-rose-300")}
               >
                 Sin GPS ({stats.missingGeo})
               </button>
             </div>
           </div>
 
-          {/* Client List */}
+          {/* Client Scrollable List */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-700/60 p-2 space-y-1">
             {loading ? (
               <div className="py-16 text-center">
@@ -765,7 +770,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                       }
                     }}
                     className={cn(
-                      "p-3 rounded-xl transition-all cursor-pointer border group hover:border-teal-500/50",
+                      "p-2.5 rounded-xl transition-all cursor-pointer border group hover:border-teal-500/50",
                       selectedClient?.id === client.id ? "bg-teal-950/40 border-teal-500/60" : "bg-slate-800/80 border-slate-700/60 hover:bg-slate-750"
                     )}
                   >
@@ -798,22 +803,21 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                         <span className="text-xs font-black text-emerald-400 block">
                           Q{client.totalRevenue.toLocaleString('es-GT', { maximumFractionDigits: 0 })}
                         </span>
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-[10px] text-slate-400 font-semibold">
                           {client.totalSales} fact.
                         </span>
                       </div>
                     </div>
 
-                    {/* Metadata & Action Ribbon */}
-                    <div className="mt-2.5 pt-2 border-t border-slate-700/40 flex items-center justify-between text-[10px]">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="mt-2 pt-1.5 border-t border-slate-700/40 flex items-center justify-between text-[10px]">
+                      <div className="flex items-center gap-1 flex-wrap">
                         {isExact && (
                           <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
                             📍 GPS Exacto
                           </span>
                         )}
                         {isApprox && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30 truncate max-w-[150px]" title={client.resolvedGeo?.locationLabel}>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30 truncate max-w-[130px]" title={client.resolvedGeo?.locationLabel}>
                             {client.resolvedGeo?.locationLabel}
                           </span>
                         )}
@@ -823,7 +827,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                           </span>
                         )}
 
-                        <span className="text-slate-400 truncate max-w-[120px]">
+                        <span className="text-slate-400 truncate max-w-[110px]">
                           👤 {client.sellerName}
                         </span>
                       </div>
@@ -834,7 +838,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                             e.stopPropagation();
                             setSelectedClient(client);
                           }}
-                          className="px-2 py-1 bg-teal-600/30 hover:bg-teal-600 text-teal-200 hover:text-white rounded font-bold text-[10px] transition-colors cursor-pointer flex items-center gap-1"
+                          className="px-2 py-0.5 bg-teal-600/30 hover:bg-teal-600 text-teal-200 hover:text-white rounded font-bold text-[10px] transition-colors cursor-pointer flex items-center gap-1"
                         >
                           <Eye className="w-3 h-3" />
                           <span>Historial</span>
@@ -860,13 +864,12 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
         </aside>
       </div>
 
-      {/* Detail Modal / Drawer for Client History */}
+      {/* Detail Modal for Client History */}
       {selectedClient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             
-            {/* Modal Header */}
-            <div className="p-4 md:p-5 border-b border-slate-800 bg-slate-850 flex items-start justify-between gap-3">
+            <div className="p-4 border-b border-slate-800 bg-slate-850 flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-base md:text-lg font-black text-white">{selectedClient.name}</h3>
@@ -893,36 +896,32 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-5 bg-slate-900">
-              
-              {/* Quick Summary Cards */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-900">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/80 text-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Facturado</span>
-                  <span className="text-sm md:text-base font-black text-emerald-400">
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/80 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Facturado</span>
+                  <span className="text-sm font-black text-emerald-400">
                     Q{selectedClient.totalRevenue.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
-                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/80 text-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Facturas</span>
-                  <span className="text-sm md:text-base font-black text-white">{selectedClient.totalSales}</span>
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/80 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Facturas</span>
+                  <span className="text-sm font-black text-white">{selectedClient.totalSales}</span>
                 </div>
-                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/80 text-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Frecuencia Media</span>
-                  <span className="text-sm md:text-base font-black text-teal-400">
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/80 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Frecuencia Media</span>
+                  <span className="text-sm font-black text-teal-400">
                     {selectedClient.avgFrequencyDays > 0 ? `${selectedClient.avgFrequencyDays} días` : 'N/A'}
                   </span>
                 </div>
-                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/80 text-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Vendedor Asignado</span>
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/80 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Vendedor Asignado</span>
                   <span className="text-xs font-bold text-slate-200 truncate block mt-1" title={selectedClient.sellerName}>
                     {selectedClient.sellerName}
                   </span>
                 </div>
               </div>
 
-              {/* Geo Status & Fix Pin Button */}
               <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center justify-between gap-3">
                 <div className="text-xs">
                   <span className="font-bold text-slate-300 block">Estado de Ubicación:</span>
@@ -947,9 +946,8 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                 </button>
               </div>
 
-              {/* Sales Chronology Timeline */}
               <div>
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-teal-400" />
                   <span>Historial Cronológico de Compras (Folios y Días entre Pedidos)</span>
                 </h4>
@@ -957,11 +955,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-3 border-t border-slate-800 bg-slate-850 flex justify-end">
               <button
                 onClick={() => setSelectedClient(null)}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
               >
                 Cerrar Detalle
               </button>
