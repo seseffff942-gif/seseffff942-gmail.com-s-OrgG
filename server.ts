@@ -970,7 +970,8 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
     const clientData = clientRows.map((c: any) => ({
       ...c,
       normName: normalizeText(c.name),
-      normCompany: normalizeText(c.companyName)
+      normCompany: normalizeText(c.companyName),
+      nameWords: normalizeText(c.name).split(' ').filter((w: string) => w.length > 2)
     }));
 
     const salesByClientId = new Map<string, any[]>();
@@ -990,19 +991,39 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         invoiceType: inv.invoice_type
       };
 
-      const matchedClient = clientData.find((c: any) => {
-        if (c.normName && invNorm === c.normName) return true;
-        if (c.normCompany && invNorm === c.normCompany) return true;
-        if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) return true;
-        if (c.normCompany && (invNorm.includes(c.normCompany) || c.normCompany.includes(invNorm))) return true;
-        return false;
-      });
+      let bestScore = 0;
+      let bestClient: any = null;
 
-      if (matchedClient) {
-        if (!salesByClientId.has(matchedClient.id)) {
-          salesByClientId.set(matchedClient.id, []);
+      for (const c of clientData) {
+        let score = 0;
+        if (c.normName && invNorm === c.normName) {
+          score = 100;
+        } else if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) {
+          score = 80;
+        } else if (c.nameWords.length > 0) {
+          const matchedWords = c.nameWords.filter((w: string) => invNorm.includes(w));
+          if (matchedWords.length >= 2) {
+            score = 70 + matchedWords.length * 2;
+          } else if (matchedWords.length === 1 && c.nameWords.length === 1) {
+            score = 50;
+          }
         }
-        salesByClientId.get(matchedClient.id)!.push(saleObj);
+
+        if (c.normCompany && invNorm.includes(c.normCompany)) {
+          score += (score > 0 ? 25 : 15);
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestClient = c;
+        }
+      }
+
+      if (bestClient && bestScore >= 40) {
+        if (!salesByClientId.has(bestClient.id)) {
+          salesByClientId.set(bestClient.id, []);
+        }
+        salesByClientId.get(bestClient.id)!.push(saleObj);
       }
     }
 
