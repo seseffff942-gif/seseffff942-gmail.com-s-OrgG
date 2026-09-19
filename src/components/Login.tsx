@@ -50,7 +50,8 @@ export function Login({ onLogin }: LoginProps) {
     setLoading(true);
     try {
       const user = await api.login(sellerCode, token);
-      const isMaintenanceActive = localStorage.getItem('agricovet_maintenance_mode') === 'true';
+      const maintRes = await api.getMaintenanceMode().catch(() => ({ maintenance: false }));
+      const isMaintenanceActive = maintRes.maintenance || localStorage.getItem('agricovet_maintenance_mode') === 'true';
       if (isMaintenanceActive && user.email?.toLowerCase() !== 'seseffff942@gmail.com') {
         localStorage.removeItem('app_token');
         localStorage.removeItem('app_user');

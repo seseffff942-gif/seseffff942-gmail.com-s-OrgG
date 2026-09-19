@@ -2362,6 +2362,57 @@ export const api = {
 
   syncNeon: async () => {
     return { success: true, message: 'Base de datos PostgreSQL local activa' };
+  },
+
+  getClientSalesTracking: async (params?: { sellerId?: string; dateFrom?: string; dateTo?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.sellerId && params.sellerId !== 'all') query.append('sellerId', params.sellerId);
+    if (params?.dateFrom) query.append('dateFrom', params.dateFrom);
+    if (params?.dateTo) query.append('dateTo', params.dateTo);
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetchWithAuth(`/api/admin/client-sales-tracking${queryString}`);
+    if (!res.ok) {
+      const err = await safeJson(res).catch(() => ({}));
+      throw new Error(err.error || `Error al obtener seguimiento de clientes: ${res.status}`);
+    }
+    return safeJson(res);
+  },
+
+  getMaintenanceMode: async (): Promise<{ maintenance: boolean }> => {
+    try {
+      const res = await fetch(getApiUrl('/api/system/maintenance'));
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && typeof data.maintenance === 'boolean') {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('agricovet_maintenance_mode', data.maintenance ? 'true' : 'false');
+          }
+          return data;
+        }
+      }
+    } catch (e) {}
+    const cached = typeof localStorage !== 'undefined' ? localStorage.getItem('agricovet_maintenance_mode') === 'true' : false;
+    return { maintenance: cached };
+  },
+
+  setMaintenanceMode: async (enabled: boolean): Promise<{ success: boolean; maintenance: boolean }> => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('agricovet_maintenance_mode', enabled ? 'true' : 'false');
+    }
+    try {
+      const res = await fetchWithAuth('/api/admin/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        return data;
+      }
+    } catch (e) {
+      console.warn('Error setting maintenance mode on server:', e);
+    }
+    return { success: true, maintenance: enabled };
   }
 };
 

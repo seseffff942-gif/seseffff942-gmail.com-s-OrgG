@@ -19,6 +19,7 @@ import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
 import { ReciboConformePage } from './pages/ReciboConformePage';
 import { QuotationsPage } from './pages/QuotationsPage';
 import { ClientVisitsPage } from './pages/ClientVisitsPage';
+import { ClientSalesTrackingPage } from './pages/ClientSalesTrackingPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
 import { api, clearApiCache } from './api';
@@ -73,24 +74,49 @@ export default function App() {
     return 'local';
   });
   const [isMaintenanceMode, setIsMaintenanceMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('agricovet_maintenance_mode');
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('agricovet_maintenance_mode') : null;
     return saved === 'true';
   });
 
-  const toggleMaintenanceMode = () => {
+  const toggleMaintenanceMode = async () => {
     const nextVal = !isMaintenanceMode;
     setIsMaintenanceMode(nextVal);
-    localStorage.setItem('agricovet_maintenance_mode', nextVal ? 'true' : 'false');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('agricovet_maintenance_mode', nextVal ? 'true' : 'false');
+    }
+    try {
+      await api.setMaintenanceMode(nextVal);
+    } catch (e) {
+      console.error("Error setting global maintenance mode:", e);
+    }
   };
 
-  // Sincronización de estado de la aplicación
+  // Sincronización periódica y en tiempo real del modo mantenimiento global
   React.useEffect(() => {
-    const handleStorageChange = () => {
-      // sincronizaciones locales
+    let isMounted = true;
+    const syncMaintenance = async () => {
+      try {
+        const res = await api.getMaintenanceMode();
+        if (isMounted && typeof res.maintenance === 'boolean') {
+          setIsMaintenanceMode(res.maintenance);
+        }
+      } catch (e) {}
     };
-    window.addEventListener('storage', handleStorageChange);
+
+    syncMaintenance();
+    const interval = setInterval(syncMaintenance, 20000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncMaintenance();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      isMounted = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -156,7 +182,7 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -174,7 +200,7 @@ export default function App() {
       if (cleanHash === 'login') {
         setShowLoginDirectly(true);
       }
-      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'terms', 'privacy'].includes(cleanHash)) {
+      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'].includes(cleanHash)) {
         setCurrentTab(cleanHash);
       }
     };
@@ -434,6 +460,7 @@ export default function App() {
         {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
         {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'client-tracking' && activeUser.role === 'admin' && <ClientSalesTrackingPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
         {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}

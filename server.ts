@@ -142,6 +142,44 @@ export async function queryNeon(sql: string, params: any[] = []): Promise<any[]>
     return [];
   }
 }
+
+// Global Maintenance Mode State & Persistence
+let globalMaintenanceCache = {
+  enabled: false,
+  timestamp: 0
+};
+
+export async function getGlobalMaintenanceMode(): Promise<boolean> {
+  if (Date.now() - globalMaintenanceCache.timestamp < 10000) {
+    return globalMaintenanceCache.enabled;
+  }
+  try {
+    const rows = await queryNeon("SELECT value FROM public.system_config WHERE key = 'maintenance_mode' LIMIT 1;");
+    if (rows && rows.length > 0) {
+      const val = rows[0].value === 'true';
+      globalMaintenanceCache = { enabled: val, timestamp: Date.now() };
+      return val;
+    }
+  } catch (e) {}
+  return globalMaintenanceCache.enabled;
+}
+
+export async function setGlobalMaintenanceMode(enabled: boolean): Promise<boolean> {
+  globalMaintenanceCache = { enabled, timestamp: Date.now() };
+  try {
+    await queryNeon(`
+      CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());
+      INSERT INTO public.system_config (key, value, updated_at) 
+      VALUES ('maintenance_mode', $1, NOW()) 
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+    `, [enabled ? 'true' : 'false']);
+    console.log(`[GLOBAL MAINTENANCE] Estado actualizado en base de datos: ${enabled ? 'ACTIVADO' : 'DESACTIVADO'}`);
+  } catch (e: any) {
+    console.error("Error guardando maintenance_mode en base de datos:", e.message);
+  }
+  return enabled;
+}
+
 // Initial Seed Data
 const initialDb = {
   users: [
@@ -864,6 +902,247 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: 
   const { force } = req.body;
   await seedDatabase(!!force);
   res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
+}));
+
+// ======== ADMIN: Client Sales Tracking Map ========
+app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  const { sellerId, dateFrom, dateTo } = req.query;
+
+  try {
+    // 1. Fetch all clients with their seller info
+    let clientsSql = `
+      SELECT c.id, c.name, c."companyName", c.nit, c.phone, c.address,
+             c.latitude, c.longitude, c."locationAddress",
+             c."sellerId", c."clientCode", c."geotaggedAt", c."geotaggedBy",
+             c."createdAt", c."lastVisitAt",
+             u.name as seller_name, u.email as seller_email
+      FROM public.clients c
+      LEFT JOIN public.users u ON (u.email = c."sellerId" OR u.id = c."sellerId")
+      ORDER BY c.name ASC
+    `;
+    const clientRows = await queryNeon(clientsSql);
+
+    // 2. Fetch all non-archived invoices
+    let invoicesSql = `
+      SELECT i.id, i."clientName", i.folio, i."sellerId", i.date, 
+             i."totalAmount", i.status, i.invoice_type,
+             u.name as seller_name
+      FROM public.invoices i
+      LEFT JOIN public.users u ON (u.email = i."sellerId" OR u.id = i."sellerId")
+      WHERE i.is_archived IS NOT TRUE
+    `;
+    const invoiceParams: any[] = [];
+    if (sellerId && sellerId !== 'all') {
+      invoiceParams.push(sellerId);
+      invoicesSql += ` AND i."sellerId" = $${invoiceParams.length}`;
+    }
+    if (dateFrom) {
+      invoiceParams.push(dateFrom);
+      invoicesSql += ` AND i.date >= $${invoiceParams.length}`;
+    }
+    if (dateTo) {
+      invoiceParams.push(dateTo);
+      invoicesSql += ` AND i.date <= $${invoiceParams.length}`;
+    }
+    invoicesSql += ` ORDER BY i.date ASC`;
+    const invoiceRows = await queryNeon(invoicesSql, invoiceParams);
+
+    // 3. Fetch all sellers (for filter dropdown)
+    const sellersRows = await queryNeon(`
+      SELECT id, name, email, role, "sellerCode" 
+      FROM public.users 
+      WHERE role = 'seller' OR role = 'admin'
+      ORDER BY name
+    `);
+
+    // 4. Group invoices by clientName
+    const salesByClient: Record<string, any[]> = {};
+    for (const inv of invoiceRows) {
+      const key = inv.clientName || '';
+      if (!salesByClient[key]) salesByClient[key] = [];
+      salesByClient[key].push({
+        id: inv.id,
+        folio: inv.folio,
+        sellerId: inv.sellerId,
+        sellerName: inv.seller_name || inv.sellerId,
+        date: inv.date,
+        totalAmount: parseFloat(inv.totalAmount || 0),
+        status: inv.status,
+        invoiceType: inv.invoice_type
+      });
+    }
+
+    // 5. Build client tracking data
+    const trackingData = clientRows.map((c: any) => {
+      const clientSales = salesByClient[c.name] || [];
+      const activeSales = clientSales.filter((s: any) => s.status !== 'cancelled');
+      
+      let avgFrequencyDays = 0;
+      let daysSinceLastPurchase = 0;
+      let firstPurchaseDate = null;
+      let lastPurchaseDate = null;
+
+      if (activeSales.length > 0) {
+        firstPurchaseDate = activeSales[0].date;
+        lastPurchaseDate = activeSales[activeSales.length - 1].date;
+        
+        if (activeSales.length > 1) {
+          const first = new Date(firstPurchaseDate).getTime();
+          const last = new Date(lastPurchaseDate).getTime();
+          const totalDays = (last - first) / (1000 * 60 * 60 * 24);
+          avgFrequencyDays = Math.round(totalDays / (activeSales.length - 1));
+        }
+        
+        daysSinceLastPurchase = Math.round(
+          (Date.now() - new Date(lastPurchaseDate).getTime()) / (1000 * 60 * 60 * 24)
+        );
+      }
+
+      const totalRevenue = activeSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
+      const uniqueSellers = [...new Set(activeSales.map((s: any) => s.sellerId))];
+
+      return {
+        id: c.id,
+        name: c.name,
+        companyName: c.companyName,
+        nit: c.nit,
+        phone: c.phone,
+        address: c.address,
+        latitude: c.latitude ? parseFloat(c.latitude) : null,
+        longitude: c.longitude ? parseFloat(c.longitude) : null,
+        locationAddress: c.locationAddress,
+        sellerId: c.sellerId,
+        sellerName: c.seller_name || c.sellerId || 'Sin asignar',
+        clientCode: c.clientCode,
+        geotaggedAt: c.geotaggedAt,
+        createdAt: c.createdAt,
+        lastVisitAt: c.lastVisitAt,
+        // Sales analytics
+        totalSales: activeSales.length,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        firstPurchaseDate,
+        lastPurchaseDate,
+        avgFrequencyDays,
+        daysSinceLastPurchase,
+        uniqueSellers,
+        sales: clientSales // includes cancelled for full audit trail
+      };
+    });
+
+    res.json({
+      clients: trackingData,
+      sellers: sellersRows,
+      totalClients: trackingData.length,
+      totalWithSales: trackingData.filter((c: any) => c.totalSales > 0).length,
+      totalGeolocated: trackingData.filter((c: any) => c.latitude && c.longitude).length,
+      generatedAt: new Date().toISOString()
+    });
+
+  } catch (err: any) {
+    console.error('[Admin Client Sales Tracking Error]', err.message);
+    res.status(500).json({ error: 'Error al obtener datos de seguimiento de clientes', details: err.message });
+  }
+}));
+
+// Update client location (GPS Geotagging)
+app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { latitude, longitude, locationAddress } = req.body;
+  const user = req.user;
+  const nowIso = new Date().toISOString();
+
+  try {
+    await queryNeon(`
+      UPDATE public.clients
+      SET latitude = $1,
+          longitude = $2,
+          "locationAddress" = $3,
+          "geotaggedAt" = $4,
+          "geotaggedBy" = $5
+      WHERE id = $6
+    `, [latitude, longitude, locationAddress || null, nowIso, user.name || user.email || user.id, id]);
+  } catch (e: any) {
+    console.warn('[Update Location Warning Neon]', e.message);
+  }
+
+  try {
+    await localDb.from("clients").update({
+      latitude,
+      longitude,
+      locationAddress: locationAddress || null,
+      geotaggedAt: nowIso,
+      geotaggedBy: user.name || user.email || user.id
+    }).eq("id", id);
+  } catch (e: any) {}
+
+  res.json({
+    success: true,
+    client: {
+      id,
+      latitude,
+      longitude,
+      locationAddress,
+      geotaggedAt: nowIso,
+      geotaggedBy: user.name || user.email
+    }
+  });
+}));
+
+// Clear client location
+app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    await queryNeon(`
+      UPDATE public.clients
+      SET latitude = NULL,
+          longitude = NULL,
+          "locationAddress" = NULL,
+          "geotaggedAt" = NULL,
+          "geotaggedBy" = NULL
+      WHERE id = $1
+    `, [id]);
+  } catch (e: any) {}
+
+  try {
+    await localDb.from("clients").update({
+      latitude: null,
+      longitude: null,
+      locationAddress: null,
+      geotaggedAt: null,
+      geotaggedBy: null
+    }).eq("id", id);
+  } catch (e: any) {}
+
+  res.json({ success: true });
+}));
+
+// ======== GLOBAL SYSTEM MAINTENANCE MODE ========
+app.get("/api/system/maintenance", asyncHandler(async (req: any, res: any) => {
+  const isMaint = await getGlobalMaintenanceMode();
+  res.json({
+    maintenance: isMaint,
+    timestamp: new Date().toISOString()
+  });
+}));
+
+app.post("/api/admin/maintenance", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const user = req.user;
+  const isSuperAdmin = user?.email?.toLowerCase() === 'seseffff942@gmail.com' || user?.role === 'admin';
+  if (!isSuperAdmin) {
+    return res.status(403).json({ error: "Solo el administrador puede cambiar el modo mantenimiento global." });
+  }
+
+  const { enabled } = req.body;
+  const nextVal = !!enabled;
+  await setGlobalMaintenanceMode(nextVal);
+
+  res.json({
+    success: true,
+    maintenance: nextVal,
+    message: nextVal 
+      ? "Modo mantenimiento activado globalmente en todos los dispositivos y teléfonos." 
+      : "Modo mantenimiento desactivado globalmente."
+  });
 }));
 
 app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req: any, res: any) => {
