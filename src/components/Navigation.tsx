@@ -248,50 +248,60 @@ function NotificationsPopover({
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  {/* Botón Silenciar / Activar App */}
-                  <button
-                    onClick={onToggleSilentMode}
-                    disabled={isUpdatingSilentMode}
-                    title={isSilentModeActive ? "Las notificaciones y sonidos están apagados. Haz clic para activar" : "Silenciar todas las notificaciones y sonidos de la app"}
-                    className={cn(
-                      "px-2.5 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 border shadow-sm",
-                      isSilentModeActive
-                        ? "bg-rose-500/25 border-rose-400/40 text-rose-200 hover:bg-rose-500/35"
-                        : "bg-white/10 border-white/15 text-emerald-200 hover:bg-white/20"
-                    )}
-                  >
-                    {isSilentModeActive ? <BellOff size={13} className="text-rose-400" /> : <Bell size={13} className="text-emerald-300" />}
-                    <span>{isUpdatingSilentMode ? "..." : isSilentModeActive ? "Silenciado (Activar)" : "Silenciar App"}</span>
-                  </button>
+                  {/* Botón Silenciar / Activar App (SOLO ADMINS) */}
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={onToggleSilentMode}
+                      disabled={isUpdatingSilentMode}
+                      title={isSilentModeActive ? "Las notificaciones y sonidos están apagados. Haz clic para activar" : "Silenciar todas las notificaciones y sonidos de la app"}
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 border shadow-sm",
+                        isSilentModeActive
+                          ? "bg-rose-500/25 border-rose-400/40 text-rose-200 hover:bg-rose-500/35"
+                          : "bg-white/10 border-white/15 text-emerald-200 hover:bg-white/20"
+                      )}
+                    >
+                      {isSilentModeActive ? <BellOff size={13} className="text-rose-400" /> : <Bell size={13} className="text-emerald-300" />}
+                      <span>{isUpdatingSilentMode ? "..." : isSilentModeActive ? "Silenciado (Activar)" : "Silenciar App"}</span>
+                    </button>
+                  )}
 
                   {/* Sound Toggle Button with Testing option */}
                   <div className="flex items-center bg-white/10 backdrop-blur-md rounded-xl border border-white/5 p-0.5">
-                    <button 
-                      onClick={() => {
-                        const val = !soundsEnabled;
-                        setSoundsEnabled(val);
-                        localStorage.setItem('notifications_sounds_enabled', String(val));
-                        if (val) {
-                          setTimeout(playTestChime, 150);
-                        }
-                      }}
-                      title={soundsEnabled ? "Silenciar alertas (Haz clic para silenciar)" : "Activar sonido de alertas"}
-                      className={cn(
-                        "p-2 rounded-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center",
-                        soundsEnabled ? "text-emerald-300 bg-white/10 hover:bg-white/15" : "text-white/60 hover:text-white"
-                      )}
-                    >
-                      {soundsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
-                    </button>
-                    {soundsEnabled && (
-                      <button
-                        onClick={playTestChime}
-                        title="Probar sonido actual de alerta Agricovet"
-                        className="px-2 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-200 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                    {user.role === 'admin' ? (
+                      <button 
+                        onClick={() => {
+                          const val = !soundsEnabled;
+                          setSoundsEnabled(val);
+                          localStorage.setItem('notifications_sounds_enabled', String(val));
+                          if (val) {
+                            setTimeout(playTestChime, 150);
+                          }
+                        }}
+                        title={soundsEnabled ? "Silenciar alertas (Haz clic para silenciar)" : "Activar sonido de alertas"}
+                        className={cn(
+                          "p-2 rounded-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center",
+                          soundsEnabled ? "text-emerald-300 bg-white/10 hover:bg-white/15" : "text-white/60 hover:text-white"
+                        )}
                       >
-                        Probar
+                        {soundsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
                       </button>
+                    ) : (
+                      <div 
+                        title="Sonido de alertas obligatorio para vendedores"
+                        className="px-2 py-1 text-emerald-300 flex items-center gap-1 text-[10px] font-bold"
+                      >
+                        <Volume2 size={14} className="text-emerald-400" />
+                        <span className="hidden sm:inline">Sonido Activo</span>
+                      </div>
                     )}
+                    <button
+                      onClick={playTestChime}
+                      title="Probar sonido actual de alerta Agricovet"
+                      className="px-2 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-200 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Probar
+                    </button>
                   </div>
 
                   {/* Close button with active rotation */}
@@ -649,9 +659,10 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const [pushErrorMsg, setPushErrorMsg] = useState('');
   const [isSendingTestPush, setIsSendingTestPush] = useState(false);
   const [isSilentModeActive, setIsSilentModeActive] = useState(() => {
+    if (user.role === 'seller') return false;
     const saved = localStorage.getItem('agricovet_app_silenced');
     if (saved !== null) return saved === 'true';
-    return true; // Silenciado por defecto
+    return false; // Alertas activas por defecto
   });
   const [isUpdatingSilentMode, setIsUpdatingSilentMode] = useState(false);
 
@@ -718,9 +729,11 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
       const handlePushMessage = (event: MessageEvent) => {
         if (event.data && event.data.type === 'PUSH_NOTIFICATION_RECEIVED') {
-          if (isSilentModeActive || localStorage.getItem('agricovet_app_silenced') === 'true') return;
+          if (user.role !== 'seller') {
+            if (isSilentModeActive || localStorage.getItem('agricovet_app_silenced') === 'true') return;
+          }
           const saved = localStorage.getItem('notifications_sounds_enabled');
-          const isSoundsEnabled = saved === null ? true : saved === 'true';
+          const isSoundsEnabled = (user.role === 'seller') ? true : (saved === null ? true : saved === 'true');
           if (isSoundsEnabled) {
             playNotificationChime();
           }
@@ -808,6 +821,12 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   useEffect(() => {
+    if (user.role === 'seller') {
+      setIsSilentModeActive(false);
+      localStorage.removeItem('agricovet_app_silenced');
+      localStorage.setItem('notifications_sounds_enabled', 'true');
+      return;
+    }
     api.getWarehouseConfig()
       .then(res => {
         if (res && res.isSilentModeActive !== undefined) {
@@ -816,9 +835,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
         }
       })
       .catch(err => console.error("Error al sincronizar configuración de bodega:", err));
-  }, [showSyncInfoModal]);
+  }, [showSyncInfoModal, user.role]);
 
   const handleToggleSilentMode = async () => {
+    if (user.role !== 'admin') {
+      alert('Solo los administradores tienen permiso para activar o desactivar el modo silencioso.');
+      return;
+    }
     setIsUpdatingSilentMode(true);
     try {
       const nextSilentState = !isSilentModeActive;
@@ -877,6 +900,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   // Advanced notification state management
   const [activeToasts, setActiveToasts] = useState<any[]>([]);
   const [soundsEnabled, setSoundsEnabled] = useState(() => {
+    if (user.role === 'seller') return true;
     const saved = localStorage.getItem('notifications_sounds_enabled');
     return saved === null ? true : saved === 'true';
   });
@@ -885,8 +909,10 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   const isFirstLoadRef = useRef(true);
 
   const playNotificationChime = () => {
-    if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
-      return;
+    if (user.role !== 'seller') {
+      if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+        return;
+      }
     }
     try {
       const audio = new Audio('/whatsapp.wav');
@@ -919,11 +945,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   const dispatchNotificationAlert = (n: AppNotification) => {
-    // Si la app está en modo silencioso, BLOQUEAR todo sonido, alerta nativa y popup
-    if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
-      console.log('[Agricovet Alertas] Modo silencioso activo: Alerta sonora y emergente suprimida.');
-      setHasUnread(true);
-      return;
+    // Si la app está en modo silencioso (solo administradores pueden silenciar)
+    if (user.role !== 'seller') {
+      if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+        console.log('[Agricovet Alertas] Modo silencioso activo: Alerta sonora y emergente suprimida.');
+        setHasUnread(true);
+        return;
+      }
     }
 
     // 1. Native APK Notification (Capacitor Android)
@@ -938,7 +966,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
     // 2. In-app audio and vibration
     const saved = localStorage.getItem('notifications_sounds_enabled');
-    const isSoundsEnabled = saved === null ? true : saved === 'true';
+    const isSoundsEnabled = (user.role === 'seller') ? true : (saved === null ? true : saved === 'true');
     if (isSoundsEnabled) {
       playNotificationChime();
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -1733,7 +1761,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               </div>
 
               {/* Notificaciones Push Nativas */}
-              {isSilentModeActive ? (
+              {isSilentModeActive && user.role === 'admin' ? (
                 <div className="bg-red-50/50 border border-red-200 rounded-xl p-4 space-y-3">
                   <div className="flex justify-between items-center">
                     <h4 className="text-[10px] font-black text-rose-700 uppercase tracking-widest leading-none">
@@ -1861,14 +1889,16 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                       </div>
                     )}
 
-                    <button
-                      onClick={handleToggleSilentMode}
-                      disabled={isUpdatingSilentMode}
-                      className="w-full py-2 mt-1 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 transition-colors font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
-                    >
-                      <BellOff size={12} className="text-slate-500" />
-                      {isUpdatingSilentMode ? "Procesando..." : "Activar Modo Silencioso"}
-                    </button>
+                    {user.role === 'admin' && (
+                      <button
+                        onClick={handleToggleSilentMode}
+                        disabled={isUpdatingSilentMode}
+                        className="w-full py-2 mt-1 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 transition-colors font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
+                      >
+                        <BellOff size={12} className="text-slate-500" />
+                        {isUpdatingSilentMode ? "Procesando..." : "Activar Modo Silencioso"}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

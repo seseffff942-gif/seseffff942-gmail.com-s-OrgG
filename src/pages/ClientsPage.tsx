@@ -7,7 +7,7 @@ import {
   MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY } from '../utils';
+import { cn, fechaDDMMYYYY, isClientOfSeller } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ClientAccountStatementModal } from '../components/ClientAccountStatementModal';
 
@@ -118,7 +118,11 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
         return acc;
       }, []);
 
-      setClients(uniqueClients);
+      const allowedClients = user.role === 'admin'
+        ? uniqueClients
+        : uniqueClients.filter(c => isClientOfSeller(c, user));
+
+      setClients(allowedClients);
       setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
       setUsers(fetchedUsers.filter(u => u.role === 'admin' || u.role === 'seller'));
     } catch (error) {
@@ -316,8 +320,12 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     };
   };
 
+  const allowedClients = user.role === 'admin'
+    ? clients
+    : clients.filter(c => isClientOfSeller(c, user));
+
   // Grouped stats for entire portfolio (of processed / filtered data)
-  const totalPortfolioClients = clients.length;
+  const totalPortfolioClients = allowedClients.length;
   const totalRevenueAll = invoices.filter(i => i.status !== 'cancelled' && i.status !== 'rejected').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
   const totalReceivablesAll = invoices.filter(i => i.status === 'pending' || i.status === 'sent').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
   const totalPaidAll = invoices.filter(i => i.status === 'paid').reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
@@ -343,7 +351,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
   };
 
   // Sort and filter clients
-  const searchedClients = clients.filter(c => 
+  const searchedClients = allowedClients.filter(c => 
     (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (c.companyName && c.companyName.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (c.nit && c.nit.toLowerCase().includes(searchTerm.toLowerCase()))

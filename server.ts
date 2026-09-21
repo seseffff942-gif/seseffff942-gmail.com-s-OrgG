@@ -2154,9 +2154,51 @@ async function fetchPaymentsFromLocalDb(invoiceId: string): Promise<any[]> {
 }
 
 // CLIENTS
+export function isClientOfSeller(
+  client: any,
+  user: { id?: string; email?: string; name?: string; sellerCode?: string; role?: string } | null | undefined
+): boolean {
+  if (!client || !user) return false;
+  if (user.role === 'admin') return true;
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+  const uCode = String(user.sellerCode || '').trim().toLowerCase();
+
+  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || '').trim().toLowerCase();
+  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || '').trim().toLowerCase();
+  const cSellerEmail = String(client.sellerEmail || client.seller_email || '').trim().toLowerCase();
+
+  // 1. Coincidencia directa por ID, Email o Código de vendedor
+  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
+  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
+  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+
+  // 2. Coincidencia por Nombre de Asesor (con normalización de tildes y nombres compuestos)
+  if (uName) {
+    if (cSellerId === uName || cGeotaggedBy === uName) return true;
+    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
+
+    const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
+
+    const firstName = normUName.split(' ')[0];
+    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+  }
+
+  return false;
+}
+
 app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const userRole = req.user?.role;
   const cached = getCachedData("clients");
   if (cached) {
+    if (userRole === 'seller') {
+      return res.json(cached.filter((c: any) => isClientOfSeller(c, req.user)));
+    }
     return res.json(cached);
   }
 
@@ -2342,6 +2384,9 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
   saveLocalClients(finalClients);
 
   setCachedData("clients", finalClients);
+  if (userRole === 'seller') {
+    return res.json(finalClients.filter((c: any) => isClientOfSeller(c, req.user)));
+  }
   res.json(finalClients);
 }));
 
@@ -2393,6 +2438,11 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, false);
 
+  const effectiveSellerId = (req.user?.role === 'seller') 
+    ? (req.user.email || req.user.id) 
+    : (sellerId || req.user?.email || '');
+  const effectiveGeotaggedBy = req.user?.name || req.user?.email || '';
+
   if (matchedClient) {
     console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
 
@@ -2403,7 +2453,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
 
     const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-    if (!currentSeller && sellerId) updates.sellerId = sellerId;
+    if (!currentSeller) updates.sellerId = effectiveSellerId;
 
     if (Object.keys(updates).length > 0) {
       updateLocalClient(matchedClient.id, updates);
@@ -2419,7 +2469,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
         nit: matchedClient.nit || nit || '',
         phone: matchedClient.phone || phone || '',
         address: matchedClient.address || address || '',
-        sellerId: currentSeller || sellerId || req.user.email
+        sellerId: currentSeller || effectiveSellerId
       }
     });
   }
@@ -2436,7 +2486,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
       nit: nit || deletedMatch.nit || '',
       phone: phone || deletedMatch.phone || '',
       address: address || deletedMatch.address || '',
-      sellerId: sellerId || deletedMatch.sellerId || req.user.email,
+      sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
       isDeleted: false,
       is_deleted: false,
       isBlocked: false,
@@ -2452,7 +2502,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
         nit: nit || deletedMatch.nit || '',
         phone: phone || deletedMatch.phone || '',
         address: address || deletedMatch.address || '',
-        seller_id: sellerId || deletedMatch.sellerId || req.user.email
+        seller_id: reactivatedPayload.sellerId
       }).eq("id", deletedMatch.id);
     } catch (e) { }
 
@@ -2469,7 +2519,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   const clientData = {
     id: id || `CLI-${Date.now()}`,
-    sellerId: sellerId || req.user.email,
+    sellerId: effectiveSellerId,
+    geotaggedBy: effectiveGeotaggedBy,
     name: nameToSave,
     companyName: companyToSave,
     nit: nit || '',
@@ -2504,7 +2555,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
   if (nit !== undefined) updates.nit = nit;
   if (phone !== undefined) updates.phone = phone;
   if (address !== undefined) updates.address = address;
-  if (sellerId !== undefined) updates.sellerId = sellerId;
+  if (sellerId !== undefined && req.user?.role !== 'seller') updates.sellerId = sellerId;
   if (clientCode !== undefined) updates.clientCode = clientCode;
   if (isBlocked !== undefined) updates.isBlocked = isBlocked;
 
@@ -5352,7 +5403,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req: any, res:
   }
   res.json({
     location: config.location,
-    isSilentModeActive: !!config.isSilentModeActive,
+    isSilentModeActive: req.user?.role === 'seller' ? false : !!config.isSilentModeActive,
     logoUrl: config.logoUrl || "/agricovet.png",
     signatureUrl: config.signatureUrl || ""
   });

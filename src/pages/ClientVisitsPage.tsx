@@ -14,7 +14,7 @@ import {
   Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -283,8 +283,9 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     });
 
     const term = normalizeSearchText(searchTerm);
+    const userClients = user.role === 'seller' ? clients.filter(c => isClientOfSeller(c, user)) : clients;
 
-    return clients.map(client => {
+    return userClients.map(client => {
       const cIdKey = String(client.id || '').trim();
       const cNameKey = String(client.name || '').trim().toLowerCase();
       const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
@@ -315,13 +316,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       }
 
       // Check if assigned to or geotagged by current user
-      const isAssignedToUser = 
-        client.sellerId === user.id || 
-        client.sellerId === user.email || 
-        (client as any).sellerEmail === user.email ||
-        client.geotaggedBy === user.name ||
-        (client.sellerId && user.name && client.sellerId.toLowerCase() === user.name.toLowerCase()) ||
-        (user.role === 'admin');
+      const isAssignedToUser = isClientOfSeller(client, user);
 
       return {
         ...client,
@@ -770,7 +765,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   };
 
   const userClients = user.role === 'seller' 
-    ? clients.filter(c => c.sellerId === user.id || c.sellerId === user.email || (c as any).sellerEmail === user.email || c.geotaggedBy === user.name || (c.sellerId && user.name && c.sellerId.toLowerCase() === user.name.toLowerCase()))
+    ? clients.filter(c => isClientOfSeller(c, user))
     : clients;
   const geotaggedCount = userClients.filter(c => c.latitude && c.longitude).length;
   const geotaggedPercentage = userClients.length > 0 ? Math.round((geotaggedCount / userClients.length) * 100) : 0;
@@ -1052,7 +1047,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             </div>
           </div>
           <h4 className="text-2xl font-black text-slate-950">
-            {geotaggedCount} <span className="text-sm font-semibold text-slate-400">/ {clients.length}</span>
+            {geotaggedCount} <span className="text-sm font-semibold text-slate-400">/ {userClients.length}</span>
           </h4>
           <p className="text-xs text-teal-600 mt-1 font-semibold">
             {geotaggedPercentage}% de cobertura fijada
@@ -1165,7 +1160,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         </div>
 
         <ClientVisitsMap
-          clients={clients}
+          clients={userClients}
           visits={scopedVisits}
           currentLocation={currentLocation}
           currentUser={user}
@@ -1321,29 +1316,10 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               />
             </div>
 
-            {/* Scope Filter for Sellers (My Clients vs All) */}
+            {/* Scope Badge for Sellers */}
             {activeTab === 'my_portfolio' && user.role === 'seller' && (
-              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setPortfolioScope('mine')}
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg transition-colors cursor-pointer",
-                    portfolioScope === 'mine' ? "bg-teal-600 text-white" : "text-slate-600"
-                  )}
-                >
-                  Mis Asignados
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPortfolioScope('all')}
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg transition-colors cursor-pointer",
-                    portfolioScope === 'all' ? "bg-teal-600 text-white" : "text-slate-600"
-                  )}
-                >
-                  Todos
-                </button>
+              <div className="flex items-center bg-teal-50 border border-teal-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-teal-800 shadow-2xs">
+                <span>👤 Mi Cartera Asignada</span>
               </div>
             )}
 

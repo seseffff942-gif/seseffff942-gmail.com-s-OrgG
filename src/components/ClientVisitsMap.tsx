@@ -6,7 +6,7 @@ import {
   Phone, Building2, Clock, CheckCircle2, AlertTriangle, 
   Plus, RefreshCw, ZoomIn, ZoomOut, Search, X, Crosshair
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isClientOfSeller } from '../utils';
 
 interface ClientVisitsMapProps {
   clients: Client[];
@@ -276,7 +276,9 @@ export function ClientVisitsMap({
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
     const searchTermNorm = normalizeSearchText(mapSearchTerm);
 
-    const filteredClients = clients.filter(c => {
+    const userClients = currentUser.role === 'seller' ? clients.filter(c => isClientOfSeller(c, currentUser)) : clients;
+
+    const filteredClients = userClients.filter(c => {
       if (!c.latitude || !c.longitude || isNaN(c.latitude) || isNaN(c.longitude)) return false;
       
       const cIdKey = String(c.id || '').trim();

@@ -8,7 +8,7 @@ import {
   Tag, Image as ImageIcon, Trash2, Box
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn, normalizeSearchText, compressImageToWebP } from '../utils';
+import { cn, normalizeSearchText, compressImageToWebP, isClientOfSeller } from '../utils';
 
 interface RegisterVisitModalProps {
   isOpen: boolean;
@@ -75,9 +75,14 @@ export function RegisterVisitModal({
     }
   }, [preselectedClient, isOpen]);
 
+  const sellerClients = useMemo(() => {
+    if (currentUser.role === 'admin') return clients;
+    return clients.filter(c => isClientOfSeller(c, currentUser));
+  }, [clients, currentUser]);
+
   const nearbyClients = useMemo(() => {
     if (!currentLocation) return [];
-    return clients
+    return sellerClients
       .filter(c => c.latitude && c.longitude && !isNaN(c.latitude) && !isNaN(c.longitude))
       .map(c => {
         const dist = calculateDistanceMeters(
@@ -90,13 +95,13 @@ export function RegisterVisitModal({
       })
       .filter(c => c.distanceMeters <= 1500)
       .sort((a, b) => a.distanceMeters - b.distanceMeters);
-  }, [clients, currentLocation]);
+  }, [sellerClients, currentLocation]);
 
   const filteredClients = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
-    if (!term) return clients.slice(0, 20);
+    if (!term) return sellerClients.slice(0, 20);
 
-    return clients.filter(c => {
+    return sellerClients.filter(c => {
       if (!c) return false;
       const name = normalizeSearchText(c.name);
       const code = normalizeSearchText(c.clientCode);

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, calculateTecunStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, calculateTecunStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, isClientOfSeller } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -158,7 +158,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
          setProducts(newProducts.map(item => ({ ...item, stock: Number(item.stock) || 0, price: Number(item.price) || 0 })));
       });
       api.getClients().then(updatedClients => {
-         setClients(updatedClients);
+         const filtered = user.role === 'seller' ? (updatedClients || []).filter((cl: any) => isClientOfSeller(cl, user)) : updatedClients;
+         setClients(filtered);
       }).catch(() => {});
     }
   };
@@ -282,12 +283,16 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           return acc;
         }, []);
         
-        setClients(uniqueClients);
+        const allowedClients = user.role === 'seller'
+          ? uniqueClients.filter((cl: any) => isClientOfSeller(cl, user))
+          : uniqueClients;
+
+        setClients(allowedClients);
         setUsersList(u);
         setPrintTemplate(tempRes.template || DEFAULT_PRINT_TEMPLATE);
         
         localStorage.setItem('offline_products', JSON.stringify(mappedProducts));
-        localStorage.setItem('offline_clients', JSON.stringify(uniqueClients));
+        localStorage.setItem('offline_clients', JSON.stringify(allowedClients));
 
         setLoading(false);
       } catch (err) {
@@ -926,7 +931,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            }
            return acc;
          }, []);
-         setClients(uniqueClients);
+          const allowed = user.role === 'seller' ? uniqueClients.filter((cl: any) => isClientOfSeller(cl, user)) : uniqueClients;
+          setClients(allowed);
       }).catch(() => {});
       
       return; 

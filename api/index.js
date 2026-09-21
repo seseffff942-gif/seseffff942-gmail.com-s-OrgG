@@ -1178,6 +1178,40 @@ async function queryNeon(sql, params = []) {
     return [];
   }
 }
+var globalMaintenanceCache = {
+  enabled: false,
+  timestamp: 0
+};
+async function getGlobalMaintenanceMode() {
+  if (Date.now() - globalMaintenanceCache.timestamp < 1e4) {
+    return globalMaintenanceCache.enabled;
+  }
+  try {
+    const rows = await queryNeon("SELECT value FROM public.system_config WHERE key = 'maintenance_mode' LIMIT 1;");
+    if (rows && rows.length > 0) {
+      const val = rows[0].value === "true";
+      globalMaintenanceCache = { enabled: val, timestamp: Date.now() };
+      return val;
+    }
+  } catch (e) {
+  }
+  return globalMaintenanceCache.enabled;
+}
+async function setGlobalMaintenanceMode(enabled) {
+  globalMaintenanceCache = { enabled, timestamp: Date.now() };
+  try {
+    await queryNeon(`
+      CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());
+      INSERT INTO public.system_config (key, value, updated_at) 
+      VALUES ('maintenance_mode', $1, NOW()) 
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+    `, [enabled ? "true" : "false"]);
+    console.log(`[GLOBAL MAINTENANCE] Estado actualizado en base de datos: ${enabled ? "ACTIVADO" : "DESACTIVADO"}`);
+  } catch (e) {
+    console.error("Error guardando maintenance_mode en base de datos:", e.message);
+  }
+  return enabled;
+}
 var initialDb = {
   users: [
     { id: "u1b", name: "Due\xF1o / CEO", email: "seseffff942@gmail.com", role: "admin", photo: "https://i.pravatar.cc/150?u=9", password: "123" },
@@ -1788,6 +1822,258 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req, 
   const { force } = req.body;
   await seedDatabase(!!force);
   res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
+}));
+app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  if (req.user?.email?.toLowerCase() !== "seseffff942@gmail.com") {
+    return res.status(403).json({ success: false, error: "Acceso no autorizado" });
+  }
+  const { sellerId, dateFrom, dateTo } = req.query;
+  try {
+    let clientsSql = `
+      SELECT c.id, c.name, c."companyName", c.nit, c.phone, c.address,
+             c.latitude, c.longitude, c."locationAddress",
+             c."sellerId", c."clientCode", c."geotaggedAt", c."geotaggedBy",
+             c."createdAt", c."lastVisitAt",
+             u.name as seller_name, u.email as seller_email
+      FROM public.clients c
+      LEFT JOIN public.users u ON (u.email = c."sellerId" OR u.id = c."sellerId")
+      ORDER BY c.name ASC
+    `;
+    const clientRows = await queryNeon(clientsSql);
+    let invoicesSql = `
+      SELECT i.id, i."clientName", i.folio, i."sellerId", i.date, 
+             i."totalAmount", i.status, i.invoice_type,
+             u.name as seller_name
+      FROM public.invoices i
+      LEFT JOIN public.users u ON (u.email = i."sellerId" OR u.id = i."sellerId")
+      WHERE i.is_archived IS NOT TRUE
+    `;
+    const invoiceParams = [];
+    if (sellerId && sellerId !== "all") {
+      invoiceParams.push(sellerId);
+      invoicesSql += ` AND i."sellerId" = $${invoiceParams.length}`;
+    }
+    if (dateFrom) {
+      invoiceParams.push(dateFrom);
+      invoicesSql += ` AND i.date >= $${invoiceParams.length}`;
+    }
+    if (dateTo) {
+      invoiceParams.push(dateTo);
+      invoicesSql += ` AND i.date <= $${invoiceParams.length}`;
+    }
+    invoicesSql += ` ORDER BY i.date ASC`;
+    const invoiceRows = await queryNeon(invoicesSql, invoiceParams);
+    const sellersRows = await queryNeon(`
+      SELECT id, name, email, role, "sellerCode" 
+      FROM public.users 
+      WHERE role = 'seller' OR role = 'admin'
+      ORDER BY name
+    `);
+    const normalizeText = (str) => {
+      if (!str) return "";
+      return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, " ").replace(/\s+/g, " ").trim();
+    };
+    const clientData = clientRows.map((c) => ({
+      ...c,
+      normName: normalizeText(c.name),
+      normCompany: normalizeText(c.companyName),
+      nameWords: normalizeText(c.name).split(" ").filter((w) => w.length > 2)
+    }));
+    const salesByClientId = /* @__PURE__ */ new Map();
+    for (const inv of invoiceRows) {
+      const invNorm = normalizeText(inv.clientName);
+      if (!invNorm) continue;
+      const saleObj = {
+        id: inv.id,
+        folio: inv.folio,
+        sellerId: inv.sellerId,
+        sellerName: inv.seller_name || inv.sellerId,
+        date: inv.date,
+        totalAmount: parseFloat(inv.totalAmount || 0),
+        status: inv.status,
+        invoiceType: inv.invoice_type
+      };
+      let bestScore = 0;
+      let bestClient = null;
+      for (const c of clientData) {
+        let score = 0;
+        if (c.normName && invNorm === c.normName) {
+          score = 100;
+        } else if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) {
+          score = 80;
+        } else if (c.nameWords.length > 0) {
+          const matchedWords = c.nameWords.filter((w) => invNorm.includes(w));
+          if (matchedWords.length >= 2) {
+            score = 70 + matchedWords.length * 2;
+          } else if (matchedWords.length === 1 && c.nameWords.length === 1) {
+            score = 50;
+          }
+        }
+        if (c.normCompany && invNorm.includes(c.normCompany)) {
+          score += score > 0 ? 25 : 15;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestClient = c;
+        }
+      }
+      if (bestClient && bestScore >= 40) {
+        if (!salesByClientId.has(bestClient.id)) {
+          salesByClientId.set(bestClient.id, []);
+        }
+        salesByClientId.get(bestClient.id).push(saleObj);
+      }
+    }
+    const trackingData = clientData.map((c) => {
+      const clientSales = salesByClientId.get(c.id) || [];
+      const activeSales = clientSales.filter((s) => s.status !== "cancelled");
+      let avgFrequencyDays = 0;
+      let daysSinceLastPurchase = 0;
+      let firstPurchaseDate = null;
+      let lastPurchaseDate = null;
+      if (activeSales.length > 0) {
+        firstPurchaseDate = activeSales[0].date;
+        lastPurchaseDate = activeSales[activeSales.length - 1].date;
+        if (activeSales.length > 1) {
+          const first = new Date(firstPurchaseDate).getTime();
+          const last = new Date(lastPurchaseDate).getTime();
+          const totalDays = (last - first) / (1e3 * 60 * 60 * 24);
+          avgFrequencyDays = Math.round(totalDays / (activeSales.length - 1));
+        }
+        daysSinceLastPurchase = Math.round(
+          (Date.now() - new Date(lastPurchaseDate).getTime()) / (1e3 * 60 * 60 * 24)
+        );
+      }
+      const totalRevenue = activeSales.reduce((sum, s) => sum + s.totalAmount, 0);
+      const uniqueSellers = [...new Set(activeSales.map((s) => s.sellerId))];
+      return {
+        id: c.id,
+        name: c.name,
+        companyName: c.companyName,
+        nit: c.nit,
+        phone: c.phone,
+        address: c.address,
+        latitude: c.latitude ? parseFloat(c.latitude) : null,
+        longitude: c.longitude ? parseFloat(c.longitude) : null,
+        locationAddress: c.locationAddress,
+        sellerId: c.sellerId,
+        sellerName: c.seller_name || c.sellerId || "Sin asignar",
+        clientCode: c.clientCode,
+        geotaggedAt: c.geotaggedAt,
+        createdAt: c.createdAt,
+        lastVisitAt: c.lastVisitAt,
+        // Sales analytics
+        totalSales: activeSales.length,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        firstPurchaseDate,
+        lastPurchaseDate,
+        avgFrequencyDays,
+        daysSinceLastPurchase,
+        uniqueSellers,
+        sales: clientSales
+        // includes cancelled for full audit trail
+      };
+    });
+    res.json({
+      clients: trackingData,
+      sellers: sellersRows,
+      totalClients: trackingData.length,
+      totalWithSales: trackingData.filter((c) => c.totalSales > 0).length,
+      totalGeolocated: trackingData.filter((c) => c.latitude && c.longitude).length,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  } catch (err) {
+    console.error("[Admin Client Sales Tracking Error]", err.message);
+    res.status(500).json({ error: "Error al obtener datos de seguimiento de clientes", details: err.message });
+  }
+}));
+app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { latitude, longitude, locationAddress } = req.body;
+  const user = req.user;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    await queryNeon(`
+      UPDATE public.clients
+      SET latitude = $1,
+          longitude = $2,
+          "locationAddress" = $3,
+          "geotaggedAt" = $4,
+          "geotaggedBy" = $5
+      WHERE id = $6
+    `, [latitude, longitude, locationAddress || null, nowIso, user.name || user.email || user.id, id]);
+  } catch (e) {
+    console.warn("[Update Location Warning Neon]", e.message);
+  }
+  try {
+    await localDb.from("clients").update({
+      latitude,
+      longitude,
+      locationAddress: locationAddress || null,
+      geotaggedAt: nowIso,
+      geotaggedBy: user.name || user.email || user.id
+    }).eq("id", id);
+  } catch (e) {
+  }
+  res.json({
+    success: true,
+    client: {
+      id,
+      latitude,
+      longitude,
+      locationAddress,
+      geotaggedAt: nowIso,
+      geotaggedBy: user.name || user.email
+    }
+  });
+}));
+app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  try {
+    await queryNeon(`
+      UPDATE public.clients
+      SET latitude = NULL,
+          longitude = NULL,
+          "locationAddress" = NULL,
+          "geotaggedAt" = NULL,
+          "geotaggedBy" = NULL
+      WHERE id = $1
+    `, [id]);
+  } catch (e) {
+  }
+  try {
+    await localDb.from("clients").update({
+      latitude: null,
+      longitude: null,
+      locationAddress: null,
+      geotaggedAt: null,
+      geotaggedBy: null
+    }).eq("id", id);
+  } catch (e) {
+  }
+  res.json({ success: true });
+}));
+app.get("/api/system/maintenance", asyncHandler(async (req, res) => {
+  const isMaint = await getGlobalMaintenanceMode();
+  res.json({
+    maintenance: isMaint,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}));
+app.post("/api/admin/maintenance", requireAuth, asyncHandler(async (req, res) => {
+  const user = req.user;
+  const isSuperAdmin = user?.email?.toLowerCase() === "seseffff942@gmail.com" || user?.role === "admin";
+  if (!isSuperAdmin) {
+    return res.status(403).json({ error: "Solo el administrador puede cambiar el modo mantenimiento global." });
+  }
+  const { enabled } = req.body;
+  const nextVal = !!enabled;
+  await setGlobalMaintenanceMode(nextVal);
+  res.json({
+    success: true,
+    maintenance: nextVal,
+    message: nextVal ? "Modo mantenimiento activado globalmente en todos los dispositivos y tel\xE9fonos." : "Modo mantenimiento desactivado globalmente."
+  });
 }));
 app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req, res) => {
   const { invoiceId, items, client, sellerId } = req.body;
@@ -2613,9 +2899,38 @@ async function fetchPaymentsFromLocalDb(invoiceId) {
   }
   return [];
 }
+function isClientOfSeller(client, user) {
+  if (!client || !user) return false;
+  if (user.role === "admin") return true;
+  const uId = String(user.id || "").trim().toLowerCase();
+  const uEmail = String(user.email || "").trim().toLowerCase();
+  const uName = String(user.name || "").trim().toLowerCase();
+  const uCode = String(user.sellerCode || "").trim().toLowerCase();
+  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || "").trim().toLowerCase();
+  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || "").trim().toLowerCase();
+  const cSellerEmail = String(client.sellerEmail || client.seller_email || "").trim().toLowerCase();
+  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
+  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
+  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+  if (uName) {
+    if (cSellerId === uName || cGeotaggedBy === uName) return true;
+    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
+    const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
+    const firstName = normUName.split(" ")[0];
+    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+  }
+  return false;
+}
 app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
+  const userRole = req.user?.role;
   const cached = getCachedData("clients");
   if (cached) {
+    if (userRole === "seller") {
+      return res.json(cached.filter((c) => isClientOfSeller(c, req.user)));
+    }
     return res.json(cached);
   }
   const deletedKeys = getDeletedClientKeys();
@@ -2771,6 +3086,9 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   const finalClients = deduplicateClients(mergedList.filter((c) => !isClientDeleted(c, deletedKeys)));
   saveLocalClients(finalClients);
   setCachedData("clients", finalClients);
+  if (userRole === "seller") {
+    return res.json(finalClients.filter((c) => isClientOfSeller(c, req.user)));
+  }
   res.json(finalClients);
 }));
 app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
@@ -2810,6 +3128,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, void 0, false);
+  const effectiveSellerId = req.user?.role === "seller" ? req.user.email || req.user.id : sellerId || req.user?.email || "";
+  const effectiveGeotaggedBy = req.user?.name || req.user?.email || "";
   if (matchedClient) {
     console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
     const updates = {};
@@ -2818,7 +3138,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     if (!matchedClient.address && address) updates.address = address;
     if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
     const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-    if (!currentSeller && sellerId) updates.sellerId = sellerId;
+    if (!currentSeller) updates.sellerId = effectiveSellerId;
     if (Object.keys(updates).length > 0) {
       updateLocalClient(matchedClient.id, updates);
       try {
@@ -2833,7 +3153,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: matchedClient.nit || nit || "",
         phone: matchedClient.phone || phone || "",
         address: matchedClient.address || address || "",
-        sellerId: currentSeller || sellerId || req.user.email
+        sellerId: currentSeller || effectiveSellerId
       }
     });
   }
@@ -2847,7 +3167,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
       nit: nit || deletedMatch.nit || "",
       phone: phone || deletedMatch.phone || "",
       address: address || deletedMatch.address || "",
-      sellerId: sellerId || deletedMatch.sellerId || req.user.email,
+      sellerId: req.user?.role === "seller" ? req.user.email || req.user.id : sellerId || deletedMatch.sellerId || req.user.email,
       isDeleted: false,
       is_deleted: false,
       isBlocked: false,
@@ -2861,7 +3181,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: nit || deletedMatch.nit || "",
         phone: phone || deletedMatch.phone || "",
         address: address || deletedMatch.address || "",
-        seller_id: sellerId || deletedMatch.sellerId || req.user.email
+        seller_id: reactivatedPayload.sellerId
       }).eq("id", deletedMatch.id);
     } catch (e) {
     }
@@ -2877,7 +3197,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   }
   const clientData = {
     id: id || `CLI-${Date.now()}`,
-    sellerId: sellerId || req.user.email,
+    sellerId: effectiveSellerId,
+    geotaggedBy: effectiveGeotaggedBy,
     name: nameToSave,
     companyName: companyToSave,
     nit: nit || "",
@@ -2904,7 +3225,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
   if (nit !== void 0) updates.nit = nit;
   if (phone !== void 0) updates.phone = phone;
   if (address !== void 0) updates.address = address;
-  if (sellerId !== void 0) updates.sellerId = sellerId;
+  if (sellerId !== void 0 && req.user?.role !== "seller") updates.sellerId = sellerId;
   if (clientCode !== void 0) updates.clientCode = clientCode;
   if (isBlocked !== void 0) updates.isBlocked = isBlocked;
   updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
@@ -5290,7 +5611,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req, res) => {
   }
   res.json({
     location: config.location,
-    isSilentModeActive: !!config.isSilentModeActive,
+    isSilentModeActive: req.user?.role === "seller" ? false : !!config.isSilentModeActive,
     logoUrl: config.logoUrl || "/agricovet.png",
     signatureUrl: config.signatureUrl || ""
   });
@@ -9010,10 +9331,13 @@ export {
   server_default as default,
   fetchGlobalDbModeFromDb,
   getGlobalDbMode,
+  getGlobalMaintenanceMode,
+  isClientOfSeller,
   isNeonActive,
   localDb,
   neonPool,
   persistGlobalDbMode,
   queryNeon,
-  setGlobalDbMode
+  setGlobalDbMode,
+  setGlobalMaintenanceMode
 };

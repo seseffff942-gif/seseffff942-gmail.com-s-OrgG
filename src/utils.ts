@@ -22,6 +22,44 @@ export function normalizeSearchText(str: string | undefined | null): string {
     .trim();
 }
 
+export function isClientOfSeller(
+  client: any,
+  user: { id?: string; email?: string; name?: string; sellerCode?: string; role?: string } | null | undefined
+): boolean {
+  if (!client || !user) return false;
+  if (user.role === 'admin') return true;
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+  const uCode = String(user.sellerCode || '').trim().toLowerCase();
+
+  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || '').trim().toLowerCase();
+  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || '').trim().toLowerCase();
+  const cSellerEmail = String(client.sellerEmail || client.seller_email || '').trim().toLowerCase();
+
+  // 1. Coincidencia directa por ID, Email o Código de vendedor
+  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
+  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
+  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+
+  // 2. Coincidencia por Nombre de Asesor (con normalización de tildes y nombres compuestos)
+  if (uName) {
+    if (cSellerId === uName || cGeotaggedBy === uName) return true;
+    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
+
+    const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
+
+    const firstName = normUName.split(' ')[0];
+    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+  }
+
+  return false;
+}
+
 export function getGuatemalaTodayIso(): string {
   // Guatemala is UTC-6
   const now = new Date();

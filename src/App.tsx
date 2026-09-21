@@ -274,6 +274,8 @@ export default function App() {
   }, []);
 
   const handleLogin = (loggedInUser: User, selectedDevice: 'desktop' | 'phone') => {
+    clearApiCache();
+    localStorage.removeItem('offline_clients');
     setUser(loggedInUser);
     setDevice(selectedDevice);
     localStorage.setItem('app_user', JSON.stringify(loggedInUser));
@@ -282,6 +284,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    clearApiCache();
+    localStorage.removeItem('offline_clients');
     setUser(null);
     localStorage.removeItem('app_user');
     localStorage.removeItem('app_device');
