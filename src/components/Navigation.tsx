@@ -1087,6 +1087,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     if (item.id === 'quotations') {
       return isQuotationAdmin;
     }
+    if (item.id === 'client-tracking') {
+      return activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com';
+    }
     return item.roles.includes(activeUser.role);
   });
 

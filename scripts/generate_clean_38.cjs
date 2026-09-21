@@ -1,0 +1,472 @@
+const fs = require('fs');
+
+const data = [
+  {
+    id: 1,
+    nombre: "Hector Mendoza",
+    lugar: "El Remate",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin compras registradas en el periodo. Evaluar vinculación con Agroveterinaria La Mascota."
+  },
+  {
+    id: 2,
+    nombre: "Eider Guerra (Elder)",
+    lugar: "El Zapote / Ixlu",
+    periodo: "Enero / Feb",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin historial de facturación en Ixlú/El Zapote. Requiere visita comercial de prospección."
+  },
+  {
+    id: 3,
+    nombre: "Marlon Garrido (Mailon)",
+    lugar: "El Caoba",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 4695.25,
+    folios: "918, 1035",
+    vendedor: "Erick Juárez",
+    diagnostico: "Atención comercial efectiva bajo razón social Agroveterinaria El Sembrador en El Caoba."
+  },
+  {
+    id: 4,
+    nombre: "Cesar Lopez",
+    lugar: "San Benito",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 9006.80,
+    folios: "888, 1010, 1140",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cuenta activa con recompras consistentes (Agroveterinaria El Amigo / César López)."
+  },
+  {
+    id: 5,
+    nombre: "Iris Reyes",
+    lugar: "Santa Elena",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 12307.00,
+    folios: "1032, 1048",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cuenta de alto volumen atendida oportunamente (Agroveterinaria Alexa / Iris Reyes)."
+  },
+  {
+    id: 6,
+    nombre: "Wilman Chonay",
+    lugar: "Dolores",
+    periodo: "Enero / Feb / Mar",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 5987.00,
+    folios: "824, 960, 1097",
+    vendedor: "Erick Juárez",
+    diagnostico: "Seguimiento recurrente confirmado mes a mes (Agropecuaria Chonay)."
+  },
+  {
+    id: 7,
+    nombre: "Lidia Felipe Rashel",
+    lugar: "Dolores (Calzada Mopán)",
+    periodo: "Enero / Mar",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 3877.45,
+    folios: "881, 935, 1056",
+    vendedor: "Erick Juárez",
+    diagnostico: "Registra pedidos periódicos despachados por Erick Juárez en Calzada Mopán."
+  },
+  {
+    id: 8,
+    nombre: "Luis Espina",
+    lugar: "Poptun",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin órdenes generadas. Programar visita prioritaria en la ruta de Poptún."
+  },
+  {
+    id: 9,
+    nombre: "Geovany Hernandez",
+    lugar: "Santa Elena",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 5715.00,
+    folios: "820",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta documentada exitosamente (Agroventas El Cordero)."
+  },
+  {
+    id: 10,
+    nombre: "Erick Hernandez",
+    lugar: "Ixlu",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 2581.35,
+    folios: "1037, 1093",
+    vendedor: "Erick Juárez",
+    diagnostico: "Atención comercial al día con pedidos registrados bajo Efinagro."
+  },
+  {
+    id: 11,
+    nombre: "Fredy Vicente",
+    lugar: "Santa Ana",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 18640.20,
+    folios: "814, 1063, 1132",
+    vendedor: "Erick Juárez",
+    diagnostico: "Uno de los clientes clave de la ruta con excelente nivel de facturación."
+  },
+  {
+    id: 12,
+    nombre: "Hever Tello (Eber Bello)",
+    lugar: "San Francisco",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 3150.00,
+    folios: "1053",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta efectiva registrada en San Francisco Petén."
+  },
+  {
+    id: 13,
+    nombre: "Rony Vicente",
+    lugar: "Santa Elena",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 4,
+    totalErick: 19205.00,
+    folios: "821, 1071, 1072, 1079",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cliente preferencial de alto rendimiento comercial (Agros. El Sembrador Santa Elena)."
+  },
+  {
+    id: 14,
+    nombre: "Leonidas Giron",
+    lugar: "Mopan Dolores",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin compras registradas desde el folio 809. Requiere visita de reactivación."
+  },
+  {
+    id: 15,
+    nombre: "Eliel Betancourt",
+    lugar: "Sayaxche / Chacte",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 6,
+    totalErick: 6493.50,
+    folios: "809, 813, 862, 966, 980, 1098",
+    vendedor: "Erick Juárez",
+    diagnostico: "Excelente seguimiento y alta fidelización comercial (Agroveterinaria La Cumbre)."
+  },
+  {
+    id: 16,
+    nombre: "Israel España (Angel España)",
+    lugar: "El Chal",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 5895.50,
+    folios: "817, 1077",
+    vendedor: "Erick Juárez",
+    diagnostico: "Atención comercial constante y pedidos activos (Agro El Chal)."
+  },
+  {
+    id: 17,
+    nombre: "Walter Molina",
+    lugar: "El Chal",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin órdenes de compra registradas. Programar visita en el próximo itinerario de El Chal."
+  },
+  {
+    id: 18,
+    nombre: "Hugo Sutuj",
+    lugar: "El Chal",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 6,
+    totalErick: 11768.50,
+    folios: "815, 823, 924, 1070, 1105, 1112",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cliente estratégico con 6 pedidos recurrentes atendidos por Erick (Agro El Corral)."
+  },
+  {
+    id: 19,
+    nombre: "Hary Campos",
+    lugar: "El Chal",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 1706.50,
+    folios: "1085",
+    vendedor: "Erick Juárez",
+    diagnostico: "Seguimiento efectivo confirmado en Agroveterinaria El Rejo en El Chal."
+  },
+  {
+    id: 20,
+    nombre: "Ervin Hernandez",
+    lugar: "Sacpuy San Andres",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 1456.00,
+    folios: "1024",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta efectiva documentada (Agroveterinaria El Futuro H2O / Erlin Hernández)."
+  },
+  {
+    id: 21,
+    nombre: "Ermides Recinos",
+    lugar: "El Naranjo La Libertad",
+    periodo: "Enero",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 3168.00,
+    folios: "901, 1012",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cobertura exitosa en zona fronteriza (Agro. Norte en El Naranjo)."
+  },
+  {
+    id: 22,
+    nombre: "Sherlina Marroquin",
+    lugar: "Santa Ana",
+    periodo: "Enero / Feb",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 4393.00,
+    folios: "825, 1135",
+    vendedor: "Erick Juárez",
+    diagnostico: "Recompras verificadas y activas en Agro. Sherlina en Santa Ana."
+  },
+  {
+    id: 23,
+    nombre: "Eber de Leon",
+    lugar: "Las Cruces Peten",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin órdenes registradas en Las Cruces. Agendar visita técnica comercial."
+  },
+  {
+    id: 24,
+    nombre: "Jose Elias Polanco",
+    lugar: "San Luis",
+    periodo: "Enero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin ventas en el periodo auditado. Validar existencia de punto de venta en San Luis."
+  },
+  {
+    id: 25,
+    nombre: "Cesar Noyola",
+    lugar: "Aldea La Maquina",
+    periodo: "Febrero",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 1704.00,
+    folios: "914",
+    vendedor: "Erick Juárez",
+    diagnostico: "Atención comercial concretada en Agroveterinaria La Cosecha (Aldea La Máquina)."
+  },
+  {
+    id: 26,
+    nombre: "Brenda Duarte",
+    lugar: "Cruce dos Aguadas San Andres",
+    periodo: "Febrero",
+    estado: "ACTIVO",
+    facturasErick: 6,
+    totalErick: 10269.00,
+    folios: "928, 961, 977, 1044, 1099, 1114",
+    vendedor: "Erick Juárez",
+    diagnostico: "Alto nivel de recompra y seguimiento constante (Agroveterinaria Los 3 Hermanos)."
+  },
+  {
+    id: 27,
+    nombre: "Eliberto Cortez (Wilder Cortez)",
+    lugar: "Sacpuy San Andres",
+    periodo: "Febrero",
+    estado: "ACTIVO",
+    facturasErick: 4,
+    totalErick: 15031.50,
+    folios: "842, 927, 1120, 1121",
+    vendedor: "Erick Juárez",
+    diagnostico: "Cuenta prioritaria con excelente facturación (Agroveterinaria El Éxito Sacpuy)."
+  },
+  {
+    id: 28,
+    nombre: "Jose Alejandro Ordoñez",
+    lugar: "San Luis",
+    periodo: "Febrero",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 2340.00,
+    folios: "985",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta efectiva confirmada en Comercializadora y Agro. El Agricultor en San Luis."
+  },
+  {
+    id: 29,
+    nombre: "Wilder Lemus",
+    lugar: "Poptun",
+    periodo: "Febrero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin registro de ventas en Poptún. Requiere contacto para prospección."
+  },
+  {
+    id: 30,
+    nombre: "David de Jesus",
+    lugar: "San Luis Peten",
+    periodo: "Febrero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin transacciones registradas en San Luis Petén."
+  },
+  {
+    id: 31,
+    nombre: "Fernando Valdez",
+    lugar: "San Luis",
+    periodo: "Febrero / Mar",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin registro de compra en los periodos de Febrero y Marzo. Programar visita."
+  },
+  {
+    id: 32,
+    nombre: "Mildred Salazar",
+    lugar: "La Libertad",
+    periodo: "Febrero",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin órdenes de compra registradas en La Libertad."
+  },
+  {
+    id: 33,
+    nombre: "Noe Garcia",
+    lugar: "El Chal",
+    periodo: "Febrero",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 3334.50,
+    folios: "899, 1031, 1049",
+    vendedor: "Erick Juárez",
+    diagnostico: "Recompras consecutivas atendidas por Erick (Agropecuaria Santa Elena / El Chal)."
+  },
+  {
+    id: 34,
+    nombre: "Elio Arreaza",
+    lugar: "Poptun",
+    periodo: "Marzo",
+    estado: "ACTIVO",
+    facturasErick: 3,
+    totalErick: 6654.00,
+    folios: "827, 972, 1101",
+    vendedor: "Erick Juárez",
+    diagnostico: "Excelente seguimiento y relación comercial continua (Agro. El Potro en Poptún)."
+  },
+  {
+    id: 35,
+    nombre: "Sara Ipiña",
+    lugar: "Chacalte San Luis",
+    periodo: "Marzo",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 1158.00,
+    folios: "868",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta efectiva registrada bajo Ferroagro Morales / Sara Ipiña en Chacalté."
+  },
+  {
+    id: 36,
+    nombre: "Edwin Hernandez",
+    lugar: "San Luis Peten",
+    periodo: "Marzo",
+    estado: "PENDIENTE",
+    facturasErick: 0,
+    totalErick: 0.0,
+    folios: "Sin compras",
+    vendedor: "Por coordinar",
+    diagnostico: "Sin compras registradas a la fecha en San Luis Petén."
+  },
+  {
+    id: 37,
+    nombre: "Luis Carranza",
+    lugar: "Dolores",
+    periodo: "Marzo",
+    estado: "ACTIVO",
+    facturasErick: 1,
+    totalErick: 2955.00,
+    folios: "822",
+    vendedor: "Erick Juárez",
+    diagnostico: "Venta directa concretada en Agroveterinaria El Ganadero en Dolores."
+  },
+  {
+    id: 38,
+    nombre: "Edwin Lopez",
+    lugar: "Sabaneta Dolores",
+    periodo: "Marzo",
+    estado: "ACTIVO",
+    facturasErick: 2,
+    totalErick: 3405.00,
+    folios: "855, 872",
+    vendedor: "Erick Juárez",
+    diagnostico: "Dos compras registradas con éxito (Agrocomercializadora El Campesino Sabanetas)."
+  }
+];
+
+fs.writeFileSync('scripts/clean_master_audit_38.json', JSON.stringify(data, null, 2), 'utf-8');
+console.log('✅ clean_master_audit_38.json generado con los 38 clientes exactamente depurados.');
+
+const activos = data.filter(x => x.estado === 'ACTIVO');
+const pendientes = data.filter(x => x.estado === 'PENDIENTE');
+const totalQ = data.reduce((a, b) => a + b.totalErick, 0);
+
+console.log(`Total Clientes: ${data.length}`);
+console.log(`Activos con Venta: ${activos.length} (${((activos.length / data.length) * 100).toFixed(1)}%)`);
+console.log(`Pendientes de Visita: ${pendientes.length} (${((pendientes.length / data.length) * 100).toFixed(1)}%)`);
+console.log(`Total Facturado por Erick: Q${totalQ.toLocaleString('es-GT', { minimumFractionDigits: 2 })}`);

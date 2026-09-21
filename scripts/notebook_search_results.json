@@ -1,0 +1,1017 @@
+[
+  {
+    "item": {
+      "id": 1,
+      "name": "Hector Mendoza",
+      "place": "El Remate",
+      "searchPatterns": [
+        "hector mendoza",
+        "mendoza",
+        "hector"
+      ]
+    },
+    "invoices": [],
+    "clients": []
+  },
+  {
+    "item": {
+      "id": 2,
+      "name": "Eider Guerra",
+      "place": "El Zapote / Ixlu",
+      "searchPatterns": [
+        "eider guerra",
+        "eider",
+        "eyder"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1784386903512-7477",
+        "folio": "934",
+        "clientName": "ABNER GUERRA - Detailing la bendición",
+        "date": "2026-07-18T15:01:43.512Z",
+        "totalAmount": "125",
+        "sellerId": "limalopez22@gmail.com",
+        "status": "paid",
+        "seller_name": "Sergio Misael Lima Lopez ",
+        "seller_email": "limalopez22@gmail.com"
+      },
+      {
+        "id": "INV-1785260493084-5408",
+        "folio": "964",
+        "clientName": "Christian Guerra - Agropecuaria Eco Pollo",
+        "date": "2026-07-28T17:41:33.084Z",
+        "totalAmount": "1143",
+        "sellerId": "gruasytransportesali@gmail.com",
+        "status": "pending",
+        "seller_name": "Herbert Argueta",
+        "seller_email": "gruasytransportesali@gmail.com"
+      },
+      {
+        "id": "INV-1786993161811-4795",
+        "folio": "1044",
+        "clientName": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+        "date": "2026-08-17T18:00:00.000Z",
+        "totalAmount": "4087",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787759901914-9950",
+        "folio": "1090",
+        "clientName": "GUERRA LÓPEZ CHRISTIAN ELÍ - Agropecuaria Eco Pollo",
+        "date": "2026-08-26T15:58:23.038Z",
+        "totalAmount": "1002",
+        "sellerId": "Herbert Argueta (Tú)",
+        "status": "pending",
+        "seller_name": null,
+        "seller_email": null
+      },
+      {
+        "id": "INV-1787839566947-3112",
+        "folio": "1099",
+        "clientName": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+        "date": "2026-08-27T14:06:08.122Z",
+        "totalAmount": "3735",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1785260488785",
+        "name": "GUERRA LÓPEZ CHRISTIAN ELÍ",
+        "companyName": "Agropecuaria Eco Pollo",
+        "phone": "41772443",
+        "address": "9a calle entre 5a y 6a Av frente a Mundo plástico, Puerto Barrios Izabal",
+        "sellerId": "Herbert Argueta (Tú)",
+        "seller_name": null
+      },
+      {
+        "id": "CLI-1784313128327",
+        "name": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ",
+        "companyName": "Agroveterinaria los 3 hermanos",
+        "phone": "3267-5258",
+        "address": "Aldea cruce dos aguadas san Andrés Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1784386897471",
+        "name": "ABNER GUERRA",
+        "companyName": "Detailing la bendición",
+        "phone": "5718-1055",
+        "address": "Aldea Buenos Aires, Livingston Izabal, detailing la bendición",
+        "sellerId": "limalopez22@gmail.com",
+        "seller_name": "Sergio Misael Lima Lopez "
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 3,
+      "name": "Mailon Garrido",
+      "place": "El Caoba",
+      "searchPatterns": [
+        "mailon garrido",
+        "marlon garrido",
+        "garrido",
+        "mailon",
+        "marlon"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1784157786688-596",
+        "folio": "918",
+        "clientName": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "date": "2026-07-15T23:23:06.688Z",
+        "totalAmount": "2243.75",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1786722590986-3229",
+        "folio": "1035",
+        "clientName": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "date": "2026-08-14T18:00:00.000Z",
+        "totalAmount": "2451.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1784157782071",
+        "name": "Marlon Ninrod Garrido Fajardo",
+        "companyName": "Agroveterinaria el Sembrador",
+        "phone": "4016-4026",
+        "address": "Ruta a tikal, aldea el caoba flores peten frente a restaurante Gonzales",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 4,
+      "name": "Cesar Lopez",
+      "place": "San Benito",
+      "searchPatterns": [
+        "cesar lopez",
+        "cesar lópez",
+        "cesar"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1783114534639",
+        "folio": "888",
+        "clientName": "Agroveterinaria el amigo - César López",
+        "date": "2026-07-03T21:35:34.639Z",
+        "totalAmount": "480",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "paid",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1786148769894-9895",
+        "folio": "1010",
+        "clientName": "Agroveterinaria el amigo - César López",
+        "date": "2026-08-08T00:26:10.664Z",
+        "totalAmount": "7230.8",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1788830793444-5551",
+        "folio": "1140",
+        "clientName": "POP LÓPEZ CESAR AMILCAR - AGROVETERINARIA EL AMIGO",
+        "date": "2026-09-08T01:26:34.191Z",
+        "totalAmount": "1296",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1783114522915",
+        "name": "POP LÓPEZ CESAR AMILCAR",
+        "companyName": "AGROVETERINARIA EL AMIGO",
+        "phone": "3019-3334",
+        "address": "Tienda el niño san Benito Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 5,
+      "name": "Iris Reyes",
+      "place": "Santa Elena",
+      "searchPatterns": [
+        "iris reyes",
+        "iris",
+        "alexa"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782923030896",
+        "folio": "828",
+        "clientName": "Iris Reyes - Agroveerinaria Alexa",
+        "date": "2026-06-20T00:00:00.000Z",
+        "totalAmount": "1514.85",
+        "sellerId": "seseffff942@gmail.com",
+        "status": "pending",
+        "seller_name": "Emanuel Lima",
+        "seller_email": "seseffff942@gmail.com"
+      },
+      {
+        "id": "INV-1786661958810-2410",
+        "folio": "1032",
+        "clientName": "REYES GARCÍA GONZALES IRIS ADELA - Agroveterinaria Alexa",
+        "date": "2026-08-13T22:59:19.708Z",
+        "totalAmount": "8740",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787004327205-8433",
+        "folio": "1048",
+        "clientName": "JUNIOR ALEXANDER ORTÍZ REVOLORIO - Agroveterinaria el granjero",
+        "date": "2026-08-17T22:05:27.841Z",
+        "totalAmount": "3567",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781976681781",
+        "name": "REYES GARCÍA GONZALES IRIS ADELA",
+        "companyName": "Agroveterinaria Alexa",
+        "phone": "59276477",
+        "address": "Santa Elena Peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1783098863562",
+        "name": "JUNIOR ALEXANDER ORTÍZ REVOLORIO",
+        "companyName": "Agroveterinaria el granjero",
+        "phone": "45856773",
+        "address": "Aldea ixcamune las cruces Petén  a un costado de la iglesia  camino bíblico a dos cuadras  de la calle central",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1782497492721",
+        "name": "PINTO JUÁREZ ALEXANDER BERNABE",
+        "companyName": "Agro. Pedro Pablo",
+        "phone": "5945-0390",
+        "address": "Calle principal frente a gasolinera La Paz san Fransisco Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1783106656488",
+        "name": "VALLE BALCOT CIRIACO",
+        "companyName": "Agroveterinaria el Agricultor #1/Susana del Valle",
+        "phone": "5151-4441",
+        "address": "Zona 1 calle principal Ixcan playa grande el quiché frente a librería arcoíris",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 6,
+      "name": "Wilman Chonay",
+      "place": "Dolores",
+      "searchPatterns": [
+        "wilman chonay",
+        "walman chonay",
+        "chonay"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782765750749",
+        "folio": "824",
+        "clientName": "Wilman Chonay - Agro Chonay",
+        "date": "2026-06-18T00:00:00.000Z",
+        "totalAmount": "1032",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "paid",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1785211401754-3898",
+        "folio": "960",
+        "clientName": "Wilman Chonay - Agro Chonay",
+        "date": "2026-07-27T17:00:00.000Z",
+        "totalAmount": "2851.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787781427982-8490",
+        "folio": "1097",
+        "clientName": "CHONAY SAMOL WILMAN - Agropecuaria Chonay",
+        "date": "2026-08-26T18:00:00.000Z",
+        "totalAmount": "2103.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781833437725",
+        "name": "Wilman Chonay",
+        "companyName": "Agro Chonay",
+        "phone": "55994224",
+        "address": "Barrio el centro, calle de la iglesia nazareno, frente a iglesia nazareno dolores Petén ",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1785182567158",
+        "name": "CHONAY SAMOL WILMAN",
+        "companyName": "Agropecuaria Chonay",
+        "phone": "5599-4224",
+        "address": "Barrio el centro frente a iglesia nazareno, Dolores Petén",
+        "sellerId": "Erick Juarez (Vendedor)",
+        "seller_name": null
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 7,
+      "name": "Lidia Felipe Rashel",
+      "place": "Dolores calzada Mopan",
+      "searchPatterns": [
+        "lidia felipe",
+        "rashel",
+        "rachel",
+        "lidia",
+        "felipe"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1783096985871",
+        "folio": "881",
+        "clientName": "Felipe Contreras - Agropecuaria Mardoqueo",
+        "date": "2026-07-03T16:43:05.871Z",
+        "totalAmount": "1333.6999999999998",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1784577225597-628",
+        "folio": "935",
+        "clientName": "Felipe Tuch - Agroveterinaria san Cristóbal",
+        "date": "2026-07-20T19:53:45.597Z",
+        "totalAmount": "675",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787164732569-7341",
+        "folio": "1056",
+        "clientName": "Felipe Tuch - Agroveterinaria san Cristóbal",
+        "date": "2026-08-19T18:38:53.508Z",
+        "totalAmount": "1868.75",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1783096977485",
+        "name": "CONTRERAS CANTÍ FELIPE MARDOQUEO",
+        "companyName": "Agropecuaria Mardoqueo",
+        "phone": "4694-7281",
+        "address": "Calle principal en medio de gasolinera puma y gasolinera shel Chaal alta Verapaz",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1784577220142",
+        "name": "Felipe Tuch",
+        "companyName": "Agroveterinaria san Cristóbal",
+        "phone": "50003283",
+        "address": "Barrio buena vista, frente al monumento la libertad Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 8,
+      "name": "Luis Espina",
+      "place": "Poptun",
+      "searchPatterns": [
+        "luis espina",
+        "espina"
+      ]
+    },
+    "invoices": [],
+    "clients": []
+  },
+  {
+    "item": {
+      "id": 9,
+      "name": "Geovany Hernandez",
+      "place": "Santa Elena",
+      "searchPatterns": [
+        "geovany hernandez",
+        "geovani hernández",
+        "geovani",
+        "geovany",
+        "cordero"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782764458902",
+        "folio": "820",
+        "clientName": "Geovani Hernández - Agrovtas. El cordero",
+        "date": "2026-06-17T00:00:00.000Z",
+        "totalAmount": "5715",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1783692175602",
+        "folio": "899",
+        "clientName": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "date": "2026-07-10T14:02:55.602Z",
+        "totalAmount": "1791",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1786656555457-5425",
+        "folio": "1031",
+        "clientName": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "date": "2026-08-13T21:29:15.957Z",
+        "totalAmount": "787.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787068716062-2463",
+        "folio": "1049",
+        "clientName": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "date": "2026-08-18T15:58:37.140Z",
+        "totalAmount": "756",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781834375201",
+        "name": "Geovani Hernandez",
+        "companyName": "Agroventas el cordero",
+        "phone": "59183373",
+        "address": "Santa Elena Peten",
+        "sellerId": "seseffff942@gmail.com",
+        "seller_name": "Emanuel Lima"
+      },
+      {
+        "id": "CLI-1782764448489",
+        "name": "HERNÁNDEZ MEJÍA HECTOR GEOVANY",
+        "companyName": "Agrovtas. El cordero",
+        "phone": "59183373",
+        "address": "Santa Elena peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1783692068747",
+        "name": "Geovany Noe García López",
+        "companyName": "Agropecuaria Santa Elena",
+        "phone": "5783-3528",
+        "address": "Calle principal Santa Elena flores Petén a un costado de agencias Way",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 10,
+      "name": "Erick Hernandez",
+      "place": "Ixlu",
+      "searchPatterns": [
+        "erick hernandez",
+        "erick hernández"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1786737405734-4245",
+        "folio": "1037",
+        "clientName": "Erick Hernández - Efinagro",
+        "date": "2026-08-14T19:56:46.455Z",
+        "totalAmount": "2385.35",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787765610445-1386",
+        "folio": "1093",
+        "clientName": "Erick Hernández - Efinagro",
+        "date": "2026-08-26T17:33:31.701Z",
+        "totalAmount": "196",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1786737399432",
+        "name": "Erick Hernández",
+        "companyName": "Efinagro",
+        "phone": "3307-9580",
+        "address": "Ixlu flores Petén, ruta a Melchor frente a salón comunal",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 11,
+      "name": "Fredy Vicente",
+      "place": "Santa Ana",
+      "searchPatterns": [
+        "fredy vicente",
+        "fredy"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782763940782",
+        "folio": "814",
+        "clientName": "Fredy Vicente - Agroveterinaria Vicente",
+        "date": "2026-06-16T00:00:00.000Z",
+        "totalAmount": "11070.2",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787248459438-5",
+        "folio": "1063",
+        "clientName": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "date": "2026-08-20T18:00:00.000Z",
+        "totalAmount": "6070",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1788792399343-2962",
+        "folio": "1132",
+        "clientName": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "date": "2026-09-07T14:46:41.163Z",
+        "totalAmount": "1500",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781712849091",
+        "name": "VICENTE VICENTE FREDY",
+        "companyName": "Agroveterinaria Vicente",
+        "phone": "30505438",
+        "address": "Calle principal a un costado del parque, Santa Ana peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 12,
+      "name": "Eber Bello",
+      "place": "San Francisco",
+      "searchPatterns": [
+        "eber bello",
+        "bello",
+        "eber"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-1783182739795",
+        "folio": "874",
+        "clientName": "PABLO AROCHE - DISTRIBUIDORA BELLO PROGRESO",
+        "date": "2026-07-02T00:00:00.000Z",
+        "totalAmount": "4501.75",
+        "sellerId": "seseffff942@gmail.com",
+        "status": "pending",
+        "seller_name": "Emanuel Lima",
+        "seller_email": "seseffff942@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1783047642091",
+        "name": "PABLO AROCHE",
+        "companyName": "DISTRIBUIDORA BELLO PROGRESO",
+        "phone": "58140616",
+        "address": "ZONA 0 A UN COSTADO DE JUZGADO DE PAZ, SANSARE EL PROGRESO",
+        "sellerId": "gruasytransportesali@gmail.com",
+        "seller_name": "Herbert Argueta"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 13,
+      "name": "Rony Vicente",
+      "place": "Santa Elena",
+      "searchPatterns": [
+        "rony vicente",
+        "rony"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782764619621",
+        "folio": "821",
+        "clientName": "Rony Vicente - Agros. El sembrador",
+        "date": "2026-06-17T18:00:00.000Z",
+        "totalAmount": "5033",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787267178083-3335",
+        "folio": "1071",
+        "clientName": "VICENTE VICENTE RONY ORLANDO - Agros. El sembrador",
+        "date": "2026-08-20T23:06:19.256Z",
+        "totalAmount": "1440",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "cancelled",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1782764616093",
+        "name": "VICENTE VICENTE RONY ORLANDO",
+        "companyName": "Agros. El sembrador",
+        "phone": "30137229",
+        "address": "3a Av zona, calle de la tranca, santa Elena peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 14,
+      "name": "Leonidas Giron",
+      "place": "Mopan Dolores",
+      "searchPatterns": [
+        "leonidas giron",
+        "leonidas girón",
+        "leonidas"
+      ]
+    },
+    "invoices": [],
+    "clients": [
+      {
+        "id": "CLI-1782321021277",
+        "name": "Oscar Girón",
+        "companyName": "Agronorsa",
+        "phone": "5208-2125",
+        "address": "Barrio nuevo teculutan Zacapa",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 15,
+      "name": "Eliel Betancourt",
+      "place": "Sayaxche Peten",
+      "searchPatterns": [
+        "eliel betancourt",
+        "betancourt",
+        "eliel",
+        "cumbre"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782763330749",
+        "folio": "809",
+        "clientName": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "date": "2026-06-15T00:00:00.000Z",
+        "totalAmount": "1407.25",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-863-1782763725001",
+        "folio": "813",
+        "clientName": "Erick Betancourt - Erick Betancourt",
+        "date": "2026-06-16T00:00:00.000Z",
+        "totalAmount": "476",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "paid",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-863-1782772407816",
+        "folio": "862",
+        "clientName": "David Anselmo Sucup Betancourt - David Anselmo Sucup Betancourt",
+        "date": "2026-06-27T00:00:00.000Z",
+        "totalAmount": "675",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1783391385068",
+        "folio": "887",
+        "clientName": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "date": "2026-07-01T00:00:00.000Z",
+        "totalAmount": "14",
+        "sellerId": "seseffff942@gmail.com",
+        "status": "pending",
+        "seller_name": "Emanuel Lima",
+        "seller_email": "seseffff942@gmail.com"
+      },
+      {
+        "id": "INV-1785267063200-2214",
+        "folio": "966",
+        "clientName": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "date": "2026-07-28T19:31:03.200Z",
+        "totalAmount": "1590.75",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "paid",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1785601934985-2186",
+        "folio": "980",
+        "clientName": "Erick Betancourt - Erick Betancourt",
+        "date": "2026-08-01T16:32:14.985Z",
+        "totalAmount": "450",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787782033297-784",
+        "folio": "1098",
+        "clientName": "BETANCOURTH BARRERA WALFREN ELIEL - Agroveterinaria La cumbre",
+        "date": "2026-08-26T18:00:00.000Z",
+        "totalAmount": "1894.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781710565463",
+        "name": "BETANCOURTH BARRERA WALFREN ELIEL",
+        "companyName": "Agroveterinaria La cumbre",
+        "phone": "40555635",
+        "address": "Aldea la cumbre calle principal chacte San Luis peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1782772396782",
+        "name": "David Anselmo Sucup Betancourt",
+        "companyName": "David Anselmo Sucup Betancourt",
+        "phone": "32867023",
+        "address": "Barrio Morazán fray Bartolomé de las casa",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1781712045914",
+        "name": "Erick Betancourt",
+        "companyName": "Erick Betancourt",
+        "phone": "49057285",
+        "address": "Agroveterinaria el Canche las Posas Sayaxche Peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 16,
+      "name": "Israel España",
+      "place": "El Chal",
+      "searchPatterns": [
+        "israel españa",
+        "angel españa",
+        "españa",
+        "espana",
+        "agro el chal"
+      ]
+    },
+    "invoices": [
+      {
+        "id": "INV-863-1782764262714",
+        "folio": "817",
+        "clientName": "Angel España - Agro El Chal",
+        "date": "2026-06-16T00:00:00.000Z",
+        "totalAmount": "2201",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "paid",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      },
+      {
+        "id": "INV-1787613139669-79",
+        "folio": "1077",
+        "clientName": "Angel España - Agro El Chal",
+        "date": "2026-08-24T23:12:20.623Z",
+        "totalAmount": "3694.5",
+        "sellerId": "jerickottoniel@gmail.com",
+        "status": "pending",
+        "seller_name": "Erick Juárez",
+        "seller_email": "jerickottoniel@gmail.com"
+      }
+    ],
+    "clients": [
+      {
+        "id": "CLI-1781713421265",
+        "name": "SUTUJ CANSINOS HUGO WILFREDO",
+        "companyName": "Agro El Corral",
+        "phone": "31663329",
+        "address": "Calle principal frente a panadería las Delicias, el chal peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1785263343492",
+        "name": "Yoni soza",
+        "companyName": "Agrodespensa El Primo",
+        "phone": "4490-7887",
+        "address": "Calle principal frente a gasolinera texaco el chal Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1782251699717",
+        "name": "CHRISTALLINE COLETTE CASTRO RIVERA",
+        "companyName": "Agro El Esfuerzo 2/Cesar Castro",
+        "phone": "56338120",
+        "address": "Barrio El Mitchal, Morales Izabal",
+        "sellerId": "gruasytransportesali@gmail.com",
+        "seller_name": "Herbert Argueta"
+      },
+      {
+        "id": "CLI-1781713667898",
+        "name": "Angel España",
+        "companyName": "Agro El Chal",
+        "phone": "46565332",
+        "address": "Media cuadra de Banrural, el chal peten",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1787690684994",
+        "name": "Hary Campos",
+        "companyName": "Agroveterinaria El Rejo",
+        "phone": "5776-7910",
+        "address": "Calle principal a un costado de agencias way el chal Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1787696303561",
+        "name": "Junian Carrera",
+        "companyName": "Agroveterinaria El Agrónomo",
+        "phone": "3000-5589",
+        "address": "Agricultores unidos km 11 el chal pete",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1786203608153",
+        "name": "GONZÁLEZ MARTÍNEZ BRENDA NOHEMÍ",
+        "companyName": "AGRO. EL ESFUERZO",
+        "phone": "36614133",
+        "address": "BARRIO EL MITCHAL, MORALES IZABAL",
+        "sellerId": "gruasytransportesali@gmail.com",
+        "seller_name": "Herbert Argueta"
+      },
+      {
+        "id": "CLI-1784668199873",
+        "name": "Jaime Sagastume",
+        "companyName": "Agroveterinaria los amigos",
+        "phone": "53667022",
+        "address": "Calle principal, aldea Los Ángeles, ala par armería cazadores el chal Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1787761114693",
+        "name": "Candelario Veliz",
+        "companyName": "Agroveterinaria Joel",
+        "phone": "4220-9210",
+        "address": "Cooperativa las Flores el chal Petén",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      },
+      {
+        "id": "CLI-1786034498219",
+        "name": "Fernando Martínez",
+        "companyName": "",
+        "phone": "3111-9411",
+        "address": "El chal Petén, a un costado de agrodespensa el primo",
+        "sellerId": "jerickottoniel@gmail.com",
+        "seller_name": "Erick Juárez"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 17,
+      "name": "Walter Molina",
+      "place": "El Chal",
+      "searchPatterns": [
+        "walter molina",
+        "molina"
+      ]
+    },
+    "invoices": [],
+    "clients": []
+  }
+]

@@ -1,0 +1,1394 @@
+[
+  {
+    "id": 1,
+    "nombre": "Hector Mendoza",
+    "lugar": "El Remate",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 2,
+    "nombre": "Eider Guerra (Elder)",
+    "lugar": "El Zapote / Ixlu",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 7574.75,
+    "facturasTotal": 2,
+    "totalGeneral": 20778.75,
+    "folios": "1152",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "930",
+        "fecha": "2026-07-17",
+        "cliente": "Elder Morataya - Agricola San Andrés",
+        "monto": 13204,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1152",
+        "fecha": "2026-09-10",
+        "cliente": "ELDER MORATAYA  - AGRÍCOLA SAN ANDRES ",
+        "monto": 7574.75,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "nombre": "Marlon Garrido (Mailon)",
+    "lugar": "El Caoba",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 4695.25,
+    "facturasTotal": 2,
+    "totalGeneral": 4695.25,
+    "folios": "918, 1035",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "918",
+        "fecha": "2026-07-15",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2243.75,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1035",
+        "fecha": "2026-08-14",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2451.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "nombre": "Cesar Lopez",
+    "lugar": "San Benito",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 9006.8,
+    "facturasTotal": 3,
+    "totalGeneral": 9006.8,
+    "folios": "888, 1010, 1140",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "888",
+        "fecha": "2026-07-03",
+        "cliente": "Agroveterinaria el amigo - César López",
+        "monto": 480,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1010",
+        "fecha": "2026-08-08",
+        "cliente": "Agroveterinaria el amigo - César López",
+        "monto": 7230.8,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1140",
+        "fecha": "2026-09-08",
+        "cliente": "POP LÓPEZ CESAR AMILCAR - AGROVETERINARIA EL AMIGO",
+        "monto": 1296,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "nombre": "Iris Reyes",
+    "lugar": "Santa Elena",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 12307,
+    "facturasTotal": 3,
+    "totalGeneral": 13821.85,
+    "folios": "1032, 1048",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "828",
+        "fecha": "2026-06-20",
+        "cliente": "Iris Reyes - Agroveerinaria Alexa",
+        "monto": 1514.85,
+        "vendedor": "Emanuel Lima",
+        "isErick": false
+      },
+      {
+        "folio": "1032",
+        "fecha": "2026-08-13",
+        "cliente": "REYES GARCÍA GONZALES IRIS ADELA - Agroveterinaria Alexa",
+        "monto": 8740,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1048",
+        "fecha": "2026-08-17",
+        "cliente": "JUNIOR ALEXANDER ORTÍZ REVOLORIO - Agroveterinaria el granjero",
+        "monto": 3567,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "nombre": "Wilman Chonay",
+    "lugar": "Dolores",
+    "periodo": "Enero / Feb / Mar",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 5987,
+    "facturasTotal": 3,
+    "totalGeneral": 5987,
+    "folios": "824, 960, 1097",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "824",
+        "fecha": "2026-06-18",
+        "cliente": "Wilman Chonay - Agro Chonay",
+        "monto": 1032,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "960",
+        "fecha": "2026-07-27",
+        "cliente": "Wilman Chonay - Agro Chonay",
+        "monto": 2851.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1097",
+        "fecha": "2026-08-26",
+        "cliente": "CHONAY SAMOL WILMAN - Agropecuaria Chonay",
+        "monto": 2103.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "nombre": "Lidia Felipe Rashel",
+    "lugar": "Dolores (Calzada Mopán)",
+    "periodo": "Enero / Mar",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 3877.45,
+    "facturasTotal": 3,
+    "totalGeneral": 3877.45,
+    "folios": "881, 935, 1056",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "881",
+        "fecha": "2026-07-03",
+        "cliente": "Felipe Contreras - Agropecuaria Mardoqueo",
+        "monto": 1333.6999999999998,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "935",
+        "fecha": "2026-07-20",
+        "cliente": "Felipe Tuch - Agroveterinaria san Cristóbal",
+        "monto": 675,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1056",
+        "fecha": "2026-08-19",
+        "cliente": "Felipe Tuch - Agroveterinaria san Cristóbal",
+        "monto": 1868.75,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "nombre": "Luis Espina",
+    "lugar": "Poptun",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 9,
+    "nombre": "Geovany Hernandez",
+    "lugar": "Santa Elena",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 4,
+    "totalErick": 9049.5,
+    "facturasTotal": 4,
+    "totalGeneral": 9049.5,
+    "folios": "820, 899, 1031, 1049",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "820",
+        "fecha": "2026-06-17",
+        "cliente": "Geovani Hernández - Agrovtas. El cordero",
+        "monto": 5715,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "899",
+        "fecha": "2026-07-10",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 1791,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1031",
+        "fecha": "2026-08-13",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 787.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1049",
+        "fecha": "2026-08-18",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 756,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "nombre": "Erick Hernandez",
+    "lugar": "Ixlu",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 2581.35,
+    "facturasTotal": 2,
+    "totalGeneral": 2581.35,
+    "folios": "1037, 1093",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "1037",
+        "fecha": "2026-08-14",
+        "cliente": "Erick Hernández - Efinagro",
+        "monto": 2385.35,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1093",
+        "fecha": "2026-08-26",
+        "cliente": "Erick Hernández - Efinagro",
+        "monto": 196,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "nombre": "Fredy Vicente",
+    "lugar": "Santa Ana",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 18640.2,
+    "facturasTotal": 3,
+    "totalGeneral": 18640.2,
+    "folios": "814, 1063, 1132",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "814",
+        "fecha": "2026-06-16",
+        "cliente": "Fredy Vicente - Agroveterinaria Vicente",
+        "monto": 11070.2,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1063",
+        "fecha": "2026-08-20",
+        "cliente": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "monto": 6070,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1132",
+        "fecha": "2026-09-07",
+        "cliente": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "monto": 1500,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "nombre": "Hever Tello (Eber Bello)",
+    "lugar": "San Francisco",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 3150,
+    "facturasTotal": 1,
+    "totalGeneral": 3150,
+    "folios": "1053",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "1053",
+        "fecha": "2026-08-18",
+        "cliente": "Hever Joel Tello Hernández - Agroveterinaria San Francisco",
+        "monto": 3150,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "nombre": "Rony Vicente",
+    "lugar": "Santa Elena",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 10,
+    "totalErick": 30964.75,
+    "facturasTotal": 19,
+    "totalGeneral": 56772.69,
+    "folios": "821, 867, 912, 918, 997, 1035, 1071, 1072, 1079, 1145",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "821",
+        "fecha": "2026-06-17",
+        "cliente": "Rony Vicente - Agros. El sembrador",
+        "monto": 5033,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "867",
+        "fecha": "2026-07-01",
+        "cliente": "Alfonso Bac - Agros. El Sembrador",
+        "monto": 2604,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "912",
+        "fecha": "2026-07-14",
+        "cliente": "Alfonso Bac - Agros. El Sembrador",
+        "monto": 1455,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "918",
+        "fecha": "2026-07-15",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2243.75,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "942",
+        "fecha": "2026-07-22",
+        "cliente": "Julio Cesar Culajay - Agropecuaria El Sembrador",
+        "monto": 1789,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "978",
+        "fecha": "2026-07-31",
+        "cliente": "Juan Carlos Alvizures - Agroservicio El Sembrador",
+        "monto": 7239.5,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "997",
+        "fecha": "2026-08-05",
+        "cliente": "Alfonso Bac - Agros. El Sembrador",
+        "monto": 1713,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1011",
+        "fecha": "2026-08-10",
+        "cliente": "ALVIZURES JOLÓN JUAN CARLOS DE JESÚS - Agroservicio El Sembrador",
+        "monto": 3908.88,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1014",
+        "fecha": "2026-08-10",
+        "cliente": "Francisco Pop - Agroveterinatia El Sembrador",
+        "monto": 3498,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1020",
+        "fecha": "2026-08-11",
+        "cliente": "CULAJAY SANTOS JULIO CESAR - Agropecuaria El Sembrador",
+        "monto": 2337.5,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1021",
+        "fecha": "2026-08-12",
+        "cliente": "CULAJAY SANTOS JULIO CESAR - Agropecuaria El Sembrador",
+        "monto": 2337.5,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1035",
+        "fecha": "2026-08-14",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2451.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1071",
+        "fecha": "2026-08-20",
+        "cliente": "VICENTE VICENTE RONY ORLANDO - Agros. El sembrador",
+        "monto": 1440,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1072",
+        "fecha": "2026-08-21",
+        "cliente": "Andrea villegas - Agrosev. El sembrador",
+        "monto": 2880,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1079",
+        "fecha": "2026-08-24",
+        "cliente": "Andrea villegas - Agrosev. El sembrador",
+        "monto": 9852,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1108",
+        "fecha": "2026-09-02",
+        "cliente": "Martir Perez - Agro El Sembrador",
+        "monto": 779.06,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1111",
+        "fecha": "2026-09-02",
+        "cliente": "Francisco Pop - Agroveterinaria El Sembrador",
+        "monto": 1986,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1145",
+        "fecha": "2026-09-08",
+        "cliente": "Alfonso Bac - Agros. El Sembrador",
+        "monto": 1292.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1147",
+        "fecha": "2026-09-09",
+        "cliente": "Francisco Pop - Agroveterinaria El Sembrador",
+        "monto": 1932.5,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "nombre": "Leonidas Giron",
+    "lugar": "Mopan Dolores",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 15,
+    "nombre": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 6,
+    "totalErick": 6493.5,
+    "facturasTotal": 7,
+    "totalGeneral": 6507.5,
+    "folios": "809, 813, 862, 966, 980, 1098",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "809",
+        "fecha": "2026-06-15",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 1407.25,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "813",
+        "fecha": "2026-06-16",
+        "cliente": "Erick Betancourt - Erick Betancourt",
+        "monto": 476,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "862",
+        "fecha": "2026-06-27",
+        "cliente": "David Anselmo Sucup Betancourt - David Anselmo Sucup Betancourt",
+        "monto": 675,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "887",
+        "fecha": "2026-07-01",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 14,
+        "vendedor": "Emanuel Lima",
+        "isErick": false
+      },
+      {
+        "folio": "966",
+        "fecha": "2026-07-28",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 1590.75,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "980",
+        "fecha": "2026-08-01",
+        "cliente": "Erick Betancourt - Erick Betancourt",
+        "monto": 450,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1098",
+        "fecha": "2026-08-26",
+        "cliente": "BETANCOURTH BARRERA WALFREN ELIEL - Agroveterinaria La cumbre",
+        "monto": 1894.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "nombre": "Israel España (Angel España)",
+    "lugar": "El Chal",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 5895.5,
+    "facturasTotal": 2,
+    "totalGeneral": 5895.5,
+    "folios": "817, 1077",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "817",
+        "fecha": "2026-06-16",
+        "cliente": "Angel España - Agro El Chal",
+        "monto": 2201,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1077",
+        "fecha": "2026-08-24",
+        "cliente": "Angel España - Agro El Chal",
+        "monto": 3694.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "nombre": "Walter Molina",
+    "lugar": "El Chal",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 18,
+    "nombre": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 6,
+    "totalErick": 11768.5,
+    "facturasTotal": 6,
+    "totalGeneral": 11768.5,
+    "folios": "815, 823, 924, 1070, 1105, 1112",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "815",
+        "fecha": "2026-06-16",
+        "cliente": "Hugo Sutuj - Agro El Corral",
+        "monto": 3636.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "823",
+        "fecha": "2026-06-18",
+        "cliente": "Hugo Sutuj - Agro El Corral",
+        "monto": 2658,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "924",
+        "fecha": "2026-07-17",
+        "cliente": "Rosy Calderòn - Agroveterinaria el Corral",
+        "monto": 1378.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1070",
+        "fecha": "2026-08-20",
+        "cliente": "SUTUJ CANSINOS HUGO WILFREDO - Agro El Corral",
+        "monto": 1797,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1105",
+        "fecha": "2026-09-01",
+        "cliente": "Rosy Calderon - Agroveterinaria el Corral",
+        "monto": 621,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1112",
+        "fecha": "2026-09-02",
+        "cliente": "Rosy Calderon - Agroveterinaria el Corral",
+        "monto": 1677.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "nombre": "Hary Campos",
+    "lugar": "El Chal",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 1706.5,
+    "facturasTotal": 1,
+    "totalGeneral": 1706.5,
+    "folios": "1085",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "1085",
+        "fecha": "2026-08-25",
+        "cliente": "Hary Campos - Agroveterinaria El Rejo",
+        "monto": 1706.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "nombre": "Ervin Hernandez",
+    "lugar": "Sacpuy San Andres",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 5849,
+    "facturasTotal": 3,
+    "totalGeneral": 5849,
+    "folios": "825, 1024, 1135",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "825",
+        "fecha": "2026-06-18",
+        "cliente": "SHERLINA MARROQUÍN - Agro. Sherlina",
+        "monto": 2768,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1024",
+        "fecha": "2026-08-12",
+        "cliente": "Erlin Hernández - Agroveterinaria El Futuro H2O",
+        "monto": 1456,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1135",
+        "fecha": "2026-09-07",
+        "cliente": "DÍAZ MARROQUÍN SHERLINA ESTEFANIA - Agro. Sherlina",
+        "monto": 1625,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 21,
+    "nombre": "Ermides Recinos",
+    "lugar": "El Naranjo La Libertad",
+    "periodo": "Enero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 3168,
+    "facturasTotal": 2,
+    "totalGeneral": 3168,
+    "folios": "901, 1012",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "901",
+        "fecha": "2026-07-10",
+        "cliente": "Ermides Gamaliel Recinos Mazariegos - Agronorte",
+        "monto": 1584,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1012",
+        "fecha": "2026-08-10",
+        "cliente": "RECINOS MAZARIEGOS ERMIDES GAMALIEL - Agronorte",
+        "monto": 1584,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "nombre": "Sherlina Marroquin",
+    "lugar": "Santa Ana",
+    "periodo": "Enero / Feb",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 4393,
+    "facturasTotal": 4,
+    "totalGeneral": 10764.4,
+    "folios": "825, 1135",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "825",
+        "fecha": "2026-06-18",
+        "cliente": "SHERLINA MARROQUÍN - Agro. Sherlina",
+        "monto": 2768,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1055",
+        "fecha": "2026-08-19",
+        "cliente": "CASTILLO MARROQUIN ILIANA MARISOL - AGRO. ESMERALDA /Elmer Castillo",
+        "monto": 4921.4,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1135",
+        "fecha": "2026-09-07",
+        "cliente": "DÍAZ MARROQUÍN SHERLINA ESTEFANIA - Agro. Sherlina",
+        "monto": 1625,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1158",
+        "fecha": "2026-09-11",
+        "cliente": "CASTILLO MARROQUIN ILIANA MARISOL - AGRO. ESMERALDA /Elmer Castillo",
+        "monto": 1450,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "nombre": "Eber de Leon",
+    "lugar": "Las Cruces Peten",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 24,
+    "nombre": "Jose Elias Polanco",
+    "lugar": "San Luis",
+    "periodo": "Enero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 25,
+    "nombre": "Cesar Noyola",
+    "lugar": "Aldea La Maquina",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 1704,
+    "facturasTotal": 1,
+    "totalGeneral": 1704,
+    "folios": "914",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "914",
+        "fecha": "2026-07-14",
+        "cliente": "César Noyola - Agroveterinaria la Cosecha",
+        "monto": 1704,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 26,
+    "nombre": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 6,
+    "totalErick": 10269,
+    "facturasTotal": 8,
+    "totalGeneral": 24356.6,
+    "folios": "928, 961, 977, 1044, 1099, 1114",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "928",
+        "fecha": "2026-07-17",
+        "cliente": "Brenda Duarte - Agroveterinaria los 3 hermanos",
+        "monto": 1692,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "961",
+        "fecha": "2026-07-27",
+        "cliente": "José Medrano - Finca los 3 hermanos",
+        "monto": 420,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "977",
+        "fecha": "2026-07-31",
+        "cliente": "José Medrano - Finca los 3 hermanos",
+        "monto": 60,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1044",
+        "fecha": "2026-08-17",
+        "cliente": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+        "monto": 4087,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1064",
+        "fecha": "2026-08-20",
+        "cliente": "Jorge Duarte - DM Agro Inversiones",
+        "monto": 7085.05,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1073",
+        "fecha": "2026-08-21",
+        "cliente": "Jorge Duarte - DM Agro Inversiones",
+        "monto": 7002.55,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1099",
+        "fecha": "2026-08-27",
+        "cliente": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+        "monto": 3735,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1114",
+        "fecha": "2026-09-02",
+        "cliente": "Jose Medrano - Finca los 3 hermanos",
+        "monto": 275,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 27,
+    "nombre": "Eliberto Cortez",
+    "lugar": "Sacpuy San Andres",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 4,
+    "totalErick": 15031.5,
+    "facturasTotal": 4,
+    "totalGeneral": 15031.5,
+    "folios": "842, 927, 1120, 1121",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "842",
+        "fecha": "2026-06-24",
+        "cliente": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+        "monto": 6021,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "927",
+        "fecha": "2026-07-17",
+        "cliente": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+        "monto": 1830,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1120",
+        "fecha": "2026-09-03",
+        "cliente": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+        "monto": 6400.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1121",
+        "fecha": "2026-09-03",
+        "cliente": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+        "monto": 780,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 28,
+    "nombre": "Jose Alejandro Ordoñez",
+    "lugar": "San Luis",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 2340,
+    "facturasTotal": 1,
+    "totalGeneral": 2340,
+    "folios": "985",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "985",
+        "fecha": "2026-08-03",
+        "cliente": "Comerzializadora y Agroveterinaria el Agricultor - Alejandro Ordóñez",
+        "monto": 2340,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 29,
+    "nombre": "Wilder Lemus",
+    "lugar": "Poptun",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 4,
+    "totalErick": 15031.5,
+    "facturasTotal": 5,
+    "totalGeneral": 16126.5,
+    "folios": "842, 927, 1120, 1121",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "842",
+        "fecha": "2026-06-24",
+        "cliente": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+        "monto": 6021,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "865",
+        "fecha": "2026-06-30",
+        "cliente": "Agro servicios rancho escondido - Arístides Lemus",
+        "monto": 1095,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "927",
+        "fecha": "2026-07-17",
+        "cliente": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+        "monto": 1830,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1120",
+        "fecha": "2026-09-03",
+        "cliente": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+        "monto": 6400.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1121",
+        "fecha": "2026-09-03",
+        "cliente": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+        "monto": 780,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 30,
+    "nombre": "David de Jesus",
+    "lugar": "San Luis Peten",
+    "periodo": "Febrero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 31,
+    "nombre": "Fernando Valdez",
+    "lugar": "San Luis",
+    "periodo": "Febrero / Mar",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 32,
+    "nombre": "Mildred Salazar",
+    "lugar": "La Libertad",
+    "periodo": "Febrero",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 33,
+    "nombre": "Noe Garcia",
+    "lugar": "El Chal",
+    "periodo": "Febrero",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 3334.5,
+    "facturasTotal": 3,
+    "totalGeneral": 3334.5,
+    "folios": "899, 1031, 1049",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "899",
+        "fecha": "2026-07-10",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 1791,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1031",
+        "fecha": "2026-08-13",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 787.5,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1049",
+        "fecha": "2026-08-18",
+        "cliente": "Geovany Noe García López - Agropecuaria Santa Elena",
+        "monto": 756,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 34,
+    "nombre": "Elio Arreaza",
+    "lugar": "Poptun",
+    "periodo": "Marzo",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 3,
+    "totalErick": 6654,
+    "facturasTotal": 3,
+    "totalGeneral": 6654,
+    "folios": "827, 972, 1101",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "827",
+        "fecha": "2026-06-19",
+        "cliente": "Elio Arreaza - Agro. El potro",
+        "monto": 2088,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "972",
+        "fecha": "2026-07-30",
+        "cliente": "Elio Misael Arreaza De la Rosa - Agroveterinaria el Potro",
+        "monto": 1566,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "1101",
+        "fecha": "2026-08-28",
+        "cliente": "ARREAZA DE LA ROSA ELIO MISAEL - Agroveterinaria el Potro",
+        "monto": 3000,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 35,
+    "nombre": "Sara Ipiña",
+    "lugar": "Chacalte San Luis",
+    "periodo": "Marzo",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 1,
+    "totalErick": 1158,
+    "facturasTotal": 1,
+    "totalGeneral": 1158,
+    "folios": "868",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "868",
+        "fecha": "2026-07-01",
+        "cliente": "Sara Ipiña - Ferroagro morales",
+        "monto": 1158,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  },
+  {
+    "id": 36,
+    "nombre": "Edwin Hernandez",
+    "lugar": "San Luis Peten",
+    "periodo": "Marzo",
+    "estado": "PENDIENTE DE VISITA",
+    "facturasErick": 0,
+    "totalErick": 0,
+    "facturasTotal": 0,
+    "totalGeneral": 0,
+    "folios": "Sin compras",
+    "vendedor": "Por coordinar",
+    "detalle": []
+  },
+  {
+    "id": 37,
+    "nombre": "Luis Carranza",
+    "lugar": "Dolores",
+    "periodo": "Marzo",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 5597,
+    "facturasTotal": 5,
+    "totalGeneral": 13613.75,
+    "folios": "822, 841",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "822",
+        "fecha": "2026-06-17",
+        "cliente": "Luis Carranza - Agroveterinaria El Ganadero",
+        "monto": 2955,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "831",
+        "fecha": "2026-06-23",
+        "cliente": "Abraham calel - Ferroagro el ganadero",
+        "monto": 1568.75,
+        "vendedor": "Sergio Misael Lima Lopez ",
+        "isErick": false
+      },
+      {
+        "folio": "841",
+        "fecha": "2026-06-24",
+        "cliente": "Edin Villeda - Agroveteria el Ganadero",
+        "monto": 2642,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "995",
+        "fecha": "2026-08-05",
+        "cliente": "Antonio Pinto - Agroveterinatia El Ganadero",
+        "monto": 3198,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1083",
+        "fecha": "2026-08-25",
+        "cliente": "PORTILLO GUDIEL LEE LÚDIBE ARCELI - Agroveterinaria El Ganadero",
+        "monto": 3250.0000000000005,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      }
+    ]
+  },
+  {
+    "id": 38,
+    "nombre": "Edwin Lopez",
+    "lugar": "Sabaneta Dolores",
+    "periodo": "Marzo",
+    "estado": "ACTIVO CON VENTA",
+    "facturasErick": 2,
+    "totalErick": 5245.4,
+    "facturasTotal": 3,
+    "totalGeneral": 6580.4,
+    "folios": "855, 1074",
+    "vendedor": "Erick Juárez",
+    "detalle": [
+      {
+        "folio": "855",
+        "fecha": "2026-06-26",
+        "cliente": "Edwin López - Agrocomercializadora el campesino",
+        "monto": 1697,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      },
+      {
+        "folio": "892",
+        "fecha": "2026-07-08",
+        "cliente": "Victor Leonor - Multiservicios El Campesino",
+        "monto": 1335,
+        "vendedor": "Herbert Argueta",
+        "isErick": false
+      },
+      {
+        "folio": "1074",
+        "fecha": "2026-08-21",
+        "cliente": "Nery Paredes - Agroservicio El Campesino",
+        "monto": 3548.4,
+        "vendedor": "Erick Juárez",
+        "isErick": true
+      }
+    ]
+  }
+]

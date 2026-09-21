@@ -1,0 +1,399 @@
+[
+  {
+    "id": 1,
+    "nombreCuaderno": "Hector Mendoza",
+    "lugarCuaderno": "El Remate",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra ventas ni clientes con este nombre en El Remate. En El Remate está registrada Deimy Marisol Mateo Carias (Agroveterinaria La Mascota)."
+  },
+  {
+    "id": 2,
+    "nombreCuaderno": "Eider Guerra",
+    "lugarCuaderno": "El Zapote / Ixlu",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra compras en Ixlu a nombre de Eider Guerra. Los clientes con apellido Guerra son Christian Guerra / Brenda Duarte Guerra / Abner Guerra en otras zonas (Izabal / Cruce dos aguadas)."
+  },
+  {
+    "id": 3,
+    "nombreCuaderno": "Mailon Garrido (Marlon)",
+    "lugarCuaderno": "El Caoba",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 2,
+    "totalFacturado": 4695.25,
+    "folios": "918, 1035",
+    "vendedores": "Erick Juárez (Q4695.25)",
+    "detalleFacturas": [
+      {
+        "folio": "918",
+        "fecha": "2026-07-15",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2243.75,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1035",
+        "fecha": "2026-08-14",
+        "cliente": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+        "monto": 2451.5,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Marlon Ninrod Garrido Fajardo (Agroveterinaria el Sembrador) en Aldea El Caoba, Flores, Petén."
+  },
+  {
+    "id": 4,
+    "nombreCuaderno": "Cesar Lopez",
+    "lugarCuaderno": "San Benito",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 3,
+    "totalFacturado": 9006.8,
+    "folios": "888, 1010, 1140",
+    "vendedores": "Erick Juárez (Q9006.80)",
+    "detalleFacturas": [
+      {
+        "folio": "888",
+        "fecha": "2026-07-03",
+        "cliente": "Agroveterinaria el amigo - César López",
+        "monto": 480,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1010",
+        "fecha": "2026-08-08",
+        "cliente": "Agroveterinaria el amigo - César López",
+        "monto": 7230.8,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1140",
+        "fecha": "2026-09-08",
+        "cliente": "POP LÓPEZ CESAR AMILCAR - AGROVETERINARIA EL AMIGO",
+        "monto": 1296,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como César López / Pop López Cesar Amilcar (Agroveterinaria El Amigo) en San Benito, Petén."
+  },
+  {
+    "id": 5,
+    "nombreCuaderno": "Iris Reyes",
+    "lugarCuaderno": "Santa Elena",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 3,
+    "totalFacturado": 13821.85,
+    "folios": "828, 1032, 1048",
+    "vendedores": "Emanuel Lima (Q1514.85), Erick Juárez (Q12307.00)",
+    "detalleFacturas": [
+      {
+        "folio": "828",
+        "fecha": "2026-06-20",
+        "cliente": "Iris Reyes - Agroveerinaria Alexa",
+        "monto": 1514.85,
+        "vendedor": "Emanuel Lima"
+      },
+      {
+        "folio": "1032",
+        "fecha": "2026-08-13",
+        "cliente": "REYES GARCÍA GONZALES IRIS ADELA - Agroveterinaria Alexa",
+        "monto": 8740,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1048",
+        "fecha": "2026-08-17",
+        "cliente": "JUNIOR ALEXANDER ORTÍZ REVOLORIO - Agroveterinaria el granjero",
+        "monto": 3567,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrada como Iris Adela Reyes García Gonzales (Agroveterinaria Alexa) en Santa Elena, Petén."
+  },
+  {
+    "id": 6,
+    "nombreCuaderno": "Wilman Chonay",
+    "lugarCuaderno": "Dolores",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 3,
+    "totalFacturado": 5987,
+    "folios": "824, 960, 1097",
+    "vendedores": "Erick Juárez (Q5987.00)",
+    "detalleFacturas": [
+      {
+        "folio": "824",
+        "fecha": "2026-06-18",
+        "cliente": "Wilman Chonay - Agro Chonay",
+        "monto": 1032,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "960",
+        "fecha": "2026-07-27",
+        "cliente": "Wilman Chonay - Agro Chonay",
+        "monto": 2851.5,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1097",
+        "fecha": "2026-08-26",
+        "cliente": "CHONAY SAMOL WILMAN - Agropecuaria Chonay",
+        "monto": 2103.5,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Wilman Chonay Samol (Agropecuaria Chonay) en Barrio El Centro, Dolores, Petén."
+  },
+  {
+    "id": 7,
+    "nombreCuaderno": "Lidia Felipe Rashel",
+    "lugarCuaderno": "Dolores (Calzada Mopan)",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra ventas bajo Lidia Felipe ni Rashel en Dolores. En Calzada Mopan está registrado Edwin Joaquin López Hernández (Agrocomercializadora El Campesino)."
+  },
+  {
+    "id": 8,
+    "nombreCuaderno": "Luis Espina",
+    "lugarCuaderno": "Poptun",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra compras ni cliente en catálogo. En Poptun el cliente registrado es Elio Misael Arreaza de la Rosa (Agro. El Potro)."
+  },
+  {
+    "id": 9,
+    "nombreCuaderno": "Geovany Hernandez",
+    "lugarCuaderno": "Santa Elena",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 1,
+    "totalFacturado": 5715,
+    "folios": "820",
+    "vendedores": "Erick Juárez (Q5715.00)",
+    "detalleFacturas": [
+      {
+        "folio": "820",
+        "fecha": "2026-06-17",
+        "cliente": "Geovani Hernández - Agrovtas. El cordero",
+        "monto": 5715,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Geovany Hernández Mejía (Agrovtas. El Cordero) en Santa Elena, Petén."
+  },
+  {
+    "id": 10,
+    "nombreCuaderno": "Erick Hernandez",
+    "lugarCuaderno": "Ixlu",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 2,
+    "totalFacturado": 2581.35,
+    "folios": "1037, 1093",
+    "vendedores": "Erick Juárez (Q2581.35)",
+    "detalleFacturas": [
+      {
+        "folio": "1037",
+        "fecha": "2026-08-14",
+        "cliente": "Erick Hernández - Efinagro",
+        "monto": 2385.35,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1093",
+        "fecha": "2026-08-26",
+        "cliente": "Erick Hernández - Efinagro",
+        "monto": 196,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Erick Hernández (Efinagro) en Ixlu, Flores, Petén."
+  },
+  {
+    "id": 11,
+    "nombreCuaderno": "Fredy Vicente",
+    "lugarCuaderno": "Santa Ana",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 3,
+    "totalFacturado": 18640.2,
+    "folios": "814, 1063, 1132",
+    "vendedores": "Erick Juárez (Q18640.20)",
+    "detalleFacturas": [
+      {
+        "folio": "814",
+        "fecha": "2026-06-16",
+        "cliente": "Fredy Vicente - Agroveterinaria Vicente",
+        "monto": 11070.2,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1063",
+        "fecha": "2026-08-20",
+        "cliente": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "monto": 6070,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1132",
+        "fecha": "2026-09-07",
+        "cliente": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+        "monto": 1500,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Fredy Vicente Vicente (Agroveterinaria Vicente) en Santa Ana, Petén."
+  },
+  {
+    "id": 12,
+    "nombreCuaderno": "Eber Bello (Hever Tello)",
+    "lugarCuaderno": "San Francisco",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 1,
+    "totalFacturado": 3150,
+    "folios": "1053",
+    "vendedores": "Erick Juárez (Q3150.00)",
+    "detalleFacturas": [
+      {
+        "folio": "1053",
+        "fecha": "2026-08-18",
+        "cliente": "Hever Joel Tello Hernández - Agroveterinaria San Francisco",
+        "monto": 3150,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado en base de datos como Hever Joel Tello Hernández (Agroveterinaria San Francisco) en San Francisco, Petén."
+  },
+  {
+    "id": 13,
+    "nombreCuaderno": "Rony Vicente",
+    "lugarCuaderno": "Santa Elena",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 2,
+    "totalFacturado": 6473,
+    "folios": "821, 1071",
+    "vendedores": "Erick Juárez (Q6473.00)",
+    "detalleFacturas": [
+      {
+        "folio": "821",
+        "fecha": "2026-06-17",
+        "cliente": "Rony Vicente - Agros. El sembrador",
+        "monto": 5033,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1071",
+        "fecha": "2026-08-20",
+        "cliente": "VICENTE VICENTE RONY ORLANDO - Agros. El sembrador",
+        "monto": 1440,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Rony Orlando Vicente Vicente (Agros. El Sembrador) en Santa Elena, Petén."
+  },
+  {
+    "id": 14,
+    "nombreCuaderno": "Leonidas Giron",
+    "lugarCuaderno": "Mopan Dolores",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra compras ni cliente bajo Leonidas Girón. En Mopan Sabanetas está registrado Edwin Joaquin López Hernández."
+  },
+  {
+    "id": 15,
+    "nombreCuaderno": "Eliel Betancourt",
+    "lugarCuaderno": "Sayaxche Peten",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 4,
+    "totalFacturado": 4906.5,
+    "folios": "809, 887, 966, 1098",
+    "vendedores": "Erick Juárez (Q4892.50), Emanuel Lima (Q14.00)",
+    "detalleFacturas": [
+      {
+        "folio": "809",
+        "fecha": "2026-06-15",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 1407.25,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "887",
+        "fecha": "2026-07-01",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 14,
+        "vendedor": "Emanuel Lima"
+      },
+      {
+        "folio": "966",
+        "fecha": "2026-07-28",
+        "cliente": "Eliel Betancourt  - Agroveterinaria La cumbre",
+        "monto": 1590.75,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1098",
+        "fecha": "2026-08-26",
+        "cliente": "BETANCOURTH BARRERA WALFREN ELIEL - Agroveterinaria La cumbre",
+        "monto": 1894.5,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado como Walfren Eliel Betancourth Barrera (Agroveterinaria La Cumbre) y Erick Betancourt (Las Posas, Sayaxché)."
+  },
+  {
+    "id": 16,
+    "nombreCuaderno": "Israel España (Angel España)",
+    "lugarCuaderno": "El Chal",
+    "encontradoEnBD": "SÍ",
+    "facturasCount": 2,
+    "totalFacturado": 5895.5,
+    "folios": "817, 1077",
+    "vendedores": "Erick Juárez (Q5895.50)",
+    "detalleFacturas": [
+      {
+        "folio": "817",
+        "fecha": "2026-06-16",
+        "cliente": "Angel España - Agro El Chal",
+        "monto": 2201,
+        "vendedor": "Erick Juárez"
+      },
+      {
+        "folio": "1077",
+        "fecha": "2026-08-24",
+        "cliente": "Angel España - Agro El Chal",
+        "monto": 3694.5,
+        "vendedor": "Erick Juárez"
+      }
+    ],
+    "observacion": "Registrado en El Chal como Angel España (Agro El Chal), a media cuadra de Banrural, El Chal, Petén."
+  },
+  {
+    "id": 17,
+    "nombreCuaderno": "Walter Molina",
+    "lugarCuaderno": "El Chal",
+    "encontradoEnBD": "NO",
+    "facturasCount": 0,
+    "totalFacturado": 0,
+    "folios": "Sin compras",
+    "vendedores": "Ninguno",
+    "detalleFacturas": [],
+    "observacion": "No registra compras ni cliente con este nombre en El Chal. Clientes en El Chal incluyen Agro El Corral, Agrodespensa El Primo, Agro El Chal, Agroveterinaria El Rejo, Agroveterinaria El Agrónomo."
+  }
+]

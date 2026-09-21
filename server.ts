@@ -906,6 +906,9 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: 
 
 // ======== ADMIN: Client Sales Tracking Map ========
 app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
+  if (req.user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+    return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+  }
   const { sellerId, dateFrom, dateTo } = req.query;
 
   try {

@@ -1,0 +1,596 @@
+[
+  {
+    "folio": "809",
+    "fecha": "2026-06-15",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "Eliel Betancourt  - Agroveterinaria La cumbre",
+    "monto": 1407.25,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "813",
+    "fecha": "2026-06-16",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "Erick Betancourt - Erick Betancourt",
+    "monto": 476,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "814",
+    "fecha": "2026-06-16",
+    "refLibreta": "Fredy Vicente",
+    "lugar": "Santa Ana",
+    "clienteFactura": "Fredy Vicente - Agroveterinaria Vicente",
+    "monto": 11070.2,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "815",
+    "fecha": "2026-06-16",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "Hugo Sutuj - Agro El Corral",
+    "monto": 3636.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "817",
+    "fecha": "2026-06-16",
+    "refLibreta": "Israel España (Angel España)",
+    "lugar": "El Chal",
+    "clienteFactura": "Angel España - Agro El Chal",
+    "monto": 2201,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "820",
+    "fecha": "2026-06-17",
+    "refLibreta": "Geovany Hernandez",
+    "lugar": "Santa Elena",
+    "clienteFactura": "Geovani Hernández - Agrovtas. El cordero",
+    "monto": 5715,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "821",
+    "fecha": "2026-06-17",
+    "refLibreta": "Rony Vicente",
+    "lugar": "Santa Elena",
+    "clienteFactura": "Rony Vicente - Agros. El sembrador",
+    "monto": 5033,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "822",
+    "fecha": "2026-06-17",
+    "refLibreta": "Luis Carranza",
+    "lugar": "Dolores",
+    "clienteFactura": "Luis Carranza - Agroveterinaria El Ganadero",
+    "monto": 2955,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "823",
+    "fecha": "2026-06-18",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "Hugo Sutuj - Agro El Corral",
+    "monto": 2658,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "824",
+    "fecha": "2026-06-18",
+    "refLibreta": "Wilman Chonay",
+    "lugar": "Dolores",
+    "clienteFactura": "Wilman Chonay - Agro Chonay",
+    "monto": 1032,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "825",
+    "fecha": "2026-06-18",
+    "refLibreta": "Sherlina Marroquin",
+    "lugar": "Santa Ana",
+    "clienteFactura": "SHERLINA MARROQUÍN - Agro. Sherlina",
+    "monto": 2768,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "827",
+    "fecha": "2026-06-19",
+    "refLibreta": "Elio Arreaza",
+    "lugar": "Poptun",
+    "clienteFactura": "Elio Arreaza - Agro. El potro",
+    "monto": 2088,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "842",
+    "fecha": "2026-06-24",
+    "refLibreta": "Eliberto Cortez (Wilder Cortez)",
+    "lugar": "Sacpuy San Andres",
+    "clienteFactura": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+    "monto": 6021,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "855",
+    "fecha": "2026-06-26",
+    "refLibreta": "Edwin Lopez",
+    "lugar": "Sabaneta Dolores",
+    "clienteFactura": "Edwin López - Agrocomercializadora el campesino",
+    "monto": 1697,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "862",
+    "fecha": "2026-06-27",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "David Anselmo Sucup Betancourt - David Anselmo Sucup Betancourt",
+    "monto": 675,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "868",
+    "fecha": "2026-07-01",
+    "refLibreta": "Sara Ipiña",
+    "lugar": "Chacalte San Luis",
+    "clienteFactura": "Sara Ipiña - Ferroagro morales",
+    "monto": 1158,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "872",
+    "fecha": "2026-06-26",
+    "refLibreta": "Edwin Lopez",
+    "lugar": "Sabaneta Dolores",
+    "clienteFactura": "Edwin López - Agrocomercializadora el campesino",
+    "monto": 1708,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "881",
+    "fecha": "2026-07-03",
+    "refLibreta": "Lidia Felipe Rashel",
+    "lugar": "Dolores (Calzada Mopán)",
+    "clienteFactura": "Felipe Contreras - Agropecuaria Mardoqueo",
+    "monto": 1333.6999999999998,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "888",
+    "fecha": "2026-07-03",
+    "refLibreta": "Cesar Lopez",
+    "lugar": "San Benito",
+    "clienteFactura": "Agroveterinaria el amigo - César López",
+    "monto": 480,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "899",
+    "fecha": "2026-07-10",
+    "refLibreta": "Noe Garcia",
+    "lugar": "El Chal",
+    "clienteFactura": "Geovany Noe García López - Agropecuaria Santa Elena",
+    "monto": 1791,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "901",
+    "fecha": "2026-07-10",
+    "refLibreta": "Ermides Recinos",
+    "lugar": "El Naranjo La Libertad",
+    "clienteFactura": "Ermides Gamaliel Recinos Mazariegos - Agronorte",
+    "monto": 1584,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "914",
+    "fecha": "2026-07-14",
+    "refLibreta": "Cesar Noyola",
+    "lugar": "Aldea La Maquina",
+    "clienteFactura": "César Noyola - Agroveterinaria la Cosecha",
+    "monto": 1704,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "918",
+    "fecha": "2026-07-15",
+    "refLibreta": "Marlon Garrido (Mailon)",
+    "lugar": "El Caoba",
+    "clienteFactura": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+    "monto": 2243.75,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "924",
+    "fecha": "2026-07-17",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "Rosy Calderòn - Agroveterinaria el Corral",
+    "monto": 1378.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "927",
+    "fecha": "2026-07-17",
+    "refLibreta": "Eliberto Cortez (Wilder Cortez)",
+    "lugar": "Sacpuy San Andres",
+    "clienteFactura": "Wilder Joel Cortez Jiménez - Agriveteria el éxito",
+    "monto": 1830,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "928",
+    "fecha": "2026-07-17",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "Brenda Duarte - Agroveterinaria los 3 hermanos",
+    "monto": 1692,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "935",
+    "fecha": "2026-07-20",
+    "refLibreta": "Lidia Felipe Rashel",
+    "lugar": "Dolores (Calzada Mopán)",
+    "clienteFactura": "Felipe Tuch - Agroveterinaria san Cristóbal",
+    "monto": 675,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "960",
+    "fecha": "2026-07-27",
+    "refLibreta": "Wilman Chonay",
+    "lugar": "Dolores",
+    "clienteFactura": "Wilman Chonay - Agro Chonay",
+    "monto": 2851.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "961",
+    "fecha": "2026-07-27",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "José Medrano - Finca los 3 hermanos",
+    "monto": 420,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "966",
+    "fecha": "2026-07-28",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "Eliel Betancourt  - Agroveterinaria La cumbre",
+    "monto": 1590.75,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "972",
+    "fecha": "2026-07-30",
+    "refLibreta": "Elio Arreaza",
+    "lugar": "Poptun",
+    "clienteFactura": "Elio Misael Arreaza De la Rosa - Agroveterinaria el Potro",
+    "monto": 1566,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "977",
+    "fecha": "2026-07-31",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "José Medrano - Finca los 3 hermanos",
+    "monto": 60,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "980",
+    "fecha": "2026-08-01",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "Erick Betancourt - Erick Betancourt",
+    "monto": 450,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "985",
+    "fecha": "2026-08-03",
+    "refLibreta": "Jose Alejandro Ordoñez",
+    "lugar": "San Luis",
+    "clienteFactura": "Comerzializadora y Agroveterinaria el Agricultor - Alejandro Ordóñez",
+    "monto": 2340,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1010",
+    "fecha": "2026-08-08",
+    "refLibreta": "Cesar Lopez",
+    "lugar": "San Benito",
+    "clienteFactura": "Agroveterinaria el amigo - César López",
+    "monto": 7230.8,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1012",
+    "fecha": "2026-08-10",
+    "refLibreta": "Ermides Recinos",
+    "lugar": "El Naranjo La Libertad",
+    "clienteFactura": "RECINOS MAZARIEGOS ERMIDES GAMALIEL - Agronorte",
+    "monto": 1584,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1024",
+    "fecha": "2026-08-12",
+    "refLibreta": "Ervin Hernandez",
+    "lugar": "Sacpuy San Andres",
+    "clienteFactura": "Erlin Hernández - Agroveterinaria El Futuro H2O",
+    "monto": 1456,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1031",
+    "fecha": "2026-08-13",
+    "refLibreta": "Noe Garcia",
+    "lugar": "El Chal",
+    "clienteFactura": "Geovany Noe García López - Agropecuaria Santa Elena",
+    "monto": 787.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1032",
+    "fecha": "2026-08-13",
+    "refLibreta": "Iris Reyes",
+    "lugar": "Santa Elena",
+    "clienteFactura": "REYES GARCÍA GONZALES IRIS ADELA - Agroveterinaria Alexa",
+    "monto": 8740,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1035",
+    "fecha": "2026-08-14",
+    "refLibreta": "Marlon Garrido (Mailon)",
+    "lugar": "El Caoba",
+    "clienteFactura": "Marlon Ninrod Garrido Fajardo - Agroveterinaria el Sembrador",
+    "monto": 2451.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1037",
+    "fecha": "2026-08-14",
+    "refLibreta": "Erick Hernandez",
+    "lugar": "Ixlu",
+    "clienteFactura": "Erick Hernández - Efinagro",
+    "monto": 2385.35,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1044",
+    "fecha": "2026-08-17",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+    "monto": 4087,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1048",
+    "fecha": "2026-08-17",
+    "refLibreta": "Iris Reyes",
+    "lugar": "Santa Elena",
+    "clienteFactura": "JUNIOR ALEXANDER ORTÍZ REVOLORIO - Agroveterinaria el granjero",
+    "monto": 3567,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1049",
+    "fecha": "2026-08-18",
+    "refLibreta": "Noe Garcia",
+    "lugar": "El Chal",
+    "clienteFactura": "Geovany Noe García López - Agropecuaria Santa Elena",
+    "monto": 756,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1053",
+    "fecha": "2026-08-18",
+    "refLibreta": "Hever Tello (Eber Bello)",
+    "lugar": "San Francisco",
+    "clienteFactura": "Hever Joel Tello Hernández - Agroveterinaria San Francisco",
+    "monto": 3150,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1056",
+    "fecha": "2026-08-19",
+    "refLibreta": "Lidia Felipe Rashel",
+    "lugar": "Dolores (Calzada Mopán)",
+    "clienteFactura": "Felipe Tuch - Agroveterinaria san Cristóbal",
+    "monto": 1868.75,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1063",
+    "fecha": "2026-08-20",
+    "refLibreta": "Fredy Vicente",
+    "lugar": "Santa Ana",
+    "clienteFactura": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+    "monto": 6070,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1070",
+    "fecha": "2026-08-20",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "SUTUJ CANSINOS HUGO WILFREDO - Agro El Corral",
+    "monto": 1797,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1071",
+    "fecha": "2026-08-20",
+    "refLibreta": "Rony Vicente",
+    "lugar": "Santa Elena",
+    "clienteFactura": "VICENTE VICENTE RONY ORLANDO - Agros. El sembrador",
+    "monto": 1440,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1072",
+    "fecha": "2026-08-21",
+    "refLibreta": "Rony Vicente",
+    "lugar": "Santa Elena",
+    "clienteFactura": "Andrea villegas - Agrosev. El sembrador",
+    "monto": 2880,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1077",
+    "fecha": "2026-08-24",
+    "refLibreta": "Israel España (Angel España)",
+    "lugar": "El Chal",
+    "clienteFactura": "Angel España - Agro El Chal",
+    "monto": 3694.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1079",
+    "fecha": "2026-08-24",
+    "refLibreta": "Rony Vicente",
+    "lugar": "Santa Elena",
+    "clienteFactura": "Andrea villegas - Agrosev. El sembrador",
+    "monto": 9852,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1085",
+    "fecha": "2026-08-25",
+    "refLibreta": "Hary Campos",
+    "lugar": "El Chal",
+    "clienteFactura": "Hary Campos - Agroveterinaria El Rejo",
+    "monto": 1706.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1093",
+    "fecha": "2026-08-26",
+    "refLibreta": "Erick Hernandez",
+    "lugar": "Ixlu",
+    "clienteFactura": "Erick Hernández - Efinagro",
+    "monto": 196,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1097",
+    "fecha": "2026-08-26",
+    "refLibreta": "Wilman Chonay",
+    "lugar": "Dolores",
+    "clienteFactura": "CHONAY SAMOL WILMAN - Agropecuaria Chonay",
+    "monto": 2103.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1098",
+    "fecha": "2026-08-26",
+    "refLibreta": "Eliel Betancourt",
+    "lugar": "Sayaxche / Chacte",
+    "clienteFactura": "BETANCOURTH BARRERA WALFREN ELIEL - Agroveterinaria La cumbre",
+    "monto": 1894.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1099",
+    "fecha": "2026-08-27",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "DUARTE NÁJERA GUERRA BRENDA NOHEMÍ - Agroveterinaria los 3 hermanos",
+    "monto": 3735,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1101",
+    "fecha": "2026-08-28",
+    "refLibreta": "Elio Arreaza",
+    "lugar": "Poptun",
+    "clienteFactura": "ARREAZA DE LA ROSA ELIO MISAEL - Agroveterinaria el Potro",
+    "monto": 3000,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1105",
+    "fecha": "2026-09-01",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "Rosy Calderon - Agroveterinaria el Corral",
+    "monto": 621,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1112",
+    "fecha": "2026-09-02",
+    "refLibreta": "Hugo Sutuj",
+    "lugar": "El Chal",
+    "clienteFactura": "Rosy Calderon - Agroveterinaria el Corral",
+    "monto": 1677.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1114",
+    "fecha": "2026-09-02",
+    "refLibreta": "Brenda Duarte",
+    "lugar": "Cruce dos Aguadas San Andres",
+    "clienteFactura": "Jose Medrano - Finca los 3 hermanos",
+    "monto": 275,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1120",
+    "fecha": "2026-09-03",
+    "refLibreta": "Eliberto Cortez (Wilder Cortez)",
+    "lugar": "Sacpuy San Andres",
+    "clienteFactura": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+    "monto": 6400.5,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1121",
+    "fecha": "2026-09-03",
+    "refLibreta": "Eliberto Cortez (Wilder Cortez)",
+    "lugar": "Sacpuy San Andres",
+    "clienteFactura": "CORTÉZ JIMENEZ WILDER JOEL - agroveterinaria el éxito",
+    "monto": 780,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1132",
+    "fecha": "2026-09-07",
+    "refLibreta": "Fredy Vicente",
+    "lugar": "Santa Ana",
+    "clienteFactura": "VICENTE VICENTE FREDY - Agroveterinaria Vicente",
+    "monto": 1500,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1135",
+    "fecha": "2026-09-07",
+    "refLibreta": "Sherlina Marroquin",
+    "lugar": "Santa Ana",
+    "clienteFactura": "DÍAZ MARROQUÍN SHERLINA ESTEFANIA - Agro. Sherlina",
+    "monto": 1625,
+    "vendedor": "Erick Juárez"
+  },
+  {
+    "folio": "1140",
+    "fecha": "2026-09-08",
+    "refLibreta": "Cesar Lopez",
+    "lugar": "San Benito",
+    "clienteFactura": "POP LÓPEZ CESAR AMILCAR - AGROVETERINARIA EL AMIGO",
+    "monto": 1296,
+    "vendedor": "Erick Juárez"
+  }
+]

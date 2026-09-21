@@ -1,49 +1,50 @@
-const SUPABASE_URL = 'https://vedgedsbuajueynnyvpn.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_A0p93X7JFAIueZggdpjh4w_aRv6esno';
+const pg = require('pg');
 
-async function req(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  return res.json();
+async function main() {
+  const client = new pg.Client({ connectionString: 'postgresql://postgres:postgres123@localhost:5432/postgres' });
+  await client.connect();
+
+  // Columns of invoices
+  const cols = await client.query(`
+    SELECT column_name, data_type 
+    FROM information_schema.columns 
+    WHERE table_name = 'invoices' 
+    ORDER BY ordinal_position;
+  `);
+  console.log('Invoices columns:', cols.rows.map(r => r.column_name).join(', '));
+
+  // Folio range
+  const folios = await client.query(`
+    SELECT folio, "clientName", date, "totalAmount", "sellerId" 
+    FROM invoices 
+    ORDER BY id ASC 
+    LIMIT 20;
+  `);
+  console.log('\nSample first 20 invoices:');
+  folios.rows.forEach(r => console.log(`${r.folio} | ${r.date} | ${r.clientName} | Q${r.totalAmount} | ${r.sellerId}`));
+
+  // Check folio 809
+  const f809 = await client.query(`
+    SELECT folio, "clientName", date, "totalAmount", "sellerId" 
+    FROM invoices 
+    WHERE folio ILIKE '%809%' OR folio >= '809'
+    ORDER BY folio ASC
+    LIMIT 30;
+  `);
+  console.log('\nFolios matching 809 or >= 809:');
+  f809.rows.forEach(r => console.log(`${r.folio} | ${r.date} | ${r.clientName} | Q${r.totalAmount} | ${r.sellerId}`));
+
+  // All distinct folios format
+  const allFolios = await client.query(`
+    SELECT DISTINCT folio 
+    FROM invoices 
+    ORDER BY folio ASC;
+  `);
+  console.log(`\nTotal distinct folios: ${allFolios.rows.length}`);
+  console.log('Folios sample:', allFolios.rows.slice(0, 15).map(r => r.folio).join(', '));
+  console.log('Folios end sample:', allFolios.rows.slice(-15).map(r => r.folio).join(', '));
+
+  await client.end();
 }
 
-async function inspect() {
-  const data = await req('invoices?select=id,date,notes,folio,is_archived,status&order=date.asc');
-  console.log('Total returned:', data.length);
-  
-  const mapped = data.map(i => {
-    let f = i.folio;
-    if (!f && i.notes) {
-      const m = i.notes.match(/\|\|\|FOLIO:(\d+)/);
-      if (m) f = parseInt(m[1]);
-    }
-    return { id: i.id, date: i.date, folio: f, status: i.status, is_archived: i.is_archived };
-  });
-
-  console.log('Earliest 10:');
-  console.table(mapped.slice(0, 10));
-
-  console.log('Latest 10:');
-  console.table(mapped.slice(-10));
-
-  // Find min and max folio
-  const validFolios = mapped.map(m => Number(m.folio)).filter(f => !isNaN(f) && f > 0);
-  console.log('Min folio:', Math.min(...validFolios), 'Max folio:', Math.max(...validFolios));
-  console.log('Count with valid folio:', validFolios.length);
-
-  // Check 983 specifically
-  const item983 = mapped.find(m => m.folio == 983);
-  console.log('Item with folio 983:', item983);
-
-  // Check what folios are missing or if there's a filter
-  const foliosSorted = [...validFolios].sort((a,b) => a - b);
-  console.log('Folios range sorted (first 20):', foliosSorted.slice(0, 20));
-  console.log('Folios range sorted (last 20):', foliosSorted.slice(-20));
-}
-
-inspect().catch(console.error);
+main().catch(console.error);
