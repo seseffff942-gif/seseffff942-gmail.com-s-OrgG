@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Client, ClientVisit, User } from '../types';
+import { Client, ClientVisit, User, SellerRoute } from '../types';
 import L from 'leaflet';
 import { 
   Navigation, Layers, MapPin, Compass, ExternalLink, 
@@ -25,6 +25,8 @@ interface ClientVisitsMapProps {
   onSelectRouteVisit?: (visit: ClientVisit) => void;
   onOpenMarkClientModalForClient?: (client: Client) => void;
   onClearClientLocation?: (client: Client) => void;
+  sellerRoutes?: SellerRoute[];
+  activeRoute?: SellerRoute | null;
 }
 
 interface RegionShortcut {
@@ -60,7 +62,9 @@ export function ClientVisitsMap({
   isRouteTraceActive = true,
   onSelectRouteVisit,
   onOpenMarkClientModalForClient,
-  onClearClientLocation
+  onClearClientLocation,
+  sellerRoutes,
+  activeRoute
 }: ClientVisitsMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -439,6 +443,51 @@ export function ClientVisitsMap({
       return;
     }
 
+    // 1. Identify matching seller route session for starting point
+    const targetRoute = sellerRoutes?.find(r => {
+      const matchSeller = routeSellerId === 'all' || r.sellerId === routeSellerId || r.sellerEmail === routeSellerId || r.sellerName === routeSellerId;
+      const rDate = r.date || (r.startedAt ? r.startedAt.split('T')[0] : '');
+      const matchDate = routeDate === 'all' || rDate === routeDate;
+      return matchSeller && matchDate;
+    }) || (activeRoute && (routeSellerId === 'all' || activeRoute.sellerId === routeSellerId || activeRoute.sellerEmail === routeSellerId) ? activeRoute : null);
+
+    const hasRouteStart = Boolean(targetRoute && targetRoute.startLatitude && targetRoute.startLongitude && !isNaN(Number(targetRoute.startLatitude)) && !isNaN(Number(targetRoute.startLongitude)));
+    const startPoint: [number, number] | null = hasRouteStart && targetRoute ? [Number(targetRoute.startLatitude), Number(targetRoute.startLongitude)] : null;
+
+    let startMarkerInstance: L.Marker | null = null;
+    if (hasRouteStart && startPoint && targetRoute) {
+      const sellerDisplayName = targetRoute.sellerName || 'Vendedor';
+      const startHtml = `
+        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
+          <div class="px-2.5 py-1 rounded-full text-[10px] font-black text-white bg-emerald-600 shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1 border border-white">
+            <span>🟢 Inicio: ${sellerDisplayName}</span>
+          </div>
+          <div class="w-8 h-8 rounded-full bg-emerald-700 border-2 border-white shadow-lg flex items-center justify-center text-white text-sm font-bold">
+            🚗
+          </div>
+        </div>
+      `;
+
+      const startIcon = L.divIcon({
+        className: 'custom-route-start-pin',
+        html: startHtml,
+        iconSize: [44, 48],
+        iconAnchor: [22, 42]
+      });
+
+      startMarkerInstance = L.marker(startPoint, { icon: startIcon, zIndexOffset: 2500 })
+        .addTo(routeGroup)
+        .bindPopup(`
+          <div class="p-3 text-xs font-sans min-w-[200px]">
+            <p class="font-black text-emerald-800 text-sm flex items-center gap-1">🟢 Punto de Inicio de Ruta</p>
+            <p class="font-bold text-slate-800 mt-1">👤 ${sellerDisplayName}</p>
+            <p class="text-slate-500 text-[11px] mt-0.5">⏰ ${targetRoute.startedAt ? new Date(targetRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}</p>
+            <p class="text-slate-500 font-mono text-[10px] mt-1">📍 ${startPoint[0].toFixed(6)}, ${startPoint[1].toFixed(6)}</p>
+            ${targetRoute.notes ? `<p class="text-[11px] text-slate-600 mt-1 bg-slate-50 p-1.5 rounded border border-slate-100">📝 ${targetRoute.notes}</p>` : ''}
+          </div>
+        `);
+    }
+
     // Filter and sort visits chronologically
     const routeVisits = visits.filter(v => {
       if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
@@ -453,9 +502,18 @@ export function ClientVisitsMap({
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    if (routeVisits.length === 0) return;
+    // If no visits recorded yet, center directly on route start point!
+    if (routeVisits.length === 0) {
+      if (hasRouteStart && startPoint && mapInstanceRef.current) {
+        mapInstanceRef.current.setView(startPoint, 15, { animate: true });
+        setTimeout(() => startMarkerInstance?.openPopup(), 400);
+      }
+      return;
+    }
 
-    const latLngs: [number, number][] = routeVisits.map(v => [v.latitude, v.longitude]);
+    const latLngs: [number, number][] = (hasRouteStart && startPoint)
+      ? [startPoint, ...routeVisits.map(v => [v.latitude, v.longitude] as [number, number])]
+      : routeVisits.map(v => [v.latitude, v.longitude]);
 
     // 1. Background glow line
     L.polyline(latLngs, {
@@ -476,34 +534,37 @@ export function ClientVisitsMap({
       lineJoin: 'round'
     }).addTo(routeGroup);
 
-    if (latLngs.length > 1) {
+    if (latLngs.length > 1 && mapInstanceRef.current) {
       try {
-        mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
+        mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 15 });
       } catch (e) {}
+    } else if (latLngs.length === 1 && mapInstanceRef.current) {
+      mapInstanceRef.current.setView(latLngs[0], 15, { animate: true });
     }
 
     // Add Stop Numbers and Step Badges
     routeVisits.forEach((v, idx) => {
-      const isStart = idx === 0;
       const isEnd = idx === routeVisits.length - 1;
       const stepNum = idx + 1;
       
-      const prevVisit = idx > 0 ? routeVisits[idx - 1] : null;
+      const prevPoint = idx > 0 ? routeVisits[idx - 1] : (hasRouteStart && startPoint ? { latitude: startPoint[0], longitude: startPoint[1], createdAt: targetRoute?.startedAt } : null);
       let timeFromPrev = '';
       let distFromPrev = '';
 
-      if (prevVisit) {
-        const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(prevVisit.createdAt).getTime());
-        const diffMins = Math.round(diffMs / 60000);
-        const hours = Math.floor(diffMins / 60);
-        const mins = diffMins % 60;
-        timeFromPrev = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+      if (prevPoint) {
+        if (prevPoint.createdAt) {
+          const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(prevPoint.createdAt).getTime());
+          const diffMins = Math.round(diffMs / 60000);
+          const hours = Math.floor(diffMins / 60);
+          const mins = diffMins % 60;
+          timeFromPrev = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+        }
 
         const R = 6371; // km
-        const dLat = ((v.latitude - prevVisit.latitude) * Math.PI) / 180;
-        const dLon = ((v.longitude - prevVisit.longitude) * Math.PI) / 180;
+        const dLat = ((v.latitude - prevPoint.latitude) * Math.PI) / 180;
+        const dLon = ((v.longitude - prevPoint.longitude) * Math.PI) / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos((prevVisit.latitude * Math.PI) / 180) * 
+                  Math.cos((prevPoint.latitude * Math.PI) / 180) * 
                   Math.cos((v.latitude * Math.PI) / 180) * 
                   Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
@@ -511,28 +572,28 @@ export function ClientVisitsMap({
         distFromPrev = `${distKm} km`;
       }
 
-      const stopColor = isStart ? '#10b981' : isEnd ? '#f59e0b' : '#0f766e';
-      const stopIcon = isStart ? '🚩' : isEnd ? '🏁' : `#${stepNum}`;
+      const stopColor = isEnd ? '#f59e0b' : '#0f766e';
+      const stopIcon = isEnd ? '🏁' : `#${stepNum}`;
 
       const stopHtml = `
         <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
           <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1" style="background-color: ${stopColor}">
-            <span>${isStart ? 'Inicio' : isEnd ? 'Final' : `Parada ${stepNum}`}</span>
-            <span class="opacity-90 font-mono">(${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+            <span>${isEnd ? 'Última Parada' : `Parada ${stepNum}`}</span>
           </div>
-          <div class="w-7 h-7 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[12px] font-black transition-transform group-hover:scale-115" style="background-color: ${stopColor}">
+          <div class="w-7 h-7 rounded-full text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-lg transition-transform transform group-hover:scale-110" style="background-color: ${stopColor}">
             ${stopIcon}
           </div>
         </div>
       `;
 
       const customStopIcon = L.divIcon({
-        className: 'custom-map-route-stop-pin',
+        className: 'custom-route-step-pin',
         html: stopHtml,
-        iconSize: [48, 54],
-        iconAnchor: [24, 50],
-        popupAnchor: [0, -48]
+        iconSize: [36, 44],
+        iconAnchor: [18, 40]
       });
+
+      const formattedTime = new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       const popupHtml = `
         <div class="p-3.5 text-slate-800 text-xs max-w-xs space-y-2 font-sans">
@@ -573,7 +634,7 @@ export function ClientVisitsMap({
     if (latLngs.length > 1 && mapInstanceRef.current) {
       mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
     }
-  }, [visits, routeSellerId, routeDate, isRouteTraceActive]);
+  }, [visits, routeSellerId, routeDate, isRouteTraceActive, sellerRoutes, activeRoute]);
 
   const handleCenterOnUser = () => {
     if (!mapInstanceRef.current) return;

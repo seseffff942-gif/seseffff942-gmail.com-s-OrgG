@@ -246,19 +246,68 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
     setIsRegisterModalOpen(true);
   };
 
+  const getFreshCoordinates = (): Promise<{ latitude: number; longitude: number; accuracy?: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(currentLocation || null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const fresh = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy
+          };
+          setCurrentLocation(fresh);
+          resolve(fresh);
+        },
+        (err) => {
+          console.warn('getCurrentPosition error:', err);
+          resolve(currentLocation || null);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  };
+
   const handleStartRoute = async () => {
     try {
       setIsStartingRoute(true);
+      const freshLoc = await getFreshCoordinates();
       const res = await api.startRoute({
-        startLatitude: currentLocation?.latitude,
-        startLongitude: currentLocation?.longitude,
+        startLatitude: freshLoc?.latitude || currentLocation?.latitude,
+        startLongitude: freshLoc?.longitude || currentLocation?.longitude,
         notes: 'Jornada iniciada en terreno.'
       });
       setActiveRoute(res.route);
       await loadData(true);
-      alert('🟢 Jornada iniciada con éxito. Ya puedes registrar las visitas a tus clientes.');
+      if (res.route.startLatitude && res.route.startLongitude) {
+        alert('🟢 Jornada iniciada con éxito. Se guardó tu ubicación GPS de inicio.');
+      } else {
+        alert('🟢 Jornada iniciada. No se detectó señal GPS precisa; se actualizará automáticamente con tu primera visita.');
+      }
     } catch (e: any) {
       alert(e.message || 'Error al iniciar la jornada.');
+    } finally {
+      setIsStartingRoute(false);
+    }
+  };
+
+  const handleUpdateActiveRouteGps = async () => {
+    if (!activeRoute) return;
+    try {
+      setIsStartingRoute(true);
+      const freshLoc = await getFreshCoordinates();
+      if (!freshLoc?.latitude || !freshLoc?.longitude) {
+        alert('No se pudo obtener la posición GPS actual de tu dispositivo.');
+        return;
+      }
+      await api.updateRouteLocation(activeRoute.id, freshLoc.latitude, freshLoc.longitude);
+      await loadData(true);
+      alert('📍 Tu ubicación de ruta fue actualizada correctamente.');
+    } catch (e: any) {
+      alert(e.message || 'Error al actualizar ubicación de la ruta.');
     } finally {
       setIsStartingRoute(false);
     }
@@ -551,6 +600,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           isToday: isTodayGuatemala(datePart),
           startedAt: r.startedAt,
           finishedAt: r.finishedAt,
+          startLatitude: r.startLatitude,
+          startLongitude: r.startLongitude,
           totalDistanceKm: r.totalDistanceKm || 0,
           totalDurationMins: r.totalDurationMins || 0,
           notes: r.notes,
@@ -583,6 +634,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           status: isTodayGuatemala(datePart) ? 'active' : 'completed',
           isToday: isTodayGuatemala(datePart),
           startedAt: v.createdAt,
+          startLatitude: v.latitude,
+          startLongitude: v.longitude,
           visitsCount: 0,
           stops: []
         });
@@ -619,13 +672,19 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
   const handleToggleRouteTrace = () => {
     if (!isRouteTraceActive) {
-      // If no specific seller/date selected, default to first seller with visits today (e.g. Erick Juárez)
+      // Prioritize an active route session so admin tracks the ongoing seller
       if (routeSellerId === 'all' && user.role === 'admin') {
-        const sellerWithTodayVisits = availableSellers.find(s => s.todayVisits > 0) || availableSellers[0];
-        if (sellerWithTodayVisits) {
-          setRouteSellerId(sellerWithTodayVisits.id);
-          const todayDate = getGuatemalaTodayIso();
-          setRouteDate(todayDate);
+        const activeRouteSession = sellerRoutes.find(r => r.status === 'active');
+        if (activeRouteSession) {
+          setRouteSellerId(activeRouteSession.sellerId);
+          setRouteDate(activeRouteSession.date || (activeRouteSession.startedAt ? activeRouteSession.startedAt.split('T')[0] : getGuatemalaTodayIso()));
+        } else {
+          const sellerWithTodayVisits = availableSellers.find(s => s.todayVisits > 0) || availableSellers[0];
+          if (sellerWithTodayVisits) {
+            setRouteSellerId(sellerWithTodayVisits.id);
+            const todayDate = getGuatemalaTodayIso();
+            setRouteDate(todayDate);
+          }
         }
       } else if (user.role === 'seller') {
         setRouteSellerId(user.id || user.email || 'me');
@@ -1220,6 +1279,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             setIsMarkModalOpen(true);
           }}
           onClearClientLocation={handleClearClientLocation}
+          sellerRoutes={sellerRoutes}
+          activeRoute={activeRoute}
         />
 
         {/* Route Metrics Summary Strip */}
@@ -1649,6 +1710,34 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                                   <p className="text-xs text-slate-500 font-medium mt-1">
                                     Iniciada: {r.startedAt ? new Date(r.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
                                   </p>
+                                  {r.startLatitude && r.startLongitude ? (
+                                    <div className="text-[11px] text-teal-800 bg-teal-100/70 px-2 py-1 rounded-lg border border-teal-200/80 font-bold flex items-center gap-1 mt-1.5 shadow-2xs">
+                                      <MapPin size={12} className="text-teal-600 shrink-0" />
+                                      <span>Inicio: {r.startLatitude.toFixed(5)}, {r.startLongitude.toFixed(5)}</span>
+                                      <a
+                                        href={`https://www.google.com/maps?q=${r.startLatitude},${r.startLongitude}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-auto text-teal-700 hover:text-teal-900 underline text-[10px]"
+                                        title="Abrir en Google Maps"
+                                      >
+                                        Maps
+                                      </a>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 font-medium flex items-center justify-between gap-1 mt-1.5">
+                                      <span>⚠️ Sin GPS inicial</span>
+                                      {user.role === 'seller' && (
+                                        <button
+                                          type="button"
+                                          onClick={handleUpdateActiveRouteGps}
+                                          className="text-[10px] font-bold text-teal-800 underline cursor-pointer"
+                                        >
+                                          Fijar mi GPS actual
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <span className="text-sm font-black text-emerald-800 bg-white/80 px-2.5 py-1 rounded-xl border border-emerald-200 shadow-2xs">

@@ -911,6 +911,21 @@ export const api = {
     return { success: true, route: { id: routeId, status: 'completed', finishedAt: nowIso } as any };
   },
 
+  updateRouteLocation: async (routeId: string, latitude: number, longitude: number): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/location`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude, longitude })
+      });
+      const data = await safeJson(res);
+      return data;
+    } catch (err) {
+      console.warn('updateRouteLocation error:', err);
+      return { success: false };
+    }
+  },
+
   getSavedUser: (): User | null => {
     try {
       const rawUser = localStorage.getItem('app_user');

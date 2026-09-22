@@ -3989,6 +3989,28 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
         console.warn("[Client lastVisitAt update warning]:", clientUpErr.message);
       }
     }
+    if (activeRoute && (activeRoute.startLatitude == null || activeRoute.startLongitude == null) && newVisit.latitude && newVisit.longitude) {
+      activeRoute.startLatitude = newVisit.latitude;
+      activeRoute.startLongitude = newVisit.longitude;
+      const rList = readLocalRoutes();
+      const rIdx = rList.findIndex((r) => r.id === activeRoute.id);
+      if (rIdx !== -1) {
+        rList[rIdx].startLatitude = newVisit.latitude;
+        rList[rIdx].startLongitude = newVisit.longitude;
+        saveLocalRoutes(rList);
+      }
+      if (neonPool) {
+        try {
+          await neonPool.query(`
+            UPDATE public.seller_routes
+            SET start_latitude = $1, "startLatitude" = $1,
+                start_longitude = $2, "startLongitude" = $2
+            WHERE id = $3 AND (start_latitude IS NULL OR "startLatitude" IS NULL);
+          `, [newVisit.latitude, newVisit.longitude, activeRoute.id]);
+        } catch (e) {
+        }
+      }
+    }
   } catch (err) {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
@@ -4041,36 +4063,67 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req, res) => {
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let routes = [];
-  try {
-    let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
-    if (userRole === "seller") {
-      if (userId) query = query.eq("seller_id", userId);
-    } else if (sellerId && sellerId !== "all") {
-      query = query.eq("seller_id", sellerId);
+  if (neonPool) {
+    try {
+      const res2 = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC;
+      `);
+      if (res2.rows && res2.rows.length > 0) {
+        routes = res2.rows.map((r) => ({
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || "",
+          createdAt: r.created_at || r.createdAt
+        }));
+      }
+    } catch (neErr) {
     }
-    if (status) query = query.eq("status", status);
-    const { data, error } = await query;
-    if (!error && data && data.length > 0) {
-      routes = data.map((r) => ({
-        id: r.id,
-        sellerId: r.seller_id || r.sellerId,
-        sellerName: r.seller_name || r.sellerName,
-        sellerEmail: r.seller_email || r.sellerEmail,
-        status: r.status,
-        startedAt: r.started_at || r.startedAt,
-        finishedAt: r.finished_at || r.finishedAt,
-        startLatitude: r.start_latitude ?? r.startLatitude,
-        startLongitude: r.start_longitude ?? r.startLongitude,
-        endLatitude: r.end_latitude ?? r.endLatitude,
-        endLongitude: r.end_longitude ?? r.endLongitude,
-        totalStops: r.total_stops ?? r.totalStops ?? 0,
-        totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
-        totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
-        notes: r.notes || "",
-        createdAt: r.created_at || r.createdAt
-      }));
+  }
+  if (routes.length === 0) {
+    try {
+      let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
+      if (userRole === "seller") {
+        if (userId) query = query.eq("seller_id", userId);
+      } else if (sellerId && sellerId !== "all") {
+        query = query.eq("seller_id", sellerId);
+      }
+      if (status) query = query.eq("status", status);
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        routes = data.map((r) => ({
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || "",
+          createdAt: r.created_at || r.createdAt
+        }));
+      }
+    } catch (e) {
     }
-  } catch (e) {
   }
   if (routes.length === 0) {
     routes = readLocalRoutes();
@@ -4125,6 +4178,22 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
   });
   if (existingActive) {
+    if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
+      existingActive.startLatitude = parseFloat(startLatitude);
+      existingActive.startLongitude = parseFloat(startLongitude);
+      saveLocalRoutes(routes);
+      if (neonPool) {
+        try {
+          await neonPool.query(`
+            UPDATE public.seller_routes 
+            SET start_latitude = $1, "startLatitude" = $1,
+                start_longitude = $2, "startLongitude" = $2
+            WHERE id = $3;
+          `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+        } catch (e) {
+        }
+      }
+    }
     return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -4148,6 +4217,39 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   };
   routes.unshift(newRoute);
   saveLocalRoutes(routes);
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        INSERT INTO public.seller_routes (
+          id, seller_id, "sellerId", seller_name, "sellerName", seller_email, "sellerEmail",
+          status, started_at, "startedAt", start_latitude, "startLatitude", start_longitude, "startLongitude",
+          total_stops, "totalStops", total_distance_km, "totalDistanceKm", total_duration_mins, "totalDurationMins",
+          notes, created_at, "createdAt"
+        ) VALUES (
+          $1, $2, $2, $3, $3, $4, $4,
+          $5, $6, $6, $7, $7, $8, $8,
+          0, 0, 0, 0, 0, 0,
+          $9, $6, $6
+        ) ON CONFLICT (id) DO UPDATE SET
+          start_latitude = EXCLUDED.start_latitude,
+          "startLatitude" = EXCLUDED."startLatitude",
+          start_longitude = EXCLUDED.start_longitude,
+          "startLongitude" = EXCLUDED."startLongitude";
+      `, [
+        newRoute.id,
+        newRoute.sellerId,
+        newRoute.sellerName,
+        newRoute.sellerEmail,
+        newRoute.status,
+        newRoute.startedAt,
+        newRoute.startLatitude,
+        newRoute.startLongitude,
+        newRoute.notes
+      ]);
+    } catch (neonErr) {
+      console.warn("[Start Route Neon Warning]:", neonErr.message);
+    }
+  }
   try {
     await localDb.from("seller_routes").insert([{
       id: newRoute.id,
@@ -4166,6 +4268,34 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+}));
+app.put("/api/routes/:id/location", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { latitude, longitude } = req.body;
+  const lat = latitude ? parseFloat(latitude) : null;
+  const lng = longitude ? parseFloat(longitude) : null;
+  if (lat == null || lng == null) {
+    return res.status(400).json({ error: "Coordenadas requeridas." });
+  }
+  const routes = readLocalRoutes();
+  const route = routes.find((r) => r.id === id);
+  if (route) {
+    route.startLatitude = lat;
+    route.startLongitude = lng;
+    saveLocalRoutes(routes);
+  }
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.seller_routes 
+        SET start_latitude = $1, "startLatitude" = $1,
+            start_longitude = $2, "startLongitude" = $2
+        WHERE id = $3;
+      `, [lat, lng, id]);
+    } catch (e) {
+    }
+  }
+  res.json({ success: true, message: "Ubicaci\xF3n de inicio de ruta actualizada.", startLatitude: lat, startLongitude: lng });
 }));
 app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -4200,6 +4330,24 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
   if (notes) targetRoute.notes = notes;
   routes[routeIndex] = targetRoute;
   saveLocalRoutes(routes);
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.seller_routes
+        SET status = 'completed',
+            finished_at = $1, "finishedAt" = $1,
+            end_latitude = $2, "endLatitude" = $2,
+            end_longitude = $3, "endLongitude" = $3,
+            total_stops = $4, "totalStops" = $4,
+            total_distance_km = $5, "totalDistanceKm" = $5,
+            total_duration_mins = $6, "totalDurationMins" = $6,
+            notes = $7
+        WHERE id = $8;
+      `, [nowIso, targetRoute.endLatitude, targetRoute.endLongitude, targetRoute.totalStops, targetRoute.totalDistanceKm, targetRoute.totalDurationMins, targetRoute.notes, id]);
+    } catch (neonErr) {
+      console.warn("[Finish Route Neon Warning]:", neonErr.message);
+    }
+  }
   try {
     await localDb.from("seller_routes").upsert([{
       id: targetRoute.id,
