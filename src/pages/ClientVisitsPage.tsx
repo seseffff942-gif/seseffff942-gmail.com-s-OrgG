@@ -165,23 +165,31 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   }, []);
 
   const handleClientMarked = (updatedClient: Client) => {
-    setClients(prev => prev.map(c => {
-      if (c.id === updatedClient.id || (c.name && updatedClient.name && c.name.trim().toLowerCase() === updatedClient.name.trim().toLowerCase())) {
-        return { ...c, ...updatedClient };
+    setClients(prev => {
+      const exists = prev.some(c => c.id === updatedClient.id || (c.name && updatedClient.name && c.name.trim().toLowerCase() === updatedClient.name.trim().toLowerCase()));
+      if (exists) {
+        return prev.map(c => {
+          if (c.id === updatedClient.id || (c.name && updatedClient.name && c.name.trim().toLowerCase() === updatedClient.name.trim().toLowerCase())) {
+            return { ...c, ...updatedClient };
+          }
+          return c;
+        });
       }
-      return c;
-    }));
+      return [updatedClient, ...prev];
+    });
     loadData(true);
   };
+
+  const isAdmin = user.role === 'admin';
 
   const handleClearClientLocation = async (client: Client) => {
     const confirmMsg = `¿Estás seguro de que deseas borrar la ubicación GPS guardada para "${client.name}"?\n\nEl cliente quedará sin coordenadas hasta que le asignes una nueva.`;
     if (!window.confirm(confirmMsg)) return;
 
     try {
-      await api.clearClientLocation(client.id);
+      await api.clearClientLocation(client.id, client.name, client.clientCode);
       setClients(prev => prev.map(c => {
-        if (c.id === client.id) {
+        if (c.id === client.id || (c.name && client.name && c.name.toLowerCase().trim() === client.name.toLowerCase().trim())) {
           return {
             ...c,
             latitude: undefined,
@@ -193,9 +201,38 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         }
         return c;
       }));
-      loadData(true);
+      await loadData(true);
+      alert(`Ubicación GPS de "${client.name}" eliminada correctamente.`);
     } catch (err: any) {
       alert(err.message || 'Error al borrar la ubicación del cliente.');
+    }
+  };
+
+  const handleDeleteClient = async (client: Client) => {
+    const confirmMsg = `¿Estás seguro de que deseas eliminar permanentemente al cliente "${client.name}"?\n\nEsta acción borrará el cliente de la base de datos y de todo el sistema.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await api.deleteClient(client.id, client.name, client.clientCode, client.companyName, client.nit);
+      setClients(prev => prev.filter(c => c.id !== client.id && (!client.name || c.name?.toLowerCase().trim() !== client.name.toLowerCase().trim())));
+      await loadData(true);
+      alert(`Cliente "${client.name}" eliminado correctamente.`);
+    } catch (err: any) {
+      alert(err.message || 'Error al eliminar el cliente.');
+    }
+  };
+
+  const handleDeleteVisit = async (visit: ClientVisit) => {
+    const confirmMsg = `¿Estás seguro de que deseas eliminar permanentemente esta visita de "${visit.clientName}"?\n\nEsta acción borrará el registro de la base de datos.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await api.deleteVisit(visit.id);
+      setVisits(prev => prev.filter(v => v.id !== visit.id));
+      await loadData(true);
+      alert(`Visita de "${visit.clientName}" eliminada correctamente.`);
+    } catch (err: any) {
+      alert(err.message || 'Error al eliminar la visita.');
     }
   };
 
@@ -1513,8 +1550,21 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                         <button
                           type="button"
                           onClick={() => handleClearClientLocation(client)}
-                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl transition-all cursor-pointer"
-                          title="Borrar ubicación GPS guardada"
+                          className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                          title="Borrar ubicación GPS guardada para este cliente"
+                        >
+                          <Trash2 size={13} />
+                          <span>Borrar GPS</span>
+                        </button>
+                      )}
+
+                      {/* Delete Client Completely (Admin) */}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteClient(client)}
+                          className="p-2 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition-all cursor-pointer shadow-2xs active:scale-95"
+                          title="Eliminar cliente del sistema permanentemente"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -1980,6 +2030,16 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                           <ExternalLink size={13} />
                           <span>Maps</span>
                         </a>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVisit(visit)}
+                            className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold border border-rose-200 transition-colors cursor-pointer shadow-2xs active:scale-95"
+                            title="Eliminar registro de visita"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -2140,6 +2200,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         onClose={() => setSelectedVisitForDetail(null)}
         visit={selectedVisitForDetail}
         client={selectedVisitClient}
+        onDeleteVisit={handleDeleteVisit}
+        isAdmin={isAdmin}
       />
       <MarkClientModal
         isOpen={isMarkModalOpen}
@@ -2152,6 +2214,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         currentUser={user}
         onClientMarked={handleClientMarked}
         preselectedClient={selectedClientForMark}
+        teamUsers={teamUsers}
       />
 
       <RegisterVisitModal

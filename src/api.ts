@@ -594,7 +594,7 @@ export const api = {
     return { success: true, client: fallbackClient };
   },
 
-  clearClientLocation: async (id: string): Promise<{ success: boolean; client: any }> => {
+  clearClientLocation: async (id: string, name?: string, clientCode?: string): Promise<{ success: boolean; client: any }> => {
     clearApiCache('clients');
     const fallbackClient = {
       id,
@@ -612,7 +612,7 @@ export const api = {
         if (rawCached) {
           const list = JSON.parse(rawCached);
           if (Array.isArray(list)) {
-            const updatedList = list.map((c: any) => c.id === id ? { ...c, ...fallbackClient } : c);
+            const updatedList = list.map((c: any) => (c.id === id || (name && c.name === name)) ? { ...c, ...fallbackClient } : c);
             localStorage.setItem('offline_clients', JSON.stringify(updatedList));
           }
         }
@@ -620,7 +620,12 @@ export const api = {
     }
 
     try {
-      const res = await fetchWithAuth(`/api/clients/${encodeURIComponent(id)}/location`, {
+      const params = new URLSearchParams();
+      if (name) params.append('name', name);
+      if (clientCode) params.append('clientCode', clientCode);
+      const url = `/api/clients/${encodeURIComponent(id)}/location${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const res = await fetchWithAuth(url, {
         method: 'DELETE'
       });
       const data = await safeJson(res);
@@ -720,6 +725,35 @@ export const api = {
 
     clearApiCache('clients');
     return { success: true, visit: fallbackVisit };
+  },
+
+  deleteVisit: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('cached_client_visits');
+        if (cached) {
+          const list = JSON.parse(cached);
+          if (Array.isArray(list)) {
+            const filtered = list.filter((v: any) => String(v.id) !== String(id));
+            localStorage.setItem('cached_client_visits', JSON.stringify(filtered));
+          }
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const res = await fetchWithAuth(`/api/visits/${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        return data;
+      }
+    } catch (err) {
+      console.warn('API DELETE /visits failed:', err);
+    }
+
+    return { success: true, message: 'Visita eliminada' };
   },
 
   getVisitPhoto: async (visitId: string): Promise<string | null> => {

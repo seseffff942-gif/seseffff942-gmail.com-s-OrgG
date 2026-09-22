@@ -1102,77 +1102,6 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
   }
 }));
 
-// Update client location (GPS Geotagging)
-app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  const { latitude, longitude, locationAddress } = req.body;
-  const user = req.user;
-  const nowIso = new Date().toISOString();
-
-  try {
-    await queryNeon(`
-      UPDATE public.clients
-      SET latitude = $1,
-          longitude = $2,
-          "locationAddress" = $3,
-          "geotaggedAt" = $4,
-          "geotaggedBy" = $5
-      WHERE id = $6
-    `, [latitude, longitude, locationAddress || null, nowIso, user.name || user.email || user.id, id]);
-  } catch (e: any) {
-    console.warn('[Update Location Warning Neon]', e.message);
-  }
-
-  try {
-    await localDb.from("clients").update({
-      latitude,
-      longitude,
-      locationAddress: locationAddress || null,
-      geotaggedAt: nowIso,
-      geotaggedBy: user.name || user.email || user.id
-    }).eq("id", id);
-  } catch (e: any) {}
-
-  res.json({
-    success: true,
-    client: {
-      id,
-      latitude,
-      longitude,
-      locationAddress,
-      geotaggedAt: nowIso,
-      geotaggedBy: user.name || user.email
-    }
-  });
-}));
-
-// Clear client location
-app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  try {
-    await queryNeon(`
-      UPDATE public.clients
-      SET latitude = NULL,
-          longitude = NULL,
-          "locationAddress" = NULL,
-          "geotaggedAt" = NULL,
-          "geotaggedBy" = NULL
-      WHERE id = $1
-    `, [id]);
-  } catch (e: any) {}
-
-  try {
-    await localDb.from("clients").update({
-      latitude: null,
-      longitude: null,
-      locationAddress: null,
-      geotaggedAt: null,
-      geotaggedBy: null
-    }).eq("id", id);
-  } catch (e: any) {}
-
-  res.json({ success: true });
-}));
 
 // ======== GLOBAL SYSTEM MAINTENANCE MODE ========
 app.get("/api/system/maintenance", asyncHandler(async (req: any, res: any) => {
@@ -1736,12 +1665,23 @@ function updateLocalClient(id: string, updates: any, oldData?: any) {
 
     if (idMatch || codeMatch || nitMatch || nameMatch) {
       updated = true;
-      return { ...c, ...updates, id: c.id || targetId };
+      const merged = { ...c, ...updates, id: c.id || targetId };
+      if (updates.latitude === null) {
+        delete merged.latitude;
+        delete merged.longitude;
+        delete merged.locationAddress;
+        delete merged.location_address;
+        delete merged.geotaggedAt;
+        delete merged.geotagged_at;
+        delete merged.geotaggedBy;
+        delete merged.geotagged_by;
+      }
+      return merged;
     }
     return c;
   });
 
-  if (!updated) {
+  if (!updated && updates.latitude !== null) {
     newClients.push({ id: targetId || `CLI-${Date.now()}`, ...updates });
   }
 
@@ -1897,7 +1837,15 @@ async function safeInsertClient(clientData: any) {
       sellerId: clientData.sellerId || '',
       seller_id: clientData.sellerId || '',
       clientCode: clientData.clientCode,
-      isBlocked: clientData.isBlocked || false
+      isBlocked: clientData.isBlocked || false,
+      latitude: clientData.latitude,
+      longitude: clientData.longitude,
+      locationAddress: clientData.locationAddress,
+      location_address: clientData.locationAddress,
+      geotaggedAt: clientData.geotaggedAt,
+      geotagged_at: clientData.geotaggedAt,
+      geotaggedBy: clientData.geotaggedBy,
+      geotagged_by: clientData.geotaggedBy
     };
 
     const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
@@ -2303,7 +2251,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
     const code = c.clientCode || c.client_code || c.clientcode || '';
     const id = c.id;
 
-    const dbFormatted = {
+    const hasExplicitNullGps = c.latitude === null || c.longitude === null;
+    const dbFormatted: any = {
       id: id,
       sellerId: c.sellerId || c.seller_id || c.sellerid || '',
       name: name,
@@ -2312,11 +2261,12 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
       phone: c.phone || '',
       address: c.address || '',
       clientCode: code,
-      latitude: (c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
-      longitude: (c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
-      locationAddress: c.locationAddress || c.location_address || '',
-      geotaggedAt: c.geotaggedAt || c.geotagged_at || '',
-      geotaggedBy: c.geotaggedBy || c.geotagged_by || '',
+      hasExplicitNullGps,
+      latitude: (!hasExplicitNullGps && c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((!hasExplicitNullGps && c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
+      longitude: (!hasExplicitNullGps && c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((!hasExplicitNullGps && c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((!hasExplicitNullGps && c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
+      locationAddress: hasExplicitNullGps ? '' : (c.locationAddress || c.location_address || ''),
+      geotaggedAt: hasExplicitNullGps ? '' : (c.geotaggedAt || c.geotagged_at || ''),
+      geotaggedBy: hasExplicitNullGps ? '' : (c.geotaggedBy || c.geotagged_by || ''),
       isBlocked: c.isBlocked !== undefined ? c.isBlocked : (c.is_blocked !== undefined ? c.is_blocked : false),
       createdAt: c.createdAt || c.created_at || c.createdat || new Date().toISOString()
     };
@@ -2337,6 +2287,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
       mergedList.push({ ...c });
     } else {
       const dbObj = mergedList[idx];
+      const isClearedGps = dbObj.hasExplicitNullGps || c.latitude === null || c.longitude === null;
       mergedList[idx] = {
         ...c,
         ...dbObj,
@@ -2348,11 +2299,11 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
         nit: dbObj.nit || c.nit,
         sellerId: dbObj.sellerId || c.sellerId,
         clientCode: dbObj.clientCode || c.clientCode,
-        latitude: dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined ? Number(c.latitude) : undefined),
-        longitude: dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined ? Number(c.longitude) : undefined),
-        locationAddress: dbObj.locationAddress || c.locationAddress,
-        geotaggedAt: dbObj.geotaggedAt || c.geotaggedAt,
-        geotaggedBy: dbObj.geotaggedBy || c.geotaggedBy,
+        latitude: isClearedGps ? undefined : (dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined && c.latitude !== null ? Number(c.latitude) : undefined)),
+        longitude: isClearedGps ? undefined : (dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined && c.longitude !== null ? Number(c.longitude) : undefined)),
+        locationAddress: isClearedGps ? '' : (dbObj.locationAddress || c.locationAddress || ''),
+        geotaggedAt: isClearedGps ? '' : (dbObj.geotaggedAt || c.geotaggedAt || ''),
+        geotaggedBy: isClearedGps ? '' : (dbObj.geotaggedBy || c.geotaggedBy || ''),
         isBlocked: dbObj.isBlocked !== undefined ? dbObj.isBlocked : c.isBlocked
       };
     }
@@ -2392,7 +2343,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
 
 app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
   invalidateCache("clients");
-  const { id, name, companyName, nit, phone, address, sellerId } = req.body;
+  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
@@ -2452,6 +2403,14 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     if (!matchedClient.address && address) updates.address = address;
     if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
 
+    if (latitude !== undefined && longitude !== undefined) {
+      updates.latitude = Number(latitude);
+      updates.longitude = Number(longitude);
+      updates.locationAddress = locationAddress || address || '';
+      updates.geotaggedAt = geotaggedAt || new Date().toISOString();
+      updates.geotaggedBy = effectiveGeotaggedBy;
+    }
+
     const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
     if (!currentSeller) updates.sellerId = effectiveSellerId;
 
@@ -2469,7 +2428,14 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
         nit: matchedClient.nit || nit || '',
         phone: matchedClient.phone || phone || '',
         address: matchedClient.address || address || '',
-        sellerId: currentSeller || effectiveSellerId
+        sellerId: currentSeller || effectiveSellerId,
+        ...(latitude !== undefined && longitude !== undefined ? {
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          locationAddress: locationAddress || address || '',
+          geotaggedAt: updates.geotaggedAt,
+          geotaggedBy: effectiveGeotaggedBy
+        } : {})
       }
     });
   }
@@ -2487,6 +2453,11 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
       phone: phone || deletedMatch.phone || '',
       address: address || deletedMatch.address || '',
       sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
+      latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
+      longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
+      locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
+      geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
+      geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
       isDeleted: false,
       is_deleted: false,
       isBlocked: false,
@@ -2502,7 +2473,12 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
         nit: nit || deletedMatch.nit || '',
         phone: phone || deletedMatch.phone || '',
         address: address || deletedMatch.address || '',
-        seller_id: reactivatedPayload.sellerId
+        seller_id: reactivatedPayload.sellerId,
+        latitude: reactivatedPayload.latitude,
+        longitude: reactivatedPayload.longitude,
+        location_address: reactivatedPayload.locationAddress,
+        geotagged_at: reactivatedPayload.geotaggedAt,
+        geotagged_by: reactivatedPayload.geotaggedBy
       }).eq("id", deletedMatch.id);
     } catch (e) { }
 
@@ -2526,6 +2502,11 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     nit: nit || '',
     phone: phone || '',
     address: address || '',
+    clientCode: clientCode ? String(clientCode).trim() : undefined,
+    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
+    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
+    locationAddress: locationAddress || address || undefined,
+    geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
     createdAt: new Date().toISOString()
   };
 
@@ -2537,6 +2518,21 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   try {
     await safeInsertClient(clientData);
+    if (clientData.latitude && clientData.longitude) {
+      try {
+        await queryNeon(`
+          UPDATE public.clients
+          SET latitude = $1,
+              longitude = $2,
+              "locationAddress" = $3,
+              "geotaggedAt" = $4,
+              "geotaggedBy" = $5
+          WHERE id = $6
+        `, [clientData.latitude, clientData.longitude, clientData.locationAddress || null, clientData.geotaggedAt || new Date().toISOString(), clientData.geotaggedBy || effectiveGeotaggedBy, clientData.id]);
+      } catch (neonErr: any) {
+        console.warn('[Insert Client Location Neon Warning]', neonErr.message);
+      }
+    }
   } catch (e) {
     console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
@@ -2764,6 +2760,22 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: a
       await safeLocalDbDelete("nit", targetNit);
     }
 
+    // Step C: Delete from Neon Cloud PostgreSQL
+    if (neonPool) {
+      try {
+        await neonPool.query(`
+          DELETE FROM public.clients
+          WHERE id = $1 
+             OR id::text = $1::text 
+             OR (name IS NOT NULL AND $2 <> '' AND (name = $2 OR name ILIKE $2))
+             OR ("clientCode" IS NOT NULL AND $3 <> '' AND "clientCode" = $3)
+             OR (client_code IS NOT NULL AND $3 <> '' AND client_code = $3);
+        `, [idStr, targetName || '', targetCode || '']);
+      } catch (neonErr: any) {
+        console.warn('[Delete Client Neon Warning]:', neonErr.message);
+      }
+    }
+
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
@@ -2890,25 +2902,51 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
 
   const nowIso = new Date().toISOString();
   const updaterName = req.user?.name || req.user?.email || 'Usuario';
+  const updaterEmailOrId = (req.user?.role === 'seller') ? (req.user.email || req.user.id) : undefined;
 
-  const locationUpdates = {
+  // Check existing client to preserve or assign sellerId
+  const localList = readLocalClients();
+  const existingClient = localList.find((c: any) => String(c.id) === String(id));
+  const currentSeller = existingClient?.sellerId || existingClient?.seller_id;
+  const effectiveSellerId = (req.user?.role === 'seller') ? (currentSeller || updaterEmailOrId) : currentSeller;
+
+  const locationUpdates: any = {
     latitude: latNum,
     longitude: lngNum,
     locationAddress: locationAddress || '',
     geotaggedAt: nowIso,
     geotaggedBy: updaterName
   };
-
-  // Update in local client store
-  try {
-    updateLocalClient(id, locationUpdates);
-  } catch (e) {
-    console.warn("Could not update local client location:", e);
+  if (effectiveSellerId && !currentSeller) {
+    locationUpdates.sellerId = effectiveSellerId;
   }
 
-  // Update in PostgreSQL Local (handle both string id and numeric id)
+  // 1. Update in PostgreSQL Neon (remote cloud database)
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.clients
+        SET latitude = $1,
+            longitude = $2,
+            "locationAddress" = $3,
+            location_address = $3,
+            "geotaggedAt" = $4,
+            geotagged_at = $4,
+            "geotaggedBy" = $5,
+            geotagged_by = $5
+            ${effectiveSellerId && !currentSeller ? `, "sellerId" = COALESCE("sellerId", $7), seller_id = COALESCE(seller_id, $7)` : ''}
+        WHERE id = $6 OR id::text = $6::text;
+      `, effectiveSellerId && !currentSeller
+        ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId]
+        : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id]);
+    } catch (neonErr: any) {
+      console.warn('[Update Location Neon Warning]:', neonErr.message);
+    }
+  }
+
+  // 2. Update in PostgreSQL Local (handle both string id and numeric id)
   try {
-    const sbUpdate = {
+    const sbUpdate: any = {
       latitude: latNum,
       longitude: lngNum,
       location_address: locationAddress || '',
@@ -2918,6 +2956,10 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
       geotagged_by: updaterName,
       geotaggedBy: updaterName
     };
+    if (effectiveSellerId && !currentSeller) {
+      sbUpdate.sellerId = effectiveSellerId;
+      sbUpdate.seller_id = effectiveSellerId;
+    }
     const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
       await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
@@ -2926,13 +2968,35 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
     console.warn("PostgreSQL Local update client location error:", err?.message || err);
   }
 
+  // 3. Update in local client store
+  try {
+    updateLocalClient(id, locationUpdates);
+  } catch (e) {
+    console.warn("Could not update local client location:", e);
+  }
+
   invalidateCache("clients");
-  res.json({ success: true, client: { id, ...locationUpdates } });
+  res.json({ success: true, client: { id, ...locationUpdates, sellerId: effectiveSellerId || currentSeller } });
 }));
 
 // Delete / Reset client GPS location
 app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
+  const { name, clientCode } = req.query;
+
+  let targetName = name ? String(name).trim() : '';
+  let targetCode = clientCode ? String(clientCode).trim() : '';
+
+  if (!targetName || !targetCode) {
+    try {
+      const all = readLocalClients();
+      const found = all.find((c: any) => String(c.id).trim().toLowerCase() === String(id).trim().toLowerCase());
+      if (found) {
+        if (!targetName && found.name) targetName = String(found.name).trim();
+        if (!targetCode && (found.clientCode || found.client_code)) targetCode = String(found.clientCode || found.client_code).trim();
+      }
+    } catch (e) {}
+  }
 
   const locationUpdates = {
     latitude: null,
@@ -2942,14 +3006,30 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
     geotaggedBy: null
   };
 
-  // Update in local client store
-  try {
-    updateLocalClient(id, locationUpdates);
-  } catch (e) {
-    console.warn("Could not clear local client location:", e);
+  // 1. Clear in PostgreSQL Neon
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.clients
+        SET latitude = NULL,
+            longitude = NULL,
+            "locationAddress" = NULL,
+            location_address = NULL,
+            "geotaggedAt" = NULL,
+            geotagged_at = NULL,
+            "geotaggedBy" = NULL,
+            geotagged_by = NULL
+        WHERE id = $1 
+           OR id::text = $1::text
+           OR ($2 <> '' AND (name = $2 OR name ILIKE $2))
+           OR ($3 <> '' AND ("clientCode" = $3 OR client_code = $3));
+      `, [id, targetName, targetCode]);
+    } catch (neonErr: any) {
+      console.warn('[Clear Location Neon Warning]:', neonErr.message);
+    }
   }
 
-  // Update in PostgreSQL Local
+  // 2. Clear in PostgreSQL Local
   try {
     const sbUpdate = {
       latitude: null,
@@ -2961,12 +3041,25 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
       geotagged_by: null,
       geotaggedBy: null
     };
-    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
-    if (resStr.error && !isNaN(Number(id))) {
+    await localDb.from("clients").update(sbUpdate).eq("id", id);
+    if (!isNaN(Number(id))) {
       await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
+    }
+    if (targetName) {
+      await localDb.from("clients").update(sbUpdate).eq("name", targetName);
+    }
+    if (targetCode) {
+      await localDb.from("clients").update(sbUpdate).eq("clientCode", targetCode);
     }
   } catch (err: any) {
     console.warn("PostgreSQL Local clear client location error:", err?.message || err);
+  }
+
+  // 3. Clear in local client store
+  try {
+    updateLocalClient(id, locationUpdates, { name: targetName, clientCode: targetCode });
+  } catch (e) {
+    console.warn("Could not clear local client location:", e);
   }
 
   invalidateCache("clients");
@@ -2982,18 +3075,43 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
 
   let visits: any[] = [];
-  try {
-    const { data, error } = await localDb.from("client_visits")
-      .select("id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, routeId, route_id, createdAt, created_at, has_photo")
-      .order("createdAt", { ascending: false });
-    if (!error && data && data.length > 0) {
-      visits = data;
-    }
-  } catch (e) { }
 
-  // Fallback to local visits if empty or table does not exist
+  // 1. Authoritative Cloud/PostgreSQL fetch first
+  if (neonPool) {
+    try {
+      const res = await neonPool.query(`
+        SELECT * FROM public.client_visits 
+        ORDER BY COALESCE("createdAt", created_at, '') DESC;
+      `);
+      if (res.rows && res.rows.length > 0) {
+        visits = res.rows;
+      }
+    } catch (neErr: any) {
+      console.warn("[Visits Neon Query Warning]:", neErr.message);
+    }
+  }
+
+  // 2. Fallback to localDb
   if (visits.length === 0) {
-    visits = readLocalVisits();
+    try {
+      const { data, error } = await localDb.from("client_visits")
+        .select("id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, routeId, route_id, createdAt, created_at, has_photo")
+        .order("createdAt", { ascending: false });
+      if (!error && data && data.length > 0) {
+        visits = data;
+      }
+    } catch (e) { }
+  }
+
+  // 3. Merge with local visits (if any)
+  const localVisits = readLocalVisits();
+  if (localVisits.length > 0) {
+    const existingIds = new Set(visits.map((v: any) => String(v.id)));
+    for (const lv of localVisits) {
+      if (lv && lv.id && !existingIds.has(String(lv.id))) {
+        visits.push(lv);
+      }
+    }
   }
 
   // Normalize all visit records
@@ -3257,19 +3375,93 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
       photo_url: newVisit.photoUrl,
       has_photo: Boolean(newVisit.photoUrl),
       hasPhoto: Boolean(newVisit.photoUrl),
+      routeId: newVisit.routeId,
+      route_id: newVisit.routeId,
       createdAt: newVisit.createdAt,
       created_at: newVisit.createdAt
     };
 
+    // 1. Direct neonPool Query to guarantee immediate Cloud/Remote PostgreSQL persistence
+    if (neonPool) {
+      try {
+        await neonPool.query(`
+          INSERT INTO public.client_visits (
+            id, "clientId", client_id, "clientName", client_name, "clientCode", client_code,
+            "companyName", company_name, "sellerId", seller_id, "sellerName", seller_name,
+            "sellerEmail", seller_email, latitude, longitude, accuracy, "distanceMeters", distance_meters,
+            "visitType", visit_type, notes, "photoUrl", photo_url, "createdAt", created_at,
+            "routeId", route_id
+          ) VALUES ($1,$2,$2,$3,$3,$4,$4,$5,$5,$6,$6,$7,$7,$8,$8,$9,$10,$11,$12,$12,$13,$13,$14,$15,$15,$16,$16,$17,$17)
+          ON CONFLICT (id) DO UPDATE SET
+            notes = EXCLUDED.notes,
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude;
+        `, [
+          newVisit.id, newVisit.clientId, newVisit.clientName, newVisit.clientCode,
+          newVisit.companyName, newVisit.sellerId, newVisit.sellerName, newVisit.sellerEmail,
+          newVisit.latitude, newVisit.longitude, newVisit.accuracy || null, newVisit.distanceMeters || null,
+          newVisit.visitType, newVisit.notes, newVisit.photoUrl || null, newVisit.createdAt,
+          newVisit.routeId || null
+        ]);
+      } catch (neonErr: any) {
+        console.warn('[Visit Direct neonPool Insert Warning]:', neonErr.message);
+      }
+    }
+
+    // 2. Also insert through localDb query builder
     const { error } = await localDb.from("client_visits").insert([sbPayload]);
     if (error) {
-      console.warn("PostgreSQL Local visit insert error:", error.message);
+      console.warn("PostgreSQL Local visit insert warning (handled gracefully):", error.message);
+    }
+
+    // 3. Update client lastVisitAt in PostgreSQL
+    if (newVisit.clientId && neonPool) {
+      try {
+        await neonPool.query(`
+          UPDATE public.clients
+          SET "lastVisitAt" = $1,
+              last_visit_at = $1
+          WHERE id = $2 OR id::text = $2::text;
+        `, [newVisit.createdAt, newVisit.clientId]);
+      } catch (clientUpErr: any) {
+        console.warn('[Client lastVisitAt update warning]:', clientUpErr.message);
+      }
     }
   } catch (err: any) {
-    console.warn("Could not insert visit in PostgreSQL Local, stored locally:", err?.message || err);
+    console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
 
   res.json({ success: true, visit: newVisit, activeRoute });
+}));
+
+// Delete a visit checkpoint (Admin or visit creator)
+app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+
+  // 1. Delete from PostgreSQL Neon
+  if (neonPool) {
+    try {
+      await neonPool.query(`DELETE FROM public.client_visits WHERE id = $1 OR id::text = $1::text;`, [id]);
+    } catch (neonErr: any) {
+      console.warn('[Delete Visit Neon Warning]:', neonErr.message);
+    }
+  }
+
+  // 2. Delete from PostgreSQL localDb
+  try {
+    await localDb.from("client_visits").delete().eq("id", id);
+  } catch (err: any) {
+    console.warn('[Delete Visit localDb Warning]:', err?.message || err);
+  }
+
+  // 3. Delete from local JSON cache
+  try {
+    const localVisits = readLocalVisits();
+    const filtered = localVisits.filter((v: any) => String(v.id) !== String(id));
+    saveLocalVisits(filtered);
+  } catch (e) { }
+
+  res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
 
 // ======== SELLER ROUTES & SHIFT SESSIONS (SINGLE ACTIVE ROUTE PER SELLER) ========

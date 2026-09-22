@@ -4,7 +4,8 @@ import { api } from '../api';
 import { 
   X, MapPin, Calendar, Clock, User, Building2, 
   Phone, Tag, ExternalLink, Navigation, CheckCircle2, 
-  Maximize2, Image as ImageIcon, Sparkles, AlertCircle, Loader2 
+  Maximize2, Image as ImageIcon, Sparkles, AlertCircle, Loader2,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, fechaDDMMYYYY } from '../utils';
@@ -16,9 +17,11 @@ interface VisitDetailModalProps {
   onClose: () => void;
   visit: ClientVisit | null;
   client?: Client | null;
+  onDeleteVisit?: (visit: ClientVisit) => void;
+  isAdmin?: boolean;
 }
 
-export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetailModalProps) {
+export function VisitDetailModal({ isOpen, onClose, visit, client, onDeleteVisit, isAdmin }: VisitDetailModalProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
@@ -421,11 +424,27 @@ export function VisitDetailModal({ isOpen, onClose, visit, client }: VisitDetail
           </div>
 
           {/* Footer */}
-          <div className="p-4 sm:p-5 border-t border-slate-200 bg-white flex justify-end shrink-0">
+          <div className="p-4 sm:p-5 border-t border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+            {onDeleteVisit && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`¿Estás seguro de eliminar permanentemente esta visita de "${visit.clientName}"?\n\nEsta acción borrará el registro de la base de datos.`)) {
+                    onDeleteVisit(visit);
+                    onClose();
+                  }
+                }}
+                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Eliminar registro de visita"
+              >
+                <Trash2 size={14} />
+                <span>Eliminar Visita</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
+              className="ml-auto px-6 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
             >
               Cerrar Detalle
             </button>
