@@ -3835,11 +3835,14 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
   res.json(filtered);
 }));
 
-// Get active route for current user
 app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const userId = req.user?.id ? String(req.user.id).trim() : '';
-  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
-  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
+  const querySellerId = req.query.sellerId ? String(req.query.sellerId).trim() : '';
+  const querySellerEmail = req.query.sellerEmail ? String(req.query.sellerEmail).trim().toLowerCase() : '';
+  const querySellerName = req.query.sellerName ? String(req.query.sellerName).trim().toLowerCase() : '';
+
+  const userId = querySellerId || (req.user?.id ? String(req.user.id).trim() : '');
+  const userEmail = querySellerEmail || (req.user?.email ? String(req.user.email).trim().toLowerCase() : '');
+  const userName = querySellerName || (req.user?.name ? String(req.user.name).trim().toLowerCase() : '');
 
   let activeRoute: any = null;
 

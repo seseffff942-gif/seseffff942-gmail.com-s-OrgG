@@ -127,7 +127,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         api.getClients(),
         api.getVisits(),
         api.getSellerRoutes(),
-        api.getActiveRoute(),
+        api.getActiveRoute({
+          sellerId: user?.id,
+          sellerEmail: user?.email,
+          sellerName: user?.name
+        }),
         api.getUsers().catch(() => [])
       ]);
       const statsData = await api.getVisitStats(visitsData);
@@ -846,13 +850,37 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   }, [distinctSellerRoutes]);
 
   const myActiveRoute = useMemo(() => {
-    if (!activeRoute || activeRoute.status !== 'active') return null;
-    const isMine = user.role === 'seller' ||
-      (user.id && activeRoute.sellerId === user.id) ||
-      (user.email && activeRoute.sellerEmail?.toLowerCase() === user.email.toLowerCase()) ||
-      (user.name && activeRoute.sellerName?.toLowerCase() === user.name.toLowerCase());
-    return isMine ? activeRoute : null;
-  }, [activeRoute, user]);
+    if (activeRoute && activeRoute.status === 'active') {
+      const isMine = user.role === 'seller' ||
+        (user.id && activeRoute.sellerId === user.id) ||
+        (user.email && activeRoute.sellerEmail?.toLowerCase() === user.email.toLowerCase()) ||
+        (user.name && activeRoute.sellerName?.toLowerCase() === user.name.toLowerCase());
+      if (isMine) return activeRoute;
+    }
+
+    const uId = String(user.id || '').trim();
+    const uEmail = String(user.email || '').trim().toLowerCase();
+    const uName = String(user.name || '').trim().toLowerCase();
+
+    const matched = activeRoutes.find(r => {
+      const rId = String(r.sellerId || '').trim();
+      const rEmail = String(r.sellerEmail || '').trim().toLowerCase();
+      const rName = String(r.sellerName || '').trim().toLowerCase();
+      return (
+        (uId && rId === uId) ||
+        (uEmail && (rEmail === uEmail || rId === uEmail)) ||
+        (uName && rName === uName)
+      );
+    });
+
+    if (matched) return matched;
+
+    if (user.role === 'seller' && activeRoutes.length > 0) {
+      return activeRoutes[0];
+    }
+
+    return null;
+  }, [activeRoute, activeRoutes, user]);
 
   const teamActiveRoutes = useMemo(() => {
     if (user.role !== 'admin') return [];

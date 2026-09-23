@@ -841,9 +841,14 @@ export const api = {
     return [];
   },
 
-  getActiveRoute: async (): Promise<SellerRoute | null> => {
+  getActiveRoute: async (params?: { sellerId?: string; sellerEmail?: string; sellerName?: string }): Promise<SellerRoute | null> => {
     try {
-      const res = await fetchWithAuth('/api/routes/active');
+      const q = new URLSearchParams();
+      if (params?.sellerId) q.append('sellerId', params.sellerId);
+      if (params?.sellerEmail) q.append('sellerEmail', params.sellerEmail);
+      if (params?.sellerName) q.append('sellerName', params.sellerName);
+      const url = `/api/routes/active${q.toString() ? `?${q.toString()}` : ''}`;
+      const res = await fetchWithAuth(url);
       if (res.ok) {
         const data = await safeJson(res);
         if (data && data.route) {
