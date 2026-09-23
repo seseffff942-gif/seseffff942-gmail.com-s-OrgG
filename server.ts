@@ -933,7 +933,7 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         SELECT DISTINCT ON ("clientId") "clientId", "clientName", latitude, longitude, "createdAt", created_at, "sellerName", seller_name
         FROM public.client_visits
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-        ORDER BY "clientId", COALESCE("createdAt", created_at) DESC
+        ORDER BY "clientId", created_at DESC NULLS LAST, "createdAt" DESC NULLS LAST
       `);
       visitRows.forEach((v: any) => {
         const item = {
@@ -3393,18 +3393,76 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   } catch (e) { }
 
   // Find or create active route session for this seller (Strict single active route)
-  const sellerIdStr = req.user?.id || '';
-  const sellerNameStr = req.user?.name || 'Vendedor';
-  const sellerEmailStr = req.user?.email || '';
+  const sellerIdStr = req.user?.id ? String(req.user.id).trim() : (req.body.sellerId ? String(req.body.sellerId).trim() : '');
+  const sellerNameStr = req.user?.name ? String(req.user.name).trim() : (req.body.sellerName ? String(req.body.sellerName).trim() : 'Vendedor');
+  const sellerEmailStr = req.user?.email ? String(req.user.email).trim().toLowerCase() : (req.body.sellerEmail ? String(req.body.sellerEmail).trim().toLowerCase() : '');
 
+  let activeRoute: any = null;
+
+  // 1. First check in PostgreSQL (Neon / Swarm Postgres)
+  if (neonPool) {
+    try {
+      const activeRes = await neonPool.query(`
+        SELECT * FROM public.seller_routes
+        WHERE status = 'active'
+          AND (
+            ($1 <> '' AND (seller_id = $1 OR "sellerId" = $1 OR id LIKE 'route_' || $1 || '_%')) OR
+            ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
+            ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3 OR seller_name ILIKE '%' || $3 || '%'))
+          )
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        LIMIT 1;
+      `, [sellerIdStr, sellerEmailStr, sellerNameStr]);
+
+      if (activeRes.rows && activeRes.rows.length > 0) {
+        const r = activeRes.rows[0];
+        activeRoute = {
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId || sellerIdStr,
+          sellerName: r.seller_name || r.sellerName || sellerNameStr,
+          sellerEmail: r.seller_email || r.sellerEmail || sellerEmailStr,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: (r.total_stops ?? r.totalStops ?? 0) + 1,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || '',
+          createdAt: r.created_at || r.createdAt
+        };
+
+        // Increment stops count in Neon
+        await neonPool.query(`
+          UPDATE public.seller_routes
+          SET total_stops = COALESCE(total_stops, 0) + 1,
+              "totalStops" = COALESCE("totalStops", 0) + 1
+          WHERE id = $1;
+        `, [activeRoute.id]);
+      }
+    } catch (dbErr: any) {
+      console.warn('[Visit ActiveRoute Query Error]:', dbErr.message);
+    }
+  }
+
+  // 2. Fallback to local routes if not found in DB
   let routes = readLocalRoutes();
-  let activeRoute = routes.find((r: any) =>
-    r.status === 'active' &&
-    (r.sellerId === sellerIdStr || r.sellerEmail === sellerEmailStr || (sellerIdStr && r.sellerId === sellerIdStr))
-  );
+  if (!activeRoute) {
+    activeRoute = routes.find((r: any) =>
+      r.status === 'active' &&
+      (
+        (sellerIdStr && (r.sellerId === sellerIdStr || r.seller_id === sellerIdStr || String(r.id || '').includes(sellerIdStr))) ||
+        (sellerEmailStr && (r.sellerEmail?.toLowerCase() === sellerEmailStr || r.seller_email?.toLowerCase() === sellerEmailStr)) ||
+        (sellerNameStr && (r.sellerName?.toLowerCase() === sellerNameStr.toLowerCase() || r.seller_name?.toLowerCase() === sellerNameStr.toLowerCase()))
+      )
+    );
+  }
 
   if (!activeRoute) {
-    // Auto-start active route on first visit
+    // Auto-start active route on first visit only if no route existed
     activeRoute = {
       id: `route_${sellerIdStr || 'seller'}_${Date.now()}`,
       sellerId: sellerIdStr,
@@ -3429,7 +3487,21 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   saveLocalRoutes(routes);
 
   try {
-    await localDb.from("seller_routes").upsert([activeRoute]);
+    await localDb.from("seller_routes").upsert([{
+      ...activeRoute,
+      seller_id: activeRoute.sellerId,
+      "sellerId": activeRoute.sellerId,
+      seller_name: activeRoute.sellerName,
+      "sellerName": activeRoute.sellerName,
+      seller_email: activeRoute.sellerEmail,
+      "sellerEmail": activeRoute.sellerEmail,
+      started_at: activeRoute.startedAt,
+      start_latitude: activeRoute.startLatitude,
+      start_longitude: activeRoute.startLongitude,
+      total_stops: activeRoute.totalStops,
+      total_distance_km: activeRoute.totalDistanceKm,
+      total_duration_mins: activeRoute.totalDurationMins
+    }]);
   } catch (e) { }
 
   const newVisit = {
@@ -3740,12 +3812,25 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
     });
   }
 
+  // Deduplicate active status per seller: only the most recent active route stays 'active'
+  const seenActiveSellers = new Set<string>();
+  filtered.sort((a, b) => new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime());
+  filtered.forEach(r => {
+    if (r.status === 'active') {
+      const sKey = String(r.sellerId || r.sellerEmail || r.sellerName || '').trim().toLowerCase();
+      if (sKey) {
+        if (seenActiveSellers.has(sKey)) {
+          r.status = 'completed';
+        } else {
+          seenActiveSellers.add(sKey);
+        }
+      }
+    }
+  });
+
   if (status) {
     filtered = filtered.filter(r => r.status === status);
   }
-
-  // Sort newest first
-  filtered.sort((a, b) => new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime());
 
   res.json(filtered);
 }));
@@ -3869,12 +3954,39 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
     createdAt: nowIso
   };
 
+  // Auto-close any previous active routes for this seller in local cache
+  routes.forEach((r: any) => {
+    if (r.status === 'active') {
+      const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+      if ((userId && rSellerId === userId) || (userEmail && rSellerEmail === userEmail)) {
+        r.status = 'completed';
+        r.finishedAt = nowIso;
+      }
+    }
+  });
+
   routes.unshift(newRoute);
   saveLocalRoutes(routes);
 
   // 1. Persist in Neon Cloud PostgreSQL
   if (neonPool) {
     try {
+      // Auto-close any previously active routes for this seller
+      await neonPool.query(`
+        UPDATE public.seller_routes
+        SET status = 'completed',
+            finished_at = $1,
+            "finishedAt" = $1,
+            notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente)'
+        WHERE status = 'active'
+          AND (
+            ($2 <> '' AND (seller_id = $2 OR "sellerId" = $2)) OR
+            ($3 <> '' AND (seller_email ILIKE $3 OR "sellerEmail" ILIKE $3)) OR
+            ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+          );
+      `, [nowIso, userId, userEmail, userName]);
+
       await neonPool.query(`
         INSERT INTO public.seller_routes (
           id, seller_id, "sellerId", seller_name, "sellerName", seller_email, "sellerEmail",

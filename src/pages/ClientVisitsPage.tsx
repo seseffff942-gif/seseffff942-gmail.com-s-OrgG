@@ -70,7 +70,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month' | 'last_month'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState<'all' | 'urgent' | 'regular' | 'never'>('all');
-  const [locationFilter, setLocationFilter] = useState<'with_location' | 'no_gps' | 'all'>('with_location');
+  const [locationFilter, setLocationFilter] = useState<'with_location' | 'no_gps' | 'all'>('all');
   const [portfolioScope, setPortfolioScope] = useState<'mine' | 'all'>(user.role === 'seller' ? 'mine' : 'all');
 
   // Route Tracing & Time Audit (Admin Feature)
@@ -707,13 +707,31 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Distinct seller routes for admin route dashboard & seller history
   const distinctSellerRoutes = useMemo(() => {
-    // 1. Process all explicit routes from database and state
-    const mappedExplicit = sellerRoutes.map(r => {
+    // 1. Process all explicit routes from database and state (sorted latest first)
+    const sortedExplicit = [...sellerRoutes].sort((a, b) => 
+      new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime()
+    );
+    const seenActiveSellers = new Set<string>();
+
+    const mappedExplicit = sortedExplicit.map(r => {
       const datePart = (r.startedAt || r.createdAt || '').split('T')[0];
-      const stops = scopedVisits.filter(v => 
-        v.routeId === r.id || 
-        (v.sellerId === r.sellerId && (v.createdAt || '').startsWith(datePart))
-      ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const stops = scopedVisits.filter(v => {
+        if (v.routeId) return v.routeId === r.id;
+        return (v.sellerId === r.sellerId && (v.createdAt || '').startsWith(datePart));
+      }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      // Only the latest route per seller can be active; older ones are treated as completed
+      let resolvedStatus = r.status;
+      if (resolvedStatus === 'active') {
+        const sKey = String(r.sellerId || r.sellerEmail || r.sellerName || '').trim().toLowerCase();
+        if (sKey) {
+          if (seenActiveSellers.has(sKey)) {
+            resolvedStatus = 'completed';
+          } else {
+            seenActiveSellers.add(sKey);
+          }
+        }
+      }
 
       return {
         id: r.id,
@@ -721,7 +739,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         sellerId: r.sellerId,
         sellerName: r.sellerName,
         date: datePart,
-        status: r.status,
+        status: resolvedStatus,
         isToday: isTodayGuatemala(datePart),
         startedAt: r.startedAt,
         finishedAt: r.finishedAt,
@@ -732,7 +750,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         totalDistanceKm: r.totalDistanceKm || 0,
         totalDurationMins: r.totalDurationMins || 0,
         notes: r.notes,
-        visitsCount: stops.length,
+        visitsCount: Math.max(stops.length, r.totalStops || (r as any).total_stops || 0),
         stops
       };
     });
@@ -828,16 +846,32 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   const teamActiveRoutes = useMemo(() => {
     if (user.role !== 'admin') return [];
-    return activeRoutes.filter(r => {
-      if (myActiveRoute && (r.id === myActiveRoute.id || r.sellerId === myActiveRoute.sellerId)) return false;
+    const sellerActiveMap = new Map<string, SellerRoute>();
+    activeRoutes.forEach(r => {
+      if (myActiveRoute && (r.id === myActiveRoute.id || r.sellerId === myActiveRoute.sellerId)) return;
       const rSellerId = String(r.sellerId || '').trim();
       const rSellerEmail = String(r.sellerEmail || '').trim().toLowerCase();
+      const rSellerName = String(r.sellerName || '').trim().toLowerCase();
       const uId = String(user.id || '').trim();
       const uEmail = String(user.email || '').trim().toLowerCase();
-      if (uId && rSellerId === uId) return false;
-      if (uEmail && rSellerEmail === uEmail) return false;
-      return true;
+      if (uId && rSellerId === uId) return;
+      if (uEmail && rSellerEmail === uEmail) return;
+
+      const sellerKey = rSellerId || rSellerEmail || rSellerName;
+      if (!sellerKey) return;
+
+      if (!sellerActiveMap.has(sellerKey)) {
+        sellerActiveMap.set(sellerKey, r);
+      } else {
+        const existing = sellerActiveMap.get(sellerKey)!;
+        const exTime = new Date(existing.startedAt || existing.date || 0).getTime();
+        const curTime = new Date(r.startedAt || r.date || 0).getTime();
+        if (curTime > exTime) {
+          sellerActiveMap.set(sellerKey, r);
+        }
+      }
     });
+    return Array.from(sellerActiveMap.values());
   }, [activeRoutes, myActiveRoute, user]);
 
   const handleInspectActiveRoute = (r: SellerRoute) => {
@@ -926,7 +960,14 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       let distFromPrevKm = 0;
       let minsFromPrev = 0;
 
-      if (prev) {
+      // Only connect consecutive stops if they belong to the SAME seller
+      const isSameSeller = prev && (
+        (prev.sellerId && v.sellerId && prev.sellerId === v.sellerId) ||
+        (prev.sellerEmail && v.sellerEmail && prev.sellerEmail.toLowerCase() === v.sellerEmail.toLowerCase()) ||
+        (prev.sellerName && v.sellerName && prev.sellerName.toLowerCase() === v.sellerName.toLowerCase())
+      );
+
+      if (prev && isSameSeller) {
         // Haversine distance
         const R = 6371; // km
         const dLat = ((v.latitude - prev.latitude) * Math.PI) / 180;
@@ -951,10 +992,30 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       };
     });
 
+    // Calculate total duration per seller to prevent mixing different sellers' start/end times
+    let totalDurationMins = 0;
+    const sellerStopsMap = new Map<string, any[]>();
+    filtered.forEach(v => {
+      const sKey = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
+      if (!sellerStopsMap.has(sKey)) sellerStopsMap.set(sKey, []);
+      sellerStopsMap.get(sKey)!.push(v);
+    });
+
+    sellerStopsMap.forEach(sList => {
+      if (sList.length > 1) {
+        const sFirst = sList[0];
+        const sLast = sList[sList.length - 1];
+        const sDurationMs = Math.max(0, new Date(sLast.createdAt).getTime() - new Date(sFirst.createdAt).getTime());
+        totalDurationMins += Math.round(sDurationMs / 60000);
+      }
+    });
+
     const firstStop = filtered[0];
     const lastStop = filtered[filtered.length - 1];
-    const totalDurationMs = Math.max(0, new Date(lastStop.createdAt).getTime() - new Date(firstStop.createdAt).getTime());
-    const totalDurationMins = Math.round(totalDurationMs / 60000);
+    if (totalDurationMins === 0 && filtered.length > 1) {
+      const totalDurationMs = Math.max(0, new Date(lastStop.createdAt).getTime() - new Date(firstStop.createdAt).getTime());
+      totalDurationMins = Math.round(totalDurationMs / 60000);
+    }
     const avgTimeBetweenStopsMins = stops.length > 1 ? Math.round(totalDurationMins / (stops.length - 1)) : 0;
 
     // Calculate Return Cycle (average days between recurring visits to same client)
@@ -1268,7 +1329,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               {teamActiveRoutes.map((r) => {
                 const sellerVisitsToday = visits.filter(v => {
                   if (!isTodayGuatemala(v.createdAt)) return false;
-                  if (v.routeId && r.id && v.routeId === r.id) return true;
+                  if (v.routeId) {
+                    return v.routeId === r.id;
+                  }
                   const vSellerId = String(v.sellerId || '').trim();
                   const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
                   const vSellerName = String(v.sellerName || '').trim().toLowerCase();

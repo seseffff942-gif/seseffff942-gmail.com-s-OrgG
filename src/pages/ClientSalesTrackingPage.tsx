@@ -76,7 +76,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
   const [dateTo, setDateTo] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'moderate' | 'inactive' | 'no-sales'>('all');
-  const [locationFilter, setLocationFilter] = useState<'all' | 'exact' | 'approx' | 'missing'>('all');
+  const [locationFilter, setLocationFilter] = useState<'all' | 'exact' | 'approx' | 'missing'>('exact');
 
   // Selected client for detail drawer
   const [selectedClient, setSelectedClient] = useState<ClientTrackingItem | null>(null);
@@ -153,9 +153,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
 
   // Filtered clients list
   const filteredClients = useMemo(() => {
+    const hasSearch = Boolean(searchTerm.trim());
     return clients.filter(c => {
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
+      if (hasSearch) {
+        const term = searchTerm.toLowerCase().trim();
         const matchName = c.name?.toLowerCase().includes(term);
         const matchCompany = c.companyName?.toLowerCase().includes(term);
         const matchCode = c.clientCode?.toLowerCase().includes(term);
@@ -169,9 +170,12 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
       if (statusFilter === 'inactive' && (c.totalSales === 0 || c.daysSinceLastPurchase <= 45)) return false;
       if (statusFilter === 'no-sales' && c.totalSales > 0) return false;
 
-      if (locationFilter === 'exact' && (!c.resolvedGeo || !c.resolvedGeo.isExact)) return false;
-      if (locationFilter === 'approx' && (!c.resolvedGeo || c.resolvedGeo.isExact)) return false;
-      if (locationFilter === 'missing' && c.resolvedGeo) return false;
+      // When searching, allow finding ANY client so the user can look them up right there
+      if (!hasSearch) {
+        if (locationFilter === 'exact' && (!c.resolvedGeo || !c.resolvedGeo.isExact)) return false;
+        if (locationFilter === 'approx' && (!c.resolvedGeo || c.resolvedGeo.isExact)) return false;
+        if (locationFilter === 'missing' && c.resolvedGeo) return false;
+      }
 
       return true;
     });
@@ -301,9 +305,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
     const bounds = L.latLngBounds([]);
 
     filteredClients.forEach(client => {
-      if (!client.resolvedGeo) return;
+      // ONLY plot clients with exact/registered GPS coordinates (no approximate clutter)
+      if (!client.resolvedGeo || !client.resolvedGeo.isExact) return;
 
-      const { latitude, longitude, isExact, locationLabel } = client.resolvedGeo;
+      const { latitude, longitude } = client.resolvedGeo;
       bounds.extend([latitude, longitude]);
 
       let pinColor = '#94a3b8'; // gray
@@ -319,10 +324,9 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
 
       const markerHtml = `
         <div class="relative group cursor-pointer" style="transform: translate3d(0,0,0);">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 ${isExact ? 'border-white ring-2 ring-emerald-400' : 'border-dashed border-amber-200'} transition-transform group-hover:scale-125" style="background-color: ${pinColor}">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-emerald-400 transition-transform group-hover:scale-125" style="background-color: ${pinColor}">
             <span class="text-white text-[10px] font-black">${client.totalSales}</span>
           </div>
-          ${!isExact ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border border-white" title="Ubicación estimada"></div>' : ''}
         </div>
       `;
 
@@ -751,16 +755,16 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
 
             <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900 rounded-lg text-[10px] font-bold text-center">
               <button
+                onClick={() => setLocationFilter('exact')}
+                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'exact' ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-emerald-300")}
+              >
+                Con GPS ({stats.exactGeo})
+              </button>
+              <button
                 onClick={() => setLocationFilter('all')}
                 className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'all' ? "bg-teal-600 text-white" : "text-slate-400 hover:text-white")}
               >
                 Todos ({clients.length})
-              </button>
-              <button
-                onClick={() => setLocationFilter('exact')}
-                className={cn("py-1 rounded transition-colors cursor-pointer", locationFilter === 'exact' ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-emerald-300")}
-              >
-                GPS ({stats.exactGeo})
               </button>
               <button
                 onClick={() => setLocationFilter('approx')}
@@ -799,8 +803,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
                   <div
                     key={client.id}
                     onClick={() => {
-                      if (client.resolvedGeo) {
+                      if (client.resolvedGeo?.isExact) {
                         centerOnClient(client);
+                      } else {
+                        setSelectedClient(client);
                       }
                     }}
                     className={cn(

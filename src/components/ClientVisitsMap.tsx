@@ -567,42 +567,60 @@ export function ClientVisitsMap({
       return;
     }
 
-    const latLngs: [number, number][] = [];
-    if (hasRouteStart && startPoint) {
-      latLngs.push(startPoint);
-    }
+    // Group visits by seller so different sellers in different regions are never connected by a single line
+    const visitsBySeller = new Map<string, typeof routeVisits>();
     routeVisits.forEach(v => {
-      latLngs.push([v.latitude, v.longitude]);
+      const sKey = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
+      if (!visitsBySeller.has(sKey)) visitsBySeller.set(sKey, []);
+      visitsBySeller.get(sKey)!.push(v);
     });
-    if (hasRouteEnd && endPoint) {
-      latLngs.push(endPoint);
-    }
 
-    // 1. Background glow line
-    L.polyline(latLngs, {
-      color: '#0d9488',
-      weight: 8,
-      opacity: 0.35,
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(routeGroup);
+    const allRouteBounds = L.latLngBounds([]);
 
-    // 2. Dynamic route line
-    const polyline = L.polyline(latLngs, {
-      color: '#0f766e',
-      weight: 4,
-      dashArray: '8, 8',
-      opacity: 0.95,
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(routeGroup);
+    visitsBySeller.forEach((sVisits) => {
+      const sLatLngs: [number, number][] = [];
+      const matchRoute = targetRoute && (routeSellerId !== 'all' || targetRoute.sellerId === sVisits[0]?.sellerId);
+      if (hasRouteStart && startPoint && matchRoute) {
+        sLatLngs.push(startPoint);
+        allRouteBounds.extend(startPoint);
+      }
+      sVisits.forEach(v => {
+        sLatLngs.push([v.latitude, v.longitude]);
+        allRouteBounds.extend([v.latitude, v.longitude]);
+      });
+      if (hasRouteEnd && endPoint && matchRoute) {
+        sLatLngs.push(endPoint);
+        allRouteBounds.extend(endPoint);
+      }
 
-    if (latLngs.length > 1 && mapInstanceRef.current) {
+      if (sLatLngs.length > 1) {
+        // 1. Background glow line
+        L.polyline(sLatLngs, {
+          color: '#0d9488',
+          weight: 8,
+          opacity: 0.35,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(routeGroup);
+
+        // 2. Dynamic route line
+        L.polyline(sLatLngs, {
+          color: '#0f766e',
+          weight: 4,
+          dashArray: '8, 8',
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(routeGroup);
+      }
+    });
+
+    if (allRouteBounds.isValid() && mapInstanceRef.current) {
       try {
-        mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 15 });
+        mapInstanceRef.current.fitBounds(allRouteBounds, { padding: [60, 60], maxZoom: 15 });
       } catch (e) {}
-    } else if (latLngs.length === 1 && mapInstanceRef.current) {
-      mapInstanceRef.current.setView(latLngs[0], 15, { animate: true });
+    } else if (routeVisits.length === 1 && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([routeVisits[0].latitude, routeVisits[0].longitude], 15, { animate: true });
     }
 
     // Add Stop Numbers and Step Badges
@@ -611,7 +629,13 @@ export function ClientVisitsMap({
       const isEnd = (idx === routeVisits.length - 1) && !hasRouteEnd;
       const stepNum = idx + 1;
       
-      const prevPoint = idx > 0 ? routeVisits[idx - 1] : (hasRouteStart && startPoint ? { latitude: startPoint[0], longitude: startPoint[1], createdAt: targetRoute?.startedAt } : null);
+      const prevVisit = idx > 0 ? routeVisits[idx - 1] : null;
+      const isSameSeller = prevVisit && (
+        (prevVisit.sellerId && v.sellerId && prevVisit.sellerId === v.sellerId) ||
+        (prevVisit.sellerEmail && v.sellerEmail && prevVisit.sellerEmail.toLowerCase() === v.sellerEmail.toLowerCase()) ||
+        (prevVisit.sellerName && v.sellerName && prevVisit.sellerName.toLowerCase() === v.sellerName.toLowerCase())
+      );
+      const prevPoint = isSameSeller ? prevVisit : (hasRouteStart && startPoint && (routeSellerId !== 'all' || targetRoute?.sellerId === v.sellerId) ? { latitude: startPoint[0], longitude: startPoint[1], createdAt: targetRoute?.startedAt } : null);
       let timeFromPrev = '';
       let distFromPrev = '';
 
