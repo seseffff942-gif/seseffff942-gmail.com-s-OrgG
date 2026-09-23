@@ -3410,7 +3410,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
             ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
             ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3 OR seller_name ILIKE '%' || $3 || '%'))
           )
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [sellerIdStr, sellerEmailStr, sellerNameStr]);
 
@@ -3726,7 +3726,7 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req: any, res: any) => {
     try {
       const res = await neonPool.query(`
         SELECT * FROM public.seller_routes 
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC;
+        ORDER BY COALESCE(started_at, created_at) DESC;
       `);
       if (res.rows && res.rows.length > 0) {
         routes = res.rows.map((r: any) => ({
@@ -3856,7 +3856,7 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
             ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
             ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
           )
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [userId, userEmail, userName]);
 
@@ -4094,7 +4094,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
                 ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)) OR
                 ($4 <> '' AND (seller_email ILIKE $4 OR "sellerEmail" ILIKE $4))
               ))
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [id, reqSellerId, reqSellerName, reqSellerEmail]);
 
