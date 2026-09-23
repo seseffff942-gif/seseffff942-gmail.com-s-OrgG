@@ -611,10 +611,10 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
           isClientOfSeller(c, targetSeller) ||
           (c.sellerId && c.sellerId.toLowerCase() === sId) ||
           (c.geotaggedBy && (c.geotaggedBy.toLowerCase() === sName || c.geotaggedBy.toLowerCase() === sId)) ||
-          (lastVisit && (
-            (lastVisit.sellerId && lastVisit.sellerId.toLowerCase() === sId) ||
-            (lastVisit.sellerEmail && lastVisit.sellerEmail.toLowerCase() === sEmail) ||
-            (lastVisit.sellerName && lastVisit.sellerName.toLowerCase() === sName)
+          (c.lastVisit && (
+            (c.lastVisit.sellerId && c.lastVisit.sellerId.toLowerCase() === sId) ||
+            (c.lastVisit.sellerEmail && c.lastVisit.sellerEmail.toLowerCase() === sEmail) ||
+            (c.lastVisit.sellerName && c.lastVisit.sellerName.toLowerCase() === sName)
           ));
         if (!matchesSeller) return false;
       }
