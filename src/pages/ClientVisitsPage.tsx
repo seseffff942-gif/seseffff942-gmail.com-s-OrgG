@@ -479,6 +479,53 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     });
   }, [visits, user]);
 
+  // Available Sellers for filtering and supervision
+  const availableSellers = useMemo(() => {
+    if (user.role === 'seller') {
+      return [{
+        id: user.id || user.email || 'me',
+        name: user.name || 'Mi Perfil',
+        email: user.email,
+        todayVisits: scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length,
+        totalVisits: scopedVisits.length
+      }];
+    }
+
+    const map = new Map<string, { id: string; name: string; email?: string; todayVisits: number; totalVisits: number }>();
+    
+    // Add registered sellers/team members
+    teamUsers.filter(u => u.role === 'seller' || u.role === 'admin').forEach(u => {
+      const id = u.id || u.email || u.name;
+      map.set(id, {
+        id,
+        name: u.name || u.email || 'Asesor',
+        email: u.email,
+        todayVisits: 0,
+        totalVisits: 0
+      });
+    });
+
+    visits.forEach(v => {
+      const sId = v.sellerId || v.sellerEmail || v.sellerName;
+      if (!sId) return;
+      if (!map.has(sId)) {
+        map.set(sId, {
+          id: sId,
+          name: v.sellerName || 'Asesor',
+          email: v.sellerEmail,
+          todayVisits: 0,
+          totalVisits: 0
+        });
+      }
+      const entry = map.get(sId)!;
+      entry.totalVisits++;
+      if (isTodayGuatemala(v.createdAt)) {
+        entry.todayVisits++;
+      }
+    });
+    return Array.from(map.values());
+  }, [visits, scopedVisits, teamUsers, user]);
+
   // Frequency and Client Portfolio Analysis
   const clientPortfolioWithStatus = useMemo(() => {
     const now = new Date().getTime();
@@ -594,7 +641,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       if (b.daysElapsed === null) return 1;
       return b.daysElapsed - a.daysElapsed;
     });
-  }, [clients, scopedVisits, searchTerm, frequencyFilter, locationFilter, portfolioScope, selectedSellerFilter, currentLocation, user]);
+  }, [clients, scopedVisits, searchTerm, frequencyFilter, locationFilter, portfolioScope, selectedSellerFilter, availableSellers, currentLocation, user]);
 
   // Filtered Visits
   const filteredVisits = useMemo(() => {
@@ -643,52 +690,6 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       return true;
     });
   }, [scopedVisits, selectedSellerFilter, selectedVisitTypeFilter, selectedDateRangeFilter, searchTerm]);
-
-  const availableSellers = useMemo(() => {
-    if (user.role === 'seller') {
-      return [{
-        id: user.id || user.email || 'me',
-        name: user.name || 'Mi Perfil',
-        email: user.email,
-        todayVisits: scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length,
-        totalVisits: scopedVisits.length
-      }];
-    }
-
-    const map = new Map<string, { id: string; name: string; email?: string; todayVisits: number; totalVisits: number }>();
-    
-    // Add registered sellers/team members
-    teamUsers.filter(u => u.role === 'seller' || u.role === 'admin').forEach(u => {
-      const id = u.id || u.email || u.name;
-      map.set(id, {
-        id,
-        name: u.name || u.email || 'Asesor',
-        email: u.email,
-        todayVisits: 0,
-        totalVisits: 0
-      });
-    });
-
-    visits.forEach(v => {
-      const sId = v.sellerId || v.sellerEmail || v.sellerName;
-      if (!sId) return;
-      if (!map.has(sId)) {
-        map.set(sId, {
-          id: sId,
-          name: v.sellerName || 'Asesor',
-          email: v.sellerEmail,
-          todayVisits: 0,
-          totalVisits: 0
-        });
-      }
-      const entry = map.get(sId)!;
-      entry.totalVisits++;
-      if (isTodayGuatemala(v.createdAt)) {
-        entry.todayVisits++;
-      }
-    });
-    return Array.from(map.values());
-  }, [visits, scopedVisits, teamUsers, user]);
 
   // Available unique dates with recorded visits (filtered by selected seller if applicable)
   const availableVisitDates = useMemo(() => {
