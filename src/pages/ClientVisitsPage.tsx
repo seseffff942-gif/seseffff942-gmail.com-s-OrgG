@@ -1034,30 +1034,46 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       };
     });
 
-    // Calculate total duration per seller to prevent mixing different sellers' start/end times
-    let totalDurationMins = 0;
-    const sellerStopsMap = new Map<string, any[]>();
-    filtered.forEach(v => {
-      const sKey = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
-      if (!sellerStopsMap.has(sKey)) sellerStopsMap.set(sKey, []);
-      sellerStopsMap.get(sKey)!.push(v);
-    });
-
-    sellerStopsMap.forEach(sList => {
-      if (sList.length > 1) {
-        const sFirst = sList[0];
-        const sLast = sList[sList.length - 1];
-        const sDurationMs = Math.max(0, new Date(sLast.createdAt).getTime() - new Date(sFirst.createdAt).getTime());
-        totalDurationMins += Math.round(sDurationMs / 60000);
-      }
-    });
-
     const firstStop = filtered[0];
     const lastStop = filtered[filtered.length - 1];
-    if (totalDurationMins === 0 && filtered.length > 1) {
-      const totalDurationMs = Math.max(0, new Date(lastStop.createdAt).getTime() - new Date(firstStop.createdAt).getTime());
-      totalDurationMins = Math.round(totalDurationMs / 60000);
+
+    // Find if there is an active or registered route session for this seller and date
+    const matchedRoute = distinctSellerRoutes.find(r => {
+      const isDateMatch = routeDate === 'all' ? r.isToday : r.date === routeDate;
+      if (!isDateMatch) return false;
+      if (effectiveSeller !== 'all') {
+        const eff = effectiveSeller.toLowerCase();
+        const rId = String(r.sellerId || '').toLowerCase();
+        const rEmail = String(r.sellerEmail || '').toLowerCase();
+        const rName = String(r.sellerName || '').toLowerCase();
+        return rId === eff || rEmail === eff || rName === eff;
+      }
+      return true;
+    });
+
+    const isRouteActive = matchedRoute ? matchedRoute.status === 'active' : isTodayGuatemala(routeDate === 'all' ? new Date().toISOString() : routeDate);
+
+    // Initial departure time: route startedAt if earlier than first stop, otherwise first stop
+    const firstStopAt = (matchedRoute?.startedAt && new Date(matchedRoute.startedAt).getTime() <= new Date(firstStop.createdAt).getTime())
+      ? matchedRoute.startedAt
+      : firstStop.createdAt;
+
+    // End time of the route:
+    let lastStopAt: string;
+    let isOngoing = false;
+
+    if (isRouteActive && (matchedRoute?.isToday || routeDate === 'all' || isTodayGuatemala(routeDate))) {
+      lastStopAt = new Date().toISOString();
+      isOngoing = true;
+    } else if (matchedRoute?.finishedAt) {
+      lastStopAt = matchedRoute.finishedAt;
+    } else {
+      lastStopAt = lastStop.createdAt;
     }
+
+    const startMs = new Date(firstStopAt).getTime();
+    const endMs = new Date(lastStopAt).getTime();
+    const totalDurationMins = Math.max(1, Math.round((endMs - startMs) / 60000));
     const avgTimeBetweenStopsMins = stops.length > 1 ? Math.round(totalDurationMins / (stops.length - 1)) : 0;
 
     // Calculate Return Cycle (average days between recurring visits to same client)
@@ -1091,11 +1107,12 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       totalDistanceKm: Math.round(totalDistanceKm * 10) / 10,
       totalDurationMins,
       avgTimeBetweenStopsMins,
-      firstStopAt: firstStop.createdAt,
-      lastStopAt: lastStop.createdAt,
+      firstStopAt,
+      lastStopAt,
+      isOngoing,
       returnCycleDays
     };
-  }, [visits, routeSellerId, selectedSellerFilter, activeTab, routeDate]);
+  }, [visits, scopedVisits, distinctSellerRoutes, routeSellerId, selectedSellerFilter, activeTab, routeDate, user]);
 
   // Export to Excel handler
   const handleExportExcel = () => {
@@ -1752,7 +1769,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                   : `${routeAnalysis.totalDurationMins} min`}
               </p>
               <p className="text-[10px] text-teal-200 truncate">
-                {routeAnalysis.firstStopAt ? new Date(routeAnalysis.firstStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} - {routeAnalysis.lastStopAt ? new Date(routeAnalysis.lastStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                {routeAnalysis.firstStopAt ? new Date(routeAnalysis.firstStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} - {routeAnalysis.isOngoing ? 'En curso' : (routeAnalysis.lastStopAt ? new Date(routeAnalysis.lastStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
               </p>
             </div>
 
