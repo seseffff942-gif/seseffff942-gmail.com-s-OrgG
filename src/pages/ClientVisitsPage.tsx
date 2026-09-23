@@ -12,7 +12,7 @@ import {
   Search, Filter, ExternalLink, Phone, Building2, 
   DollarSign, ShoppingCart, UserPlus, Package, 
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
-  Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2,
+  Download, FileSpreadsheet, Check, Shield, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
   BarChart3
 } from 'lucide-react';
@@ -136,7 +136,13 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       setVisits(visitsData || []);
       setStats(statsData || null);
       setSellerRoutes(routesData || []);
-      setActiveRoute(activeRouteData || null);
+      const myActiveRoute = activeRouteData && activeRouteData.status === 'active' && (
+        user.role === 'seller' ||
+        (user.id && activeRouteData.sellerId === user.id) ||
+        (user.email && activeRouteData.sellerEmail?.toLowerCase() === user.email.toLowerCase()) ||
+        (user.name && activeRouteData.sellerName?.toLowerCase() === user.name.toLowerCase())
+      ) ? activeRouteData : null;
+      setActiveRoute(myActiveRoute);
       setTeamUsers(usersData || []);
 
       if (user.role === 'admin') {
@@ -811,6 +817,39 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     return distinctSellerRoutes.filter(r => r.status === 'active');
   }, [distinctSellerRoutes]);
 
+  const myActiveRoute = useMemo(() => {
+    if (!activeRoute || activeRoute.status !== 'active') return null;
+    const isMine = user.role === 'seller' ||
+      (user.id && activeRoute.sellerId === user.id) ||
+      (user.email && activeRoute.sellerEmail?.toLowerCase() === user.email.toLowerCase()) ||
+      (user.name && activeRoute.sellerName?.toLowerCase() === user.name.toLowerCase());
+    return isMine ? activeRoute : null;
+  }, [activeRoute, user]);
+
+  const teamActiveRoutes = useMemo(() => {
+    if (user.role !== 'admin') return [];
+    return activeRoutes.filter(r => {
+      if (myActiveRoute && (r.id === myActiveRoute.id || r.sellerId === myActiveRoute.sellerId)) return false;
+      const rSellerId = String(r.sellerId || '').trim();
+      const rSellerEmail = String(r.sellerEmail || '').trim().toLowerCase();
+      const uId = String(user.id || '').trim();
+      const uEmail = String(user.email || '').trim().toLowerCase();
+      if (uId && rSellerId === uId) return false;
+      if (uEmail && rSellerEmail === uEmail) return false;
+      return true;
+    });
+  }, [activeRoutes, myActiveRoute, user]);
+
+  const handleInspectActiveRoute = (r: SellerRoute) => {
+    setRouteSellerId(r.sellerId || r.sellerEmail || r.sellerName || 'all');
+    const rDate = r.date || (r.startedAt ? r.startedAt.split('T')[0] : getGuatemalaTodayIso());
+    setRouteDate(rDate);
+    setIsRouteTraceActive(true);
+    setActiveTab('routes');
+    const mapEl = document.getElementById('client-visits-map-section');
+    if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
+  };
+
   const historicalRoutes = useMemo(() => {
     return distinctSellerRoutes.filter(r => r.status === 'completed');
   }, [distinctSellerRoutes]);
@@ -1174,129 +1213,229 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       {activeTab !== 'control' && (
         <>
           {/* ACTIVE ROUTE / JORNADA STATUS BANNER */}
-          {activeRoute && activeRoute.status === 'active' ? (
-            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                  <Car size={20} className="text-white animate-pulse" />
+          <div className="space-y-2">
+          {myActiveRoute && (
+            <div className="bg-gradient-to-r from-emerald-700/90 to-teal-800/90 border border-emerald-500/30 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                  <Car size={16} className="text-white animate-pulse" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
                       🟢 En Ruta Activa
                     </span>
-                    <span className="text-xs text-emerald-100 font-medium">
-                      Iniciada a las {activeRoute.startedAt ? new Date(activeRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
+                    <span className="text-xs font-black text-white truncate">
+                      👤 {user.role === 'admin' ? `Mi Ruta (Administrador: ${user.name || 'Tú'})` : `Mi Ruta (${user.name || myActiveRoute.sellerName || 'Asesor'})`}
+                    </span>
+                    <span className="text-[11px] text-emerald-200 font-medium">
+                      · 🕒 {myActiveRoute.startedAt ? new Date(myActiveRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
                     </span>
                   </div>
-                  <h4 className="text-sm font-bold text-white mt-0.5">
-                    {scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} clientes visitados hoy en esta ruta
-                  </h4>
+                  <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
+                    📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} clientes visitados hoy en esta ruta
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveTab('routes');
-                    setIsRouteTraceActive(true);
-                    const mapEl = document.getElementById('client-visits-map-section');
-                    if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="px-3.5 py-2 bg-white/15 hover:bg-white/25 rounded-xl text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+                  onClick={() => handleInspectActiveRoute(myActiveRoute)}
+                  className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  <Route size={14} />
+                  <Route size={13} />
                   <span>Ver Recorrido</span>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => {
-                    setRouteToFinish(activeRoute);
+                    setRouteToFinish(myActiveRoute);
                     setShowFinishRouteModal(true);
                   }}
-                  className="px-4 py-2 bg-white text-emerald-900 hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                  className="px-3 py-1.5 bg-white text-emerald-950 hover:bg-emerald-50 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1"
                 >
-                  <Flag size={14} className="text-emerald-700" />
+                  <Flag size={13} className="text-emerald-700" />
                   <span>🏁 Finalizar Ruta</span>
                 </button>
               </div>
             </div>
-          ) : user.role === 'seller' ? (
-            <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-                  <Car size={18} className="text-slate-400" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    ⚪ Sin Jornada en Curso
-                  </span>
-                  <p className="text-xs text-slate-300 font-medium">
-                    Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
-                  </p>
-                </div>
-              </div>
+          )}
 
-              <button
-                type="button"
-                onClick={handleStartRoute}
-                disabled={isStartingRoute}
-                className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0"
-              >
-                <Car size={14} />
-                <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
-              </button>
-            </div>
-          ) : (
-            <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-                  <Route size={18} className="text-teal-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
-                      🛡️ Panel de Rutas (Administración)
-                    </span>
-                    {activeRoutes.length > 0 && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        {activeRoutes.length} {activeRoutes.length === 1 ? 'ruta activa en campo' : 'rutas activas en campo'}
-                      </span>
-                    )}
+          {/* 2. If Admin and there are TEAM sellers in active route */}
+          {user.role === 'admin' && teamActiveRoutes.length > 0 && (
+            <div className="space-y-1.5">
+              {teamActiveRoutes.map((r) => {
+                const sellerVisitsToday = visits.filter(v => {
+                  if (!isTodayGuatemala(v.createdAt)) return false;
+                  if (v.routeId && r.id && v.routeId === r.id) return true;
+                  const vSellerId = String(v.sellerId || '').trim();
+                  const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+                  const vSellerName = String(v.sellerName || '').trim().toLowerCase();
+                  const rSellerId = String(r.sellerId || '').trim();
+                  const rSellerEmail = String(r.sellerEmail || '').trim().toLowerCase();
+                  const rSellerName = String(r.sellerName || '').trim().toLowerCase();
+                  return (
+                    (rSellerId && vSellerId === rSellerId) ||
+                    (rSellerEmail && vSellerEmail === rSellerEmail) ||
+                    (rSellerName && vSellerName === rSellerName)
+                  );
+                }).length;
+
+                return (
+                  <div 
+                    key={r.id || r.sellerId} 
+                    className="bg-gradient-to-r from-emerald-900/90 to-teal-950/90 border border-emerald-500/30 text-white px-3.5 py-2 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                        <Car size={16} className="text-emerald-300 animate-pulse" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-400 text-emerald-950 uppercase tracking-wider">
+                            🟢 Ruta Activa
+                          </span>
+                          <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded border border-white/15">
+                            👤 Asesor: {r.sellerName || 'Vendedor'}
+                          </span>
+                          <span className="text-[11px] text-emerald-200 font-medium">
+                            · 🕒 Iniciada: {r.startedAt ? new Date(r.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-emerald-200/90 font-medium truncate mt-0.5">
+                          📍 {sellerVisitsToday} {sellerVisitsToday === 1 ? 'cliente visitado' : 'clientes visitados'} hoy en esta ruta
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleInspectActiveRoute(r)}
+                        className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Route size={13} />
+                        <span>Ver Recorrido</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRouteToFinish(r);
+                          setShowFinishRouteModal(true);
+                        }}
+                        className="px-2.5 py-1.5 bg-white/10 hover:bg-rose-500/20 text-rose-200 hover:text-white border border-white/10 hover:border-rose-400/30 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                        title="Finalizar ruta de este asesor"
+                      >
+                        <Flag size={12} className="text-rose-400" />
+                        <span>Finalizar</span>
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-300 font-medium">
-                    Supervisa dónde inician y cierran ruta tus vendedores, o inicia tu propia jornada si sales a visitas.
-                  </p>
-                </div>
-              </div>
+                );
+              })}
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('routes');
-                    const el = document.getElementById('routes-tab-control');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
-                >
-                  <Navigation size={13} className="text-teal-400" />
-                  <span>Ver Rutas de Vendedores</span>
-                </button>
+              {!myActiveRoute && (
+                <div className="flex items-center justify-between text-xs px-3 py-1 text-slate-400 bg-slate-900/60 rounded-lg border border-slate-800/80">
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                    <Shield size={12} className="text-teal-400" />
+                    <span>Supervisión activa ({teamActiveRoutes.length} {teamActiveRoutes.length === 1 ? 'asesor en campo' : 'asesores en campo'})</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleStartRoute}
+                    disabled={isStartingRoute}
+                    className="px-2.5 py-1 bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Car size={12} />
+                    <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta (Admin)'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 3. If NO active routes at all */}
+          {!myActiveRoute && teamActiveRoutes.length === 0 && (
+            user.role === 'seller' ? (
+              <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                    <Car size={16} className="text-slate-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        ⚪ Sin Jornada en Curso
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-300">
+                        · 👤 Asesor: {user.name || 'Tú'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
+                    </p>
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   onClick={handleStartRoute}
                   disabled={isStartingRoute}
-                  className="px-3.5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0 self-end sm:self-center"
                 >
                   <Car size={13} />
-                  <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta'}</span>
+                  <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
                 </button>
               </div>
-            </div>
+            ) : (
+              <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                    <Route size={16} className="text-teal-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-black text-teal-400 uppercase tracking-wider">
+                        🛡️ Panel de Rutas (Administración)
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-400">
+                        · ⚪ Sin rutas activas en campo hoy
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      Supervisa dónde inician y cierran ruta tus vendedores, o inicia tu propia jornada si sales a visitas.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('routes');
+                      const el = document.getElementById('routes-tab-control');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                  >
+                    <Navigation size={12} className="text-teal-400" />
+                    <span>Ver Rutas</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStartRoute}
+                    disabled={isStartingRoute}
+                    className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Car size={13} />
+                    <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta'}</span>
+                  </button>
+                </div>
+              </div>
+            )
           )}
+        </div>
 
       {/* METRICS ROW */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">

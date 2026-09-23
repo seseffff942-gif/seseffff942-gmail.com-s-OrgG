@@ -843,11 +843,22 @@ export const api = {
 
   getActiveRoute: async (): Promise<SellerRoute | null> => {
     try {
-      const res = await fetchWithAuth('/api/routes?status=active');
+      const res = await fetchWithAuth('/api/routes/active');
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data) && data.length > 0) {
-          return data[0] as SellerRoute;
+        if (data && data.route) {
+          return data.route as SellerRoute;
+        }
+        if (Array.isArray(data)) {
+          const user = api.getSavedUser();
+          const userId = user?.id ? String(user.id).trim() : '';
+          const userEmail = user?.email ? String(user.email).trim().toLowerCase() : '';
+          const match = data.find((r: any) => {
+            const rId = String(r.sellerId || r.seller_id || '').trim();
+            const rEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+            return (userId && rId === userId) || (userEmail && rEmail === userEmail);
+          });
+          return (match || null) as SellerRoute | null;
         }
       }
     } catch (e) {
