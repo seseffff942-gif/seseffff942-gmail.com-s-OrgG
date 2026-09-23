@@ -555,11 +555,20 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
       // Filter by selected seller dropdown in Cartera & Frecuencia
       if (selectedSellerFilter !== 'all') {
+        const targetSeller = availableSellers.find(s => s.id === selectedSellerFilter);
+        const sId = selectedSellerFilter.toLowerCase();
+        const sEmail = targetSeller?.email?.toLowerCase() || '';
+        const sName = targetSeller?.name?.toLowerCase() || '';
+
         const matchesSeller = 
-          c.sellerId === selectedSellerFilter || 
-          (c as any).sellerEmail === selectedSellerFilter || 
-          c.geotaggedBy === selectedSellerFilter ||
-          (c.sellerId && c.sellerId.toLowerCase() === selectedSellerFilter.toLowerCase());
+          isClientOfSeller(c, targetSeller) ||
+          (c.sellerId && c.sellerId.toLowerCase() === sId) ||
+          (c.geotaggedBy && (c.geotaggedBy.toLowerCase() === sName || c.geotaggedBy.toLowerCase() === sId)) ||
+          (lastVisit && (
+            (lastVisit.sellerId && lastVisit.sellerId.toLowerCase() === sId) ||
+            (lastVisit.sellerEmail && lastVisit.sellerEmail.toLowerCase() === sEmail) ||
+            (lastVisit.sellerName && lastVisit.sellerName.toLowerCase() === sName)
+          ));
         if (!matchesSeller) return false;
       }
 
@@ -929,10 +938,14 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Comprehensive Route & Time Audit Analysis (Admin Route Tracer)
   const routeAnalysis = useMemo(() => {
+    const effectiveSeller = activeTab === 'routes' 
+      ? routeSellerId 
+      : (selectedSellerFilter !== 'all' ? selectedSellerFilter : routeSellerId);
+
     const filtered = scopedVisits.filter(v => {
       if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
-      if (routeSellerId !== 'all' && user.role === 'admin') {
-        const match = v.sellerId === routeSellerId || v.sellerEmail === routeSellerId || v.sellerName === routeSellerId;
+      if (effectiveSeller !== 'all' && user.role === 'admin') {
+        const match = v.sellerId === effectiveSeller || v.sellerEmail === effectiveSeller || v.sellerName === effectiveSeller;
         if (!match) return false;
       }
       if (routeDate !== 'all') {
@@ -1053,7 +1066,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       lastStopAt: lastStop.createdAt,
       returnCycleDays
     };
-  }, [visits, routeSellerId, routeDate]);
+  }, [visits, routeSellerId, selectedSellerFilter, activeTab, routeDate]);
 
   // Export to Excel handler
   const handleExportExcel = () => {
@@ -1865,7 +1878,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               {user.role === 'admin' && availableSellers.length > 0 && activeTab !== 'routes' && (
                 <select
                   value={selectedSellerFilter}
-                  onChange={(e) => setSelectedSellerFilter(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedSellerFilter(val);
+                    setRouteSellerId(val);
+                  }}
                   className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
                 >
                   <option value="all">👤 Todos los Asesores</option>
