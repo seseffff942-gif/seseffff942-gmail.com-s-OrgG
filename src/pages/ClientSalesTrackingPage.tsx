@@ -60,9 +60,11 @@ interface ClientTrackingItem {
 interface ClientSalesTrackingPageProps {
   user: User;
   isMobile?: boolean;
+  embedded?: boolean;
+  onCoordinatesUpdated?: (clientId: string, lat: number, lng: number) => void;
 }
 
-export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesTrackingPageProps) {
+export function ClientSalesTrackingPage({ user, isMobile = false, embedded = false, onCoordinatesUpdated }: ClientSalesTrackingPageProps) {
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<ClientTrackingItem[]>([]);
   const [sellers, setSellers] = useState<any[]>([]);
@@ -138,6 +140,17 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
     loadData();
   }, [selectedSeller, dateFrom, dateTo]);
 
+  // Live real-time coordinate synchronization when sellers register GPS in field visits
+  useEffect(() => {
+    const handleMutate = (e: any) => {
+      if (!e?.detail?.key || e.detail.key === 'clients') {
+        loadData();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => window.removeEventListener('agricovet-mutate', handleMutate);
+  }, []);
+
   // Filtered clients list
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
@@ -172,10 +185,14 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
     const approxGeo = clients.filter(c => c.resolvedGeo && !c.resolvedGeo.isExact).length;
     const missingGeo = clients.filter(c => !c.resolvedGeo).length;
     const totalRevenue = clients.reduce((acc, c) => acc + (c.totalRevenue || 0), 0);
-    const activeClients = clients.filter(c => c.totalSales > 0 && c.daysSinceLastPurchase <= 30).length;
+    const activeClients = clients.filter(c => c.totalSales > 0 && c.daysSinceLastPurchase <= 15).length;
+    const moderateClients = clients.filter(c => c.totalSales > 0 && c.daysSinceLastPurchase > 15 && c.daysSinceLastPurchase <= 45).length;
     const inactiveClients = clients.filter(c => c.totalSales > 0 && c.daysSinceLastPurchase > 45).length;
+    const avgTicket = withSales > 0 ? totalRevenue / withSales : 0;
+    const clientsWithFreq = clients.filter(c => c.avgFrequencyDays > 0);
+    const avgFreq = clientsWithFreq.length > 0 ? Math.round(clientsWithFreq.reduce((acc, c) => acc + c.avgFrequencyDays, 0) / clientsWithFreq.length) : 0;
 
-    return { total, withSales, exactGeo, approxGeo, missingGeo, totalRevenue, activeClients, inactiveClients };
+    return { total, withSales, exactGeo, approxGeo, missingGeo, totalRevenue, activeClients, moderateClients, inactiveClients, avgTicket, avgFreq };
   }, [clients]);
 
   // Initialize Leaflet Map (Guaranteed tiles + resize observer)
@@ -399,6 +416,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
       const res = await api.updateClientLocation(clientId, lat, lng, `Fijado en mapa por admin (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
       if (res.success) {
         setPinningClient(null);
+        onCoordinatesUpdated?.(clientId, lat, lng);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('agricovet-mutate', { detail: { key: 'clients' } }));
+        }
         await loadData();
       }
     } catch (err: any) {
@@ -511,7 +532,10 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] w-full flex flex-col bg-slate-900 text-slate-100 overflow-hidden select-none">
+    <div className={cn(
+      "w-full flex flex-col bg-slate-900 text-slate-100 overflow-hidden select-none",
+      embedded ? "h-[calc(100vh-160px)] min-h-[700px] rounded-2xl border border-slate-700/80 shadow-sm" : "h-[calc(100vh-64px)]"
+    )}>
       {/* Top Header */}
       <header className="bg-slate-800/95 border-b border-slate-700 px-4 py-2.5 shrink-0 z-20 shadow-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 max-w-7xl mx-auto">
@@ -521,12 +545,17 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm md:text-base font-black text-white tracking-tight">Control de Clientes & Ventas</h1>
+                <h1 className="text-sm md:text-base font-black text-white tracking-tight">Control de Clientes & Analítica Comercial</h1>
                 <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   Solo Admin
                 </span>
+                {embedded && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                    Sincronizado con Visitas
+                  </span>
+                )}
               </div>
-              <p className="text-[11px] text-slate-400">Geolocalización, análisis de frecuencia y compras</p>
+              <p className="text-[11px] text-slate-400">Coordenadas en terreno, ticket promedio, frecuencia y lealtad</p>
             </div>
           </div>
 
@@ -555,41 +584,46 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
         </div>
       </header>
 
-      {/* KPI Stats Ribbon */}
+      {/* KPI Stats Ribbon with Ticket Promedio and Frecuencia */}
       <section className="bg-slate-850/80 border-b border-slate-700/80 px-4 py-2 shrink-0">
-        <div className="max-w-7xl mx-auto grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-7 gap-2 text-xs">
+        <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">
           <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
             <span className="text-[9px] text-slate-400 font-bold uppercase block">Clientes</span>
             <span className="text-sm font-black text-white">{stats.total}</span>
           </div>
 
           <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
-            <span className="text-[9px] text-teal-400 font-bold uppercase block">Con Ventas</span>
+            <span className="text-[9px] text-teal-400 font-bold uppercase block">Con Compras</span>
             <span className="text-sm font-black text-teal-300">{stats.withSales}</span>
           </div>
 
           <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
-            <span className="text-[9px] text-emerald-400 font-bold uppercase block">GPS Exacto</span>
+            <span className="text-[9px] text-emerald-400 font-bold uppercase block">Ticket Promedio</span>
+            <span className="text-sm font-black text-emerald-400">Q{stats.avgTicket.toLocaleString('es-GT', { maximumFractionDigits: 0 })}</span>
+          </div>
+
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-teal-300 font-bold uppercase block">Frecuencia Media</span>
+            <span className="text-sm font-black text-teal-300">{stats.avgFreq > 0 ? `Cada ${stats.avgFreq}d` : 'N/A'}</span>
+          </div>
+
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-emerald-400 font-bold uppercase block">Frecuentes (&le;15d)</span>
+            <span className="text-sm font-black text-emerald-400">{stats.activeClients}</span>
+          </div>
+
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-rose-400 font-bold uppercase block">En Riesgo (&gt;45d)</span>
+            <span className="text-sm font-black text-rose-400">{stats.inactiveClients}</span>
+          </div>
+
+          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
+            <span className="text-[9px] text-emerald-300 font-bold uppercase block">GPS Fijado</span>
             <span className="text-sm font-black text-emerald-300">{stats.exactGeo}</span>
           </div>
 
           <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
-            <span className="text-[9px] text-amber-400 font-bold uppercase block">Aprox. Ciudad</span>
-            <span className="text-sm font-black text-amber-300">{stats.approxGeo}</span>
-          </div>
-
-          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
-            <span className="text-[9px] text-rose-400 font-bold uppercase block">Sin Ubicación</span>
-            <span className="text-sm font-black text-rose-300">{stats.missingGeo}</span>
-          </div>
-
-          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80">
-            <span className="text-[9px] text-emerald-400 font-bold uppercase block">Activos (&le;30d)</span>
-            <span className="text-sm font-black text-emerald-400">{stats.activeClients}</span>
-          </div>
-
-          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700/80 col-span-3 sm:col-span-1">
-            <span className="text-[9px] text-teal-300 font-bold uppercase block">Facturado Global</span>
+            <span className="text-[9px] text-teal-200 font-bold uppercase block">Venta Global</span>
             <span className="text-sm font-black text-white">Q{stats.totalRevenue.toLocaleString('es-GT', { maximumFractionDigits: 0 })}</span>
           </div>
         </div>
@@ -803,9 +837,14 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                         <span className="text-xs font-black text-emerald-400 block">
                           Q{client.totalRevenue.toLocaleString('es-GT', { maximumFractionDigits: 0 })}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-semibold">
-                          {client.totalSales} fact.
+                        <span className="text-[10px] text-slate-400 font-semibold block">
+                          {client.totalSales} fact. · Ticket: Q{client.totalSales > 0 ? Math.round(client.totalRevenue / client.totalSales) : 0}
                         </span>
+                        {client.avgFrequencyDays > 0 && (
+                          <span className="text-[9px] text-teal-300 font-medium block">
+                            Cada {client.avgFrequencyDays}d
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -827,7 +866,18 @@ export function ClientSalesTrackingPage({ user, isMobile = false }: ClientSalesT
                           </span>
                         )}
 
-                        <span className="text-slate-400 truncate max-w-[110px]">
+                        {client.totalSales > 0 && (
+                          <span className={cn(
+                            "px-1.5 py-0.5 rounded text-[9px] font-bold border",
+                            client.daysSinceLastPurchase <= 15 ? "bg-emerald-950 text-emerald-300 border-emerald-700" :
+                            client.daysSinceLastPurchase <= 45 ? "bg-amber-950 text-amber-300 border-amber-700" :
+                            "bg-rose-950 text-rose-300 border-rose-700"
+                          )}>
+                            {client.daysSinceLastPurchase <= 15 ? '🟢 Frecuente' : client.daysSinceLastPurchase <= 45 ? '🟡 Moderado' : '🔴 Inactivo'}
+                          </span>
+                        )}
+
+                        <span className="text-slate-400 truncate max-w-[100px]">
                           👤 {client.sellerName}
                         </span>
                       </div>

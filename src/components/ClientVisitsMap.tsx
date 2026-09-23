@@ -27,6 +27,7 @@ interface ClientVisitsMapProps {
   onClearClientLocation?: (client: Client) => void;
   sellerRoutes?: SellerRoute[];
   activeRoute?: SellerRoute | null;
+  focusLocation?: { latitude: number; longitude: number; label?: string } | null;
 }
 
 interface RegionShortcut {
@@ -64,7 +65,8 @@ export function ClientVisitsMap({
   onOpenMarkClientModalForClient,
   onClearClientLocation,
   sellerRoutes,
-  activeRoute
+  activeRoute,
+  focusLocation
 }: ClientVisitsMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -258,6 +260,13 @@ export function ClientVisitsMap({
       }
     }
   }, [currentLocation]);
+
+  // Center/Fly to focused location when requested (e.g., viewing route start or closure point)
+  useEffect(() => {
+    if (focusLocation && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([focusLocation.latitude, focusLocation.longitude], 16, { animate: true });
+    }
+  }, [focusLocation]);
 
   // Client Markers
   useEffect(() => {
@@ -454,6 +463,11 @@ export function ClientVisitsMap({
     const hasRouteStart = Boolean(targetRoute && targetRoute.startLatitude && targetRoute.startLongitude && !isNaN(Number(targetRoute.startLatitude)) && !isNaN(Number(targetRoute.startLongitude)));
     const startPoint: [number, number] | null = hasRouteStart && targetRoute ? [Number(targetRoute.startLatitude), Number(targetRoute.startLongitude)] : null;
 
+    const endLatRaw = targetRoute ? (targetRoute.endLatitude !== undefined && targetRoute.endLatitude !== null ? targetRoute.endLatitude : (targetRoute as any).end_latitude) : null;
+    const endLngRaw = targetRoute ? (targetRoute.endLongitude !== undefined && targetRoute.endLongitude !== null ? targetRoute.endLongitude : (targetRoute as any).end_longitude) : null;
+    const hasRouteEnd = Boolean(targetRoute && endLatRaw !== null && endLngRaw !== null && !isNaN(Number(endLatRaw)) && !isNaN(Number(endLngRaw)));
+    const endPoint: [number, number] | null = hasRouteEnd ? [Number(endLatRaw), Number(endLngRaw)] : null;
+
     let startMarkerInstance: L.Marker | null = null;
     if (hasRouteStart && startPoint && targetRoute) {
       const sellerDisplayName = targetRoute.sellerName || 'Vendedor';
@@ -488,6 +502,41 @@ export function ClientVisitsMap({
         `);
     }
 
+    let endMarkerInstance: L.Marker | null = null;
+    if (hasRouteEnd && endPoint && targetRoute) {
+      const sellerDisplayName = targetRoute.sellerName || 'Vendedor';
+      const endHtml = `
+        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
+          <div class="px-2.5 py-1 rounded-full text-[10px] font-black text-white bg-slate-900 shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1 border border-white">
+            <span>🏁 Cierre: ${sellerDisplayName}</span>
+          </div>
+          <div class="w-8 h-8 rounded-full bg-slate-900 border-2 border-white shadow-lg flex items-center justify-center text-white text-sm font-bold">
+            🏁
+          </div>
+        </div>
+      `;
+
+      const endIcon = L.divIcon({
+        className: 'custom-route-end-pin',
+        html: endHtml,
+        iconSize: [44, 48],
+        iconAnchor: [22, 42]
+      });
+
+      endMarkerInstance = L.marker(endPoint, { icon: endIcon, zIndexOffset: 2600 })
+        .addTo(routeGroup)
+        .bindPopup(`
+          <div class="p-3 text-xs font-sans min-w-[220px]">
+            <p class="font-black text-slate-900 text-sm flex items-center gap-1">🏁 Punto de Cierre / Fin de Ruta</p>
+            <p class="font-bold text-slate-800 mt-1">👤 Asesor: ${sellerDisplayName}</p>
+            <p class="text-slate-600 text-[11px] mt-0.5">⏰ Finalizada: ${targetRoute.finishedAt ? new Date(targetRoute.finishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Jornada Cerrada'}</p>
+            <p class="text-slate-500 font-mono text-[10px] mt-1">📍 Coords: ${endPoint[0].toFixed(6)}, ${endPoint[1].toFixed(6)}</p>
+            ${targetRoute.totalDistanceKm ? `<p class="text-[11px] font-semibold text-teal-700 mt-1">🚗 ${targetRoute.totalDistanceKm} km recorridos</p>` : ''}
+            ${targetRoute.notes ? `<p class="text-[11px] text-slate-700 mt-1 bg-amber-50 border border-amber-200 p-1.5 rounded">📝 ${targetRoute.notes}</p>` : ''}
+          </div>
+        `);
+    }
+
     // Filter and sort visits chronologically
     const routeVisits = visits.filter(v => {
       if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
@@ -502,18 +551,32 @@ export function ClientVisitsMap({
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    // If no visits recorded yet, center directly on route start point!
+    // If no visits recorded yet, center directly on route start or end point!
     if (routeVisits.length === 0) {
-      if (hasRouteStart && startPoint && mapInstanceRef.current) {
+      if (hasRouteStart && startPoint && hasRouteEnd && endPoint && mapInstanceRef.current) {
+        const bounds = L.latLngBounds([startPoint, endPoint]);
+        mapInstanceRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+        setTimeout(() => (endMarkerInstance || startMarkerInstance)?.openPopup(), 400);
+      } else if (hasRouteEnd && endPoint && mapInstanceRef.current) {
+        mapInstanceRef.current.setView(endPoint, 15, { animate: true });
+        setTimeout(() => endMarkerInstance?.openPopup(), 400);
+      } else if (hasRouteStart && startPoint && mapInstanceRef.current) {
         mapInstanceRef.current.setView(startPoint, 15, { animate: true });
         setTimeout(() => startMarkerInstance?.openPopup(), 400);
       }
       return;
     }
 
-    const latLngs: [number, number][] = (hasRouteStart && startPoint)
-      ? [startPoint, ...routeVisits.map(v => [v.latitude, v.longitude] as [number, number])]
-      : routeVisits.map(v => [v.latitude, v.longitude]);
+    const latLngs: [number, number][] = [];
+    if (hasRouteStart && startPoint) {
+      latLngs.push(startPoint);
+    }
+    routeVisits.forEach(v => {
+      latLngs.push([v.latitude, v.longitude]);
+    });
+    if (hasRouteEnd && endPoint) {
+      latLngs.push(endPoint);
+    }
 
     // 1. Background glow line
     L.polyline(latLngs, {
@@ -544,7 +607,8 @@ export function ClientVisitsMap({
 
     // Add Stop Numbers and Step Badges
     routeVisits.forEach((v, idx) => {
-      const isEnd = idx === routeVisits.length - 1;
+      const isStart = idx === 0 && !hasRouteStart;
+      const isEnd = (idx === routeVisits.length - 1) && !hasRouteEnd;
       const stepNum = idx + 1;
       
       const prevPoint = idx > 0 ? routeVisits[idx - 1] : (hasRouteStart && startPoint ? { latitude: startPoint[0], longitude: startPoint[1], createdAt: targetRoute?.startedAt } : null);
@@ -578,7 +642,7 @@ export function ClientVisitsMap({
       const stopHtml = `
         <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
           <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1" style="background-color: ${stopColor}">
-            <span>${isEnd ? 'Última Parada' : `Parada ${stepNum}`}</span>
+            <span>${isStart ? 'Primera Parada' : isEnd ? 'Última Parada' : `Parada ${stepNum}`}</span>
           </div>
           <div class="w-7 h-7 rounded-full text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-lg transition-transform transform group-hover:scale-110" style="background-color: ${stopColor}">
             ${stopIcon}
@@ -593,13 +657,11 @@ export function ClientVisitsMap({
         iconAnchor: [18, 40]
       });
 
-      const formattedTime = new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
       const popupHtml = `
         <div class="p-3.5 text-slate-800 text-xs max-w-xs space-y-2 font-sans">
           <div class="border-b border-slate-100 pb-1.5 flex items-center justify-between">
             <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white" style="background-color: ${stopColor}">
-              ${isStart ? '🚩 Salida / Inicio de Ruta' : isEnd ? '🏁 Destino / Cierre de Ruta' : `📍 Parada #${stepNum}`}
+              ${isStart ? '🚩 Primera Parada de Visitas' : isEnd ? '🏁 Última Parada de Visitas' : `📍 Parada #${stepNum}`}
             </span>
             <span class="text-[11px] font-bold text-slate-500 font-mono">
               ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -612,10 +674,10 @@ export function ClientVisitsMap({
             <p class="text-slate-400 text-[10px] mt-0.5">Asesor: <strong class="text-slate-700">${v.sellerName}</strong></p>
           </div>
 
-          ${prevVisit ? `
+          ${prevPoint ? `
             <div class="bg-teal-50/80 p-2 rounded-xl border border-teal-100 text-[11px] text-teal-900 space-y-0.5">
-              <p class="font-bold flex items-center gap-1">⏱️ Traslado desde parada #${idx}: <span class="text-teal-700 font-black">${timeFromPrev}</span></p>
-              <p class="font-medium text-slate-600 flex items-center gap-1">🚗 Distancia entre puntos: <span class="font-bold text-slate-800">${distFromPrev}</span></p>
+              <p class="font-bold flex items-center gap-1">⏱️ Traslado: <span class="text-teal-700 font-black">${timeFromPrev || 'Registrado'}</span></p>
+              ${distFromPrev ? `<p class="font-medium text-slate-600 flex items-center gap-1">🚗 Distancia tramo: <span class="font-bold text-slate-800">${distFromPrev}</span></p>` : ''}
             </div>
           ` : ''}
 
@@ -631,10 +693,13 @@ export function ClientVisitsMap({
         .bindPopup(popupHtml);
     });
 
-    if (latLngs.length > 1 && mapInstanceRef.current) {
-      mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
+    // If focused on closure, open popup on end marker
+    if (focusLocation && hasRouteEnd && endPoint && Math.abs(focusLocation.latitude - endPoint[0]) < 0.0001 && Math.abs(focusLocation.longitude - endPoint[1]) < 0.0001) {
+      setTimeout(() => endMarkerInstance?.openPopup(), 400);
+    } else if (focusLocation && hasRouteStart && startPoint && Math.abs(focusLocation.latitude - startPoint[0]) < 0.0001 && Math.abs(focusLocation.longitude - startPoint[1]) < 0.0001) {
+      setTimeout(() => startMarkerInstance?.openPopup(), 400);
     }
-  }, [visits, routeSellerId, routeDate, isRouteTraceActive, sellerRoutes, activeRoute]);
+  }, [visits, routeSellerId, routeDate, isRouteTraceActive, sellerRoutes, activeRoute, focusLocation]);
 
   const handleCenterOnUser = () => {
     if (!mapInstanceRef.current) return;

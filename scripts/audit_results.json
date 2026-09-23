@@ -1,0 +1,130 @@
+[
+  {
+    "timestamp": "2026-09-23T02:10:53.507Z",
+    "agent": "Subagente 1 (Herbert)",
+    "testCase": "Login Vendedor",
+    "status": "SUCCESS",
+    "detail": "Autenticado: Herbert Argueta (gruasytransportesali@gmail.com), Rol: seller",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:53.516Z",
+    "agent": "Subagente 1 (Herbert)",
+    "testCase": "Iniciar Ruta",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780870803300_1790129269551 iniciada. Estado: active, GPS: (14.6349, -90.5069)",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:53.718Z",
+    "agent": "Subagente 1 (Herbert)",
+    "testCase": "Registrar Visita en Vivo",
+    "status": "SUCCESS",
+    "detail": "Visita registrada ID: VISIT-1790129453605-qr694 en cliente \"El Corral Agroindustrial\"",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:54.146Z",
+    "agent": "Subagente 1 (Herbert)",
+    "testCase": "Finalizar Ruta",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780870803300_1790129269551 finalizada correctamente. Estado confirmado: completed",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:54.213Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Login Admin",
+    "status": "SUCCESS",
+    "detail": "Autenticado: Emanuel Lima (seseffff942@gmail.com), Rol: admin",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:54.219Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Visibilidad Visitas Tiempo Real",
+    "status": "SUCCESS",
+    "detail": "Visita ID: VISIT-1790129453605-qr694 visible instantáneamente para el Admin. Asesor: Herbert Argueta",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:54.225Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Notificación Push en Tiempo Real",
+    "status": "SUCCESS",
+    "detail": "Alerta push admin: \"📍 Visita Registrada: Herbert Argueta\" - El vendedor Herbert Argueta registró una visita en \"El Corral Agroindustrial\". Tipo: SUPERVISION.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.189Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Atribución Factura Folio 1180",
+    "status": "SUCCESS",
+    "detail": "Factura 1180 (Q1176) 100% asignada a Herbert Argueta (gruasytransportesali@gmail.com). Emanuel Lima NO tiene esta venta.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.391Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Atribución Cliente Cartera",
+    "status": "SUCCESS",
+    "detail": "Cliente \"El Corral Agroindustrial\" asignado 100% a Herbert Argueta.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.425Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Limpieza Visita de Prueba",
+    "status": "SUCCESS",
+    "detail": "Visita #VISIT-1790129453605-qr694 borrada de la base de datos de producción.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.594Z",
+    "agent": "Subagente 2 (Admin)",
+    "testCase": "Limpieza Ruta de Prueba",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780870803300_1790129269551 borrada de la base de datos de producción.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.600Z",
+    "agent": "Subagente 3 (Erick)",
+    "testCase": "Login Vendedor",
+    "status": "SUCCESS",
+    "detail": "Autenticado: Erick Juárez",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.665Z",
+    "agent": "Subagente 3 (Erick)",
+    "testCase": "Iniciar Ruta",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780897737916_1790129455605 iniciada",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.817Z",
+    "agent": "Subagente 3 (Erick)",
+    "testCase": "Finalizar Ruta",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780897737916_1790129455605 completada.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:55.866Z",
+    "agent": "Subagente 3 (Erick)",
+    "testCase": "Verificación Persistencia Cierre",
+    "status": "SUCCESS",
+    "detail": "La ruta cerrada NO reaparece activa. Cierre 100% definitivo.",
+    "data": null
+  },
+  {
+    "timestamp": "2026-09-23T02:10:56.106Z",
+    "agent": "Subagente 3 (Erick)",
+    "testCase": "Limpieza Ruta de Prueba",
+    "status": "SUCCESS",
+    "detail": "Ruta #route_u_1780897737916_1790129455605 borrada.",
+    "data": null
+  }
+]

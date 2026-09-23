@@ -212,7 +212,7 @@ export default function App() {
     if (user?.email === 'limalopez22@gmail.com' && currentTab === 'team') {
       setCurrentTab('home');
     }
-    if (currentTab === 'client-tracking' && user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+    if (currentTab === 'client-tracking' && user?.role !== 'admin' && user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
       setCurrentTab('home');
     }
   }, [user, currentTab]);
@@ -466,8 +466,8 @@ export default function App() {
         {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
         {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'client-tracking' && activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com' && <ClientSalesTrackingPage user={activeUser as User} isMobile={isMobile} />}
+        {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="my_portfolio" />}
+        {currentTab === 'client-tracking' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="control" />}
         {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
         {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}

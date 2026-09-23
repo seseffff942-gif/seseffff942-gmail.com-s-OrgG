@@ -34,12 +34,18 @@ __export(server_exports, {
   default: () => server_default,
   fetchGlobalDbModeFromDb: () => fetchGlobalDbModeFromDb,
   getGlobalDbMode: () => getGlobalDbMode,
+  getGlobalMaintenanceMode: () => getGlobalMaintenanceMode,
+  isClientOfSeller: () => isClientOfSeller,
+  isDbActive: () => isDbActive,
   isNeonActive: () => isNeonActive,
   localDb: () => localDb,
   neonPool: () => neonPool,
   persistGlobalDbMode: () => persistGlobalDbMode,
+  pgPool: () => pgPool,
+  queryDb: () => queryDb,
   queryNeon: () => queryNeon,
-  setGlobalDbMode: () => setGlobalDbMode
+  setGlobalDbMode: () => setGlobalDbMode,
+  setGlobalMaintenanceMode: () => setGlobalMaintenanceMode
 });
 module.exports = __toCommonJS(server_exports);
 var import_config = require("dotenv/config");
@@ -1122,97 +1128,98 @@ function requireEnv(name) {
   return value.trim();
 }
 var JWT_SECRET = requireEnv("JWT_SECRET");
-var neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || "postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db";
-var isRemoteCloudPg = neonDbUrl.includes("neon.tech") || neonDbUrl.includes("sslmode=require") && !neonDbUrl.includes("172.") && !neonDbUrl.includes("185.166.39.49");
-var neonPool = new import_pg.default.Pool({
-  connectionString: neonDbUrl,
-  ssl: isRemoteCloudPg ? { rejectUnauthorized: false } : false,
+var pgDbUrl = process.env.DATABASE_URL || "postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db";
+var isSslRequired = pgDbUrl.includes("sslmode=require") && !pgDbUrl.includes("172.") && !pgDbUrl.includes("185.166.39.49") && !pgDbUrl.includes("localhost");
+var pgPool = new import_pg.default.Pool({
+  connectionString: pgDbUrl,
+  ssl: isSslRequired ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 3e4,
   connectionTimeoutMillis: 5e3
 });
-console.log(`[DB] \u2705 Conectado a PostgreSQL: ${neonDbUrl}`);
+var neonPool = pgPool;
+console.log(`[DB] \u2705 Conectado a PostgreSQL Local: ${pgDbUrl}`);
 var localDb = createLocalDb({
-  pool: neonPool,
+  pool: pgPool,
   storageDir: import_path2.default.join(process.cwd(), "storage")
 });
 var PANIC_STATE_FILE = import_path2.default.join(process.cwd(), "panic_state.json");
 var lastDbModeCached = {
-  mode: "neon",
+  mode: "local",
   timestamp: 0
 };
-var activeDatabaseMode = "neon";
+var activeDatabaseMode = "local";
 async function fetchGlobalDbModeFromDb() {
-  if (Date.now() - lastDbModeCached.timestamp < 15e3) {
-    return lastDbModeCached.mode;
-  }
-  if (neonPool) {
-    try {
-      const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
-      if (res.rows && res.rows.length > 0) {
-        const val = res.rows[0].value;
-        if (val === "neon" || val === "local") {
-          activeDatabaseMode = val;
-          lastDbModeCached = { mode: val, timestamp: Date.now() };
-          return val;
-        }
-      }
-    } catch (e) {
-    }
-  }
-  try {
-    if (import_fs2.default.existsSync(PANIC_STATE_FILE)) {
-      const content = import_fs2.default.readFileSync(PANIC_STATE_FILE, "utf-8");
-      const parsed = JSON.parse(content);
-      if (parsed.activeMode === "neon" || parsed.activeMode === "local") {
-        activeDatabaseMode = parsed.activeMode;
-        lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
-        return parsed.activeMode;
-      }
-    }
-  } catch (e) {
-  }
-  return activeDatabaseMode;
+  return "local";
 }
 function getGlobalDbMode() {
-  return activeDatabaseMode;
+  return "local";
 }
 async function persistGlobalDbMode(mode) {
-  activeDatabaseMode = mode;
-  lastDbModeCached = { mode, timestamp: Date.now() };
-  if (neonPool) {
+  activeDatabaseMode = "local";
+  lastDbModeCached = { mode: "local", timestamp: Date.now() };
+  if (pgPool) {
     try {
-      await neonPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
-      await neonPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();", [mode]);
-      console.log(`[PANIC SWITCH CLOUD PERSISTED] Modo guardado globalmente en Neon DB: ${mode.toUpperCase()}`);
+      await pgPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
+      await pgPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', 'local', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();");
+      console.log(`[DB STATUS] Modo guardado en PostgreSQL: LOCAL`);
     } catch (e) {
-      console.error("Error guardando active_db_mode en Neon:", e.message);
+      console.error("Error guardando active_db_mode en PostgreSQL:", e.message);
     }
-  }
-  try {
-    import_fs2.default.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
-      activeMode: mode,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    }, null, 2), "utf-8");
-  } catch (e) {
   }
 }
 function setGlobalDbMode(mode) {
   persistGlobalDbMode(mode).catch(() => {
   });
 }
-function isNeonActive() {
-  return activeDatabaseMode === "neon";
+function isDbActive() {
+  return Boolean(pgPool);
 }
-async function queryNeon(sql, params = []) {
-  if (!neonPool) return [];
+var isNeonActive = isDbActive;
+async function queryDb(sql, params = []) {
+  if (!pgPool) return [];
   try {
-    const res = await neonPool.query(sql, params);
+    const res = await pgPool.query(sql, params);
     return res.rows || [];
   } catch (err) {
-    console.error(`[Neon Query Error] ${sql.substring(0, 80)}...:`, err.message);
+    console.error(`[PostgreSQL Query Error] ${sql.substring(0, 80)}...:`, err.message);
     return [];
   }
+}
+var queryNeon = queryDb;
+var globalMaintenanceCache = {
+  enabled: false,
+  timestamp: 0
+};
+async function getGlobalMaintenanceMode() {
+  if (Date.now() - globalMaintenanceCache.timestamp < 1e4) {
+    return globalMaintenanceCache.enabled;
+  }
+  try {
+    const rows = await queryNeon("SELECT value FROM public.system_config WHERE key = 'maintenance_mode' LIMIT 1;");
+    if (rows && rows.length > 0) {
+      const val = rows[0].value === "true";
+      globalMaintenanceCache = { enabled: val, timestamp: Date.now() };
+      return val;
+    }
+  } catch (e) {
+  }
+  return globalMaintenanceCache.enabled;
+}
+async function setGlobalMaintenanceMode(enabled) {
+  globalMaintenanceCache = { enabled, timestamp: Date.now() };
+  try {
+    await queryNeon(`
+      CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());
+      INSERT INTO public.system_config (key, value, updated_at) 
+      VALUES ('maintenance_mode', $1, NOW()) 
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+    `, [enabled ? "true" : "false"]);
+    console.log(`[GLOBAL MAINTENANCE] Estado actualizado en base de datos: ${enabled ? "ACTIVADO" : "DESACTIVADO"}`);
+  } catch (e) {
+    console.error("Error guardando maintenance_mode en base de datos:", e.message);
+  }
+  return enabled;
 }
 var initialDb = {
   users: [
@@ -1825,6 +1832,276 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req, 
   await seedDatabase(!!force);
   res.json({ success: true, message: "Base de datos sincronizada con datos iniciales." });
 }));
+app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  if (req.user?.role !== "admin" && req.user?.email?.toLowerCase() !== "seseffff942@gmail.com") {
+    return res.status(403).json({ success: false, error: "Acceso no autorizado" });
+  }
+  const { sellerId, dateFrom, dateTo } = req.query;
+  try {
+    let clientsSql = `
+      SELECT c.id, c.name, c."companyName", c.nit, c.phone, c.address,
+             c.latitude, c.longitude, c."locationAddress",
+             c."sellerId", c."clientCode", c."geotaggedAt", c."geotaggedBy",
+             c."createdAt", c."lastVisitAt",
+             u.name as seller_name, u.email as seller_email
+      FROM public.clients c
+      LEFT JOIN public.users u ON (u.email = c."sellerId" OR u.id = c."sellerId")
+      ORDER BY c.name ASC
+    `;
+    let clientRows = await queryNeon(clientsSql).catch(() => []);
+    const normalizeText = (str) => {
+      if (!str) return "";
+      return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, " ").replace(/\s+/g, " ").trim();
+    };
+    const localClients = readLocalClients();
+    if (!clientRows || clientRows.length === 0) {
+      clientRows = localClients.map((c) => ({
+        ...c,
+        seller_name: c.sellerName || c.seller_name || c.sellerId
+      }));
+    }
+    const localClientsMap = /* @__PURE__ */ new Map();
+    localClients.forEach((lc) => {
+      if (lc.id) localClientsMap.set(String(lc.id), lc);
+      if (lc.name) localClientsMap.set(normalizeText(lc.name), lc);
+      if (lc.clientCode) localClientsMap.set(String(lc.clientCode), lc);
+    });
+    const visitGpsMap = /* @__PURE__ */ new Map();
+    try {
+      const visitRows = await queryNeon(`
+        SELECT DISTINCT ON ("clientId") "clientId", "clientName", latitude, longitude, "createdAt", created_at, "sellerName", seller_name
+        FROM public.client_visits
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        ORDER BY "clientId", COALESCE("createdAt", created_at) DESC
+      `);
+      visitRows.forEach((v) => {
+        const item = {
+          latitude: parseFloat(v.latitude),
+          longitude: parseFloat(v.longitude),
+          createdAt: v.createdAt || v.created_at,
+          sellerName: v.sellerName || v.seller_name || "Vendedor"
+        };
+        if (v.clientId) visitGpsMap.set(String(v.clientId), item);
+        if (v.clientName) visitGpsMap.set(normalizeText(v.clientName), item);
+      });
+    } catch (vErr) {
+    }
+    let invoicesSql = `
+      SELECT i.id, i."clientName", i.folio, i."sellerId", i.date, 
+             i."totalAmount", i.status, i.invoice_type,
+             u.name as seller_name
+      FROM public.invoices i
+      LEFT JOIN public.users u ON (u.email = i."sellerId" OR u.id = i."sellerId")
+      WHERE i.is_archived IS NOT TRUE
+    `;
+    const invoiceParams = [];
+    if (sellerId && sellerId !== "all") {
+      invoiceParams.push(sellerId);
+      invoicesSql += ` AND i."sellerId" = $${invoiceParams.length}`;
+    }
+    if (dateFrom) {
+      invoiceParams.push(dateFrom);
+      invoicesSql += ` AND i.date >= $${invoiceParams.length}`;
+    }
+    if (dateTo) {
+      invoiceParams.push(dateTo);
+      invoicesSql += ` AND i.date <= $${invoiceParams.length}`;
+    }
+    invoicesSql += ` ORDER BY i.date ASC`;
+    const invoiceRows = await queryNeon(invoicesSql, invoiceParams);
+    const sellersRows = await queryNeon(`
+      SELECT id, name, email, role, "sellerCode" 
+      FROM public.users 
+      WHERE role = 'seller' OR role = 'admin'
+      ORDER BY name
+    `);
+    const clientData = clientRows.map((c) => {
+      let lat = c.latitude !== null && c.latitude !== void 0 && !isNaN(Number(c.latitude)) ? parseFloat(c.latitude) : null;
+      let lng = c.longitude !== null && c.longitude !== void 0 && !isNaN(Number(c.longitude)) ? parseFloat(c.longitude) : null;
+      let geotaggedAt = c.geotaggedAt || c.geotagged_at || null;
+      let geotaggedBy = c.geotaggedBy || c.geotagged_by || null;
+      let locationAddress = c.locationAddress || c.location_address || null;
+      if (!lat || !lng) {
+        const fromLocal = localClientsMap.get(String(c.id)) || localClientsMap.get(normalizeText(c.name)) || (c.clientCode ? localClientsMap.get(String(c.clientCode)) : null);
+        if (fromLocal && fromLocal.latitude && fromLocal.longitude) {
+          lat = parseFloat(fromLocal.latitude);
+          lng = parseFloat(fromLocal.longitude);
+          geotaggedAt = geotaggedAt || fromLocal.geotaggedAt;
+          geotaggedBy = geotaggedBy || fromLocal.geotaggedBy;
+          locationAddress = locationAddress || fromLocal.locationAddress;
+        } else {
+          const fromVisit = visitGpsMap.get(String(c.id)) || visitGpsMap.get(normalizeText(c.name));
+          if (fromVisit) {
+            lat = fromVisit.latitude;
+            lng = fromVisit.longitude;
+            geotaggedAt = geotaggedAt || fromVisit.createdAt;
+            geotaggedBy = geotaggedBy || fromVisit.sellerName;
+            locationAddress = locationAddress || "Registrado en visita de terreno";
+          }
+        }
+      }
+      return {
+        ...c,
+        latitude: lat,
+        longitude: lng,
+        geotaggedAt,
+        geotaggedBy,
+        locationAddress,
+        normName: normalizeText(c.name),
+        normCompany: normalizeText(c.companyName),
+        nameWords: normalizeText(c.name).split(" ").filter((w) => w.length > 2)
+      };
+    });
+    const salesByClientId = /* @__PURE__ */ new Map();
+    for (const inv of invoiceRows) {
+      const invNorm = normalizeText(inv.clientName);
+      if (!invNorm) continue;
+      const saleObj = {
+        id: inv.id,
+        folio: inv.folio,
+        sellerId: inv.sellerId,
+        sellerName: inv.seller_name || inv.sellerId,
+        date: inv.date,
+        totalAmount: parseFloat(inv.totalAmount || 0),
+        status: inv.status,
+        invoiceType: inv.invoice_type
+      };
+      let bestScore = 0;
+      let bestClient = null;
+      for (const c of clientData) {
+        let score = 0;
+        if (c.normName && invNorm === c.normName) {
+          score = 100;
+        } else if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) {
+          score = 80;
+        } else if (c.nameWords.length > 0) {
+          const matchedWords = c.nameWords.filter((w) => invNorm.includes(w));
+          if (matchedWords.length >= 2) {
+            score = 70 + matchedWords.length * 2;
+          } else if (matchedWords.length === 1 && c.nameWords.length === 1) {
+            score = 50;
+          }
+        }
+        if (c.normCompany && invNorm.includes(c.normCompany)) {
+          score += score > 0 ? 25 : 15;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestClient = c;
+        }
+      }
+      if (bestClient && bestScore >= 40) {
+        if (!salesByClientId.has(bestClient.id)) {
+          salesByClientId.set(bestClient.id, []);
+        }
+        salesByClientId.get(bestClient.id).push(saleObj);
+      }
+    }
+    const trackingData = clientData.map((c) => {
+      const clientSales = salesByClientId.get(c.id) || [];
+      const activeSales = clientSales.filter((s) => s.status !== "cancelled");
+      let avgFrequencyDays = 0;
+      let daysSinceLastPurchase = 0;
+      let firstPurchaseDate = null;
+      let lastPurchaseDate = null;
+      if (activeSales.length > 0) {
+        firstPurchaseDate = activeSales[0].date;
+        lastPurchaseDate = activeSales[activeSales.length - 1].date;
+        if (activeSales.length > 1) {
+          const first = new Date(firstPurchaseDate).getTime();
+          const last = new Date(lastPurchaseDate).getTime();
+          const totalDays = (last - first) / (1e3 * 60 * 60 * 24);
+          avgFrequencyDays = Math.round(totalDays / (activeSales.length - 1));
+        }
+        daysSinceLastPurchase = Math.round(
+          (Date.now() - new Date(lastPurchaseDate).getTime()) / (1e3 * 60 * 60 * 24)
+        );
+      }
+      const totalRevenue = activeSales.reduce((sum, s) => sum + s.totalAmount, 0);
+      const uniqueSellers = [...new Set(activeSales.map((s) => s.sellerId))];
+      const totalSales = activeSales.length;
+      const avgTicket = totalSales > 0 ? Math.round(totalRevenue / totalSales * 100) / 100 : 0;
+      let loyaltyStatus = "no-sales";
+      if (totalSales > 0) {
+        if (daysSinceLastPurchase <= 15) {
+          loyaltyStatus = "active";
+        } else if (daysSinceLastPurchase <= 45) {
+          loyaltyStatus = "moderate";
+        } else {
+          loyaltyStatus = "inactive";
+        }
+      }
+      let daysSinceLastVisit = null;
+      if (c.lastVisitAt) {
+        daysSinceLastVisit = Math.round((Date.now() - new Date(c.lastVisitAt).getTime()) / (1e3 * 60 * 60 * 24));
+      }
+      return {
+        id: c.id,
+        name: c.name,
+        companyName: c.companyName,
+        nit: c.nit,
+        phone: c.phone,
+        address: c.address,
+        latitude: c.latitude,
+        longitude: c.longitude,
+        locationAddress: c.locationAddress,
+        sellerId: c.sellerId,
+        sellerName: c.seller_name || c.sellerId || "Sin asignar",
+        clientCode: c.clientCode,
+        geotaggedAt: c.geotaggedAt,
+        geotaggedBy: c.geotaggedBy,
+        createdAt: c.createdAt,
+        lastVisitAt: c.lastVisitAt,
+        daysSinceLastVisit,
+        // Sales analytics
+        totalSales,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        avgTicket,
+        loyaltyStatus,
+        firstPurchaseDate,
+        lastPurchaseDate,
+        avgFrequencyDays,
+        daysSinceLastPurchase,
+        uniqueSellers,
+        sales: clientSales
+        // includes cancelled for audit trail
+      };
+    });
+    res.json({
+      clients: trackingData,
+      sellers: sellersRows,
+      totalClients: trackingData.length,
+      totalWithSales: trackingData.filter((c) => c.totalSales > 0).length,
+      totalGeolocated: trackingData.filter((c) => c.latitude && c.longitude).length,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  } catch (err) {
+    console.error("[Admin Client Sales Tracking Error]", err.message);
+    res.status(500).json({ error: "Error al obtener datos de seguimiento de clientes", details: err.message });
+  }
+}));
+app.get("/api/system/maintenance", asyncHandler(async (req, res) => {
+  const isMaint = await getGlobalMaintenanceMode();
+  res.json({
+    maintenance: isMaint,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}));
+app.post("/api/admin/maintenance", requireAuth, asyncHandler(async (req, res) => {
+  const user = req.user;
+  const isSuperAdmin = user?.email?.toLowerCase() === "seseffff942@gmail.com" || user?.role === "admin";
+  if (!isSuperAdmin) {
+    return res.status(403).json({ error: "Solo el administrador puede cambiar el modo mantenimiento global." });
+  }
+  const { enabled } = req.body;
+  const nextVal = !!enabled;
+  await setGlobalMaintenanceMode(nextVal);
+  res.json({
+    success: true,
+    maintenance: nextVal,
+    message: nextVal ? "Modo mantenimiento activado globalmente en todos los dispositivos y tel\xE9fonos." : "Modo mantenimiento desactivado globalmente."
+  });
+}));
 app.post("/api/save-dispatch", requireAuth, asyncHandler(async (req, res) => {
   const { invoiceId, items, client, sellerId } = req.body;
   const dispatchId = `DISP-${Date.now()}`;
@@ -2299,11 +2576,22 @@ function updateLocalClient(id, updates, oldData) {
     const nameMatch = newName && (cName === newName || normCName === newName) || oldName && (cName === oldName || normCName === oldName);
     if (idMatch || codeMatch || nitMatch || nameMatch) {
       updated = true;
-      return { ...c, ...updates, id: c.id || targetId };
+      const merged = { ...c, ...updates, id: c.id || targetId };
+      if (updates.latitude === null) {
+        delete merged.latitude;
+        delete merged.longitude;
+        delete merged.locationAddress;
+        delete merged.location_address;
+        delete merged.geotaggedAt;
+        delete merged.geotagged_at;
+        delete merged.geotaggedBy;
+        delete merged.geotagged_by;
+      }
+      return merged;
     }
     return c;
   });
-  if (!updated) {
+  if (!updated && updates.latitude !== null) {
     newClients.push({ id: targetId || `CLI-${Date.now()}`, ...updates });
   }
   const deduplicated = deduplicateClients(newClients);
@@ -2440,7 +2728,15 @@ async function safeInsertClient(clientData) {
       sellerId: clientData.sellerId || "",
       seller_id: clientData.sellerId || "",
       clientCode: clientData.clientCode,
-      isBlocked: clientData.isBlocked || false
+      isBlocked: clientData.isBlocked || false,
+      latitude: clientData.latitude,
+      longitude: clientData.longitude,
+      locationAddress: clientData.locationAddress,
+      location_address: clientData.locationAddress,
+      geotaggedAt: clientData.geotaggedAt,
+      geotagged_at: clientData.geotaggedAt,
+      geotaggedBy: clientData.geotaggedBy,
+      geotagged_by: clientData.geotaggedBy
     };
     const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
     if (!errorWithFallbacks) return true;
@@ -2649,9 +2945,38 @@ async function fetchPaymentsFromLocalDb(invoiceId) {
   }
   return [];
 }
+function isClientOfSeller(client, user) {
+  if (!client || !user) return false;
+  if (user.role === "admin") return true;
+  const uId = String(user.id || "").trim().toLowerCase();
+  const uEmail = String(user.email || "").trim().toLowerCase();
+  const uName = String(user.name || "").trim().toLowerCase();
+  const uCode = String(user.sellerCode || "").trim().toLowerCase();
+  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || "").trim().toLowerCase();
+  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || "").trim().toLowerCase();
+  const cSellerEmail = String(client.sellerEmail || client.seller_email || "").trim().toLowerCase();
+  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
+  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
+  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+  if (uName) {
+    if (cSellerId === uName || cGeotaggedBy === uName) return true;
+    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
+    const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
+    const firstName = normUName.split(" ")[0];
+    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+  }
+  return false;
+}
 app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
+  const userRole = req.user?.role;
   const cached = getCachedData("clients");
   if (cached) {
+    if (userRole === "seller") {
+      return res.json(cached.filter((c) => isClientOfSeller(c, req.user)));
+    }
     return res.json(cached);
   }
   const deletedKeys = getDeletedClientKeys();
@@ -2737,6 +3062,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     const company = c.companyName || c.company_name || c.companyname || "";
     const code = c.clientCode || c.client_code || c.clientcode || "";
     const id = c.id;
+    const hasExplicitNullGps = c.latitude === null || c.longitude === null;
     const dbFormatted = {
       id,
       sellerId: c.sellerId || c.seller_id || c.sellerid || "",
@@ -2746,11 +3072,12 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
       phone: c.phone || "",
       address: c.address || "",
       clientCode: code,
-      latitude: c.latitude !== void 0 && c.latitude !== null && !isNaN(Number(c.latitude)) ? Number(c.latitude) : c.lat !== void 0 && c.lat !== null && !isNaN(Number(c.lat)) ? Number(c.lat) : void 0,
-      longitude: c.longitude !== void 0 && c.longitude !== null && !isNaN(Number(c.longitude)) ? Number(c.longitude) : c.lng !== void 0 && c.lng !== null && !isNaN(Number(c.lng)) ? Number(c.lng) : c.long !== void 0 && c.long !== null && !isNaN(Number(c.long)) ? Number(c.long) : void 0,
-      locationAddress: c.locationAddress || c.location_address || "",
-      geotaggedAt: c.geotaggedAt || c.geotagged_at || "",
-      geotaggedBy: c.geotaggedBy || c.geotagged_by || "",
+      hasExplicitNullGps,
+      latitude: !hasExplicitNullGps && c.latitude !== void 0 && c.latitude !== null && !isNaN(Number(c.latitude)) ? Number(c.latitude) : !hasExplicitNullGps && c.lat !== void 0 && c.lat !== null && !isNaN(Number(c.lat)) ? Number(c.lat) : void 0,
+      longitude: !hasExplicitNullGps && c.longitude !== void 0 && c.longitude !== null && !isNaN(Number(c.longitude)) ? Number(c.longitude) : !hasExplicitNullGps && c.lng !== void 0 && c.lng !== null && !isNaN(Number(c.lng)) ? Number(c.lng) : !hasExplicitNullGps && c.long !== void 0 && c.long !== null && !isNaN(Number(c.long)) ? Number(c.long) : void 0,
+      locationAddress: hasExplicitNullGps ? "" : c.locationAddress || c.location_address || "",
+      geotaggedAt: hasExplicitNullGps ? "" : c.geotaggedAt || c.geotagged_at || "",
+      geotaggedBy: hasExplicitNullGps ? "" : c.geotaggedBy || c.geotagged_by || "",
       isBlocked: c.isBlocked !== void 0 ? c.isBlocked : c.is_blocked !== void 0 ? c.is_blocked : false,
       createdAt: c.createdAt || c.created_at || c.createdat || (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -2768,6 +3095,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
       mergedList.push({ ...c });
     } else {
       const dbObj = mergedList[idx];
+      const isClearedGps = dbObj.hasExplicitNullGps || c.latitude === null || c.longitude === null;
       mergedList[idx] = {
         ...c,
         ...dbObj,
@@ -2779,11 +3107,11 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: dbObj.nit || c.nit,
         sellerId: dbObj.sellerId || c.sellerId,
         clientCode: dbObj.clientCode || c.clientCode,
-        latitude: dbObj.latitude !== void 0 ? dbObj.latitude : c.latitude !== void 0 ? Number(c.latitude) : void 0,
-        longitude: dbObj.longitude !== void 0 ? dbObj.longitude : c.longitude !== void 0 ? Number(c.longitude) : void 0,
-        locationAddress: dbObj.locationAddress || c.locationAddress,
-        geotaggedAt: dbObj.geotaggedAt || c.geotaggedAt,
-        geotaggedBy: dbObj.geotaggedBy || c.geotaggedBy,
+        latitude: isClearedGps ? void 0 : dbObj.latitude !== void 0 ? dbObj.latitude : c.latitude !== void 0 && c.latitude !== null ? Number(c.latitude) : void 0,
+        longitude: isClearedGps ? void 0 : dbObj.longitude !== void 0 ? dbObj.longitude : c.longitude !== void 0 && c.longitude !== null ? Number(c.longitude) : void 0,
+        locationAddress: isClearedGps ? "" : dbObj.locationAddress || c.locationAddress || "",
+        geotaggedAt: isClearedGps ? "" : dbObj.geotaggedAt || c.geotaggedAt || "",
+        geotaggedBy: isClearedGps ? "" : dbObj.geotaggedBy || c.geotaggedBy || "",
         isBlocked: dbObj.isBlocked !== void 0 ? dbObj.isBlocked : c.isBlocked
       };
     }
@@ -2807,11 +3135,14 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   const finalClients = deduplicateClients(mergedList.filter((c) => !isClientDeleted(c, deletedKeys)));
   saveLocalClients(finalClients);
   setCachedData("clients", finalClients);
+  if (userRole === "seller") {
+    return res.json(finalClients.filter((c) => isClientOfSeller(c, req.user)));
+  }
   res.json(finalClients);
 }));
 app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   invalidateCache("clients");
-  const { id, name, companyName, nit, phone, address, sellerId } = req.body;
+  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy } = req.body;
   if (!name) {
     return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
   }
@@ -2846,6 +3177,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, void 0, false);
+  const effectiveSellerId = req.user?.role === "seller" ? req.user.email || req.user.id : sellerId || req.user?.email || "";
+  const effectiveGeotaggedBy = req.user?.name || req.user?.email || "";
   if (matchedClient) {
     console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
     const updates = {};
@@ -2853,8 +3186,15 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     if (!matchedClient.phone && phone) updates.phone = phone;
     if (!matchedClient.address && address) updates.address = address;
     if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+    if (latitude !== void 0 && longitude !== void 0) {
+      updates.latitude = Number(latitude);
+      updates.longitude = Number(longitude);
+      updates.locationAddress = locationAddress || address || "";
+      updates.geotaggedAt = geotaggedAt || (/* @__PURE__ */ new Date()).toISOString();
+      updates.geotaggedBy = effectiveGeotaggedBy;
+    }
     const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-    if (!currentSeller && sellerId) updates.sellerId = sellerId;
+    if (!currentSeller) updates.sellerId = effectiveSellerId;
     if (Object.keys(updates).length > 0) {
       updateLocalClient(matchedClient.id, updates);
       try {
@@ -2869,7 +3209,14 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: matchedClient.nit || nit || "",
         phone: matchedClient.phone || phone || "",
         address: matchedClient.address || address || "",
-        sellerId: currentSeller || sellerId || req.user.email
+        sellerId: currentSeller || effectiveSellerId,
+        ...latitude !== void 0 && longitude !== void 0 ? {
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          locationAddress: locationAddress || address || "",
+          geotaggedAt: updates.geotaggedAt,
+          geotaggedBy: effectiveGeotaggedBy
+        } : {}
       }
     });
   }
@@ -2883,7 +3230,12 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
       nit: nit || deletedMatch.nit || "",
       phone: phone || deletedMatch.phone || "",
       address: address || deletedMatch.address || "",
-      sellerId: sellerId || deletedMatch.sellerId || req.user.email,
+      sellerId: req.user?.role === "seller" ? req.user.email || req.user.id : sellerId || deletedMatch.sellerId || req.user.email,
+      latitude: latitude !== void 0 && latitude !== null && latitude !== "" ? Number(latitude) : deletedMatch.latitude,
+      longitude: longitude !== void 0 && longitude !== null && longitude !== "" ? Number(longitude) : deletedMatch.longitude,
+      locationAddress: locationAddress || address || deletedMatch.locationAddress || "",
+      geotaggedAt: latitude !== void 0 && latitude !== null && latitude !== "" ? geotaggedAt || (/* @__PURE__ */ new Date()).toISOString() : deletedMatch.geotaggedAt,
+      geotaggedBy: latitude !== void 0 && latitude !== null && latitude !== "" ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
       isDeleted: false,
       is_deleted: false,
       isBlocked: false,
@@ -2897,7 +3249,12 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: nit || deletedMatch.nit || "",
         phone: phone || deletedMatch.phone || "",
         address: address || deletedMatch.address || "",
-        seller_id: sellerId || deletedMatch.sellerId || req.user.email
+        seller_id: reactivatedPayload.sellerId,
+        latitude: reactivatedPayload.latitude,
+        longitude: reactivatedPayload.longitude,
+        location_address: reactivatedPayload.locationAddress,
+        geotagged_at: reactivatedPayload.geotaggedAt,
+        geotagged_by: reactivatedPayload.geotaggedBy
       }).eq("id", deletedMatch.id);
     } catch (e) {
     }
@@ -2913,18 +3270,39 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   }
   const clientData = {
     id: id || `CLI-${Date.now()}`,
-    sellerId: sellerId || req.user.email,
+    sellerId: effectiveSellerId,
+    geotaggedBy: effectiveGeotaggedBy,
     name: nameToSave,
     companyName: companyToSave,
     nit: nit || "",
     phone: phone || "",
     address: address || "",
+    clientCode: clientCode ? String(clientCode).trim() : void 0,
+    latitude: latitude !== void 0 && latitude !== null && latitude !== "" ? Number(latitude) : void 0,
+    longitude: longitude !== void 0 && longitude !== null && longitude !== "" ? Number(longitude) : void 0,
+    locationAddress: locationAddress || address || void 0,
+    geotaggedAt: geotaggedAt || (latitude !== void 0 && latitude !== null && latitude !== "" ? (/* @__PURE__ */ new Date()).toISOString() : void 0),
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
   addLocalClient(clientData);
   try {
     await safeInsertClient(clientData);
+    if (clientData.latitude && clientData.longitude) {
+      try {
+        await queryNeon(`
+          UPDATE public.clients
+          SET latitude = $1,
+              longitude = $2,
+              "locationAddress" = $3,
+              "geotaggedAt" = $4,
+              "geotaggedBy" = $5
+          WHERE id = $6
+        `, [clientData.latitude, clientData.longitude, clientData.locationAddress || null, clientData.geotaggedAt || (/* @__PURE__ */ new Date()).toISOString(), clientData.geotaggedBy || effectiveGeotaggedBy, clientData.id]);
+      } catch (neonErr) {
+        console.warn("[Insert Client Location Neon Warning]", neonErr.message);
+      }
+    }
   } catch (e) {
     console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
@@ -2940,7 +3318,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
   if (nit !== void 0) updates.nit = nit;
   if (phone !== void 0) updates.phone = phone;
   if (address !== void 0) updates.address = address;
-  if (sellerId !== void 0) updates.sellerId = sellerId;
+  if (sellerId !== void 0 && req.user?.role !== "seller") updates.sellerId = sellerId;
   if (clientCode !== void 0) updates.clientCode = clientCode;
   if (isBlocked !== void 0) updates.isBlocked = isBlocked;
   updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
@@ -3127,6 +3505,20 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     if (targetNit && targetNit.toUpperCase() !== "CF") {
       await safeLocalDbDelete("nit", targetNit);
     }
+    if (neonPool) {
+      try {
+        await neonPool.query(`
+          DELETE FROM public.clients
+          WHERE id = $1 
+             OR id::text = $1::text 
+             OR (name IS NOT NULL AND $2 <> '' AND (name = $2 OR name ILIKE $2))
+             OR ("clientCode" IS NOT NULL AND $3 <> '' AND "clientCode" = $3)
+             OR (client_code IS NOT NULL AND $3 <> '' AND client_code = $3);
+        `, [idStr, targetName || "", targetCode || ""]);
+      } catch (neonErr) {
+        console.warn("[Delete Client Neon Warning]:", neonErr.message);
+      }
+    }
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
@@ -3229,6 +3621,11 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const updaterName = req.user?.name || req.user?.email || "Usuario";
+  const updaterEmailOrId = req.user?.role === "seller" ? req.user.email || req.user.id : void 0;
+  const localList = readLocalClients();
+  const existingClient = localList.find((c) => String(c.id) === String(id));
+  const currentSeller = existingClient?.sellerId || existingClient?.seller_id;
+  const effectiveSellerId = req.user?.role === "seller" ? currentSeller || updaterEmailOrId : currentSeller;
   const locationUpdates = {
     latitude: latNum,
     longitude: lngNum,
@@ -3236,10 +3633,31 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
     geotaggedAt: nowIso,
     geotaggedBy: updaterName
   };
-  try {
-    updateLocalClient(id, locationUpdates);
-  } catch (e) {
-    console.warn("Could not update local client location:", e);
+  if (effectiveSellerId && !currentSeller) {
+    locationUpdates.sellerId = effectiveSellerId;
+  }
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.clients
+        SET latitude = $1,
+            longitude = $2,
+            "locationAddress" = $3,
+            location_address = $3,
+            "geotaggedAt" = $4,
+            geotagged_at = $4,
+            "geotaggedBy" = $5,
+            geotagged_by = $5
+            ${effectiveSellerId && !currentSeller ? `, "sellerId" = COALESCE("sellerId", $7), seller_id = COALESCE(seller_id, $7)` : ""}
+        WHERE id = $6 
+           OR id::text = $6::text
+           OR "clientCode" = $6::text 
+           OR client_code = $6::text
+           ${existingClient?.name ? `OR LOWER(TRIM(name)) = LOWER(TRIM($${effectiveSellerId && !currentSeller ? 8 : 7}))` : ""};
+      `, effectiveSellerId && !currentSeller ? existingClient?.name ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId, existingClient.name] : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId] : existingClient?.name ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, existingClient.name] : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id]);
+    } catch (neonErr) {
+      console.warn("[Update Location Neon Warning]:", neonErr.message);
+    }
   }
   try {
     const sbUpdate = {
@@ -3252,6 +3670,10 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
       geotagged_by: updaterName,
       geotaggedBy: updaterName
     };
+    if (effectiveSellerId && !currentSeller) {
+      sbUpdate.sellerId = effectiveSellerId;
+      sbUpdate.seller_id = effectiveSellerId;
+    }
     const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
     if (resStr.error && !isNaN(Number(id))) {
       await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
@@ -3259,11 +3681,30 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
   } catch (err) {
     console.warn("PostgreSQL Local update client location error:", err?.message || err);
   }
+  try {
+    updateLocalClient(id, locationUpdates);
+  } catch (e) {
+    console.warn("Could not update local client location:", e);
+  }
   invalidateCache("clients");
-  res.json({ success: true, client: { id, ...locationUpdates } });
+  res.json({ success: true, client: { id, ...locationUpdates, sellerId: effectiveSellerId || currentSeller } });
 }));
 app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { name, clientCode } = req.query;
+  let targetName = name ? String(name).trim() : "";
+  let targetCode = clientCode ? String(clientCode).trim() : "";
+  if (!targetName || !targetCode) {
+    try {
+      const all = readLocalClients();
+      const found = all.find((c) => String(c.id).trim().toLowerCase() === String(id).trim().toLowerCase());
+      if (found) {
+        if (!targetName && found.name) targetName = String(found.name).trim();
+        if (!targetCode && (found.clientCode || found.client_code)) targetCode = String(found.clientCode || found.client_code).trim();
+      }
+    } catch (e) {
+    }
+  }
   const locationUpdates = {
     latitude: null,
     longitude: null,
@@ -3271,10 +3712,26 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, re
     geotaggedAt: null,
     geotaggedBy: null
   };
-  try {
-    updateLocalClient(id, locationUpdates);
-  } catch (e) {
-    console.warn("Could not clear local client location:", e);
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.clients
+        SET latitude = NULL,
+            longitude = NULL,
+            "locationAddress" = NULL,
+            location_address = NULL,
+            "geotaggedAt" = NULL,
+            geotagged_at = NULL,
+            "geotaggedBy" = NULL,
+            geotagged_by = NULL
+        WHERE id = $1 
+           OR id::text = $1::text
+           OR ($2 <> '' AND (name = $2 OR name ILIKE $2))
+           OR ($3 <> '' AND ("clientCode" = $3 OR client_code = $3));
+      `, [id, targetName, targetCode]);
+    } catch (neonErr) {
+      console.warn("[Clear Location Neon Warning]:", neonErr.message);
+    }
   }
   try {
     const sbUpdate = {
@@ -3287,12 +3744,23 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, re
       geotagged_by: null,
       geotaggedBy: null
     };
-    const resStr = await localDb.from("clients").update(sbUpdate).eq("id", id);
-    if (resStr.error && !isNaN(Number(id))) {
+    await localDb.from("clients").update(sbUpdate).eq("id", id);
+    if (!isNaN(Number(id))) {
       await localDb.from("clients").update(sbUpdate).eq("id", Number(id));
+    }
+    if (targetName) {
+      await localDb.from("clients").update(sbUpdate).eq("name", targetName);
+    }
+    if (targetCode) {
+      await localDb.from("clients").update(sbUpdate).eq("clientCode", targetCode);
     }
   } catch (err) {
     console.warn("PostgreSQL Local clear client location error:", err?.message || err);
+  }
+  try {
+    updateLocalClient(id, locationUpdates, { name: targetName, clientCode: targetCode });
+  } catch (e) {
+    console.warn("Could not clear local client location:", e);
   }
   invalidateCache("clients");
   res.json({ success: true, message: "Ubicaci\xF3n GPS eliminada con \xE9xito.", client: { id, ...locationUpdates } });
@@ -3304,15 +3772,36 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let visits = [];
-  try {
-    const { data, error } = await localDb.from("client_visits").select("id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, routeId, route_id, createdAt, created_at, has_photo").order("createdAt", { ascending: false });
-    if (!error && data && data.length > 0) {
-      visits = data;
+  if (pgPool) {
+    try {
+      const res2 = await pgPool.query(`
+        SELECT * FROM public.client_visits 
+        ORDER BY created_at DESC NULLS LAST, "createdAt" DESC NULLS LAST;
+      `);
+      if (res2.rows && res2.rows.length > 0) {
+        visits = res2.rows;
+      }
+    } catch (neErr) {
+      console.warn("[Visits Query Warning]:", neErr.message);
     }
-  } catch (e) {
   }
   if (visits.length === 0) {
-    visits = readLocalVisits();
+    try {
+      const { data, error } = await localDb.from("client_visits").select("id, clientId, client_id, clientName, client_name, clientCode, client_code, companyName, company_name, sellerId, seller_id, sellerName, seller_name, sellerEmail, seller_email, latitude, longitude, accuracy, distanceMeters, distance_meters, visitType, visit_type, notes, routeId, route_id, createdAt, created_at, has_photo").order("createdAt", { ascending: false });
+      if (!error && data && data.length > 0) {
+        visits = data;
+      }
+    } catch (e) {
+    }
+  }
+  const localVisits = readLocalVisits();
+  if (localVisits.length > 0) {
+    const existingIds = new Set(visits.map((v) => String(v.id)));
+    for (const lv of localVisits) {
+      if (lv && lv.id && !existingIds.has(String(lv.id))) {
+        visits.push(lv);
+      }
+    }
   }
   const normalizedVisits = visits.map((v) => {
     const hasPhoto = Boolean(v.has_photo || v.hasPhoto || v.photoUrl || v.photo_url);
@@ -3433,24 +3922,60 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     if (targetClient && targetClient.latitude && targetClient.longitude) {
       calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
     } else {
-      if (clientId) {
-        updateLocalClient(clientId, {
-          latitude: latNum,
-          longitude: lngNum,
-          geotaggedAt: nowIso,
-          geotaggedBy: req.user?.name || req.user?.email
-        });
+      if (clientId || clientName) {
+        if (clientId) {
+          updateLocalClient(clientId, {
+            latitude: latNum,
+            longitude: lngNum,
+            geotaggedAt: nowIso,
+            geotaggedBy: req.user?.name || req.user?.email
+          });
+        }
+        if (neonPool) {
+          try {
+            await neonPool.query(`
+              UPDATE public.clients
+              SET latitude = COALESCE(latitude, $1),
+                  longitude = COALESCE(longitude, $2),
+                  "geotaggedAt" = COALESCE("geotaggedAt", $3),
+                  geotagged_at = COALESCE(geotagged_at, $3),
+                  "geotaggedBy" = COALESCE("geotaggedBy", $4),
+                  geotagged_by = COALESCE(geotagged_by, $4)
+              WHERE (id = $5 OR id::text = $5::text OR "clientCode" = $5::text)
+                 OR (LOWER(TRIM(name)) = LOWER(TRIM($6)));
+            `, [latNum, lngNum, nowIso, req.user?.name || req.user?.email || "Vendedor", clientId || "", clientName || ""]);
+          } catch (neGpsErr) {
+            console.warn("[Auto-geotag visit neon warning]:", neGpsErr.message);
+          }
+        }
       }
     }
-    if (clientId) {
-      updateLocalClient(clientId, { lastVisitAt: nowIso });
+    if (clientId || clientName) {
+      if (clientId) {
+        updateLocalClient(clientId, { lastVisitAt: nowIso });
+      }
       try {
-        await localDb.from("clients").update({
-          last_visit_at: nowIso,
-          lastVisitAt: nowIso
-        }).eq("id", clientId);
+        if (clientId) {
+          await localDb.from("clients").update({
+            last_visit_at: nowIso,
+            lastVisitAt: nowIso
+          }).eq("id", clientId);
+        }
       } catch (e) {
       }
+      if (neonPool) {
+        try {
+          await neonPool.query(`
+            UPDATE public.clients
+            SET "lastVisitAt" = $1, last_visit_at = $1
+            WHERE (id = $2 OR id::text = $2::text OR "clientCode" = $2::text)
+               OR (LOWER(TRIM(name)) = LOWER(TRIM($3)));
+          `, [nowIso, clientId || "", clientName || ""]);
+        } catch (neVisErr) {
+          console.warn("[Update lastVisitAt neon warning]:", neVisErr.message);
+        }
+      }
+      invalidateCache("clients");
     }
   } catch (e) {
   }
@@ -3539,17 +4064,142 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       photo_url: newVisit.photoUrl,
       has_photo: Boolean(newVisit.photoUrl),
       hasPhoto: Boolean(newVisit.photoUrl),
+      routeId: newVisit.routeId,
+      route_id: newVisit.routeId,
       createdAt: newVisit.createdAt,
       created_at: newVisit.createdAt
     };
+    if (pgPool) {
+      try {
+        await pgPool.query(`
+          INSERT INTO public.client_visits (
+            id, "clientId", client_id, "clientName", client_name, "clientCode", client_code,
+            "companyName", company_name, "sellerId", seller_id, "sellerName", seller_name,
+            "sellerEmail", seller_email, latitude, longitude, accuracy, "distanceMeters", distance_meters,
+            "visitType", visit_type, notes, "photoUrl", photo_url, "createdAt", created_at,
+            "routeId", route_id
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25, $26, $27,
+            $28, $29
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            notes = EXCLUDED.notes,
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude;
+        `, [
+          newVisit.id,
+          newVisit.clientId,
+          newVisit.clientId,
+          newVisit.clientName,
+          newVisit.clientName,
+          newVisit.clientCode,
+          newVisit.clientCode,
+          newVisit.companyName,
+          newVisit.companyName,
+          newVisit.sellerId,
+          newVisit.sellerId,
+          newVisit.sellerName,
+          newVisit.sellerName,
+          newVisit.sellerEmail,
+          newVisit.sellerEmail,
+          newVisit.latitude,
+          newVisit.longitude,
+          newVisit.accuracy || null,
+          newVisit.distanceMeters || null,
+          newVisit.distanceMeters || null,
+          newVisit.visitType,
+          newVisit.visitType,
+          newVisit.notes,
+          newVisit.photoUrl || null,
+          newVisit.photoUrl || null,
+          newVisit.createdAt,
+          newVisit.createdAt,
+          newVisit.routeId || null,
+          newVisit.routeId || null
+        ]);
+      } catch (err) {
+        console.warn("[Visit Direct pgPool Insert Warning]:", err.message);
+      }
+    }
     const { error } = await localDb.from("client_visits").insert([sbPayload]);
     if (error) {
-      console.warn("PostgreSQL Local visit insert error:", error.message);
+      console.warn("PostgreSQL Local visit insert warning (handled gracefully):", error.message);
     }
+    if (newVisit.clientId && neonPool) {
+      try {
+        await neonPool.query(`
+          UPDATE public.clients
+          SET "lastVisitAt" = $1,
+              last_visit_at = $1
+          WHERE id = $2 OR id::text = $2::text;
+        `, [newVisit.createdAt, newVisit.clientId]);
+      } catch (clientUpErr) {
+        console.warn("[Client lastVisitAt update warning]:", clientUpErr.message);
+      }
+    }
+    if (activeRoute && (activeRoute.startLatitude == null || activeRoute.startLongitude == null) && newVisit.latitude && newVisit.longitude) {
+      activeRoute.startLatitude = newVisit.latitude;
+      activeRoute.startLongitude = newVisit.longitude;
+      const rList = readLocalRoutes();
+      const rIdx = rList.findIndex((r) => r.id === activeRoute.id);
+      if (rIdx !== -1) {
+        rList[rIdx].startLatitude = newVisit.latitude;
+        rList[rIdx].startLongitude = newVisit.longitude;
+        saveLocalRoutes(rList);
+      }
+      if (pgPool) {
+        try {
+          await pgPool.query(`
+            UPDATE public.seller_routes
+            SET start_latitude = $1, "startLatitude" = $1,
+                start_longitude = $2, "startLongitude" = $2
+            WHERE id = $3 AND (start_latitude IS NULL OR "startLatitude" IS NULL);
+          `, [newVisit.latitude, newVisit.longitude, activeRoute.id]);
+        } catch (e) {
+        }
+      }
+    }
+    createNotification(
+      "visit_registered",
+      `\u{1F4CD} Visita Registrada: ${newVisit.sellerName || "Vendedor"}`,
+      `El vendedor ${newVisit.sellerName} registr\xF3 una visita en "${newVisit.clientName}". Tipo: ${String(newVisit.visitType).toUpperCase()}.`,
+      {
+        visitId: newVisit.id,
+        clientId: newVisit.clientId,
+        sellerId: newVisit.sellerId,
+        latitude: newVisit.latitude,
+        longitude: newVisit.longitude
+      }
+    ).catch((e) => console.warn("Error creando notificaci\xF3n de visita:", e));
   } catch (err) {
-    console.warn("Could not insert visit in PostgreSQL Local, stored locally:", err?.message || err);
+    console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
   res.json({ success: true, visit: newVisit, activeRoute });
+}));
+app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (neonPool) {
+    try {
+      await neonPool.query(`DELETE FROM public.client_visits WHERE id = $1 OR id::text = $1::text;`, [id]);
+    } catch (neonErr) {
+      console.warn("[Delete Visit Neon Warning]:", neonErr.message);
+    }
+  }
+  try {
+    await localDb.from("client_visits").delete().eq("id", id);
+  } catch (err) {
+    console.warn("[Delete Visit localDb Warning]:", err?.message || err);
+  }
+  try {
+    const localVisits = readLocalVisits();
+    const filtered = localVisits.filter((v) => String(v.id) !== String(id));
+    saveLocalVisits(filtered);
+  } catch (e) {
+  }
+  res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
 var SELLER_ROUTES_FILE = import_path2.default.join(process.cwd(), "seller_routes_local.json");
 function readLocalRoutes() {
@@ -3576,36 +4226,67 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req, res) => {
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
   let routes = [];
-  try {
-    let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
-    if (userRole === "seller") {
-      if (userId) query = query.eq("seller_id", userId);
-    } else if (sellerId && sellerId !== "all") {
-      query = query.eq("seller_id", sellerId);
+  if (neonPool) {
+    try {
+      const res2 = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC;
+      `);
+      if (res2.rows && res2.rows.length > 0) {
+        routes = res2.rows.map((r) => ({
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || "",
+          createdAt: r.created_at || r.createdAt
+        }));
+      }
+    } catch (neErr) {
     }
-    if (status) query = query.eq("status", status);
-    const { data, error } = await query;
-    if (!error && data && data.length > 0) {
-      routes = data.map((r) => ({
-        id: r.id,
-        sellerId: r.seller_id || r.sellerId,
-        sellerName: r.seller_name || r.sellerName,
-        sellerEmail: r.seller_email || r.sellerEmail,
-        status: r.status,
-        startedAt: r.started_at || r.startedAt,
-        finishedAt: r.finished_at || r.finishedAt,
-        startLatitude: r.start_latitude ?? r.startLatitude,
-        startLongitude: r.start_longitude ?? r.startLongitude,
-        endLatitude: r.end_latitude ?? r.endLatitude,
-        endLongitude: r.end_longitude ?? r.endLongitude,
-        totalStops: r.total_stops ?? r.totalStops ?? 0,
-        totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
-        totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
-        notes: r.notes || "",
-        createdAt: r.created_at || r.createdAt
-      }));
+  }
+  if (routes.length === 0) {
+    try {
+      let query = localDb.from("seller_routes").select("*").order("started_at", { ascending: false });
+      if (userRole === "seller") {
+        if (userId) query = query.eq("seller_id", userId);
+      } else if (sellerId && sellerId !== "all") {
+        query = query.eq("seller_id", sellerId);
+      }
+      if (status) query = query.eq("status", status);
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        routes = data.map((r) => ({
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || "",
+          createdAt: r.created_at || r.createdAt
+        }));
+      }
+    } catch (e) {
     }
-  } catch (e) {
   }
   if (routes.length === 0) {
     routes = readLocalRoutes();
@@ -3637,14 +4318,54 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.user?.id ? String(req.user.id).trim() : "";
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
-  const routes = readLocalRoutes();
-  const activeRoute = routes.find((r) => {
-    if (r.status !== "active") return false;
-    const rSellerId = String(r.sellerId || r.seller_id || "").trim();
-    const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
-    const rSellerName = String(r.sellerName || r.seller_name || "").trim().toLowerCase();
-    return userId && rSellerId === userId || userEmail && (rSellerEmail === userEmail || rSellerId === userEmail) || userName && rSellerName === userName;
-  });
+  let activeRoute = null;
+  if (neonPool) {
+    try {
+      const res2 = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE status = 'active'
+          AND (
+            ($1 <> '' AND (seller_id = $1 OR "sellerId" = $1)) OR
+            ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
+            ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
+          )
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        LIMIT 1;
+      `, [userId, userEmail, userName]);
+      if (res2.rows && res2.rows.length > 0) {
+        const r = res2.rows[0];
+        activeRoute = {
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || "",
+          createdAt: r.created_at || r.createdAt
+        };
+      }
+    } catch (e) {
+    }
+  }
+  if (!activeRoute) {
+    const routes = readLocalRoutes();
+    activeRoute = routes.find((r) => {
+      if (r.status !== "active") return false;
+      const rSellerId = String(r.sellerId || r.seller_id || "").trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
+      const rSellerName = String(r.sellerName || r.seller_name || "").trim().toLowerCase();
+      return userId && rSellerId === userId || userEmail && (rSellerEmail === userEmail || rSellerId === userEmail) || userName && rSellerName === userName;
+    });
+  }
   res.json({ success: true, route: activeRoute || null });
 }));
 app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
@@ -3660,6 +4381,22 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
   });
   if (existingActive) {
+    if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
+      existingActive.startLatitude = parseFloat(startLatitude);
+      existingActive.startLongitude = parseFloat(startLongitude);
+      saveLocalRoutes(routes);
+      if (neonPool) {
+        try {
+          await neonPool.query(`
+            UPDATE public.seller_routes 
+            SET start_latitude = $1, "startLatitude" = $1,
+                start_longitude = $2, "startLongitude" = $2
+            WHERE id = $3;
+          `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+        } catch (e) {
+        }
+      }
+    }
     return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -3683,6 +4420,39 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   };
   routes.unshift(newRoute);
   saveLocalRoutes(routes);
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        INSERT INTO public.seller_routes (
+          id, seller_id, "sellerId", seller_name, "sellerName", seller_email, "sellerEmail",
+          status, started_at, "startedAt", start_latitude, "startLatitude", start_longitude, "startLongitude",
+          total_stops, "totalStops", total_distance_km, "totalDistanceKm", total_duration_mins, "totalDurationMins",
+          notes, created_at, "createdAt"
+        ) VALUES (
+          $1, $2, $2, $3, $3, $4, $4,
+          $5, $6, $6, $7, $7, $8, $8,
+          0, 0, 0, 0, 0, 0,
+          $9, $6, $6
+        ) ON CONFLICT (id) DO UPDATE SET
+          start_latitude = EXCLUDED.start_latitude,
+          "startLatitude" = EXCLUDED."startLatitude",
+          start_longitude = EXCLUDED.start_longitude,
+          "startLongitude" = EXCLUDED."startLongitude";
+      `, [
+        newRoute.id,
+        newRoute.sellerId,
+        newRoute.sellerName,
+        newRoute.sellerEmail,
+        newRoute.status,
+        newRoute.startedAt,
+        newRoute.startLatitude,
+        newRoute.startLongitude,
+        newRoute.notes
+      ]);
+    } catch (neonErr) {
+      console.warn("[Start Route Neon Warning]:", neonErr.message);
+    }
+  }
   try {
     await localDb.from("seller_routes").insert([{
       id: newRoute.id,
@@ -3702,39 +4472,206 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
 }));
+app.put("/api/routes/:id/location", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { latitude, longitude } = req.body;
+  const lat = latitude ? parseFloat(latitude) : null;
+  const lng = longitude ? parseFloat(longitude) : null;
+  if (lat == null || lng == null) {
+    return res.status(400).json({ error: "Coordenadas requeridas." });
+  }
+  const routes = readLocalRoutes();
+  const route = routes.find((r) => r.id === id);
+  if (route) {
+    route.startLatitude = lat;
+    route.startLongitude = lng;
+    saveLocalRoutes(routes);
+  }
+  if (neonPool) {
+    try {
+      await neonPool.query(`
+        UPDATE public.seller_routes 
+        SET start_latitude = $1, "startLatitude" = $1,
+            start_longitude = $2, "startLongitude" = $2
+        WHERE id = $3;
+      `, [lat, lng, id]);
+    } catch (e) {
+    }
+  }
+  res.json({ success: true, message: "Ubicaci\xF3n de inicio de ruta actualizada.", startLatitude: lat, startLongitude: lng });
+}));
 app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { endLatitude, endLongitude, notes } = req.body;
+  const { endLatitude, endLongitude, notes, sellerId: bodySellerId, sellerName: bodySellerName } = req.body;
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  const routes = readLocalRoutes();
-  const routeIndex = routes.findIndex((r) => r.id === id);
-  if (routeIndex === -1) {
-    return res.status(404).json({ error: "Ruta no encontrada." });
+  const reqSellerId = String(bodySellerId || req.user?.id || "").trim();
+  const reqSellerName = String(bodySellerName || req.user?.name || "").trim();
+  const reqSellerEmail = String(req.user?.email || "").trim().toLowerCase();
+  let targetRoute = null;
+  if (neonPool) {
+    try {
+      const dbRes = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE id = $1 OR id::text = $1 
+           OR (status = 'active' AND (
+                ($1 <> '' AND (seller_id = $1 OR seller_name ILIKE $1 OR seller_email ILIKE $1)) OR
+                ($2 <> '' AND (seller_id = $2 OR "sellerId" = $2)) OR
+                ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)) OR
+                ($4 <> '' AND (seller_email ILIKE $4 OR "sellerEmail" ILIKE $4))
+              ))
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        LIMIT 1;
+      `, [id, reqSellerId, reqSellerName, reqSellerEmail]);
+      if (dbRes.rows && dbRes.rows.length > 0) {
+        const row = dbRes.rows[0];
+        targetRoute = {
+          id: row.id,
+          sellerId: row.seller_id || row.sellerId || reqSellerId,
+          sellerName: row.seller_name || row.sellerName || reqSellerName,
+          sellerEmail: row.seller_email || row.sellerEmail || reqSellerEmail,
+          status: row.status,
+          startedAt: row.started_at || row.startedAt,
+          finishedAt: row.finished_at || row.finishedAt,
+          startLatitude: row.start_latitude ?? row.startLatitude,
+          startLongitude: row.start_longitude ?? row.startLongitude,
+          endLatitude: row.end_latitude ?? row.endLatitude,
+          endLongitude: row.end_longitude ?? row.endLongitude,
+          totalStops: row.total_stops ?? row.totalStops ?? 0,
+          totalDistanceKm: row.total_distance_km ?? row.totalDistanceKm ?? 0,
+          totalDurationMins: row.total_duration_mins ?? row.totalDurationMins ?? 0,
+          notes: row.notes || notes || "",
+          createdAt: row.created_at || row.createdAt
+        };
+      }
+    } catch (e) {
+      console.warn("[Finish Route Neon Select Warning]:", e.message);
+    }
   }
-  const targetRoute = routes[routeIndex];
-  const visits = readLocalVisits().filter((v) => v.routeId === id || v.sellerId === targetRoute.sellerId && (v.createdAt || "").startsWith((targetRoute.startedAt || "").split("T")[0]));
+  const localRoutes = readLocalRoutes();
+  const localIdx = localRoutes.findIndex(
+    (r) => r.id === id || r.key === id || r.status === "active" && (reqSellerId && (r.sellerId === reqSellerId || r.seller_id === reqSellerId) || reqSellerName && r.sellerName?.toLowerCase() === reqSellerName.toLowerCase() || (r.sellerId === id || r.sellerName === id))
+  );
+  if (!targetRoute && localIdx !== -1) {
+    targetRoute = localRoutes[localIdx];
+  }
+  if (!targetRoute) {
+    let sId = reqSellerId || id;
+    let sName = reqSellerName || "Asesor";
+    if (id.includes("_")) {
+      const parts = id.split("_");
+      sId = parts[0] || sId;
+    }
+    const allVisits = readLocalVisits();
+    const matchedVisits = allVisits.filter(
+      (v) => v.sellerId === sId || v.sellerName === sId || v.sellerEmail === sId || v.sellerName?.toLowerCase() === sName.toLowerCase() || (v.createdAt || "").startsWith(nowIso.split("T")[0])
+    );
+    const sorted = matchedVisits.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    targetRoute = {
+      id: id.startsWith("route_") || id.startsWith("ROUTE-") ? id : `route_${sId}_${Date.now()}`,
+      sellerId: sId,
+      sellerName: sorted[0]?.sellerName || sName,
+      sellerEmail: sorted[0]?.sellerEmail || reqSellerEmail,
+      status: "active",
+      startedAt: sorted[0]?.createdAt || nowIso,
+      startLatitude: sorted[0]?.latitude || (endLatitude ? parseFloat(endLatitude) : null),
+      startLongitude: sorted[0]?.longitude || (endLongitude ? parseFloat(endLongitude) : null),
+      totalStops: sorted.length || 1,
+      totalDistanceKm: 0,
+      totalDurationMins: 0,
+      notes: notes || "Jornada finalizada."
+    };
+  }
   const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
   const endTime = new Date(nowIso).getTime();
   const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1e3 * 60)));
-  let totalKm = 0;
-  const sortedVisits = [...visits].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  for (let i = 1; i < sortedVisits.length; i++) {
-    const p1 = sortedVisits[i - 1];
-    const p2 = sortedVisits[i];
-    if (p1.latitude && p1.longitude && p2.latitude && p2.longitude) {
-      totalKm += calculateDistanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude) / 1e3;
-    }
-  }
+  const finalEndLat = endLatitude ? parseFloat(endLatitude) : targetRoute.endLatitude ?? targetRoute.startLatitude ?? null;
+  const finalEndLng = endLongitude ? parseFloat(endLongitude) : targetRoute.endLongitude ?? targetRoute.startLongitude ?? null;
   targetRoute.status = "completed";
   targetRoute.finishedAt = nowIso;
-  targetRoute.endLatitude = endLatitude ? parseFloat(endLatitude) : sortedVisits[sortedVisits.length - 1]?.latitude || null;
-  targetRoute.endLongitude = endLongitude ? parseFloat(endLongitude) : sortedVisits[sortedVisits.length - 1]?.longitude || null;
-  targetRoute.totalStops = sortedVisits.length;
-  targetRoute.totalDistanceKm = Math.round(totalKm * 10) / 10;
+  targetRoute.endLatitude = finalEndLat;
+  targetRoute.endLongitude = finalEndLng;
   targetRoute.totalDurationMins = totalDurationMins;
   if (notes) targetRoute.notes = notes;
-  routes[routeIndex] = targetRoute;
-  saveLocalRoutes(routes);
+  if (neonPool) {
+    try {
+      const updateRes = await neonPool.query(`
+        UPDATE public.seller_routes
+        SET status = 'completed',
+            finished_at = $1, "finishedAt" = $1,
+            end_latitude = $2, "endLatitude" = $2,
+            end_longitude = $3, "endLongitude" = $3,
+            total_stops = COALESCE(total_stops, $4), "totalStops" = COALESCE("totalStops", $4),
+            total_distance_km = COALESCE(total_distance_km, $5), "totalDistanceKm" = COALESCE("totalDistanceKm", $5),
+            total_duration_mins = $6, "totalDurationMins" = $6,
+            notes = COALESCE($7, notes)
+        WHERE id = $8 OR id::text = $8
+           OR (status = 'active' AND (
+                ($9 <> '' AND (seller_id = $9 OR "sellerId" = $9)) OR
+                ($10 <> '' AND (seller_name ILIKE $10 OR "sellerName" ILIKE $10)) OR
+                ($11 <> '' AND (seller_email ILIKE $11 OR "sellerEmail" ILIKE $11)) OR
+                seller_id = $8 OR
+                seller_name ILIKE $8
+              ));
+      `, [
+        nowIso,
+        targetRoute.endLatitude,
+        targetRoute.endLongitude,
+        targetRoute.totalStops || 1,
+        targetRoute.totalDistanceKm || 0,
+        targetRoute.totalDurationMins,
+        targetRoute.notes || notes || "Jornada finalizada.",
+        targetRoute.id,
+        targetRoute.sellerId || reqSellerId,
+        targetRoute.sellerName || reqSellerName,
+        targetRoute.sellerEmail || reqSellerEmail
+      ]);
+      if (!updateRes.rowCount || updateRes.rowCount === 0) {
+        await neonPool.query(`
+          INSERT INTO public.seller_routes (
+            id, seller_id, seller_name, seller_email, status,
+            started_at, finished_at, start_latitude, start_longitude,
+            end_latitude, end_longitude, total_stops, total_distance_km,
+            total_duration_mins, notes, created_at
+          ) VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            status = 'completed',
+            finished_at = EXCLUDED.finished_at,
+            end_latitude = EXCLUDED.end_latitude,
+            end_longitude = EXCLUDED.end_longitude,
+            notes = EXCLUDED.notes;
+        `, [
+          targetRoute.id,
+          targetRoute.sellerId || reqSellerId,
+          targetRoute.sellerName || reqSellerName,
+          targetRoute.sellerEmail || reqSellerEmail,
+          targetRoute.startedAt || nowIso,
+          nowIso,
+          targetRoute.startLatitude,
+          targetRoute.startLongitude,
+          targetRoute.endLatitude,
+          targetRoute.endLongitude,
+          targetRoute.totalStops || 1,
+          targetRoute.totalDistanceKm || 0,
+          targetRoute.totalDurationMins,
+          targetRoute.notes || notes || "Jornada finalizada."
+        ]);
+      }
+    } catch (neonErr) {
+      console.warn("[Finish Route Neon Warning]:", neonErr.message);
+    }
+  }
+  let updatedLocal = false;
+  for (let i = 0; i < localRoutes.length; i++) {
+    const r = localRoutes[i];
+    if (r.id === targetRoute.id || r.key === targetRoute.id || r.status === "active" && (r.sellerId && (r.sellerId === targetRoute.sellerId || r.sellerId === reqSellerId) || r.sellerName && (r.sellerName.toLowerCase() === (targetRoute.sellerName || "").toLowerCase() || r.sellerName.toLowerCase() === reqSellerName.toLowerCase()))) {
+      localRoutes[i] = { ...r, ...targetRoute, status: "completed" };
+      updatedLocal = true;
+    }
+  }
+  if (!updatedLocal) {
+    localRoutes.unshift(targetRoute);
+  }
+  saveLocalRoutes(localRoutes);
   try {
     await localDb.from("seller_routes").upsert([{
       id: targetRoute.id,
@@ -4098,6 +5035,26 @@ async function acquireCorteDispatchLock(corteKey) {
   lastDispatchedCorteKey = corteKey;
   return true;
 }
+var cachedLogoTiBase64 = "";
+function getLogoTiBase64() {
+  if (cachedLogoTiBase64) return cachedLogoTiBase64;
+  try {
+    const candidates = [
+      import_path2.default.join(process.cwd(), "public", "logo_ti_v2.jpg"),
+      import_path2.default.join(__dirname, "public", "logo_ti_v2.jpg"),
+      "/opt/evolution-api/boletas_guardadas/logo_ti_v2.jpg"
+    ];
+    for (const p of candidates) {
+      if (import_fs2.default.existsSync(p)) {
+        cachedLogoTiBase64 = import_fs2.default.readFileSync(p).toString("base64");
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn("[LOGO-TI] Error loading logo_ti_v2.jpg:", e);
+  }
+  return cachedLogoTiBase64;
+}
 async function checkAndDispatchDailySales(options) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
@@ -4162,7 +5119,9 @@ async function checkAndDispatchDailySales(options) {
   } else {
     targetUsers = users.filter((u) => {
       const email = (u.email || "").toLowerCase().trim();
+      const name = (u.name || "").toLowerCase().trim();
       const role = (u.role || "").toLowerCase();
+      if (email.includes("susana") || name.includes("susana")) return false;
       return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
     });
   }
@@ -4259,7 +5218,8 @@ async function checkAndDispatchDailySales(options) {
       cantidadFacturas,
       mensaje: alcanzoMeta ? `\xA1Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, corte de las ${corte === "17:00" ? "5:00 PM" : "12:00 PM"}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
       destinatarios,
-      ventas
+      ventas,
+      logoBase64: getLogoTiBase64()
     };
     allReports.push(payload);
     let webhookResult = null;
@@ -4278,6 +5238,11 @@ async function checkAndDispatchDailySales(options) {
         webhookResult = { error: err.message, ok: false };
         console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
       }
+      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
+      if (!isLastSeller) {
+        console.log(`[AUTO-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+        await new Promise((resolve) => setTimeout(resolve, 6e4));
+      }
     }
     results.push({
       vendedor: sellerDisplayName,
@@ -4295,6 +5260,239 @@ async function checkAndDispatchDailySales(options) {
     corte,
     fecha: todayLabel,
     data: allReports[0] || null,
+    reports: allReports,
+    results
+  };
+}
+async function checkAndDispatchWeeklySales(options) {
+  const WEEKLY_THRESHOLD = Number(options?.threshold) || 52500;
+  const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
+  const sendToWebhook = options?.sendToWebhook !== false;
+  const now = /* @__PURE__ */ new Date();
+  const gtOffset = -6 * 60;
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 6e4;
+  const gtNow = new Date(utcMs + gtOffset * 6e4);
+  const year = gtNow.getFullYear();
+  const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+  const day = String(gtNow.getDate()).padStart(2, "0");
+  const todayLabel = `${year}-${month}-${day}`;
+  const gtDay = gtNow.getDay();
+  const diffToMonday = gtDay === 0 ? 6 : gtDay - 1;
+  const mondayDate = new Date(gtNow);
+  mondayDate.setDate(gtNow.getDate() - diffToMonday);
+  const mYear = mondayDate.getFullYear();
+  const mMonth = String(mondayDate.getMonth() + 1).padStart(2, "0");
+  const mDay = String(mondayDate.getDate()).padStart(2, "0");
+  const startOfWeek = `${mYear}-${mMonth}-${mDay}T00:00:00`;
+  const endOfWeek = `${todayLabel}T23:59:59`;
+  const periodoLabel = `${mDay}/${mMonth}/${mYear} al ${day}/${month}/${year}`;
+  const corteKey = `${todayLabel}_semanal`;
+  if (options?.isAutomatedCron) {
+    const lockAcquired = await acquireCorteDispatchLock(corteKey);
+    if (!lockAcquired) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F6D1} El corte semanal ${corteKey} YA FUE ENVIADO previamente. Omitiendo despacho para evitar duplicados.`);
+      return {
+        success: true,
+        skipped: true,
+        message: `El corte semanal ${corteKey} ya fue enviado previamente.`
+      };
+    }
+  }
+  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfWeek).lte("date", endOfWeek);
+  if (invErr) {
+    console.error("[AUTO-WEEKLY-SALES-CRON] Error al consultar facturas semanales:", invErr.message);
+    return { error: `Error al consultar facturas semanales: ${invErr.message}` };
+  }
+  function formatTelefonoDestinatario(rawPhone) {
+    if (!rawPhone) return "";
+    const digits = String(rawPhone).replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length === 8) return `502${digits}`;
+    if (digits.startsWith("502") && digits.length === 11) return digits;
+    return digits;
+  }
+  const { data: allUsers } = await localDb.from("users").select("id, name, email, role, phone, sellerCode");
+  const targetSellerEmailsList = options?.targetSellerEmails && options.targetSellerEmails.length > 0 ? options.targetSellerEmails.map((e) => e.toLowerCase()) : options?.targetSellerEmail ? [options.targetSellerEmail.toLowerCase()] : null;
+  const activeSellers = (allUsers || []).filter((u) => {
+    if (!u) return false;
+    const email = (u.email || "").toLowerCase();
+    const name = (u.name || "").trim();
+    if (email === "susyherrera2014@gmail.com" || name === "Susana" || name === "Susana Herrera" || name === "Susy") {
+      return false;
+    }
+    if (targetSellerEmailsList) {
+      return targetSellerEmailsList.includes(email);
+    }
+    return u.role === "seller" || email === "gruasytransportesali@gmail.com" || email === "erickjuarez02@gmail.com" || email === "seseffff942@gmail.com";
+  });
+  const uniqueTargetUsers = activeSellers.filter(
+    (u, idx, arr) => arr.findIndex((x) => (x.email || "").toLowerCase() === (u.email || "").toLowerCase()) === idx
+  );
+  console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F4CA} Procesando corte semanal (${periodoLabel}) para ${uniqueTargetUsers.length} vendedores.`);
+  const allReports = [];
+  const results = [];
+  for (const seller of uniqueTargetUsers) {
+    const sellerEmail = (seller.email || "").toLowerCase();
+    const sellerIdKeys = [
+      seller.id ? String(seller.id).toLowerCase() : null,
+      sellerEmail,
+      seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
+      seller.name ? seller.name.toLowerCase() : null
+    ].filter(Boolean);
+    const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
+    const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
+    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
+    const destinatarios = [{
+      nombreDestinatario: sellerDisplayName,
+      telefono: sellerPhoneClean,
+      numero: sellerPhoneClean,
+      email: seller.email,
+      rol: seller.role || "seller"
+    }].filter((d) => Boolean(d.telefono));
+    let cantidadVendida = 0;
+    let cantidadFacturas = 0;
+    const ventas = [];
+    for (const inv of invoicesData || []) {
+      if (!inv || inv.status === "cancelled" || inv.status === "rejected") continue;
+      const sId = (inv.sellerId || "").toLowerCase();
+      if (sellerIdKeys.includes(sId) || sId === sellerEmail || inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase()) {
+        const amount = Number(inv.totalAmount) || 0;
+        cantidadVendida += amount;
+        cantidadFacturas += 1;
+        let fechaVenta = (inv.date || "").slice(0, 10);
+        ventas.push({
+          id: inv.id,
+          folio: inv.folio || "",
+          cliente: inv.clientName || "Cliente",
+          nit: inv.nit || "CF",
+          monto: amount,
+          tipo: inv.invoice_type || "contado",
+          estado: inv.status || "completado",
+          fecha: fechaVenta
+        });
+      }
+    }
+    cantidadVendida = Math.round(cantidadVendida * 100) / 100;
+    const cantidadFaltante = Math.max(0, Math.round((WEEKLY_THRESHOLD - cantidadVendida) * 100) / 100);
+    const alcanzoMeta = cantidadVendida >= WEEKLY_THRESHOLD;
+    const superavit = Math.max(0, Math.round((cantidadVendida - WEEKLY_THRESHOLD) * 100) / 100);
+    const porcentajeCumplimiento = WEEKLY_THRESHOLD > 0 ? (cantidadVendida / WEEKLY_THRESHOLD * 100).toFixed(1) : "100.0";
+    const codigoAsesor = seller.sellerCode || (sellerDisplayName === "Herbert Argueta" ? "1521" : "");
+    let detalleVentas = "";
+    if (ventas.length > 0) {
+      detalleVentas = ventas.map((v) => {
+        const fol = v.folio ? `#${v.folio}` : "S/F";
+        let fStr = "";
+        if (v.fecha) {
+          fStr = ` (${v.fecha.slice(8, 10)}/${v.fecha.slice(5, 7)})`;
+        }
+        const montoStr = Number(v.monto || 0).toLocaleString("es-GT", { minimumFractionDigits: 2 });
+        return `\u25AB\uFE0F *${fol}*${fStr}: Q${montoStr} - ${v.cliente}`;
+      }).join("\n");
+    }
+    const formattedWhatsAppMessage = alcanzoMeta ? `\u{1F3C6} *CIERRE SEMANAL DE VENTAS - S\xC1BADO 5:00 PM* \u{1F3C1}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado(a) *${sellerDisplayName}*, \xA1excelente trabajo! Has culminado la semana cumpliendo exitosamente tu objetivo comercial:
+
+\u{1F4C5} *Semana:* ${periodoLabel}
+\u{1F4BC} *C\xF3digo Asesor:* #${codigoAsesor}
+\u{1F4C4} *Facturas Emitidas:* ${cantidadFacturas} facturas
+
+\u{1F4CA} *RESUMEN FINANCIERO:*
+\u{1F4B0} *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F3AF} *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C8} *Super\xE1vit Logrado:* Q. ${superavit.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F525} *Cumplimiento Semanal:* ${porcentajeCumplimiento}%
+
+\u2B50 *\xA1Felicitaciones por tu entrega y constancia esta semana! A descansar y recargar energ\xEDas para arrancar con fuerza el lunes.* \u{1F680}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_` : `\u{1F4CA} *CIERRE SEMANAL DE VENTAS - S\xC1BADO 5:00 PM* \u{1F3C1}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado(a) *${sellerDisplayName}*, te compartimos el informe consolidado de tu cierre semanal de ventas:
+
+\u{1F4C5} *Semana:* ${periodoLabel}
+\u{1F4BC} *C\xF3digo Asesor:* #${codigoAsesor}
+\u{1F4C4} *Facturas Emitidas:* ${cantidadFacturas} facturas
+
+\u{1F4CA} *RESUMEN FINANCIERO:*
+\u{1F4B0} *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F3AF} *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C9} *Faltante para la Meta:* Q. ${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C8} *Cumplimiento Semanal:* ${porcentajeCumplimiento}%
+
+${detalleVentas ? "\u{1F4CB} *DETALLE DE VENTAS DE LA SEMANA:*\n" + detalleVentas + "\n\n" : ""}\u{1F4AA} *\xA1Buen esfuerzo durante estos d\xEDas! Analicemos oportunidades con nuestros clientes para que la pr\xF3xima semana alcancemos la meta completa.* \u{1F3AF}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
+    const payload = {
+      fecha: todayLabel,
+      corte: "semanal",
+      tipoCorte: "semanal",
+      tipoReporte: "semanal",
+      tipo: "semanal",
+      esSemanal: true,
+      hora: "17:00",
+      horaCorte: "17:00",
+      corteHora: "17:00",
+      titulo: `Cierre Semanal de Ventas - ${sellerDisplayName}`,
+      vendedor: sellerDisplayName,
+      nombreDestinatario: sellerDisplayName,
+      codigoAsesor,
+      periodo: periodoLabel,
+      email: seller.email,
+      numero: sellerPhoneClean,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFaltante,
+      alcanzoMeta,
+      superavit,
+      umbral: WEEKLY_THRESHOLD,
+      metaSemanal: WEEKLY_THRESHOLD,
+      cantidadFacturas,
+      porcentajeCumplimiento,
+      textoWhatsApp: formattedWhatsAppMessage,
+      destinatarios,
+      ventas,
+      logoBase64: getLogoTiBase64()
+    };
+    allReports.push(payload);
+    let webhookResult = null;
+    if (sendToWebhook) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (Cierre Semanal): ${N8N_WEBHOOK_URL}`);
+      try {
+        const webhookRes = await fetch(N8N_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const resText = await webhookRes.text().catch(() => "");
+        webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
+        console.log(`[AUTO-WEEKLY-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+      } catch (err) {
+        webhookResult = { error: err.message, ok: false };
+        console.error(`[AUTO-WEEKLY-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+      }
+      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
+      if (!isLastSeller) {
+        console.log(`[AUTO-WEEKLY-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+        await new Promise((resolve) => setTimeout(resolve, 6e4));
+      }
+    }
+    results.push({
+      vendedor: sellerDisplayName,
+      email: seller.email,
+      telefono: sellerPhoneClean,
+      cantidadVendida,
+      cantidadFacturas,
+      webhookResult,
+      payload
+    });
+  }
+  return {
+    success: true,
+    totalVendedores: uniqueTargetUsers.length,
+    periodo: periodoLabel,
     reports: allReports,
     results
   };
@@ -4327,6 +5525,24 @@ function initAutoDailySalesCron() {
           lastDispatchedCorteKey = corteKey;
           console.log(`[AUTO-SALES-CRON] \u{1F554} Disparando corte autom\xE1tico de las 5:00 PM para ${todayDateStr}`);
           await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
+          if (gtNow.getDay() === 6) {
+            console.log(`[AUTO-SALES-CRON] \u{1F3C1} S\xE1bado 5:00 PM detectado. Esperando 60 segundos tras el corte diario para iniciar el CIERRE SEMANAL de ${todayDateStr}...`);
+            setTimeout(async () => {
+              try {
+                await checkAndDispatchWeeklySales({ isAutomatedCron: true });
+              } catch (err) {
+                console.error("[AUTO-SALES-CRON] Error en despacho autom\xE1tico de cierre semanal:", err?.message || err);
+              }
+            }, 6e4);
+          }
+        }
+      }
+      if (hour === 20 && minute === 0) {
+        const corteKey = `${todayDateStr}_20:00`;
+        if (lastDispatchedCorteKey !== corteKey) {
+          lastDispatchedCorteKey = corteKey;
+          console.log(`[AUTO-SALES-CRON] \u{1F557} Disparando corte autom\xE1tico de las 8:00 PM para ${todayDateStr}`);
+          await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
         }
       }
     } catch (e) {
@@ -4336,7 +5552,38 @@ function initAutoDailySalesCron() {
 }
 initAutoDailySalesCron();
 app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
+  const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
+  if (isMultiSeller && req.body?.sendToWebhook) {
+    res.json({
+      success: true,
+      message: `Env\xEDo iniciado para ${req.body.targetSellerEmails.length} vendedores con pausas anti-baneo de 1 minuto.`,
+      background: true
+    });
+    checkAndDispatchDailySales(req.body).catch((err) => {
+      console.error("[MANUAL-SALES-DISPATCH] Error en segundo plano:", err?.message || err);
+    });
+    return;
+  }
   const result = await checkAndDispatchDailySales(req.body);
+  if (result?.error) {
+    return res.status(500).json(result);
+  }
+  return res.json(result);
+}));
+app.post("/api/admin/check-weekly-sales", asyncHandler(async (req, res) => {
+  const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
+  if (isMultiSeller && req.body?.sendToWebhook) {
+    res.json({
+      success: true,
+      message: `Env\xEDo de cierre semanal iniciado para ${req.body.targetSellerEmails.length} vendedores con pausas anti-baneo de 1 minuto.`,
+      background: true
+    });
+    checkAndDispatchWeeklySales(req.body).catch((err) => {
+      console.error("[MANUAL-WEEKLY-SALES-DISPATCH] Error en segundo plano:", err?.message || err);
+    });
+    return;
+  }
+  const result = await checkAndDispatchWeeklySales(req.body);
   if (result?.error) {
     return res.status(500).json(result);
   }
@@ -4775,38 +6022,36 @@ app.get("/api/panic/status", asyncHandler(async (req, res) => {
   } catch (e) {
     localDbHealthy = false;
   }
-  if (neonPool) {
+  if (pgPool) {
     try {
-      const neonPromise = neonPool.query("SELECT 1;");
+      const pgPromise = pgPool.query("SELECT 1;");
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6e3));
-      await Promise.race([neonPromise, timeoutPromise]);
+      await Promise.race([pgPromise, timeoutPromise]);
       neonHealthy = true;
     } catch (e) {
       neonHealthy = false;
     }
   }
   res.json({
-    activeMode: currentMode,
+    activeMode: "local",
     localDbHealthy,
-    neonHealthy,
-    neonConfigured: Boolean(neonPool),
+    dbHealthy: neonHealthy,
+    healthy: neonHealthy,
+    configured: Boolean(pgPool),
     server: "PostgreSQL Local"
   });
 }));
 app.post("/api/panic/switch", asyncHandler(async (req, res) => {
   const { mode } = req.body;
-  if (mode === "local" || mode === "neon") {
-    await persistGlobalDbMode(mode);
-    console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
-    return res.json({ success: true, activeMode: mode });
-  }
-  res.status(400).json({ error: "Modo no v\xE1lido. Usa 'PostgreSQL Local' o 'neon'." });
+  await persistGlobalDbMode(mode || "local");
+  console.log(`[PANIC SWITCH] Base de datos local: LOCAL`);
+  return res.json({ success: true, activeMode: "local" });
 }));
 app.post("/api/panic/sync", asyncHandler(async (req, res) => {
-  if (!neonPool) {
-    return res.status(500).json({ error: "Neon no est\xE1 configurado" });
+  if (!pgPool) {
+    return res.status(500).json({ error: "Base de datos no configurada" });
   }
-  const client = await neonPool.connect();
+  const client = await pgPool.connect();
   let usersSynced = 0;
   let productsSynced = 0;
   try {
@@ -5016,7 +6261,7 @@ app.get("/api/warehouse-config", requireAuth, asyncHandler(async (req, res) => {
   }
   res.json({
     location: config.location,
-    isSilentModeActive: !!config.isSilentModeActive,
+    isSilentModeActive: req.user?.role === "seller" ? false : !!config.isSilentModeActive,
     logoUrl: config.logoUrl || "/agricovet.png",
     signatureUrl: config.signatureUrl || ""
   });
@@ -5409,7 +6654,8 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
   }
   let total = 0;
   const processedItems = [];
-  let requiresAuth = debtAlert === true;
+  const OMITIR_LIMITACION_DEUDA_SERVER = true;
+  let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && debtAlert === true;
   const id = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   let invoice = null;
   const releaseStockLocks = await acquireStockLocks(items.map((i) => i.productId));
@@ -5533,7 +6779,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
     let authFlag = requiresAuth ? "|||AUTH:pending" : "";
     let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (requiresAuth && debtAlert) {
+    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
       authFlag += "|||DEBT:true";
     }
     const isUserAdmin = req.user && req.user.role === "admin";
@@ -6026,7 +7272,9 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
       });
     }
   }
-  let updateData = { status };
+  let updateData = {};
+  if (status !== void 0) updateData.status = status;
+  if (sellerId !== void 0) updateData.sellerId = sellerId;
   if (status !== invoice.status) {
     if (status === "pending") {
       updateData.paidAmount = 0;
@@ -8461,14 +9709,6 @@ app.delete("/api/recibos-caja/:id", requireAuth, requireAdmin, asyncHandler(asyn
   console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
   res.json({ success: true, message: "Recibo eliminado correctamente" });
 }));
-app.get("/api/routes", asyncHandler(async (req, res) => {
-  try {
-    const { data, error } = await localDb.from("seller_routes").select("*").order("created_at", { ascending: false });
-    if (!error && data) return res.json(data);
-  } catch (e) {
-  }
-  res.json([]);
-}));
 app.get("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
   try {
     const { sellerId } = req.query;
@@ -8735,11 +9975,17 @@ if (isDirectRun) {
   app,
   fetchGlobalDbModeFromDb,
   getGlobalDbMode,
+  getGlobalMaintenanceMode,
+  isClientOfSeller,
+  isDbActive,
   isNeonActive,
   localDb,
   neonPool,
   persistGlobalDbMode,
+  pgPool,
+  queryDb,
   queryNeon,
-  setGlobalDbMode
+  setGlobalDbMode,
+  setGlobalMaintenanceMode
 });
 //# sourceMappingURL=server.cjs.map

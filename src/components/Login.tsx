@@ -11,17 +11,6 @@ interface LoginProps {
 
 export function Login({ onLogin }: LoginProps) {
   const [logoUrl, setLogoUrl] = useState(() => localStorage.getItem('app_logo_url') || '/agricovet.png');
-  const [isNeon, setIsNeon] = useState(() => api.isNeonMode());
-
-  React.useEffect(() => {
-    const handlePanicChange = () => setIsNeon(api.isNeonMode());
-    window.addEventListener('agricovet-panic-mode-changed', handlePanicChange);
-    window.addEventListener('storage', handlePanicChange);
-    return () => {
-      window.removeEventListener('agricovet-panic-mode-changed', handlePanicChange);
-      window.removeEventListener('storage', handlePanicChange);
-    };
-  }, []);
 
   React.useEffect(() => {
     api.getAppLogo().then(res => {

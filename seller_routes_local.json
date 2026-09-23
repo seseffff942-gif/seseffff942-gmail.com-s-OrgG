@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "id": "route_u_1780897737916_1790092440321",
+    "sellerId": "u_1780897737916",
+    "sellerName": "Erick Juárez",
+    "sellerEmail": "jerickottoniel@gmail.com",
+    "status": "completed",
+    "startedAt": "2026-09-22T15:54:00.321Z",
+    "finishedAt": "2026-09-22T23:12:55.719Z",
+    "startLatitude": 16.137683621343392,
+    "startLongitude": -90.32060734895106,
+    "endLatitude": 16.905973395347008,
+    "endLongitude": -89.92472724066108,
+    "totalStops": 0,
+    "totalDistanceKm": 0,
+    "totalDurationMins": 439,
+    "notes": "Jornada iniciada en terreno.",
+    "createdAt": "2026-09-22T15:54:00.327Z"
+  },
+  {
+    "id": "route_u_1780870803300_1790085463067",
+    "sellerId": "u_1780870803300",
+    "sellerName": "Herbert Argueta",
+    "sellerEmail": "gruasytransportesali@gmail.com",
+    "status": "active",
+    "startedAt": "2026-09-22T13:57:43.067Z",
+    "finishedAt": null,
+    "startLatitude": 14.765125,
+    "startLongitude": -90.373455,
+    "endLatitude": null,
+    "endLongitude": null,
+    "totalStops": 0,
+    "totalDistanceKm": 0,
+    "totalDurationMins": 0,
+    "notes": "Jornada iniciada en terreno.",
+    "createdAt": "2026-09-22T13:57:43.069Z"
+  },
+  {
+    "id": "route_u1b_1790006896080",
+    "sellerId": "u1b",
+    "sellerName": "Emanuel Lima",
+    "sellerEmail": "seseffff942@gmail.com",
+    "status": "active",
+    "startedAt": "2026-09-21T16:08:16.081Z",
+    "finishedAt": null,
+    "startLatitude": null,
+    "startLongitude": null,
+    "endLatitude": null,
+    "endLongitude": null,
+    "totalStops": 0,
+    "totalDistanceKm": 0,
+    "totalDurationMins": 0,
+    "notes": "Jornada iniciada automáticamente con primera visita.",
+    "createdAt": "2026-09-21T16:08:16.081Z"
+  }
+]

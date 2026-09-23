@@ -1010,6 +1010,43 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
 
     setCheckoutIsOwed(isOwed);
+
+    // REGLA ESTRICTA: Los vendedores NUNCA eligen vendedor; la venta siempre es suya obligatoriamente
+    if (user.role !== 'admin') {
+      const sellerIdToUse = user.email || user.id || '';
+      setSelectedSellerForNewClient(sellerIdToUse);
+      setShowNewClientSellerModal(false);
+      setIsSubmitting(true);
+
+      if (editingInvoiceId) {
+        try {
+          await proceedWithCheckout(isOwed, sellerIdToUse);
+        } catch (err: any) {
+          setIsSubmitting(false);
+          alert(`Error al actualizar la venta: ${err.message}`);
+        }
+        return;
+      }
+
+      try {
+        if (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && (debtType === 'none' || !isDebtAuthorized)) {
+           const type = await checkClientDebt(client, true);
+           if (type !== 'none' && !isDebtAuthorized) {
+             setShowDebtModal(true);
+             setIsSubmitting(false);
+             return;
+           }
+        }
+
+        await proceedWithCheckout(isOwed, sellerIdToUse);
+      } catch (err: any) {
+        setIsSubmitting(false);
+        alert(`Error comprobando deuda: ${err.message}`);
+      }
+      return;
+    }
+
+    // Únicamente Administradores pueden confirmar/reasignar vendedor de la venta
     let defaultSeller = user.email || '';
     if (editingInvoiceId && editInvoiceSellerId) {
       defaultSeller = editInvoiceSellerId;

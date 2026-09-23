@@ -27,7 +27,7 @@ export const PanicButton: React.FC<PanicButtonProps> = ({ variant = 'compact', o
       const data = await api.getDbStatus();
       if (data) {
         setStatus({
-          healthy: data.neonHealthy !== false,
+          healthy: data.healthy !== false,
           server: 'PostgreSQL Local',
           details: 'Base de datos operativa (agricovet_db)'
         });

@@ -892,7 +892,7 @@ export const api = {
     return { success: true, route: newRoute };
   },
 
-  finishRoute: async (routeId: string, data?: { endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
+  finishRoute: async (routeId: string, data?: { sellerId?: string; sellerName?: string; endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
     const nowIso = new Date().toISOString();
     try {
       const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/finish`, {
@@ -902,13 +902,42 @@ export const api = {
       });
       if (res.ok) {
         const resData = await safeJson(res);
-        if (resData?.route) return { success: true, route: resData.route };
+        if (resData?.route) {
+          // Update cache in localStorage
+          if (typeof localStorage !== 'undefined') {
+            try {
+              const cached = localStorage.getItem('cached_seller_routes');
+              if (cached) {
+                const list = JSON.parse(cached);
+                const updated = list.map((r: any) => 
+                  (r.id === routeId || (data?.sellerId && r.sellerId === data.sellerId) || (data?.sellerName && r.sellerName === data.sellerName))
+                    ? { ...r, ...resData.route, status: 'completed' }
+                    : r
+                );
+                localStorage.setItem('cached_seller_routes', JSON.stringify(updated));
+              }
+            } catch (e) {}
+          }
+          return { success: true, route: resData.route };
+        }
       }
     } catch (err) {
       console.warn('finishRoute API error:', err);
     }
 
-    return { success: true, route: { id: routeId, status: 'completed', finishedAt: nowIso } as any };
+    return { 
+      success: true, 
+      route: { 
+        id: routeId, 
+        sellerId: data?.sellerId || '',
+        sellerName: data?.sellerName || '',
+        status: 'completed', 
+        finishedAt: nowIso,
+        endLatitude: data?.endLatitude,
+        endLongitude: data?.endLongitude,
+        notes: data?.notes
+      } as any 
+    };
   },
 
   updateRouteLocation: async (routeId: string, latitude: number, longitude: number): Promise<{ success: boolean; message?: string }> => {
@@ -2402,11 +2431,11 @@ export const api = {
     } catch (e) {
       console.warn('Error al consultar estado de BD local:', e);
     }
-    return { activeMode: 'neon', server: 'PostgreSQL Local', healthy: true, neonHealthy: true, neonConfigured: true };
+    return { activeMode: 'local', server: 'PostgreSQL Local', healthy: true, dbHealthy: true };
   },
 
   switchDb: async (_mode: string) => {
-    return { success: true, activeMode: 'neon' };
+    return { success: true, activeMode: 'local' };
   },
 
   syncNeon: async () => {

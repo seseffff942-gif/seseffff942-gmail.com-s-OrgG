@@ -5,6 +5,7 @@ import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
 import { RegisterVisitModal } from '../components/RegisterVisitModal';
 import { VisitDetailModal } from '../components/VisitDetailModal';
+import { ClientSalesTrackingPage } from './ClientSalesTrackingPage';
 import { 
   MapPin, Navigation, Compass, Calendar, Clock, 
   Users, CheckCircle2, AlertTriangle, RefreshCw, 
@@ -12,7 +13,8 @@ import {
   DollarSign, ShoppingCart, UserPlus, Package, 
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
   Download, FileSpreadsheet, Check, ShieldAlert, ArrowDownRight, Tag, Share2,
-  Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon
+  Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
+  BarChart3
 } from 'lucide-react';
 import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,15 +23,17 @@ import * as XLSX from 'xlsx';
 interface ClientVisitsPageProps {
   user: User;
   isMobile?: boolean;
+  initialTab?: 'my_portfolio' | 'routes' | 'timeline' | 'sellers' | 'control';
 }
 
-export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
+export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPageProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [visits, setVisits] = useState<ClientVisit[]>([]);
   const [stats, setStats] = useState<VisitStats | null>(null);
   const [sellerRoutes, setSellerRoutes] = useState<SellerRoute[]>([]);
   const [activeRoute, setActiveRoute] = useState<SellerRoute | null>(null);
   const [teamUsers, setTeamUsers] = useState<User[]>([]);
+  const [salesTrackingClients, setSalesTrackingClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -37,7 +41,9 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [isStartingRoute, setIsStartingRoute] = useState(false);
   const [isFinishingRoute, setIsFinishingRoute] = useState(false);
   const [showFinishRouteModal, setShowFinishRouteModal] = useState(false);
+  const [routeToFinish, setRouteToFinish] = useState<SellerRoute | null>(null);
   const [finishNotes, setFinishNotes] = useState('');
+  const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; label?: string } | null>(null);
 
   // GPS State
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
@@ -52,7 +58,13 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   const [selectedVisitForDetail, setSelectedVisitForDetail] = useState<ClientVisit | null>(null);
 
   // Active View Tabs & Filters
-  const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'routes' | 'sellers'>('my_portfolio');
+  const [activeTab, setActiveTab] = useState<'my_portfolio' | 'timeline' | 'routes' | 'sellers' | 'control'>(initialTab || 'my_portfolio');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [selectedSellerFilter, setSelectedSellerFilter] = useState<string>(user.role === 'seller' ? user.email || user.id : 'all');
   const [selectedVisitTypeFilter, setSelectedVisitTypeFilter] = useState<string>('all');
   const [selectedDateRangeFilter, setSelectedDateRangeFilter] = useState<'all' | 'today' | '7days' | 'month' | 'last_month'>('all');
@@ -126,6 +138,14 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       setSellerRoutes(routesData || []);
       setActiveRoute(activeRouteData || null);
       setTeamUsers(usersData || []);
+
+      if (user.role === 'admin') {
+        api.getClientSalesTracking({ sellerId: 'all' })
+          .then(res => {
+            if (res?.clients) setSalesTrackingClients(res.clients);
+          })
+          .catch(() => {});
+      }
     } catch (e) {
       console.error('Error loading visits data:', e);
     } finally {
@@ -133,6 +153,16 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
       setRefreshing(false);
     }
   };
+
+  const clientSalesMap = useMemo(() => {
+    const map = new Map<string, any>();
+    salesTrackingClients.forEach(stc => {
+      if (stc.id) map.set(String(stc.id).toLowerCase().trim(), stc);
+      if (stc.clientCode) map.set(String(stc.clientCode).toLowerCase().trim(), stc);
+      if (stc.name) map.set(normalizeSearchText(stc.name), stc);
+    });
+    return map;
+  }, [salesTrackingClients]);
 
   useEffect(() => {
     loadData();
@@ -314,24 +344,113 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
   };
 
   const handleFinishRoute = async () => {
-    if (!activeRoute) return;
+    const target = routeToFinish || activeRoute;
+    if (!target) return;
     try {
       setIsFinishingRoute(true);
-      await api.finishRoute(activeRoute.id, {
-        endLatitude: currentLocation?.latitude,
-        endLongitude: currentLocation?.longitude,
+      const freshLoc = await getFreshCoordinates();
+      const endLat = freshLoc?.latitude ?? currentLocation?.latitude;
+      const endLng = freshLoc?.longitude ?? currentLocation?.longitude;
+      const nowIso = new Date().toISOString();
+
+      // Immediate optimistic update to prevent UI flicker
+      setSellerRoutes(prev => {
+        const targetId = String(target.id || '').trim();
+        const targetSeller = String(target.sellerId || target.sellerName || '').trim().toLowerCase();
+        let found = false;
+        const updated = prev.map(r => {
+          const rId = String(r.id || '').trim();
+          const rSeller = String(r.sellerId || r.sellerName || '').trim().toLowerCase();
+          if (rId === targetId || (r.status === 'active' && (rSeller === targetSeller || rId === targetId))) {
+            found = true;
+            return {
+              ...r,
+              status: 'completed' as const,
+              finishedAt: nowIso,
+              endLatitude: endLat,
+              endLongitude: endLng,
+              notes: finishNotes || r.notes
+            };
+          }
+          return r;
+        });
+        if (!found) {
+          updated.unshift({
+            id: target.id,
+            sellerId: target.sellerId,
+            sellerName: target.sellerName,
+            status: 'completed' as const,
+            startedAt: target.startedAt || nowIso,
+            finishedAt: nowIso,
+            startLatitude: target.startLatitude,
+            startLongitude: target.startLongitude,
+            endLatitude: endLat,
+            endLongitude: endLng,
+            totalDistanceKm: target.totalDistanceKm || 0,
+            notes: finishNotes || target.notes
+          });
+        }
+        return updated;
+      });
+
+      if (activeRoute?.id === target.id || (activeRoute && (activeRoute.sellerId === target.sellerId || activeRoute.sellerName === target.sellerName))) {
+        setActiveRoute(null);
+      }
+
+      await api.finishRoute(target.id, {
+        sellerId: target.sellerId,
+        sellerName: target.sellerName,
+        endLatitude: endLat,
+        endLongitude: endLng,
         notes: finishNotes || undefined
       });
+
       setShowFinishRouteModal(false);
       setFinishNotes('');
-      setActiveRoute(null);
+      setRouteToFinish(null);
       await loadData(true);
-      alert('🏁 Jornada finalizada con éxito y archivada en el historial de rutas.');
+      alert(`🏁 Jornada ${target.sellerName ? 'de ' + target.sellerName : ''} finalizada con éxito y archivada en el historial de rutas.`);
     } catch (e: any) {
       alert(e.message || 'Error al finalizar la jornada.');
     } finally {
       setIsFinishingRoute(false);
     }
+  };
+
+  const handleViewRouteClosure = (r: any) => {
+    const endLat = r.endLatitude !== undefined ? r.endLatitude : (r as any).end_latitude;
+    const endLng = r.endLongitude !== undefined ? r.endLongitude : (r as any).end_longitude;
+    if (!endLat || !endLng) {
+      alert('Esta ruta no tiene registradas coordenadas de cierre.');
+      return;
+    }
+    setRouteSellerId(r.sellerId);
+    setRouteDate(r.date || (r.startedAt ? r.startedAt.split('T')[0] : 'today'));
+    setIsRouteTraceActive(true);
+    setActiveTab('routes');
+    setFocusLocation({ latitude: Number(endLat), longitude: Number(endLng), label: `Cierre: ${r.sellerName}` });
+    setTimeout(() => {
+      const mapEl = document.getElementById('client-visits-map-section');
+      if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleViewRouteStart = (r: any) => {
+    const startLat = r.startLatitude !== undefined ? r.startLatitude : (r as any).start_latitude;
+    const startLng = r.startLongitude !== undefined ? r.startLongitude : (r as any).start_longitude;
+    if (!startLat || !startLng) {
+      alert('Esta ruta no tiene registradas coordenadas de inicio.');
+      return;
+    }
+    setRouteSellerId(r.sellerId);
+    setRouteDate(r.date || (r.startedAt ? r.startedAt.split('T')[0] : 'today'));
+    setIsRouteTraceActive(true);
+    setActiveTab('routes');
+    setFocusLocation({ latitude: Number(startLat), longitude: Number(startLng), label: `Inicio: ${r.sellerName}` });
+    setTimeout(() => {
+      const mapEl = document.getElementById('client-visits-map-section');
+      if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   // Strict Multi-Role Isolation: Sellers ONLY see their own visits/checkpoints/routes
@@ -582,53 +701,76 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
 
   // Distinct seller routes for admin route dashboard & seller history
   const distinctSellerRoutes = useMemo(() => {
-    if (sellerRoutes.length > 0) {
-      return sellerRoutes.map(r => {
-        const datePart = (r.startedAt || r.createdAt || '').split('T')[0];
-        const stops = scopedVisits.filter(v => 
-          v.routeId === r.id || 
-          (v.sellerId === r.sellerId && (v.createdAt || '').startsWith(datePart))
-        ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    // 1. Process all explicit routes from database and state
+    const mappedExplicit = sellerRoutes.map(r => {
+      const datePart = (r.startedAt || r.createdAt || '').split('T')[0];
+      const stops = scopedVisits.filter(v => 
+        v.routeId === r.id || 
+        (v.sellerId === r.sellerId && (v.createdAt || '').startsWith(datePart))
+      ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-        return {
-          id: r.id,
-          key: r.id,
-          sellerId: r.sellerId,
-          sellerName: r.sellerName,
-          date: datePart,
-          status: r.status,
-          isToday: isTodayGuatemala(datePart),
-          startedAt: r.startedAt,
-          finishedAt: r.finishedAt,
-          startLatitude: r.startLatitude,
-          startLongitude: r.startLongitude,
-          totalDistanceKm: r.totalDistanceKm || 0,
-          totalDurationMins: r.totalDurationMins || 0,
-          notes: r.notes,
-          visitsCount: stops.length,
-          stops
-        };
-      }).sort((a, b) => {
-        if (a.status === 'active' && b.status !== 'active') return -1;
-        if (a.status !== 'active' && b.status === 'active') return 1;
-        return new Date(b.startedAt || b.date).getTime() - new Date(a.startedAt || a.date).getTime();
-      });
-    }
+      return {
+        id: r.id,
+        key: r.id,
+        sellerId: r.sellerId,
+        sellerName: r.sellerName,
+        date: datePart,
+        status: r.status,
+        isToday: isTodayGuatemala(datePart),
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        startLatitude: r.startLatitude !== undefined && r.startLatitude !== null ? r.startLatitude : (r as any).start_latitude,
+        startLongitude: r.startLongitude !== undefined && r.startLongitude !== null ? r.startLongitude : (r as any).start_longitude,
+        endLatitude: r.endLatitude !== undefined && r.endLatitude !== null ? r.endLatitude : (r as any).end_latitude,
+        endLongitude: r.endLongitude !== undefined && r.endLongitude !== null ? r.endLongitude : (r as any).end_longitude,
+        totalDistanceKm: r.totalDistanceKm || 0,
+        totalDurationMins: r.totalDurationMins || 0,
+        notes: r.notes,
+        visitsCount: stops.length,
+        stops
+      };
+    });
 
-    const routeGroups = new Map<string, any>();
+    // Set of covered seller sessions by ID and Name to avoid resurrecting completed routes as active
+    const coveredSessions = new Set<string>();
+    mappedExplicit.forEach(r => {
+      if (r.sellerId && r.date) coveredSessions.add(`${String(r.sellerId).trim().toLowerCase()}_${r.date}`);
+      if (r.sellerName && r.date) coveredSessions.add(`${String(r.sellerName).trim().toLowerCase()}_${r.date}`);
+      // Also register today's date if route is today
+      if (r.isToday) {
+        if (r.sellerId) coveredSessions.add(`${String(r.sellerId).trim().toLowerCase()}_today`);
+        if (r.sellerName) coveredSessions.add(`${String(r.sellerName).trim().toLowerCase()}_today`);
+      }
+    });
+
+    // 2. Only synthesize fallback routes for visits that do NOT already belong to an explicit session
+    const fallbackGroups = new Map<string, any>();
 
     scopedVisits.forEach(v => {
       if (!v.createdAt || !v.latitude || !v.longitude) return;
-      const sId = v.sellerId || v.sellerEmail || v.sellerName || 'vendedor';
+      const sId = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
       const sName = v.sellerName || 'Asesor';
       const datePart = v.createdAt.split('T')[0];
       const key = `${sId}_${datePart}`;
+      const nameKey = `${String(sName).trim().toLowerCase()}_${datePart}`;
+      const todayKey = isTodayGuatemala(datePart) ? `${sId}_today` : '';
+      const todayNameKey = isTodayGuatemala(datePart) ? `${String(sName).trim().toLowerCase()}_today` : '';
 
-      if (!routeGroups.has(key)) {
-        routeGroups.set(key, {
+      // If an explicit route session already exists for this seller/date (whether completed or active), NEVER synthesize a duplicate active route
+      if (
+        coveredSessions.has(key) || 
+        coveredSessions.has(nameKey) || 
+        (todayKey && coveredSessions.has(todayKey)) || 
+        (todayNameKey && coveredSessions.has(todayNameKey))
+      ) {
+        return;
+      }
+
+      if (!fallbackGroups.has(key)) {
+        fallbackGroups.set(key, {
           id: key,
           key,
-          sellerId: sId,
+          sellerId: v.sellerId || sId,
           sellerName: sName,
           date: datePart,
           status: isTodayGuatemala(datePart) ? 'active' : 'completed',
@@ -641,22 +783,37 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         });
       }
 
-      const group = routeGroups.get(key)!;
+      const group = fallbackGroups.get(key)!;
       group.visitsCount++;
       group.stops.push(v);
     });
 
-    return Array.from(routeGroups.values())
-      .map(g => ({
+    const mappedFallback = Array.from(fallbackGroups.values()).map(g => {
+      const sortedStops = g.stops.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const lastStop = sortedStops[sortedStops.length - 1];
+      return {
         ...g,
-        stops: g.stops.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      }))
-      .sort((a, b) => {
-        if (a.status === 'active' && b.status !== 'active') return -1;
-        if (a.status !== 'active' && b.status === 'active') return 1;
-        return b.date.localeCompare(a.date);
-      });
+        endLatitude: g.endLatitude ?? lastStop?.latitude,
+        endLongitude: g.endLongitude ?? lastStop?.longitude,
+        finishedAt: g.finishedAt ?? (g.status === 'completed' ? lastStop?.createdAt : null),
+        stops: sortedStops
+      };
+    });
+
+    return [...mappedExplicit, ...mappedFallback].sort((a, b) => {
+      if (a.status === 'active' && b.status !== 'active') return -1;
+      if (a.status !== 'active' && b.status === 'active') return 1;
+      return new Date(b.startedAt || b.date).getTime() - new Date(a.startedAt || a.date).getTime();
+    });
   }, [sellerRoutes, scopedVisits]);
+
+  const activeRoutes = useMemo(() => {
+    return distinctSellerRoutes.filter(r => r.status === 'active');
+  }, [distinctSellerRoutes]);
+
+  const historicalRoutes = useMemo(() => {
+    return distinctSellerRoutes.filter(r => r.status === 'completed');
+  }, [distinctSellerRoutes]);
 
   // Helper to select and inspect a specific route
   const handleSelectSpecificRoute = (sellerId: string, date: string) => {
@@ -1014,82 +1171,132 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
         </button>
       </div>
 
-      {/* ACTIVE ROUTE / JORNADA STATUS BANNER */}
-      {user.role === 'seller' && (
-        activeRoute && activeRoute.status === 'active' ? (
-          <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                <Car size={20} className="text-white animate-pulse" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
-                    🟢 En Ruta Activa
-                  </span>
-                  <span className="text-xs text-emerald-100 font-medium">
-                    Iniciada a las {activeRoute.startedAt ? new Date(activeRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
-                  </span>
+      {activeTab !== 'control' && (
+        <>
+          {/* ACTIVE ROUTE / JORNADA STATUS BANNER */}
+          {activeRoute && activeRoute.status === 'active' ? (
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <Car size={20} className="text-white animate-pulse" />
                 </div>
-                <h4 className="text-sm font-bold text-white mt-0.5">
-                  {scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} clientes visitados hoy en esta ruta
-                </h4>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
+                      🟢 En Ruta Activa
+                    </span>
+                    <span className="text-xs text-emerald-100 font-medium">
+                      Iniciada a las {activeRoute.startedAt ? new Date(activeRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white mt-0.5">
+                    {scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} clientes visitados hoy en esta ruta
+                  </h4>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('routes');
+                    setIsRouteTraceActive(true);
+                    const mapEl = document.getElementById('client-visits-map-section');
+                    if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-3.5 py-2 bg-white/15 hover:bg-white/25 rounded-xl text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Route size={14} />
+                  <span>Ver Recorrido</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteToFinish(activeRoute);
+                    setShowFinishRouteModal(true);
+                  }}
+                  className="px-4 py-2 bg-white text-emerald-900 hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                >
+                  <Flag size={14} className="text-emerald-700" />
+                  <span>🏁 Finalizar Ruta</span>
+                </button>
               </div>
             </div>
+          ) : user.role === 'seller' ? (
+            <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                  <Car size={18} className="text-slate-400" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    ⚪ Sin Jornada en Curso
+                  </span>
+                  <p className="text-xs text-slate-300 font-medium">
+                    Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
+                  </p>
+                </div>
+              </div>
 
-            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setActiveTab('routes');
-                  setIsRouteTraceActive(true);
-                  const mapEl = document.getElementById('client-visits-map-section');
-                  if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="px-3.5 py-2 bg-white/15 hover:bg-white/25 rounded-xl text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+                onClick={handleStartRoute}
+                disabled={isStartingRoute}
+                className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0"
               >
-                <Route size={14} />
-                <span>Ver Mi Recorrido</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowFinishRouteModal(true)}
-                className="px-4 py-2 bg-white text-emerald-900 hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
-              >
-                <Flag size={14} className="text-emerald-700" />
-                <span>🏁 Finalizar Ruta</span>
+                <Car size={14} />
+                <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
               </button>
             </div>
-          </div>
-        ) : (
-          <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-                <Car size={18} className="text-slate-400" />
+          ) : (
+            <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                  <Route size={18} className="text-teal-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                      🛡️ Panel de Rutas (Administración)
+                    </span>
+                    {activeRoutes.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {activeRoutes.length} {activeRoutes.length === 1 ? 'ruta activa en campo' : 'rutas activas en campo'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 font-medium">
+                    Supervisa dónde inician y cierran ruta tus vendedores, o inicia tu propia jornada si sales a visitas.
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  ⚪ Sin Jornada en Curso
-                </span>
-                <p className="text-xs text-slate-300 font-medium">
-                  Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
-                </p>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('routes');
+                    const el = document.getElementById('routes-tab-control');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                >
+                  <Navigation size={13} className="text-teal-400" />
+                  <span>Ver Rutas de Vendedores</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartRoute}
+                  disabled={isStartingRoute}
+                  className="px-3.5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                >
+                  <Car size={13} />
+                  <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta'}</span>
+                </button>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleStartRoute}
-              disabled={isStartingRoute}
-              className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0"
-            >
-              <Car size={14} />
-              <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
-            </button>
-          </div>
-        )
-      )}
+          )}
 
       {/* METRICS ROW */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">
@@ -1281,6 +1488,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           onClearClientLocation={handleClearClientLocation}
           sellerRoutes={sellerRoutes}
           activeRoute={activeRoute}
+          focusLocation={focusLocation}
         />
 
         {/* Route Metrics Summary Strip */}
@@ -1342,6 +1550,8 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           </motion.div>
         )}
       </div>
+    </>
+  )}
 
       {/* CONTROL & SUPERVISION TABS */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
@@ -1398,82 +1608,97 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                 <span>📸 Auditoría de Fotos & Ranking</span>
               </button>
             )}
+            {user.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('control')}
+                className={cn(
+                  "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5",
+                  activeTab === 'control' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                <BarChart3 size={14} className="text-teal-600" />
+                <span>📊 Control Comercial & Lealtad</span>
+              </button>
+            )}
           </div>
 
 
           {/* Search and Filters Contextual to Active Tab */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-              <input
-                type="text"
-                placeholder="Buscar cliente, código o dirección..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400 w-48 sm:w-64"
-              />
-            </div>
-
-            {/* Scope Badge for Sellers */}
-            {activeTab === 'my_portfolio' && user.role === 'seller' && (
-              <div className="flex items-center bg-teal-50 border border-teal-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-teal-800 shadow-2xs">
-                <span>👤 Mi Cartera Asignada</span>
+          {activeTab !== 'control' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                <input
+                  type="text"
+                  placeholder="Buscar cliente, código o dirección..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400 w-48 sm:w-64"
+                />
               </div>
-            )}
 
-            {/* Date Range Filter */}
-            {activeTab === 'timeline' && (
-              <select
-                value={selectedDateRangeFilter}
-                onChange={(e) => setSelectedDateRangeFilter(e.target.value as any)}
-                className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
-              >
-                <option value="all">📅 Todas las Fechas</option>
-                <option value="today">Solo Hoy</option>
-                <option value="7days">Últimos 7 Días</option>
-                <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
-                <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
-              </select>
-            )}
+              {/* Scope Badge for Sellers */}
+              {activeTab === 'my_portfolio' && user.role === 'seller' && (
+                <div className="flex items-center bg-teal-50 border border-teal-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-teal-800 shadow-2xs">
+                  <span>👤 Mi Cartera Asignada</span>
+                </div>
+              )}
 
-            {user.role === 'admin' && availableSellers.length > 0 && activeTab !== 'routes' && (
-              <select
-                value={selectedSellerFilter}
-                onChange={(e) => setSelectedSellerFilter(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
-              >
-                <option value="all">👤 Todos los Asesores</option>
-                {availableSellers.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            )}
-
-            {activeTab === 'my_portfolio' && (
-              <>
+              {/* Date Range Filter */}
+              {activeTab === 'timeline' && (
                 <select
-                  value={locationFilter}
-                  onChange={(e) => setLocationFilter(e.target.value as any)}
+                  value={selectedDateRangeFilter}
+                  onChange={(e) => setSelectedDateRangeFilter(e.target.value as any)}
                   className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
                 >
-                  <option value="all">📍 Estado GPS: Todos</option>
-                  <option value="with_location">📍 Con GPS Fijado</option>
-                  <option value="no_gps">⚪ Sin GPS</option>
+                  <option value="all">📅 Todas las Fechas</option>
+                  <option value="today">Solo Hoy</option>
+                  <option value="7days">Últimos 7 Días</option>
+                  <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
+                  <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
                 </select>
+              )}
 
+              {user.role === 'admin' && availableSellers.length > 0 && activeTab !== 'routes' && (
                 <select
-                  value={frequencyFilter}
-                  onChange={(e) => setFrequencyFilter(e.target.value as any)}
+                  value={selectedSellerFilter}
+                  onChange={(e) => setSelectedSellerFilter(e.target.value)}
                   className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
                 >
-                  <option value="all">Frecuencia: Todas</option>
-                  <option value="urgent">🔴 Sin visita reciente (&gt;15 días)</option>
-                  <option value="regular">🟢 Al día (&lt;7 días)</option>
-                  <option value="never">⚪ Sin visitas</option>
+                  <option value="all">👤 Todos los Asesores</option>
+                  {availableSellers.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
                 </select>
-              </>
-            )}
-          </div>
+              )}
+
+              {activeTab === 'my_portfolio' && (
+                <>
+                  <select
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value as any)}
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                  >
+                    <option value="all">📍 Estado GPS: Todos</option>
+                    <option value="with_location">📍 Con GPS Fijado</option>
+                    <option value="no_gps">⚪ Sin GPS</option>
+                  </select>
+
+                  <select
+                    value={frequencyFilter}
+                    onChange={(e) => setFrequencyFilter(e.target.value as any)}
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                  >
+                    <option value="all">Frecuencia: Todas</option>
+                    <option value="urgent">🔴 Sin visita reciente (&gt;15 días)</option>
+                    <option value="regular">🟢 Al día (&lt;7 días)</option>
+                    <option value="never">⚪ Sin visitas</option>
+                  </select>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* TAB 1: MY PORTFOLIO WITH LOCATION & TIME SINCE LAST VISIT */}
@@ -1566,6 +1791,51 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                           </span>
                         )}
                       </div>
+
+                      {/* Commercial Analytics Strip (Lealtad, Promedio de Compra, Frecuencia) */}
+                      {(() => {
+                        const sInfo = clientSalesMap.get(String(client.id).toLowerCase().trim()) 
+                          || (client.clientCode ? clientSalesMap.get(String(client.clientCode).toLowerCase().trim()) : null) 
+                          || clientSalesMap.get(normalizeSearchText(client.name));
+                        if (!sInfo) return null;
+
+                        return (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 mt-1 border-t border-slate-100 text-[11px]">
+                            {sInfo.totalSales > 0 ? (
+                              <>
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full font-bold text-[10px] flex items-center gap-1 border",
+                                  sInfo.daysSinceLastPurchase <= 15 ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                                  sInfo.daysSinceLastPurchase <= 45 ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                  "bg-rose-50 text-rose-700 border-rose-200"
+                                )}>
+                                  {sInfo.daysSinceLastPurchase <= 15 ? '🟢 Compra Frecuente' : sInfo.daysSinceLastPurchase <= 45 ? '🟡 Compra Moderada' : '🔴 Cliente En Riesgo'}
+                                </span>
+
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px]" title="Ticket promedio de compra">
+                                  🛒 Promedio: <strong>Q{sInfo.totalSales > 0 ? Math.round(sInfo.totalRevenue / sInfo.totalSales).toLocaleString('es-GT') : 0}</strong>
+                                </span>
+
+                                {sInfo.avgFrequencyDays > 0 && (
+                                  <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-semibold text-[10px]" title="Frecuencia media de compra">
+                                    ⏱️ Cada <strong>{sInfo.avgFrequencyDays} días</strong>
+                                  </span>
+                                )}
+
+                                <span className="text-slate-500 text-[10px]">
+                                  Última compra: <strong className={sInfo.daysSinceLastPurchase > 45 ? "text-rose-600 font-bold" : "text-slate-700 font-medium"}>
+                                    {sInfo.daysSinceLastPurchase === 0 ? 'Hoy' : `hace ${sInfo.daysSinceLastPurchase}d`}
+                                  </strong> ({sInfo.totalSales} {sInfo.totalSales === 1 ? 'pedido' : 'pedidos'})
+                                </span>
+                              </>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+                                ⚪ Sin historial de facturas
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Action Buttons */}
@@ -1669,9 +1939,6 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
           <div className="p-4 md:p-6 space-y-6">
             {/* 1. SECCIÓN: JORNADA EN CURSO / RUTA ACTIVA */}
             {(() => {
-              const activeRoutes = distinctSellerRoutes.filter(r => r.status === 'active');
-              const historicalRoutes = distinctSellerRoutes.filter(r => r.status !== 'active');
-
               return (
                 <>
                   <div className="space-y-3">
@@ -1755,16 +2022,18 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                                   <span>Trazar en Mapa</span>
                                 </button>
 
-                                {user.role === 'seller' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowFinishRouteModal(true)}
-                                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-emerald-950 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
-                                  >
-                                    <Flag size={13} className="text-emerald-600" />
-                                    <span>Finalizar</span>
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRouteToFinish(r);
+                                    setShowFinishRouteModal(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-emerald-950 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                                  title="Cerrar y archivar esta jornada activa"
+                                >
+                                  <Flag size={13} className="text-emerald-600" />
+                                  <span>Finalizar</span>
+                                </button>
                               </div>
                             </div>
                           );
@@ -1773,16 +2042,14 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                     ) : (
                       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <span>No hay ninguna jornada activa en este momento. Puedes iniciar tu ruta para comenzar el día.</span>
-                        {user.role === 'seller' && (
-                          <button
-                            type="button"
-                            onClick={handleStartRoute}
-                            disabled={isStartingRoute}
-                            className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold transition-all cursor-pointer shrink-0"
-                          >
-                            ▶️ Iniciar Ruta de Hoy
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={handleStartRoute}
+                          disabled={isStartingRoute}
+                          className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold transition-all cursor-pointer shrink-0"
+                        >
+                          ▶️ Iniciar Ruta de Hoy
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1795,7 +2062,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                         <span>Historial de Rutas Finalizadas ({historicalRoutes.length}):</span>
                       </span>
                       <span className="text-[11px] font-semibold text-slate-500">
-                        Rutas archivadas con distancias y tiempos consolidados
+                        Rutas archivadas con puntos exactos de inicio y cierre
                       </span>
                     </div>
 
@@ -1803,16 +2070,17 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {historicalRoutes.map(r => {
                           const isSelected = (routeSellerId === r.sellerId || routeSellerId === 'all') && routeDate === r.date && isRouteTraceActive;
+                          const hasClosureGps = Boolean(r.endLatitude && r.endLongitude);
+                          const hasStartGps = Boolean(r.startLatitude && r.startLongitude);
+
                           return (
-                            <button
+                            <div
                               key={r.key}
-                              type="button"
-                              onClick={() => handleSelectSpecificRoute(r.sellerId, r.date)}
                               className={cn(
-                                "p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-2.5 shadow-2xs group active:scale-98",
+                                "p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group",
                                 isSelected 
                                   ? "bg-teal-50/90 border-teal-500 ring-2 ring-teal-500/20 shadow-sm" 
-                                  : "bg-white hover:bg-slate-50 border-slate-200/80 hover:border-slate-300"
+                                  : "bg-white hover:bg-slate-50/80 border-slate-200/80 hover:border-slate-300"
                               )}
                             >
                               <div className="flex items-start justify-between gap-1.5">
@@ -1825,7 +2093,7 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                                   </span>
                                 </div>
                                 <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                                  Cerrada
+                                  🏁 Cerrada
                                 </span>
                               </div>
 
@@ -1840,15 +2108,72 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
                                 </div>
                               </div>
 
-                              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {r.totalDurationMins ? `⏱️ ~${Math.floor(r.totalDurationMins / 60)}h ${r.totalDurationMins % 60}m` : 'Ruta archivada'}
-                                </span>
-                                <span className="text-[10px] font-bold text-teal-600 group-hover:underline flex items-center gap-0.5">
-                                  Ver Trazado ➔
-                                </span>
+                              {/* Puntos de GPS: Inicio y Cierre */}
+                              <div className="space-y-1.5 text-[10px] bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs">
+                                <div className="flex items-center justify-between text-emerald-800">
+                                  <span className="font-black flex items-center gap-1">
+                                    🟢 Inicio:
+                                  </span>
+                                  <span className="font-mono text-[9.5px] text-slate-600">
+                                    {hasStartGps ? `${Number(r.startLatitude).toFixed(4)}, ${Number(r.startLongitude).toFixed(4)}` : 'Sin GPS'}
+                                    {r.startedAt && ` • ${new Date(r.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-slate-900">
+                                  <span className="font-black flex items-center gap-1">
+                                    🏁 Cierre:
+                                  </span>
+                                  <span className="font-mono text-[9.5px] text-slate-600">
+                                    {hasClosureGps ? `${Number(r.endLatitude).toFixed(4)}, ${Number(r.endLongitude).toFixed(4)}` : 'Última visita'}
+                                    {r.finishedAt && ` • ${new Date(r.finishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                  </span>
+                                </div>
+
+                                {r.notes && (
+                                  <div className="text-slate-600 text-[9.5px] italic pt-1 border-t border-slate-100">
+                                    📝 "{r.notes}"
+                                  </div>
+                                )}
                               </div>
-                            </button>
+
+                              <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100">
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {r.totalDurationMins ? `⏱️ ~${Math.floor(r.totalDurationMins / 60)}h ${r.totalDurationMins % 60}m` : 'Archivada'}
+                                </span>
+
+                                <div className="flex items-center gap-1">
+                                  {hasClosureGps && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleViewRouteClosure(r)}
+                                      className="px-2 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-[10px] font-black transition-all cursor-pointer shadow-2xs flex items-center gap-1 active:scale-95"
+                                      title="Centrar mapa en el punto exacto donde el vendedor finalizó su jornada"
+                                    >
+                                      <span>🏁 Ver Cierre</span>
+                                    </button>
+                                  )}
+                                  {hasStartGps && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleViewRouteStart(r)}
+                                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-bold transition-all cursor-pointer active:scale-95"
+                                      title="Centrar mapa en el punto de inicio de la ruta"
+                                    >
+                                      <span>🟢 Inicio</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectSpecificRoute(r.sellerId, r.date)}
+                                    className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg text-[10px] font-bold transition-all cursor-pointer active:scale-95"
+                                    title="Trazar ruta completa con paradas en el mapa"
+                                  >
+                                    <span>Trazar ➔</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
@@ -2281,6 +2606,20 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             </div>
           </div>
         )}
+
+        {/* TAB 5: CONTROL COMERCIAL, LEALTAD & SEGUIMIENTO DE CLIENTES */}
+        {activeTab === 'control' && user.role === 'admin' && (
+          <div className="p-2 sm:p-4">
+            <ClientSalesTrackingPage
+              user={user}
+              isMobile={isMobile}
+              embedded={true}
+              onCoordinatesUpdated={() => {
+                loadData(true);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -2331,27 +2670,48 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
               <Flag size={24} />
             </div>
 
-            <div>
-              <h3 className="text-lg font-black text-slate-900">¿Finalizar Jornada de Ruta?</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Al finalizar, tu ruta actual se cerrará con las paradas registradas y pasará automáticamente al <strong>Historial de Rutas</strong>.
-              </p>
-            </div>
+            {(() => {
+              const targetToClose = routeToFinish || activeRoute;
+              const targetSeller = targetToClose?.sellerName || user.name || 'Asesor';
+              const targetStops = targetToClose 
+                ? scopedVisits.filter(v => v.routeId === targetToClose.id || (v.sellerId === targetToClose.sellerId && isTodayGuatemala(v.createdAt))).length
+                : scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length;
+              return (
+                <>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">¿Finalizar Jornada de Ruta?</h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Al finalizar, la jornada de <strong>{targetSeller}</strong> se cerrará con las paradas registradas y su ubicación GPS de cierre pasará automáticamente al <strong>Historial de Rutas</strong>.
+                    </p>
+                  </div>
 
-            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">Clientes visitados hoy:</span>
-                <span className="font-bold text-slate-800">{scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} paradas</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">Hora de inicio:</span>
-                <span className="font-mono text-slate-800">{activeRoute?.startedAt ? new Date(activeRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">Hora de cierre:</span>
-                <span className="font-mono text-emerald-700 font-bold">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
-            </div>
+                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Asesor:</span>
+                      <span className="font-bold text-slate-900">👤 {targetSeller}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Clientes visitados hoy:</span>
+                      <span className="font-bold text-slate-800">{targetStops} paradas</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Hora de inicio:</span>
+                      <span className="font-mono text-slate-800">{targetToClose?.startedAt ? new Date(targetToClose.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Hora de cierre:</span>
+                      <span className="font-mono text-emerald-700 font-bold">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200/60 pt-1.5">
+                      <span className="text-slate-500 font-medium">GPS de Cierre:</span>
+                      <span className="font-mono text-slate-700 text-[11px]">
+                        {currentLocation ? `${currentLocation.latitude.toFixed(5)}, ${currentLocation.longitude.toFixed(5)}` : 'Se registrará ubicación actual'}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Notas u observaciones de cierre (opcional):</label>
@@ -2367,7 +2727,10 @@ export function ClientVisitsPage({ user, isMobile }: ClientVisitsPageProps) {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setShowFinishRouteModal(false)}
+                onClick={() => {
+                  setShowFinishRouteModal(false);
+                  setRouteToFinish(null);
+                }}
                 disabled={isFinishingRoute}
                 className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
               >

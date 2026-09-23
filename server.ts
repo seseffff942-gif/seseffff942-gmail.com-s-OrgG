@@ -44,104 +44,77 @@ import pg from 'pg';
 import { createLocalDb } from './localDb';
 
 // Configuración de Base de Datos Local (PostgreSQL)
-const neonDbUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || 'postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db';
-const isRemoteCloudPg = neonDbUrl.includes('neon.tech') || (neonDbUrl.includes('sslmode=require') && !neonDbUrl.includes('172.') && !neonDbUrl.includes('185.166.39.49'));
-export const neonPool = new pg.Pool({
-  connectionString: neonDbUrl,
-  ssl: isRemoteCloudPg ? { rejectUnauthorized: false } : false,
+const pgDbUrl = process.env.DATABASE_URL || 'postgresql://postgres:evolution_pass@172.17.0.1:5432/agricovet_db';
+const isSslRequired = pgDbUrl.includes('sslmode=require') && !pgDbUrl.includes('172.') && !pgDbUrl.includes('185.166.39.49') && !pgDbUrl.includes('localhost');
+export const pgPool = new pg.Pool({
+  connectionString: pgDbUrl,
+  ssl: isSslRequired ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
 });
 
-console.log(`[DB] ✅ Conectado a PostgreSQL: ${neonDbUrl}`);
+// Alias para retrocompatibilidad
+export const neonPool = pgPool;
+
+console.log(`[DB] ✅ Conectado a PostgreSQL Local: ${pgDbUrl}`);
 
 export const localDb = createLocalDb({
-  pool: neonPool,
+  pool: pgPool,
   storageDir: path.join(process.cwd(), 'storage')
 });
-// ESTADO GLOBAL DE MODO DE BASE DE DATOS (POR DEFECTO LOCAL)
+
+// ESTADO GLOBAL DE BASE DE DATOS (100% POSTGRESQL LOCAL)
 const PANIC_STATE_FILE = path.join(process.cwd(), "panic_state.json");
-let lastDbModeCached: { mode: 'local' | 'neon'; timestamp: number } = {
-  mode: 'neon',
+let lastDbModeCached: { mode: 'local'; timestamp: number } = {
+  mode: 'local',
   timestamp: 0
 };
 
-export let activeDatabaseMode: 'local' | 'neon' = 'neon';
+export let activeDatabaseMode: 'local' = 'local';
 
-export async function fetchGlobalDbModeFromDb(): Promise<'local' | 'neon'> {
-  if (Date.now() - lastDbModeCached.timestamp < 15000) {
-    return lastDbModeCached.mode;
-  }
-  if (neonPool) {
-    try {
-      const res = await neonPool.query("SELECT value FROM public.system_config WHERE key = 'active_db_mode' LIMIT 1;");
-      if (res.rows && res.rows.length > 0) {
-        const val = res.rows[0].value;
-        if (val === 'neon' || val === "local") {
-          activeDatabaseMode = val;
-          lastDbModeCached = { mode: val, timestamp: Date.now() };
-          return val;
-        }
-      }
-    } catch (e) { }
-  }
-  try {
-    if (fs.existsSync(PANIC_STATE_FILE)) {
-      const content = fs.readFileSync(PANIC_STATE_FILE, "utf-8");
-      const parsed = JSON.parse(content);
-      if (parsed.activeMode === "neon" || parsed.activeMode === "local") {
-        activeDatabaseMode = parsed.activeMode;
-        lastDbModeCached = { mode: parsed.activeMode, timestamp: Date.now() };
-        return parsed.activeMode;
-      }
-    }
-  } catch (e) { }
-  return activeDatabaseMode;
+export async function fetchGlobalDbModeFromDb(): Promise<'local'> {
+  return 'local';
 }
 
-export function getGlobalDbMode(): 'local' | 'neon' {
-  return activeDatabaseMode;
+export function getGlobalDbMode(): 'local' {
+  return 'local';
 }
 
-export async function persistGlobalDbMode(mode: 'local' | 'neon') {
-  activeDatabaseMode = mode;
-  lastDbModeCached = { mode, timestamp: Date.now() };
-  if (neonPool) {
+export async function persistGlobalDbMode(mode: 'local' | string) {
+  activeDatabaseMode = 'local';
+  lastDbModeCached = { mode: 'local', timestamp: Date.now() };
+  if (pgPool) {
     try {
-      await neonPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
-      await neonPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();", [mode]);
-      console.log(`[PANIC SWITCH CLOUD PERSISTED] Modo guardado globalmente en Neon DB: ${mode.toUpperCase()}`);
+      await pgPool.query("CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());");
+      await pgPool.query("INSERT INTO public.system_config (key, value, updated_at) VALUES ('active_db_mode', 'local', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();");
+      console.log(`[DB STATUS] Modo guardado en PostgreSQL: LOCAL`);
     } catch (e: any) {
-      console.error("Error guardando active_db_mode en Neon:", e.message);
+      console.error("Error guardando active_db_mode en PostgreSQL:", e.message);
     }
   }
-  try {
-    fs.writeFileSync(PANIC_STATE_FILE, JSON.stringify({
-      activeMode: mode,
-      updatedAt: new Date().toISOString()
-    }, null, 2), "utf-8");
-  } catch (e) { }
 }
 
-export function setGlobalDbMode(mode: 'local' | 'neon') {
+export function setGlobalDbMode(mode: 'local' | string) {
   persistGlobalDbMode(mode).catch(() => { });
 }
 
-export function isNeonActive(): boolean {
-  return activeDatabaseMode === 'neon';
+export function isDbActive(): boolean {
+  return Boolean(pgPool);
 }
+export const isNeonActive = isDbActive;
 
-export async function queryNeon(sql: string, params: any[] = []): Promise<any[]> {
-  if (!neonPool) return [];
+export async function queryDb(sql: string, params: any[] = []): Promise<any[]> {
+  if (!pgPool) return [];
   try {
-    const res = await neonPool.query(sql, params);
+    const res = await pgPool.query(sql, params);
     return res.rows || [];
   } catch (err: any) {
-    console.error(`[Neon Query Error] ${sql.substring(0, 80)}...:`, err.message);
+    console.error(`[PostgreSQL Query Error] ${sql.substring(0, 80)}...:`, err.message);
     return [];
   }
 }
+export const queryNeon = queryDb;
 
 // Global Maintenance Mode State & Persistence
 let globalMaintenanceCache = {
@@ -906,13 +879,13 @@ app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req: 
 
 // ======== ADMIN: Client Sales Tracking Map ========
 app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  if (req.user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+  if (req.user?.role !== 'admin' && req.user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
     return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
   }
   const { sellerId, dateFrom, dateTo } = req.query;
 
   try {
-    // 1. Fetch all clients with their seller info
+    // 1. Fetch all clients with their seller info from Neon
     let clientsSql = `
       SELECT c.id, c.name, c."companyName", c.nit, c.phone, c.address,
              c.latitude, c.longitude, c."locationAddress",
@@ -923,7 +896,58 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       LEFT JOIN public.users u ON (u.email = c."sellerId" OR u.id = c."sellerId")
       ORDER BY c.name ASC
     `;
-    const clientRows = await queryNeon(clientsSql);
+    let clientRows = await queryNeon(clientsSql).catch(() => []);
+
+    const normalizeText = (str: string) => {
+      if (!str) return '';
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // If Neon returns empty, fallback to local client store
+    const localClients = readLocalClients();
+    if (!clientRows || clientRows.length === 0) {
+      clientRows = localClients.map((c: any) => ({
+        ...c,
+        seller_name: c.sellerName || c.seller_name || c.sellerId
+      }));
+    }
+
+    // Build lookup maps for fast GPS merging from local clients and client visits
+    const localClientsMap = new Map<string, any>();
+    localClients.forEach((lc: any) => {
+      if (lc.id) localClientsMap.set(String(lc.id), lc);
+      if (lc.name) localClientsMap.set(normalizeText(lc.name), lc);
+      if (lc.clientCode) localClientsMap.set(String(lc.clientCode), lc);
+    });
+
+    // Query latest visit GPS checkpoints to share field visit coordinates immediately
+    const visitGpsMap = new Map<string, { latitude: number; longitude: number; createdAt: string; sellerName: string }>();
+    try {
+      const visitRows = await queryNeon(`
+        SELECT DISTINCT ON ("clientId") "clientId", "clientName", latitude, longitude, "createdAt", created_at, "sellerName", seller_name
+        FROM public.client_visits
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        ORDER BY "clientId", COALESCE("createdAt", created_at) DESC
+      `);
+      visitRows.forEach((v: any) => {
+        const item = {
+          latitude: parseFloat(v.latitude),
+          longitude: parseFloat(v.longitude),
+          createdAt: v.createdAt || v.created_at,
+          sellerName: v.sellerName || v.seller_name || 'Vendedor'
+        };
+        if (v.clientId) visitGpsMap.set(String(v.clientId), item);
+        if (v.clientName) visitGpsMap.set(normalizeText(v.clientName), item);
+      });
+    } catch (vErr) {
+      // ignore
+    }
 
     // 2. Fetch all non-archived invoices
     let invoicesSql = `
@@ -959,23 +983,46 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
     `);
 
     // 4. Group invoices by client with intelligent normalization
-    const normalizeText = (str: string) => {
-      if (!str) return '';
-      return str
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^\w\s]/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    };
+    const clientData = clientRows.map((c: any) => {
+      let lat = (c.latitude !== null && c.latitude !== undefined && !isNaN(Number(c.latitude))) ? parseFloat(c.latitude) : null;
+      let lng = (c.longitude !== null && c.longitude !== undefined && !isNaN(Number(c.longitude))) ? parseFloat(c.longitude) : null;
+      let geotaggedAt = c.geotaggedAt || c.geotagged_at || null;
+      let geotaggedBy = c.geotaggedBy || c.geotagged_by || null;
+      let locationAddress = c.locationAddress || c.location_address || null;
 
-    const clientData = clientRows.map((c: any) => ({
-      ...c,
-      normName: normalizeText(c.name),
-      normCompany: normalizeText(c.companyName),
-      nameWords: normalizeText(c.name).split(' ').filter((w: string) => w.length > 2)
-    }));
+      // Coordinate Sharing: If client has null GPS in main table, check local client store or visit checkpoint GPS
+      if (!lat || !lng) {
+        const fromLocal = localClientsMap.get(String(c.id)) || localClientsMap.get(normalizeText(c.name)) || (c.clientCode ? localClientsMap.get(String(c.clientCode)) : null);
+        if (fromLocal && fromLocal.latitude && fromLocal.longitude) {
+          lat = parseFloat(fromLocal.latitude);
+          lng = parseFloat(fromLocal.longitude);
+          geotaggedAt = geotaggedAt || fromLocal.geotaggedAt;
+          geotaggedBy = geotaggedBy || fromLocal.geotaggedBy;
+          locationAddress = locationAddress || fromLocal.locationAddress;
+        } else {
+          const fromVisit = visitGpsMap.get(String(c.id)) || visitGpsMap.get(normalizeText(c.name));
+          if (fromVisit) {
+            lat = fromVisit.latitude;
+            lng = fromVisit.longitude;
+            geotaggedAt = geotaggedAt || fromVisit.createdAt;
+            geotaggedBy = geotaggedBy || fromVisit.sellerName;
+            locationAddress = locationAddress || 'Registrado en visita de terreno';
+          }
+        }
+      }
+
+      return {
+        ...c,
+        latitude: lat,
+        longitude: lng,
+        geotaggedAt,
+        geotaggedBy,
+        locationAddress,
+        normName: normalizeText(c.name),
+        normCompany: normalizeText(c.companyName),
+        nameWords: normalizeText(c.name).split(' ').filter((w: string) => w.length > 2)
+      };
+    });
 
     const salesByClientId = new Map<string, any[]>();
 
@@ -1030,7 +1077,7 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       }
     }
 
-    // 5. Build client tracking data
+    // 5. Build client tracking data with loyalty and ticket metrics
     const trackingData = clientData.map((c: any) => {
       const clientSales = salesByClientId.get(c.id) || [];
       const activeSales = clientSales.filter((s: any) => s.status !== 'cancelled');
@@ -1058,6 +1105,26 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
 
       const totalRevenue = activeSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
       const uniqueSellers = [...new Set(activeSales.map((s: any) => s.sellerId))];
+      const totalSales = activeSales.length;
+      const avgTicket = totalSales > 0 ? Math.round((totalRevenue / totalSales) * 100) / 100 : 0;
+
+      // Loyalty categorization
+      let loyaltyStatus: 'active' | 'moderate' | 'inactive' | 'no-sales' = 'no-sales';
+      if (totalSales > 0) {
+        if (daysSinceLastPurchase <= 15) {
+          loyaltyStatus = 'active';
+        } else if (daysSinceLastPurchase <= 45) {
+          loyaltyStatus = 'moderate';
+        } else {
+          loyaltyStatus = 'inactive';
+        }
+      }
+
+      // Visit recency
+      let daysSinceLastVisit: number | null = null;
+      if (c.lastVisitAt) {
+        daysSinceLastVisit = Math.round((Date.now() - new Date(c.lastVisitAt).getTime()) / (1000 * 60 * 60 * 24));
+      }
 
       return {
         id: c.id,
@@ -1066,24 +1133,28 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         nit: c.nit,
         phone: c.phone,
         address: c.address,
-        latitude: c.latitude ? parseFloat(c.latitude) : null,
-        longitude: c.longitude ? parseFloat(c.longitude) : null,
+        latitude: c.latitude,
+        longitude: c.longitude,
         locationAddress: c.locationAddress,
         sellerId: c.sellerId,
         sellerName: c.seller_name || c.sellerId || 'Sin asignar',
         clientCode: c.clientCode,
         geotaggedAt: c.geotaggedAt,
+        geotaggedBy: c.geotaggedBy,
         createdAt: c.createdAt,
         lastVisitAt: c.lastVisitAt,
+        daysSinceLastVisit,
         // Sales analytics
-        totalSales: activeSales.length,
+        totalSales,
         totalRevenue: Math.round(totalRevenue * 100) / 100,
+        avgTicket,
+        loyaltyStatus,
         firstPurchaseDate,
         lastPurchaseDate,
         avgFrequencyDays,
         daysSinceLastPurchase,
         uniqueSellers,
-        sales: clientSales // includes cancelled for full audit trail
+        sales: clientSales // includes cancelled for audit trail
       };
     });
 
@@ -2935,10 +3006,14 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
             "geotaggedBy" = $5,
             geotagged_by = $5
             ${effectiveSellerId && !currentSeller ? `, "sellerId" = COALESCE("sellerId", $7), seller_id = COALESCE(seller_id, $7)` : ''}
-        WHERE id = $6 OR id::text = $6::text;
-      `, effectiveSellerId && !currentSeller
-        ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId]
-        : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id]);
+        WHERE id = $6 
+           OR id::text = $6::text
+           OR "clientCode" = $6::text 
+           OR client_code = $6::text
+           ${existingClient?.name ? `OR LOWER(TRIM(name)) = LOWER(TRIM($${effectiveSellerId && !currentSeller ? 8 : 7}))` : ''};
+      `, (effectiveSellerId && !currentSeller)
+        ? (existingClient?.name ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId, existingClient.name] : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, effectiveSellerId])
+        : (existingClient?.name ? [latNum, lngNum, locationAddress || null, nowIso, updaterName, id, existingClient.name] : [latNum, lngNum, locationAddress || null, nowIso, updaterName, id]));
     } catch (neonErr: any) {
       console.warn('[Update Location Neon Warning]:', neonErr.message);
     }
@@ -3077,17 +3152,17 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
   let visits: any[] = [];
 
   // 1. Authoritative Cloud/PostgreSQL fetch first
-  if (neonPool) {
+  if (pgPool) {
     try {
-      const res = await neonPool.query(`
+      const res = await pgPool.query(`
         SELECT * FROM public.client_visits 
-        ORDER BY COALESCE("createdAt", created_at, '') DESC;
+        ORDER BY created_at DESC NULLS LAST, "createdAt" DESC NULLS LAST;
       `);
       if (res.rows && res.rows.length > 0) {
         visits = res.rows;
       }
     } catch (neErr: any) {
-      console.warn("[Visits Neon Query Warning]:", neErr.message);
+      console.warn("[Visits Query Warning]:", neErr.message);
     }
   }
 
@@ -3258,25 +3333,62 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
       calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
     } else {
       // If client had no GPS yet, auto-geotag them on first visit!
-      if (clientId) {
-        updateLocalClient(clientId, {
-          latitude: latNum,
-          longitude: lngNum,
-          geotaggedAt: nowIso,
-          geotaggedBy: req.user?.name || req.user?.email
-        });
+      if (clientId || clientName) {
+        if (clientId) {
+          updateLocalClient(clientId, {
+            latitude: latNum,
+            longitude: lngNum,
+            geotaggedAt: nowIso,
+            geotaggedBy: req.user?.name || req.user?.email
+          });
+        }
+        if (neonPool) {
+          try {
+            await neonPool.query(`
+              UPDATE public.clients
+              SET latitude = COALESCE(latitude, $1),
+                  longitude = COALESCE(longitude, $2),
+                  "geotaggedAt" = COALESCE("geotaggedAt", $3),
+                  geotagged_at = COALESCE(geotagged_at, $3),
+                  "geotaggedBy" = COALESCE("geotaggedBy", $4),
+                  geotagged_by = COALESCE(geotagged_by, $4)
+              WHERE (id = $5 OR id::text = $5::text OR "clientCode" = $5::text)
+                 OR (LOWER(TRIM(name)) = LOWER(TRIM($6)));
+            `, [latNum, lngNum, nowIso, req.user?.name || req.user?.email || 'Vendedor', clientId || '', clientName || '']);
+          } catch (neGpsErr: any) {
+            console.warn('[Auto-geotag visit neon warning]:', neGpsErr.message);
+          }
+        }
       }
     }
 
     // Update client lastVisitAt
-    if (clientId) {
-      updateLocalClient(clientId, { lastVisitAt: nowIso });
+    if (clientId || clientName) {
+      if (clientId) {
+        updateLocalClient(clientId, { lastVisitAt: nowIso });
+      }
       try {
-        await localDb.from("clients").update({
-          last_visit_at: nowIso,
-          lastVisitAt: nowIso
-        }).eq("id", clientId);
+        if (clientId) {
+          await localDb.from("clients").update({
+            last_visit_at: nowIso,
+            lastVisitAt: nowIso
+          }).eq("id", clientId);
+        }
       } catch (e) { }
+
+      if (neonPool) {
+        try {
+          await neonPool.query(`
+            UPDATE public.clients
+            SET "lastVisitAt" = $1, last_visit_at = $1
+            WHERE (id = $2 OR id::text = $2::text OR "clientCode" = $2::text)
+               OR (LOWER(TRIM(name)) = LOWER(TRIM($3)));
+          `, [nowIso, clientId || '', clientName || '']);
+        } catch (neVisErr: any) {
+          console.warn('[Update lastVisitAt neon warning]:', neVisErr.message);
+        }
+      }
+      invalidateCache("clients");
     }
   } catch (e) { }
 
@@ -3381,30 +3493,36 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
       created_at: newVisit.createdAt
     };
 
-    // 1. Direct neonPool Query to guarantee immediate Cloud/Remote PostgreSQL persistence
-    if (neonPool) {
+    // 1. Direct pgPool Query to guarantee immediate PostgreSQL persistence
+    if (pgPool) {
       try {
-        await neonPool.query(`
+        await pgPool.query(`
           INSERT INTO public.client_visits (
             id, "clientId", client_id, "clientName", client_name, "clientCode", client_code,
             "companyName", company_name, "sellerId", seller_id, "sellerName", seller_name,
             "sellerEmail", seller_email, latitude, longitude, accuracy, "distanceMeters", distance_meters,
             "visitType", visit_type, notes, "photoUrl", photo_url, "createdAt", created_at,
             "routeId", route_id
-          ) VALUES ($1,$2,$2,$3,$3,$4,$4,$5,$5,$6,$6,$7,$7,$8,$8,$9,$10,$11,$12,$12,$13,$13,$14,$15,$15,$16,$16,$17,$17)
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25, $26, $27,
+            $28, $29
+          )
           ON CONFLICT (id) DO UPDATE SET
             notes = EXCLUDED.notes,
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude;
         `, [
-          newVisit.id, newVisit.clientId, newVisit.clientName, newVisit.clientCode,
-          newVisit.companyName, newVisit.sellerId, newVisit.sellerName, newVisit.sellerEmail,
-          newVisit.latitude, newVisit.longitude, newVisit.accuracy || null, newVisit.distanceMeters || null,
-          newVisit.visitType, newVisit.notes, newVisit.photoUrl || null, newVisit.createdAt,
-          newVisit.routeId || null
+          newVisit.id, newVisit.clientId, newVisit.clientId, newVisit.clientName, newVisit.clientName, newVisit.clientCode, newVisit.clientCode,
+          newVisit.companyName, newVisit.companyName, newVisit.sellerId, newVisit.sellerId, newVisit.sellerName, newVisit.sellerName,
+          newVisit.sellerEmail, newVisit.sellerEmail, newVisit.latitude, newVisit.longitude, newVisit.accuracy || null, newVisit.distanceMeters || null, newVisit.distanceMeters || null,
+          newVisit.visitType, newVisit.visitType, newVisit.notes, newVisit.photoUrl || null, newVisit.photoUrl || null, newVisit.createdAt, newVisit.createdAt,
+          newVisit.routeId || null, newVisit.routeId || null
         ]);
-      } catch (neonErr: any) {
-        console.warn('[Visit Direct neonPool Insert Warning]:', neonErr.message);
+      } catch (err: any) {
+        console.warn('[Visit Direct pgPool Insert Warning]:', err.message);
       }
     }
 
@@ -3439,9 +3557,9 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
         rList[rIdx].startLongitude = newVisit.longitude;
         saveLocalRoutes(rList);
       }
-      if (neonPool) {
+      if (pgPool) {
         try {
-          await neonPool.query(`
+          await pgPool.query(`
             UPDATE public.seller_routes
             SET start_latitude = $1, "startLatitude" = $1,
                 start_longitude = $2, "startLongitude" = $2
@@ -3450,6 +3568,20 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
         } catch (e) { }
       }
     }
+
+    // 5. Notificación automática a Administradores (en APK nativa, Web y Push)
+    createNotification(
+      "visit_registered",
+      `📍 Visita Registrada: ${newVisit.sellerName || 'Vendedor'}`,
+      `El vendedor ${newVisit.sellerName} registró una visita en "${newVisit.clientName}". Tipo: ${String(newVisit.visitType).toUpperCase()}.`,
+      {
+        visitId: newVisit.id,
+        clientId: newVisit.clientId,
+        sellerId: newVisit.sellerId,
+        latitude: newVisit.latitude,
+        longitude: newVisit.longitude
+      }
+    ).catch(e => console.warn("Error creando notificación de visita:", e));
   } catch (err: any) {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
@@ -3624,18 +3756,60 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
   const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : '';
 
-  const routes = readLocalRoutes();
-  const activeRoute = routes.find((r: any) => {
-    if (r.status !== 'active') return false;
-    const rSellerId = String(r.sellerId || r.seller_id || '').trim();
-    const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
-    const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
-    return (
-      (userId && rSellerId === userId) ||
-      (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
-      (userName && rSellerName === userName)
-    );
-  });
+  let activeRoute: any = null;
+
+  if (neonPool) {
+    try {
+      const res = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE status = 'active'
+          AND (
+            ($1 <> '' AND (seller_id = $1 OR "sellerId" = $1)) OR
+            ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
+            ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
+          )
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        LIMIT 1;
+      `, [userId, userEmail, userName]);
+
+      if (res.rows && res.rows.length > 0) {
+        const r = res.rows[0];
+        activeRoute = {
+          id: r.id,
+          sellerId: r.seller_id || r.sellerId,
+          sellerName: r.seller_name || r.sellerName,
+          sellerEmail: r.seller_email || r.sellerEmail,
+          status: r.status,
+          startedAt: r.started_at || r.startedAt,
+          finishedAt: r.finished_at || r.finishedAt,
+          startLatitude: r.start_latitude ?? r.startLatitude,
+          startLongitude: r.start_longitude ?? r.startLongitude,
+          endLatitude: r.end_latitude ?? r.endLatitude,
+          endLongitude: r.end_longitude ?? r.endLongitude,
+          totalStops: r.total_stops ?? r.totalStops ?? 0,
+          totalDistanceKm: r.total_distance_km ?? r.totalDistanceKm ?? 0,
+          totalDurationMins: r.total_duration_mins ?? r.totalDurationMins ?? 0,
+          notes: r.notes || '',
+          createdAt: r.created_at || r.createdAt
+        };
+      }
+    } catch (e) { }
+  }
+
+  if (!activeRoute) {
+    const routes = readLocalRoutes();
+    activeRoute = routes.find((r: any) => {
+      if (r.status !== 'active') return false;
+      const rSellerId = String(r.sellerId || r.seller_id || '').trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || '').trim().toLowerCase();
+      const rSellerName = String(r.sellerName || r.seller_name || '').trim().toLowerCase();
+      return (
+        (userId && rSellerId === userId) ||
+        (userEmail && (rSellerEmail === userEmail || rSellerId === userEmail)) ||
+        (userName && rSellerName === userName)
+      );
+    });
+  }
 
   res.json({ success: true, route: activeRoute || null });
 }));
@@ -3784,67 +3958,214 @@ app.put("/api/routes/:id/location", requireAuth, asyncHandler(async (req: any, r
 // Finish/Archive an active route session into history
 app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, res: any) => {
   const { id } = req.params;
-  const { endLatitude, endLongitude, notes } = req.body;
+  const { endLatitude, endLongitude, notes, sellerId: bodySellerId, sellerName: bodySellerName } = req.body;
   const nowIso = new Date().toISOString();
 
-  const routes = readLocalRoutes();
-  const routeIndex = routes.findIndex((r: any) => r.id === id);
-  if (routeIndex === -1) {
-    return res.status(404).json({ error: "Ruta no encontrada." });
+  const reqSellerId = String(bodySellerId || req.user?.id || '').trim();
+  const reqSellerName = String(bodySellerName || req.user?.name || '').trim();
+  const reqSellerEmail = String(req.user?.email || '').trim().toLowerCase();
+
+  let targetRoute: any = null;
+
+  // 1. First, search in Neon Cloud / PostgreSQL
+  if (neonPool) {
+    try {
+      const dbRes = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE id = $1 OR id::text = $1 
+           OR (status = 'active' AND (
+                ($1 <> '' AND (seller_id = $1 OR seller_name ILIKE $1 OR seller_email ILIKE $1)) OR
+                ($2 <> '' AND (seller_id = $2 OR "sellerId" = $2)) OR
+                ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)) OR
+                ($4 <> '' AND (seller_email ILIKE $4 OR "sellerEmail" ILIKE $4))
+              ))
+        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        LIMIT 1;
+      `, [id, reqSellerId, reqSellerName, reqSellerEmail]);
+
+      if (dbRes.rows && dbRes.rows.length > 0) {
+        const row = dbRes.rows[0];
+        targetRoute = {
+          id: row.id,
+          sellerId: row.seller_id || row.sellerId || reqSellerId,
+          sellerName: row.seller_name || row.sellerName || reqSellerName,
+          sellerEmail: row.seller_email || row.sellerEmail || reqSellerEmail,
+          status: row.status,
+          startedAt: row.started_at || row.startedAt,
+          finishedAt: row.finished_at || row.finishedAt,
+          startLatitude: row.start_latitude ?? row.startLatitude,
+          startLongitude: row.start_longitude ?? row.startLongitude,
+          endLatitude: row.end_latitude ?? row.endLatitude,
+          endLongitude: row.end_longitude ?? row.endLongitude,
+          totalStops: row.total_stops ?? row.totalStops ?? 0,
+          totalDistanceKm: row.total_distance_km ?? row.totalDistanceKm ?? 0,
+          totalDurationMins: row.total_duration_mins ?? row.totalDurationMins ?? 0,
+          notes: row.notes || notes || '',
+          createdAt: row.created_at || row.createdAt
+        };
+      }
+    } catch (e: any) {
+      console.warn('[Finish Route Neon Select Warning]:', e.message);
+    }
   }
 
-  const targetRoute = routes[routeIndex];
-  const visits = readLocalVisits().filter((v: any) => v.routeId === id || (v.sellerId === targetRoute.sellerId && (v.createdAt || '').startsWith((targetRoute.startedAt || '').split('T')[0])));
+  // 2. Search in local JSON routes
+  const localRoutes = readLocalRoutes();
+  const localIdx = localRoutes.findIndex((r: any) => 
+    r.id === id || 
+    r.key === id || 
+    (r.status === 'active' && (
+      (reqSellerId && (r.sellerId === reqSellerId || r.seller_id === reqSellerId)) ||
+      (reqSellerName && (r.sellerName?.toLowerCase() === reqSellerName.toLowerCase())) ||
+      (r.sellerId === id || r.sellerName === id)
+    ))
+  );
+
+  if (!targetRoute && localIdx !== -1) {
+    targetRoute = localRoutes[localIdx];
+  }
+
+  // 3. Fallback: If not found in Neon or local JSON, construct targetRoute dynamically from visits/user
+  if (!targetRoute) {
+    let sId = reqSellerId || id;
+    let sName = reqSellerName || 'Asesor';
+    if (id.includes('_')) {
+      const parts = id.split('_');
+      sId = parts[0] || sId;
+    }
+    const allVisits = readLocalVisits();
+    const matchedVisits = allVisits.filter((v: any) => 
+      v.sellerId === sId || v.sellerName === sId || v.sellerEmail === sId ||
+      v.sellerName?.toLowerCase() === sName.toLowerCase() ||
+      (v.createdAt || '').startsWith(nowIso.split('T')[0])
+    );
+    const sorted = matchedVisits.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    targetRoute = {
+      id: id.startsWith('route_') || id.startsWith('ROUTE-') ? id : `route_${sId}_${Date.now()}`,
+      sellerId: sId,
+      sellerName: sorted[0]?.sellerName || sName,
+      sellerEmail: sorted[0]?.sellerEmail || reqSellerEmail,
+      status: 'active',
+      startedAt: sorted[0]?.createdAt || nowIso,
+      startLatitude: sorted[0]?.latitude || (endLatitude ? parseFloat(endLatitude) : null),
+      startLongitude: sorted[0]?.longitude || (endLongitude ? parseFloat(endLongitude) : null),
+      totalStops: sorted.length || 1,
+      totalDistanceKm: 0,
+      totalDurationMins: 0,
+      notes: notes || 'Jornada finalizada.'
+    };
+  }
 
   // Calculate total stops and duration
   const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
   const endTime = new Date(nowIso).getTime();
   const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1000 * 60)));
 
-  // Calculate total route distance
-  let totalKm = 0;
-  const sortedVisits = [...visits].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  for (let i = 1; i < sortedVisits.length; i++) {
-    const p1 = sortedVisits[i - 1];
-    const p2 = sortedVisits[i];
-    if (p1.latitude && p1.longitude && p2.latitude && p2.longitude) {
-      totalKm += (calculateDistanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude) / 1000);
-    }
-  }
+  const finalEndLat = endLatitude ? parseFloat(endLatitude) : (targetRoute.endLatitude ?? targetRoute.startLatitude ?? null);
+  const finalEndLng = endLongitude ? parseFloat(endLongitude) : (targetRoute.endLongitude ?? targetRoute.startLongitude ?? null);
 
   targetRoute.status = 'completed';
   targetRoute.finishedAt = nowIso;
-  targetRoute.endLatitude = endLatitude ? parseFloat(endLatitude) : (sortedVisits[sortedVisits.length - 1]?.latitude || null);
-  targetRoute.endLongitude = endLongitude ? parseFloat(endLongitude) : (sortedVisits[sortedVisits.length - 1]?.longitude || null);
-  targetRoute.totalStops = sortedVisits.length;
-  targetRoute.totalDistanceKm = Math.round(totalKm * 10) / 10;
+  targetRoute.endLatitude = finalEndLat;
+  targetRoute.endLongitude = finalEndLng;
   targetRoute.totalDurationMins = totalDurationMins;
   if (notes) targetRoute.notes = notes;
 
-  routes[routeIndex] = targetRoute;
-  saveLocalRoutes(routes);
-
-  // 1. Update in Neon Cloud PostgreSQL
+  // 4. Update in Neon Cloud PostgreSQL (guaranteed status = 'completed' for all matching active entries)
   if (neonPool) {
     try {
-      await neonPool.query(`
+      const updateRes = await neonPool.query(`
         UPDATE public.seller_routes
         SET status = 'completed',
             finished_at = $1, "finishedAt" = $1,
             end_latitude = $2, "endLatitude" = $2,
             end_longitude = $3, "endLongitude" = $3,
-            total_stops = $4, "totalStops" = $4,
-            total_distance_km = $5, "totalDistanceKm" = $5,
+            total_stops = COALESCE(total_stops, $4), "totalStops" = COALESCE("totalStops", $4),
+            total_distance_km = COALESCE(total_distance_km, $5), "totalDistanceKm" = COALESCE("totalDistanceKm", $5),
             total_duration_mins = $6, "totalDurationMins" = $6,
-            notes = $7
-        WHERE id = $8;
-      `, [nowIso, targetRoute.endLatitude, targetRoute.endLongitude, targetRoute.totalStops, targetRoute.totalDistanceKm, targetRoute.totalDurationMins, targetRoute.notes, id]);
+            notes = COALESCE($7, notes)
+        WHERE id = $8 OR id::text = $8
+           OR (status = 'active' AND (
+                ($9 <> '' AND (seller_id = $9 OR "sellerId" = $9)) OR
+                ($10 <> '' AND (seller_name ILIKE $10 OR "sellerName" ILIKE $10)) OR
+                ($11 <> '' AND (seller_email ILIKE $11 OR "sellerEmail" ILIKE $11)) OR
+                seller_id = $8 OR
+                seller_name ILIKE $8
+              ));
+      `, [
+        nowIso,
+        targetRoute.endLatitude,
+        targetRoute.endLongitude,
+        targetRoute.totalStops || 1,
+        targetRoute.totalDistanceKm || 0,
+        targetRoute.totalDurationMins,
+        targetRoute.notes || notes || 'Jornada finalizada.',
+        targetRoute.id,
+        targetRoute.sellerId || reqSellerId,
+        targetRoute.sellerName || reqSellerName,
+        targetRoute.sellerEmail || reqSellerEmail
+      ]);
+
+      // If no row was updated in Neon, insert the completed route so it exists permanently
+      if (!updateRes.rowCount || updateRes.rowCount === 0) {
+        await neonPool.query(`
+          INSERT INTO public.seller_routes (
+            id, seller_id, seller_name, seller_email, status,
+            started_at, finished_at, start_latitude, start_longitude,
+            end_latitude, end_longitude, total_stops, total_distance_km,
+            total_duration_mins, notes, created_at
+          ) VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            status = 'completed',
+            finished_at = EXCLUDED.finished_at,
+            end_latitude = EXCLUDED.end_latitude,
+            end_longitude = EXCLUDED.end_longitude,
+            notes = EXCLUDED.notes;
+        `, [
+          targetRoute.id,
+          targetRoute.sellerId || reqSellerId,
+          targetRoute.sellerName || reqSellerName,
+          targetRoute.sellerEmail || reqSellerEmail,
+          targetRoute.startedAt || nowIso,
+          nowIso,
+          targetRoute.startLatitude,
+          targetRoute.startLongitude,
+          targetRoute.endLatitude,
+          targetRoute.endLongitude,
+          targetRoute.totalStops || 1,
+          targetRoute.totalDistanceKm || 0,
+          targetRoute.totalDurationMins,
+          targetRoute.notes || notes || 'Jornada finalizada.'
+        ]);
+      }
     } catch (neonErr: any) {
       console.warn('[Finish Route Neon Warning]:', neonErr.message);
     }
   }
 
-  // 2. Update in LocalDb
+  // 5. Update in local JSON routes
+  let updatedLocal = false;
+  for (let i = 0; i < localRoutes.length; i++) {
+    const r = localRoutes[i];
+    if (
+      r.id === targetRoute.id ||
+      r.key === targetRoute.id ||
+      (r.status === 'active' && (
+        (r.sellerId && (r.sellerId === targetRoute.sellerId || r.sellerId === reqSellerId)) ||
+        (r.sellerName && (r.sellerName.toLowerCase() === (targetRoute.sellerName || '').toLowerCase() || r.sellerName.toLowerCase() === reqSellerName.toLowerCase()))
+      ))
+    ) {
+      localRoutes[i] = { ...r, ...targetRoute, status: 'completed' };
+      updatedLocal = true;
+    }
+  }
+  if (!updatedLocal) {
+    localRoutes.unshift(targetRoute);
+  }
+  saveLocalRoutes(localRoutes);
+
+  // 6. Update in LocalDb
   try {
     await localDb.from("seller_routes").upsert([{
       id: targetRoute.id,
@@ -5474,12 +5795,12 @@ app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
     localDbHealthy = false;
   }
 
-  // Test Neon / PostgreSQL Pool
-  if (neonPool) {
+  // Test PostgreSQL Pool
+  if (pgPool) {
     try {
-      const neonPromise = neonPool.query("SELECT 1;");
+      const pgPromise = pgPool.query("SELECT 1;");
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000));
-      await Promise.race([neonPromise, timeoutPromise]);
+      await Promise.race([pgPromise, timeoutPromise]);
       neonHealthy = true;
     } catch (e) {
       neonHealthy = false;
@@ -5487,30 +5808,28 @@ app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
   }
 
   res.json({
-    activeMode: currentMode,
+    activeMode: 'local',
     localDbHealthy,
-    neonHealthy,
-    neonConfigured: Boolean(neonPool),
+    dbHealthy: neonHealthy,
+    healthy: neonHealthy,
+    configured: Boolean(pgPool),
     server: 'PostgreSQL Local'
   });
 }));
 
 app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
   const { mode } = req.body;
-  if (mode === "local" || mode === "neon") {
-    await persistGlobalDbMode(mode);
-    console.log(`[PANIC SWITCH GLOBAL CLOUD] Base de datos activa cambiada a nivel CLOUD para todos los dispositivos: ${mode.toUpperCase()}`);
-    return res.json({ success: true, activeMode: mode });
-  }
-  res.status(400).json({ error: "Modo no válido. Usa 'PostgreSQL Local' o 'neon'." });
+  await persistGlobalDbMode(mode || "local");
+  console.log(`[PANIC SWITCH] Base de datos local: LOCAL`);
+  return res.json({ success: true, activeMode: 'local' });
 }));
 
 app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
-  if (!neonPool) {
-    return res.status(500).json({ error: "Neon no está configurado" });
+  if (!pgPool) {
+    return res.status(500).json({ error: "Base de datos no configurada" });
   }
 
-  const client = await neonPool.connect();
+  const client = await pgPool.connect();
   let usersSynced = 0;
   let productsSynced = 0;
 
@@ -6955,7 +7274,9 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
     }
   }
 
-  let updateData: any = { status };
+  let updateData: any = {};
+  if (status !== undefined) updateData.status = status;
+  if (sellerId !== undefined) updateData.sellerId = sellerId;
 
   if (status !== invoice.status) {
     if (status === 'pending') {
@@ -9843,18 +10164,6 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
 
   console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
   res.json({ success: true, message: 'Recibo eliminado correctamente' });
-}));
-
-// ROUTES ENDPOINTS
-
-app.get('/api/routes', asyncHandler(async (req: any, res: any) => {
-  try {
-    const { data, error } = await localDb.from('seller_routes')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (!error && data) return res.json(data);
-  } catch (e) { }
-  res.json([]);
 }));
 
 // ======== COTIZACIONES / QUOTATIONS ENDPOINTS ========
