@@ -329,15 +329,19 @@ export interface SellerRoute {
   status: 'active' | 'completed';
   startedAt: string;
   finishedAt?: string | null;
+  endedAt?: string | null;
   startLatitude?: number | null;
   startLongitude?: number | null;
+  startAddress?: string | null;
   endLatitude?: number | null;
   endLongitude?: number | null;
+  endAddress?: string | null;
   totalStops?: number;
   totalVisits?: number;
   totalDistanceKm: number;
   totalDurationMins?: number;
   notes?: string;
+  closureNotes?: string;
   createdAt?: string;
 }
 

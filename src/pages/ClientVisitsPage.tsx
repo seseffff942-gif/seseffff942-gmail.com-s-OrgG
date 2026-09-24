@@ -14,9 +14,9 @@ import {
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
   Download, FileSpreadsheet, Check, Shield, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
-  BarChart3
+  BarChart3, X
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller, getDiffCalendarDaysGT } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -75,7 +75,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Route Tracing & Time Audit (Admin Feature)
   const [routeSellerId, setRouteSellerId] = useState<string>('all');
-  const [routeDate, setRouteDate] = useState<string>('all');
+  const [routeDate, setRouteDate] = useState<string>(getGuatemalaTodayIso());
   const [isRouteTraceActive, setIsRouteTraceActive] = useState<boolean>(false);
 
   // Request & Watch GPS Location
@@ -532,16 +532,25 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Frequency and Client Portfolio Analysis
   const clientPortfolioWithStatus = useMemo(() => {
-    const now = new Date().getTime();
+    const todayGT = diaGuatemala();
     const map = new Map<string, ClientVisit>();
 
     scopedVisits.forEach(v => {
+      if (!v.createdAt) return;
       const cId = String(v.clientId || (v as any).client_id || '').trim();
       const cName = String(v.clientName || (v as any).client_name || '').trim().toLowerCase();
       const cCode = String(v.clientCode || (v as any).client_code || '').trim().toLowerCase();
-      if (cId && !map.has(cId)) map.set(cId, v);
-      if (cName && !map.has(cName)) map.set(cName, v);
-      if (cCode && !map.has(cCode)) map.set(cCode, v);
+
+      const updateIfNewer = (key: string) => {
+        const existing = map.get(key);
+        if (!existing || new Date(v.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+          map.set(key, v);
+        }
+      };
+
+      if (cId) updateIfNewer(cId);
+      if (cName) updateIfNewer(cName);
+      if (cCode) updateIfNewer(cCode);
     });
 
     const term = normalizeSearchText(searchTerm);
@@ -553,12 +562,12 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
       const lastVisit = map.get(cIdKey) || map.get(cNameKey) || (cCodeKey ? map.get(cCodeKey) : undefined);
       const daysElapsed = lastVisit 
-        ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
+        ? getDiffCalendarDaysGT(lastVisit.createdAt, todayGT)
         : null;
 
       let status: 'today' | 'recent' | 'attention' | 'urgent' | 'never' = 'never';
       if (daysElapsed === null) status = 'never';
-      else if (daysElapsed === 0 || (lastVisit && isTodayGuatemala(lastVisit.createdAt))) status = 'today';
+      else if (daysElapsed === 0) status = 'today';
       else if (daysElapsed <= 7) status = 'recent';
       else if (daysElapsed <= 15) status = 'attention';
       else status = 'urgent';
@@ -698,14 +707,27 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   // Available unique dates with recorded visits (filtered by selected seller if applicable)
   const availableVisitDates = useMemo(() => {
     const datesMap = new Map<string, number>();
+    const todayIso = getGuatemalaTodayIso();
+    datesMap.set(todayIso, 0);
+
     scopedVisits.forEach(v => {
       if (!v.createdAt) return;
       if (routeSellerId !== 'all' && user.role === 'admin') {
-        const match = v.sellerId === routeSellerId || v.sellerEmail === routeSellerId || v.sellerName === routeSellerId;
-        if (!match) return;
+        const eff = routeSellerId.toLowerCase();
+        const vId = String(v.sellerId || '').toLowerCase();
+        const vEmail = String(v.sellerEmail || '').toLowerCase();
+        const vName = String(v.sellerName || '').toLowerCase();
+        if (vId !== eff && vEmail !== eff && vName !== eff) return;
       }
-      const datePart = v.createdAt.split('T')[0];
+      const datePart = diaGuatemala(v.createdAt);
       datesMap.set(datePart, (datesMap.get(datePart) || 0) + 1);
+    });
+
+    (sellerRoutes || []).forEach(r => {
+      const rDate = r.date || diaGuatemala(r.startedAt || r.createdAt);
+      if (rDate && !datesMap.has(rDate)) {
+        datesMap.set(rDate, 0);
+      }
     });
 
     return Array.from(datesMap.entries())
@@ -717,7 +739,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
           ? `📅 ${fechaDDMMYYYY(date)} (Hoy • ${count} ${count === 1 ? 'cliente' : 'clientes'})`
           : `📅 ${fechaDDMMYYYY(date)} (${count} ${count === 1 ? 'cliente' : 'clientes'})`
       }));
-  }, [scopedVisits, routeSellerId, user]);
+  }, [scopedVisits, sellerRoutes, routeSellerId, user]);
 
   // Distinct seller routes for admin route dashboard & seller history
   const distinctSellerRoutes = useMemo(() => {
@@ -728,23 +750,41 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     const seenActiveSellers = new Set<string>();
 
     const mappedExplicit = sortedExplicit.map(r => {
-      const datePart = (r.startedAt || r.createdAt || '').split('T')[0];
+      const datePart = diaGuatemala(r.startedAt || r.createdAt || r.date || '');
+      const isRouteToday = isTodayGuatemala(datePart);
       const stops = scopedVisits.filter(v => {
         if (v.routeId) return v.routeId === r.id;
-        return (v.sellerId === r.sellerId && (v.createdAt || '').startsWith(datePart));
+        const vDate = diaGuatemala(v.createdAt);
+        const matchSeller = v.sellerId === r.sellerId || 
+          (r.sellerEmail && v.sellerEmail?.toLowerCase() === r.sellerEmail.toLowerCase()) ||
+          (r.sellerName && v.sellerName?.toLowerCase() === r.sellerName.toLowerCase());
+        return matchSeller && vDate === datePart;
       }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-      // Only the latest route per seller can be active; older ones are treated as completed
+      // Only the latest route per seller can be active; older ones or routes from previous days are completed
       let resolvedStatus = r.status;
       if (resolvedStatus === 'active') {
-        const sKey = String(r.sellerId || r.sellerEmail || r.sellerName || '').trim().toLowerCase();
-        if (sKey) {
-          if (seenActiveSellers.has(sKey)) {
-            resolvedStatus = 'completed';
-          } else {
-            seenActiveSellers.add(sKey);
+        if (!isRouteToday) {
+          resolvedStatus = 'completed';
+        } else {
+          const sKey = String(r.sellerId || r.sellerEmail || r.sellerName || '').trim().toLowerCase();
+          if (sKey) {
+            if (seenActiveSellers.has(sKey)) {
+              resolvedStatus = 'completed';
+            } else {
+              seenActiveSellers.add(sKey);
+            }
           }
         }
+      }
+
+      let durationMins = r.totalDurationMins || 0;
+      if (!durationMins && r.startedAt && r.finishedAt) {
+        const ms = new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime();
+        durationMins = Math.max(1, Math.round(ms / 60000));
+      } else if (!durationMins && stops.length > 1) {
+        const ms = new Date(stops[stops.length - 1].createdAt).getTime() - new Date(stops[0].createdAt).getTime();
+        durationMins = Math.max(1, Math.round(ms / 60000));
       }
 
       return {
@@ -754,7 +794,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         sellerName: r.sellerName,
         date: datePart,
         status: resolvedStatus,
-        isToday: isTodayGuatemala(datePart),
+        isToday: isRouteToday,
         startedAt: r.startedAt,
         finishedAt: r.finishedAt,
         startLatitude: r.startLatitude !== undefined && r.startLatitude !== null ? r.startLatitude : (r as any).start_latitude,
@@ -762,9 +802,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         endLatitude: r.endLatitude !== undefined && r.endLatitude !== null ? r.endLatitude : (r as any).end_latitude,
         endLongitude: r.endLongitude !== undefined && r.endLongitude !== null ? r.endLongitude : (r as any).end_longitude,
         totalDistanceKm: r.totalDistanceKm || 0,
-        totalDurationMins: r.totalDurationMins || 0,
+        totalDurationMins: durationMins,
         notes: r.notes,
-        visitsCount: Math.max(stops.length, r.totalStops || (r as any).total_stops || 0),
+        visitsCount: resolvedStatus === 'active' ? stops.length : (stops.length > 0 ? stops.length : (r.totalStops || (r as any).total_stops || 0)),
         stops
       };
     });
@@ -788,7 +828,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       if (!v.createdAt || !v.latitude || !v.longitude) return;
       const sId = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
       const sName = v.sellerName || 'Asesor';
-      const datePart = v.createdAt.split('T')[0];
+      const datePart = diaGuatemala(v.createdAt);
       const key = `${sId}_${datePart}`;
       const nameKey = `${String(sName).trim().toLowerCase()}_${datePart}`;
       const todayKey = isTodayGuatemala(datePart) ? `${sId}_today` : '';
@@ -945,7 +985,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         const activeRouteSession = sellerRoutes.find(r => r.status === 'active');
         if (activeRouteSession) {
           setRouteSellerId(activeRouteSession.sellerId);
-          setRouteDate(activeRouteSession.date || (activeRouteSession.startedAt ? activeRouteSession.startedAt.split('T')[0] : getGuatemalaTodayIso()));
+          setRouteDate(activeRouteSession.date || diaGuatemala(activeRouteSession.startedAt) || getGuatemalaTodayIso());
         } else {
           const sellerWithTodayVisits = availableSellers.find(s => s.todayVisits > 0) || availableSellers[0];
           if (sellerWithTodayVisits) {
@@ -971,20 +1011,49 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       ? routeSellerId 
       : (selectedSellerFilter !== 'all' ? selectedSellerFilter : routeSellerId);
 
+    // Determine the exact target date for the route
+    // If routeDate is 'all', default to today if there are active routes, or the latest route date
+    let targetDate = routeDate;
+    if (!targetDate || targetDate === 'all') {
+      const activeOrLatest = activeRoutes[0] || distinctSellerRoutes[0];
+      targetDate = activeOrLatest?.date || getGuatemalaTodayIso();
+    }
+
+    // Find the matching route session for this date & seller
+    const matchedRoute = distinctSellerRoutes.find(r => {
+      const rDate = r.date || diaGuatemala(r.startedAt || r.createdAt);
+      if (rDate !== targetDate) return false;
+      if (effectiveSeller !== 'all') {
+        const eff = effectiveSeller.toLowerCase();
+        const rId = String(r.sellerId || '').toLowerCase();
+        const rEmail = String(r.sellerEmail || '').toLowerCase();
+        const rName = String(r.sellerName || '').toLowerCase();
+        return rId === eff || rEmail === eff || rName === eff;
+      }
+      return true;
+    });
+
+    const isRouteActive = matchedRoute ? (matchedRoute.status === 'active' && isTodayGuatemala(targetDate)) : false;
+
+    // Filter scoped visits strictly belonging to this targetDate and seller
     const filtered = scopedVisits.filter(v => {
       if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
+      
+      // Strict date match using Guatemala calendar date (never mix days!)
+      const vDate = diaGuatemala(v.createdAt);
+      if (vDate !== targetDate) return false;
+
       if (effectiveSeller !== 'all' && user.role === 'admin') {
-        const match = v.sellerId === effectiveSeller || v.sellerEmail === effectiveSeller || v.sellerName === effectiveSeller;
-        if (!match) return false;
-      }
-      if (routeDate !== 'all') {
-        const vDate = (v.createdAt || '').split('T')[0];
-        if (vDate !== routeDate) return false;
+        const eff = effectiveSeller.toLowerCase();
+        const vId = String(v.sellerId || '').toLowerCase();
+        const vEmail = String(v.sellerEmail || '').toLowerCase();
+        const vName = String(v.sellerName || '').toLowerCase();
+        if (vId !== eff && vEmail !== eff && vName !== eff) return false;
       }
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    if (filtered.length === 0) {
+    if (filtered.length === 0 && !matchedRoute?.startedAt) {
       return {
         stops: [],
         totalDistanceKm: 0,
@@ -992,6 +1061,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         avgTimeBetweenStopsMins: 0,
         firstStopAt: null,
         lastStopAt: null,
+        isOngoing: false,
         returnCycleDays: 14
       };
     }
@@ -1037,43 +1107,42 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     const firstStop = filtered[0];
     const lastStop = filtered[filtered.length - 1];
 
-    // Find if there is an active or registered route session for this seller and date
-    const matchedRoute = distinctSellerRoutes.find(r => {
-      const isDateMatch = routeDate === 'all' ? r.isToday : r.date === routeDate;
-      if (!isDateMatch) return false;
-      if (effectiveSeller !== 'all') {
-        const eff = effectiveSeller.toLowerCase();
-        const rId = String(r.sellerId || '').toLowerCase();
-        const rEmail = String(r.sellerEmail || '').toLowerCase();
-        const rName = String(r.sellerName || '').toLowerCase();
-        return rId === eff || rEmail === eff || rName === eff;
+    // Determine initial departure time (firstStopAt)
+    let firstStopAt: string | null = null;
+    if (matchedRoute?.startedAt && diaGuatemala(matchedRoute.startedAt) === targetDate) {
+      if (firstStop && new Date(firstStop.createdAt).getTime() < new Date(matchedRoute.startedAt).getTime()) {
+        firstStopAt = firstStop.createdAt;
+      } else {
+        firstStopAt = matchedRoute.startedAt;
       }
-      return true;
-    });
-
-    const isRouteActive = matchedRoute ? matchedRoute.status === 'active' : isTodayGuatemala(routeDate === 'all' ? new Date().toISOString() : routeDate);
-
-    // Initial departure time: route startedAt if earlier than first stop, otherwise first stop
-    const firstStopAt = (matchedRoute?.startedAt && new Date(matchedRoute.startedAt).getTime() <= new Date(firstStop.createdAt).getTime())
-      ? matchedRoute.startedAt
-      : firstStop.createdAt;
-
-    // End time of the route:
-    let lastStopAt: string;
-    let isOngoing = false;
-
-    if (isRouteActive && (matchedRoute?.isToday || routeDate === 'all' || isTodayGuatemala(routeDate))) {
-      lastStopAt = new Date().toISOString();
-      isOngoing = true;
-    } else if (matchedRoute?.finishedAt) {
-      lastStopAt = matchedRoute.finishedAt;
     } else {
-      lastStopAt = lastStop.createdAt;
+      firstStopAt = firstStop?.createdAt || null;
     }
 
-    const startMs = new Date(firstStopAt).getTime();
-    const endMs = new Date(lastStopAt).getTime();
-    const totalDurationMins = Math.max(1, Math.round((endMs - startMs) / 60000));
+    // Determine end time of the route (lastStopAt)
+    let lastStopAt: string | null = null;
+    let isOngoing = false;
+
+    if (isRouteActive) {
+      lastStopAt = new Date().toISOString();
+      isOngoing = true;
+    } else if (matchedRoute?.finishedAt && diaGuatemala(matchedRoute.finishedAt) === targetDate) {
+      lastStopAt = matchedRoute.finishedAt;
+      isOngoing = false;
+    } else if (lastStop) {
+      lastStopAt = lastStop.createdAt;
+      isOngoing = false;
+    } else if (firstStopAt) {
+      lastStopAt = firstStopAt;
+      isOngoing = false;
+    }
+
+    let totalDurationMins = 0;
+    if (firstStopAt && lastStopAt) {
+      const startMs = new Date(firstStopAt).getTime();
+      const endMs = new Date(lastStopAt).getTime();
+      totalDurationMins = Math.max(0, Math.round((endMs - startMs) / 60000));
+    }
     const avgTimeBetweenStopsMins = stops.length > 1 ? Math.round(totalDurationMins / (stops.length - 1)) : 0;
 
     // Calculate Return Cycle (average days between recurring visits to same client)
@@ -1353,7 +1422,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                     </span>
                   </div>
                   <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
-                    📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length} clientes visitados hoy en esta ruta
+                    📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt) && (v.routeId === myActiveRoute.id || v.sellerId === myActiveRoute.sellerId || (myActiveRoute.sellerName && v.sellerName?.toLowerCase() === myActiveRoute.sellerName.toLowerCase()))).length} clientes visitados hoy en esta ruta
                   </p>
                 </div>
               </div>
@@ -1816,10 +1885,10 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
       {/* CONTROL & SUPERVISION TABS */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-        {/* Navigation Tabs Bar */}
-        <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/70">
+        {/* Navigation Tabs Bar - Full Width Scrollable, Never squished */}
+        <div className="p-3 sm:p-3.5 border-b border-slate-100 bg-slate-50/70 overflow-x-auto hide-scrollbar">
           {/* Segmented Tab Buttons */}
-          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl flex-nowrap overflow-x-auto hide-scrollbar gap-1 max-w-full shrink-0">
+          <div className="flex items-center bg-slate-200/70 p-1 rounded-xl flex-nowrap gap-1 w-max">
             <button
               type="button"
               onClick={() => setActiveTab('my_portfolio')}
@@ -1836,6 +1905,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               onClick={() => {
                 setActiveTab('routes');
                 setIsRouteTraceActive(true);
+                if (routeDate === 'all' || !routeDate) {
+                  setRouteDate(getGuatemalaTodayIso());
+                }
               }}
               className={cn(
                 "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5",
@@ -1883,25 +1955,38 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               </button>
             )}
           </div>
+        </div>
 
+        {/* Search and Filters Dedicated Toolbar - Fully visible, responsive, zero overflow */}
+        {activeTab !== 'control' && activeTab !== 'routes' && (
+          <div className="p-3 sm:p-4 border-b border-slate-100 bg-white flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Search Input */}
+            <div className="relative flex-1 min-w-[220px] max-w-md">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+              <input
+                type="text"
+                placeholder={activeTab === 'my_portfolio' ? "Buscar cliente, código o dirección..." : "Buscar cliente, notas o asesor..."}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400 transition-all shadow-2xs"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Borrar búsqueda"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
 
-          {/* Search and Filters Contextual to Active Tab */}
-          {activeTab !== 'control' && (
+            {/* Filter Dropdowns */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                <input
-                  type="text"
-                  placeholder="Buscar cliente, código o dirección..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400 w-48 sm:w-64"
-                />
-              </div>
-
               {/* Scope Badge for Sellers */}
               {activeTab === 'my_portfolio' && user.role === 'seller' && (
-                <div className="flex items-center bg-teal-50 border border-teal-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-teal-800 shadow-2xs">
+                <div className="flex items-center bg-teal-50 border border-teal-200/80 rounded-xl px-3 py-2 text-xs font-bold text-teal-800 shadow-2xs">
                   <span>👤 Mi Cartera Asignada</span>
                 </div>
               )}
@@ -1911,16 +1996,17 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 <select
                   value={selectedDateRangeFilter}
                   onChange={(e) => setSelectedDateRangeFilter(e.target.value as any)}
-                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs hover:border-slate-300"
                 >
                   <option value="all">📅 Todas las Fechas</option>
-                  <option value="today">Solo Hoy</option>
-                  <option value="7days">Últimos 7 Días</option>
-                  <option value="month">Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
-                  <option value="last_month">Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
+                  <option value="today">📅 Solo Hoy</option>
+                  <option value="7days">📅 Últimos 7 Días</option>
+                  <option value="month">📅 Este Mes ({getNombreMesGuatemala(getMesActualGuatemala())})</option>
+                  <option value="last_month">📅 Mes Pasado ({getNombreMesGuatemala(getMesPasadoGuatemala())})</option>
                 </select>
               )}
 
+              {/* Seller Filter for Admin */}
               {user.role === 'admin' && availableSellers.length > 0 && activeTab !== 'routes' && (
                 <select
                   value={selectedSellerFilter}
@@ -1929,11 +2015,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                     setSelectedSellerFilter(val);
                     setRouteSellerId(val);
                   }}
-                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs hover:border-slate-300"
                 >
                   <option value="all">👤 Todos los Asesores</option>
                   {availableSellers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>👤 {s.name}</option>
                   ))}
                 </select>
               )}
@@ -1943,7 +2029,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                   <select
                     value={locationFilter}
                     onChange={(e) => setLocationFilter(e.target.value as any)}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs hover:border-slate-300"
                   >
                     <option value="all">📍 Estado GPS: Todos</option>
                     <option value="with_location">📍 Con GPS Fijado</option>
@@ -1953,18 +2039,40 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                   <select
                     value={frequencyFilter}
                     onChange={(e) => setFrequencyFilter(e.target.value as any)}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer"
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs hover:border-slate-300"
                   >
-                    <option value="all">Frecuencia: Todas</option>
+                    <option value="all">⏱️ Frecuencia: Todas</option>
                     <option value="urgent">🔴 Sin visita reciente (&gt;15 días)</option>
                     <option value="regular">🟢 Al día (&lt;7 días)</option>
                     <option value="never">⚪ Sin visitas</option>
                   </select>
                 </>
               )}
+
+              {/* Reset button if any filter is active */}
+              {(searchTerm || selectedSellerFilter !== (user.role === 'seller' ? user.email || user.id : 'all') || locationFilter !== 'all' || frequencyFilter !== 'all' || (activeTab === 'timeline' && selectedDateRangeFilter !== 'all')) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    if (user.role === 'admin') {
+                      setSelectedSellerFilter('all');
+                      setRouteSellerId('all');
+                    }
+                    setLocationFilter('all');
+                    setFrequencyFilter('all');
+                    setSelectedDateRangeFilter('all');
+                  }}
+                  className="px-2.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1 active:scale-95"
+                  title="Restablecer filtros"
+                >
+                  <X size={13} />
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* TAB 1: MY PORTFOLIO WITH LOCATION & TIME SINCE LAST VISIT */}
         {activeTab === 'my_portfolio' && (

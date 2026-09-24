@@ -826,6 +826,23 @@ export function diaGuatemala(fecha?: any): string {
 }
 
 /**
+ * Calcula la diferencia en días calendario exactos en zona horaria de Guatemala (UTC-6).
+ * 0 = Mismo día calendario ("Hoy")
+ * 1 = Día calendario anterior ("Ayer")
+ * 2+ = Hace N días
+ */
+export function getDiffCalendarDaysGT(visitDateIso?: string | null, todayIso: string = diaGuatemala()): number | null {
+  if (!visitDateIso) return null;
+  const vDate = diaGuatemala(visitDateIso);
+  if (!vDate) return null;
+  const [y1, m1, d1] = vDate.split('-').map(Number);
+  const [y2, m2, d2] = todayIso.split('-').map(Number);
+  const utcV = Date.UTC(y1, m1 - 1, d1);
+  const utcT = Date.UTC(y2, m2 - 1, d2);
+  return Math.round((utcT - utcV) / (1000 * 60 * 60 * 24));
+}
+
+/**
  * Retorna el año-mes actual en hora de Guatemala ("YYYY-MM").
  * Ejemplo en Septiembre 2026: "2026-09" (del 1 al 30 de septiembre)
  */

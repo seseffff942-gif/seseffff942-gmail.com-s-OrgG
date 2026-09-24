@@ -4,9 +4,10 @@ import L from 'leaflet';
 import { 
   Navigation, Layers, MapPin, Compass, ExternalLink, 
   Phone, Building2, Clock, CheckCircle2, AlertTriangle, 
-  Plus, RefreshCw, ZoomIn, ZoomOut, Search, X, Crosshair
+  Plus, RefreshCw, ZoomIn, ZoomOut, Search, X, Crosshair,
+  Calendar, Maximize2, Minimize2, Eye, EyeOff
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isClientOfSeller } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isClientOfSeller, diaGuatemala, getMesPasadoGuatemala, getDiffCalendarDaysGT } from '../utils';
 
 interface ClientVisitsMapProps {
   clients: Client[];
@@ -47,7 +48,6 @@ const GUATEMALA_REGIONS: RegionShortcut[] = [
   { id: 'oriente', name: 'Oriente (Zacapa/Chiquimula)', coords: [14.9722, -89.5306], zoom: 10, icon: '☀️' },
   { id: 'sur', name: 'Sur (Escuintla/Costa)', coords: [14.3009, -90.7850], zoom: 10, icon: '🌴' }
 ];
-
 export function ClientVisitsMap({
   clients,
   visits,
@@ -77,9 +77,19 @@ export function ClientVisitsMap({
   const clientMarkersMapRef = useRef<Map<string, L.Marker>>(new Map());
 
   const [mapType, setMapType] = useState<'satellite' | 'earth' | 'streets' | 'terrain' | 'esri'>('satellite');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'visited' | 'pending'>('all');
+  const [mapDateFilter, setMapDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'last_month'>('all');
+  const [mapSearchTerm, setMapSearchTerm] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<string>('all');
+
+  // Fullscreen & Clean View Controls
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+
+  const GUATEMALA_CENTER: [number, number] = [15.2, -90.35];
+
   // Handler to clear all client pins from the map
   const handleClearAllPins = () => {
-    // Remove all client markers from the layer group
     if (clientMarkersMapRef.current && markersLayerRef.current) {
       clientMarkersMapRef.current.forEach((marker) => {
         markersLayerRef.current?.removeLayer(marker);
@@ -87,11 +97,98 @@ export function ClientVisitsMap({
       clientMarkersMapRef.current.clear();
     }
   };
-  const [activeFilter, setActiveFilter] = useState<'all' | 'visited' | 'pending'>('all');
-  const [mapSearchTerm, setMapSearchTerm] = useState('');
-  const [selectedRegion, setSelectedRegion] = useState<string>('all');
 
-  const GUATEMALA_CENTER: [number, number] = [15.2, -90.35];
+  // Toggle fullscreen mode
+  const toggleFullscreen = () => {
+    setIsFullscreen(prev => !prev);
+  };
+
+  // Keep map dimensions responsive to fullscreen and window changes
+  useEffect(() => {
+    const t1 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 80);
+    const t2 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 250);
+    const t3 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 500);
+
+    if (isFullscreen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      document.body.style.overflow = '';
+    };
+  }, [isFullscreen]);
+
+  // Handle Esc key to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
+  // Toggle visibility of clear-pins button based on showControls
+  useEffect(() => {
+    const clearBtnEl = document.getElementById('leaflet-clear-pins-btn');
+    if (clearBtnEl) {
+      clearBtnEl.style.display = showControls ? 'flex' : 'none';
+    }
+  }, [showControls]);
+
+  // Compute visits stats by date range for filter dropdown
+  const userClients = useMemo(() => {
+    return currentUser.role === 'seller' ? clients.filter(c => isClientOfSeller(c, currentUser)) : clients;
+  }, [clients, currentUser]);
+
+  const dateCounts = useMemo(() => {
+    let today = 0;
+    let yesterday = 0;
+    let week = 0;
+    let month = 0;
+    const todayGT = diaGuatemala();
+    const currentMonthGT = todayGT.slice(0, 7);
+
+    // Build client latest visit map
+    const cMap = new Map<string, ClientVisit>();
+    visits.forEach(v => {
+      if (!v.createdAt) return;
+      const cId = String(v.clientId || (v as any).client_id || '').trim();
+      const cName = String(v.clientName || (v as any).client_name || '').trim().toLowerCase();
+      const cCode = String(v.clientCode || (v as any).client_code || '').trim().toLowerCase();
+      const checkAndSet = (k: string) => {
+        const ex = cMap.get(k);
+        if (!ex || new Date(v.createdAt).getTime() > new Date(ex.createdAt).getTime()) {
+          cMap.set(k, v);
+        }
+      };
+      if (cId) checkAndSet(cId);
+      if (cName) checkAndSet(cName);
+      if (cCode) checkAndSet(cCode);
+    });
+
+    userClients.forEach(c => {
+      if (!c.latitude || !c.longitude) return;
+      const cIdKey = String(c.id || '').trim();
+      const cNameKey = String(c.name || '').trim().toLowerCase();
+      const cCodeKey = String(c.clientCode || '').trim().toLowerCase();
+      const lv = cMap.get(cIdKey) || cMap.get(cNameKey) || (cCodeKey ? cMap.get(cCodeKey) : undefined);
+      if (!lv) return;
+      const diff = getDiffCalendarDaysGT(lv.createdAt, todayGT);
+      if (diff === 0) today++;
+      if (diff === 1) yesterday++;
+      if (diff !== null && diff >= 0 && diff <= 7) week++;
+      if (diaGuatemala(lv.createdAt).slice(0, 7) === currentMonthGT) month++;
+    });
+
+    return { today, yesterday, week, month };
+  }, [userClients, visits]);
 
   // Initialize Map
   useEffect(() => {
@@ -178,19 +275,6 @@ export function ClientVisitsMap({
         maxNativeZoom: 20,
         attribution: '&copy; Google Maps'
       }).addTo(map);
-    } else if (mapType === 'terrain') {
-      L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
-        subdomains: '0123',
-        maxZoom: 20,
-        maxNativeZoom: 18,
-        attribution: '&copy; Google Maps'
-      }).addTo(map);
-    } else if (mapType === 'esri') {
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 21,
-        maxNativeZoom: 17,
-        attribution: '&copy; Esri World Imagery'
-      }).addTo(map);
     } else if (mapType === 'earth') {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
         subdomains: '0123',
@@ -198,12 +282,24 @@ export function ClientVisitsMap({
         maxNativeZoom: 20,
         attribution: '&copy; Google Earth'
       }).addTo(map);
-    } else {
+    } else if (mapType === 'streets') {
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         subdomains: '0123',
         maxZoom: 21,
         maxNativeZoom: 20,
         attribution: '&copy; Google Maps'
+      }).addTo(map);
+    } else if (mapType === 'terrain') {
+      L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+        subdomains: '0123',
+        maxZoom: 21,
+        maxNativeZoom: 20,
+        attribution: '&copy; Google Terrain'
+      }).addTo(map);
+    } else if (mapType === 'esri') {
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; Esri World Imagery'
       }).addTo(map);
     }
   }, [mapType]);
@@ -275,18 +371,29 @@ export function ClientVisitsMap({
     markersGroup.clearLayers();
     clientMarkersMapRef.current.clear();
 
+    // Map each client to their truly latest visit chronologically
     const clientVisitMap = new Map<string, ClientVisit>();
     visits.forEach(v => {
+      if (!v.createdAt) return;
       const cId = String(v.clientId || (v as any).client_id || '').trim();
       const cName = String(v.clientName || (v as any).client_name || '').trim().toLowerCase();
       const cCode = String(v.clientCode || (v as any).client_code || '').trim().toLowerCase();
-      if (cId && !clientVisitMap.has(cId)) clientVisitMap.set(cId, v);
-      if (cName && !clientVisitMap.has(cName)) clientVisitMap.set(cName, v);
-      if (cCode && !clientVisitMap.has(cCode)) clientVisitMap.set(cCode, v);
+
+      const updateIfNewer = (key: string) => {
+        const existing = clientVisitMap.get(key);
+        if (!existing || new Date(v.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+          clientVisitMap.set(key, v);
+        }
+      };
+
+      if (cId) updateIfNewer(cId);
+      if (cName) updateIfNewer(cName);
+      if (cCode) updateIfNewer(cCode);
     });
 
-    const now = new Date().getTime();
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const todayGT = diaGuatemala();
+    const currentMonthGT = todayGT.slice(0, 7);
+    const lastMonthGT = getMesPasadoGuatemala();
     const searchTermNorm = normalizeSearchText(mapSearchTerm);
 
     const userClients = currentUser.role === 'seller' ? clients.filter(c => isClientOfSeller(c, currentUser)) : clients;
@@ -298,10 +405,24 @@ export function ClientVisitsMap({
       const cNameKey = String(c.name || '').trim().toLowerCase();
       const cCodeKey = String(c.clientCode || '').trim().toLowerCase();
       const lastVisit = clientVisitMap.get(cIdKey) || clientVisitMap.get(cNameKey) || (cCodeKey ? clientVisitMap.get(cCodeKey) : undefined);
-      const isRecentlyVisited = lastVisit && (now - new Date(lastVisit.createdAt).getTime() < SEVEN_DAYS_MS);
+      
+      const diffDays = lastVisit ? getDiffCalendarDaysGT(lastVisit.createdAt, todayGT) : null;
+      const isRecentlyVisited = diffDays !== null && diffDays <= 7;
 
-      if (activeFilter === 'visited' && !isRecentlyVisited) return false;
+      // Status Filter
+      if (activeFilter === 'visited' && !lastVisit) return false;
       if (activeFilter === 'pending' && isRecentlyVisited) return false;
+
+      // Date Range Filter (Estilo Ventas)
+      if (mapDateFilter !== 'all') {
+        if (!lastVisit) return false;
+        const vDia = diaGuatemala(lastVisit.createdAt);
+        if (mapDateFilter === 'today' && diffDays !== 0) return false;
+        if (mapDateFilter === 'yesterday' && diffDays !== 1) return false;
+        if (mapDateFilter === 'week' && (diffDays === null || diffDays > 7 || diffDays < 0)) return false;
+        if (mapDateFilter === 'month' && vDia.slice(0, 7) !== currentMonthGT) return false;
+        if (mapDateFilter === 'last_month' && vDia.slice(0, 7) !== lastMonthGT) return false;
+      }
 
       if (searchTermNorm) {
         const matchName = normalizeSearchText(c.name).includes(searchTermNorm);
@@ -321,23 +442,43 @@ export function ClientVisitsMap({
       const cNameKey = String(client.name || '').trim().toLowerCase();
       const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
       const lastVisit = clientVisitMap.get(cIdKey) || clientVisitMap.get(cNameKey) || (cCodeKey ? clientVisitMap.get(cCodeKey) : undefined);
-      const daysSinceVisit = lastVisit 
-        ? Math.max(0, Math.floor((now - new Date(lastVisit.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
-        : null;
+      
+      // Calculate exact Guatemala calendar day difference
+      const diffDays = lastVisit ? getDiffCalendarDaysGT(lastVisit.createdAt, todayGT) : null;
+      const isToday = diffDays === 0;
+      const isYesterday = diffDays === 1;
+      const isVisitedRecently = diffDays !== null && diffDays <= 7;
+      const isUrgent = diffDays !== null && diffDays > 15;
 
-      const isVisitedRecently = daysSinceVisit !== null && daysSinceVisit <= 7;
-      const isUrgent = daysSinceVisit !== null && daysSinceVisit > 15;
+      const pinColor = isToday 
+        ? '#10b981' // Verde esmeralda vivo para HOY
+        : isYesterday 
+          ? '#0284c7' // Azul cielo para AYER
+          : isVisitedRecently 
+            ? '#0d9488' // Teal para esta semana (<7d)
+            : isUrgent 
+              ? '#ef4444' // Rojo para urgente (>15d)
+              : lastVisit 
+                ? '#00696a' // Verde azulado estándar
+                : '#64748b'; // Slate para clientes sin visita
 
-      const pinColor = isVisitedRecently ? '#10b981' : isUrgent ? '#ef4444' : '#00696a';
-      const badgeText = daysSinceVisit === null 
+      const badgeText = diffDays === null 
         ? 'Sin Visita' 
-        : daysSinceVisit === 0 
+        : isToday 
           ? 'Hoy' 
-          : `${daysSinceVisit}d`;
+          : isYesterday 
+            ? 'Ayer' 
+            : `${diffDays}d`;
+
+      const badgeStyle = isToday
+        ? 'background: linear-gradient(135deg, #059669, #10b981); box-shadow: 0 2px 6px rgba(16,185,129,0.45);'
+        : isYesterday
+          ? 'background: linear-gradient(135deg, #0284c7, #38bdf8); box-shadow: 0 2px 6px rgba(2,132,199,0.45);'
+          : `background-color: ${pinColor};`;
 
       const pinHtml = `
         <div class="flex flex-col items-center group cursor-pointer">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-bold text-white shadow-sm transition-transform transform group-hover:scale-110 whitespace-nowrap mb-0.5 font-sans" style="background-color: ${pinColor}">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white transition-transform transform group-hover:scale-110 whitespace-nowrap mb-0.5 font-sans" style="${badgeStyle}">
             ${badgeText}
           </div>
           <div class="w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-white text-[11px] font-bold transition-transform group-hover:scale-110" style="background-color: ${pinColor}">
@@ -371,8 +512,16 @@ export function ClientVisitsMap({
         <div class="space-y-1 text-[11px] text-slate-600">
           ${client.phone ? `<p class="flex items-center gap-1.5">📞 <a href="tel:${client.phone}" class="text-teal-700 font-bold hover:underline">${client.phone}</a></p>` : ''}
           ${client.address ? `<p class="flex items-center gap-1.5 text-slate-500">🏢 ${client.address}</p>` : ''}
-          <p class="flex items-center gap-1.5 font-medium ${isVisitedRecently ? 'text-emerald-700' : 'text-slate-600'}">
-            🕒 Última Visita: ${lastVisit ? `${daysSinceVisit === 0 ? 'Hoy' : `Hace ${daysSinceVisit} días`} (${fechaDDMMYYYY(lastVisit.createdAt)})` : '<span class="text-slate-400 font-bold">Sin visitas registradas</span>'}
+          <p class="flex items-center gap-1.5 font-medium">
+            🕒 Última Visita: ${
+              !lastVisit 
+                ? '<span class="text-slate-400 font-bold">Sin visitas registradas</span>' 
+                : isToday 
+                  ? `<span class="text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Hoy · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
+                  : isYesterday
+                    ? `<span class="text-sky-700 font-black bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">Ayer · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
+                    : `<span class="${isUrgent ? 'text-rose-700 font-black' : 'text-slate-700 font-bold'}">Hace ${diffDays} días (${fechaDDMMYYYY(lastVisit.createdAt)})</span>`
+            }
           </p>
         </div>
 
@@ -437,7 +586,7 @@ export function ClientVisitsMap({
         }
       });
     });
-  }, [clients, visits, activeFilter, mapSearchTerm, onOpenMarkClientModalForClient, onClearClientLocation]);
+  }, [clients, visits, activeFilter, mapDateFilter, mapSearchTerm, onOpenMarkClientModalForClient, onClearClientLocation]);
 
   // Draw Sequential Route Polyline & Stops (Admin Route Audit)
   useEffect(() => {
@@ -447,245 +596,203 @@ export function ClientVisitsMap({
 
     if (!isRouteTraceActive) return;
 
-    // Do NOT draw a single criss-crossing line if no seller or date is selected
     if ((!routeSellerId || routeSellerId === 'all') && (!routeDate || routeDate === 'all')) {
       return;
     }
 
-    // 1. Identify matching seller route session for starting point
-    const targetRoute = sellerRoutes?.find(r => {
-      const matchSeller = routeSellerId === 'all' || r.sellerId === routeSellerId || r.sellerEmail === routeSellerId || r.sellerName === routeSellerId;
-      const rDate = r.date || (r.startedAt ? r.startedAt.split('T')[0] : '');
-      const matchDate = routeDate === 'all' || rDate === routeDate;
+    let targetDate = routeDate;
+    if (!targetDate || targetDate === 'all') {
+      const activeOrLatest = (sellerRoutes || []).find(r => r.status === 'active') || activeRoute || (sellerRoutes || [])[0];
+      targetDate = activeOrLatest?.date || diaGuatemala(activeOrLatest?.startedAt || activeOrLatest?.createdAt) || diaGuatemala();
+    }
+
+    const routeVisits = visits.filter(v => {
+      if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
+      if (routeSellerId && routeSellerId !== 'all') {
+        const eff = routeSellerId.toLowerCase();
+        const vId = String(v.sellerId || '').toLowerCase();
+        const vEmail = String(v.sellerEmail || '').toLowerCase();
+        const vName = String(v.sellerName || '').toLowerCase();
+        if (vId !== eff && vEmail !== eff && vName !== eff) return false;
+      }
+      // Strict Guatemala date filter: never connect visits across different days!
+      const vDate = diaGuatemala(v.createdAt);
+      if (vDate !== targetDate) return false;
+      return true;
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    const matchedRoute = (sellerRoutes || []).find(r => {
+      if (routeVisits[0] && (r.id === (routeVisits[0] as any)?.routeId)) return true;
+      const rDate = r.date || diaGuatemala(r.startedAt || r.createdAt);
+      const matchSeller = routeSellerId !== 'all' ? (
+        r.sellerId === routeSellerId || 
+        r.sellerEmail?.toLowerCase() === routeSellerId.toLowerCase() ||
+        r.sellerName?.toLowerCase() === routeSellerId.toLowerCase()
+      ) : true;
+      const matchDate = rDate === targetDate;
       return matchSeller && matchDate;
-    }) || (activeRoute && (routeSellerId === 'all' || activeRoute.sellerId === routeSellerId || activeRoute.sellerEmail === routeSellerId) ? activeRoute : null);
+    }) || activeRoute;
 
-    const hasRouteStart = Boolean(targetRoute && targetRoute.startLatitude && targetRoute.startLongitude && !isNaN(Number(targetRoute.startLatitude)) && !isNaN(Number(targetRoute.startLongitude)));
-    const startPoint: [number, number] | null = hasRouteStart && targetRoute ? [Number(targetRoute.startLatitude), Number(targetRoute.startLongitude)] : null;
+    const hasRouteStart = Boolean(matchedRoute?.startLatitude && matchedRoute?.startLongitude);
+    const hasRouteEnd = Boolean(matchedRoute?.endLatitude && matchedRoute?.endLongitude);
 
-    const endLatRaw = targetRoute ? (targetRoute.endLatitude !== undefined && targetRoute.endLatitude !== null ? targetRoute.endLatitude : (targetRoute as any).end_latitude) : null;
-    const endLngRaw = targetRoute ? (targetRoute.endLongitude !== undefined && targetRoute.endLongitude !== null ? targetRoute.endLongitude : (targetRoute as any).end_longitude) : null;
-    const hasRouteEnd = Boolean(targetRoute && endLatRaw !== null && endLngRaw !== null && !isNaN(Number(endLatRaw)) && !isNaN(Number(endLngRaw)));
-    const endPoint: [number, number] | null = hasRouteEnd ? [Number(endLatRaw), Number(endLngRaw)] : null;
+    if (routeVisits.length === 0 && !hasRouteStart && !hasRouteEnd) return;
+
+    const latLngs: [number, number][] = [];
+    const startPoint: [number, number] | null = hasRouteStart ? [matchedRoute!.startLatitude!, matchedRoute!.startLongitude!] : null;
+    const endPoint: [number, number] | null = hasRouteEnd ? [matchedRoute!.endLatitude!, matchedRoute!.endLongitude!] : null;
+
+    if (startPoint) latLngs.push(startPoint);
+    routeVisits.forEach(v => latLngs.push([v.latitude, v.longitude]));
+    if (endPoint) latLngs.push(endPoint);
+
+    if (latLngs.length > 1) {
+      const polyline = L.polyline(latLngs, {
+        color: '#00696a',
+        weight: 5,
+        opacity: 0.9,
+        lineCap: 'round',
+        lineJoin: 'round',
+        dashArray: '10, 10'
+      }).addTo(routeGroup);
+
+      if (!focusLocation) {
+        mapInstanceRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], maxZoom: 14 });
+      }
+    }
 
     let startMarkerInstance: L.Marker | null = null;
-    if (hasRouteStart && startPoint && targetRoute) {
-      const sellerDisplayName = targetRoute.sellerName || 'Vendedor';
+    let endMarkerInstance: L.Marker | null = null;
+
+    if (startPoint && matchedRoute) {
+      const startTime = matchedRoute.startedAt ? new Date(matchedRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       const startHtml = `
-        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
-          <div class="px-2.5 py-1 rounded-full text-[10px] font-black text-white bg-emerald-600 shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1 border border-white">
-            <span>🟢 Inicio: ${sellerDisplayName}</span>
+        <div class="flex flex-col items-center group cursor-pointer">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight bg-emerald-600">
+            🟢 INICIO DE RUTA ${startTime ? `· ${startTime}` : ''}
           </div>
-          <div class="w-8 h-8 rounded-full bg-emerald-700 border-2 border-white shadow-lg flex items-center justify-center text-white text-sm font-bold">
-            🚗
+          <div class="w-8 h-8 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-black bg-emerald-600 transition-transform group-hover:scale-125">
+            🏁
           </div>
         </div>
       `;
-
       const startIcon = L.divIcon({
-        className: 'custom-route-start-pin',
+        className: 'custom-map-route-start-pin',
         html: startHtml,
-        iconSize: [44, 48],
-        iconAnchor: [22, 42]
+        iconSize: [52, 58],
+        iconAnchor: [26, 54],
+        popupAnchor: [0, -50]
       });
 
       startMarkerInstance = L.marker(startPoint, { icon: startIcon, zIndexOffset: 2500 })
         .addTo(routeGroup)
         .bindPopup(`
-          <div class="p-3 text-xs font-sans min-w-[200px]">
-            <p class="font-black text-emerald-800 text-sm flex items-center gap-1">🟢 Punto de Inicio de Ruta</p>
-            <p class="font-bold text-slate-800 mt-1">👤 ${sellerDisplayName}</p>
-            <p class="text-slate-500 text-[11px] mt-0.5">⏰ ${targetRoute.startedAt ? new Date(targetRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}</p>
-            <p class="text-slate-500 font-mono text-[10px] mt-1">📍 ${startPoint[0].toFixed(6)}, ${startPoint[1].toFixed(6)}</p>
-            ${targetRoute.notes ? `<p class="text-[11px] text-slate-600 mt-1 bg-slate-50 p-1.5 rounded border border-slate-100">📝 ${targetRoute.notes}</p>` : ''}
+          <div class="p-3 text-slate-800 text-xs font-sans space-y-1.5">
+            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white bg-emerald-600">
+              🏁 Punto de Partida / Apertura
+            </span>
+            <h4 class="font-black text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
+            ${matchedRoute.startAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.startAddress}</p>` : ''}
+            <p class="text-slate-400 text-[10px]">Hora: ${startTime || 'Inicio de jornada'}</p>
           </div>
         `);
     }
 
-    let endMarkerInstance: L.Marker | null = null;
-    if (hasRouteEnd && endPoint && targetRoute) {
-      const sellerDisplayName = targetRoute.sellerName || 'Vendedor';
+    if (endPoint && matchedRoute) {
+      const endTime = matchedRoute.endedAt ? new Date(matchedRoute.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       const endHtml = `
-        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
-          <div class="px-2.5 py-1 rounded-full text-[10px] font-black text-white bg-slate-900 shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1 border border-white">
-            <span>🏁 Cierre: ${sellerDisplayName}</span>
+        <div class="flex flex-col items-center group cursor-pointer">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight bg-rose-600">
+            🔴 CIERRE DE RUTA ${endTime ? `· ${endTime}` : ''}
           </div>
-          <div class="w-8 h-8 rounded-full bg-slate-900 border-2 border-white shadow-lg flex items-center justify-center text-white text-sm font-bold">
-            🏁
+          <div class="w-8 h-8 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-black bg-rose-600 transition-transform group-hover:scale-125">
+            🛑
           </div>
         </div>
       `;
-
       const endIcon = L.divIcon({
-        className: 'custom-route-end-pin',
+        className: 'custom-map-route-end-pin',
         html: endHtml,
-        iconSize: [44, 48],
-        iconAnchor: [22, 42]
+        iconSize: [52, 58],
+        iconAnchor: [26, 54],
+        popupAnchor: [0, -50]
       });
 
       endMarkerInstance = L.marker(endPoint, { icon: endIcon, zIndexOffset: 2600 })
         .addTo(routeGroup)
         .bindPopup(`
-          <div class="p-3 text-xs font-sans min-w-[220px]">
-            <p class="font-black text-slate-900 text-sm flex items-center gap-1">🏁 Punto de Cierre / Fin de Ruta</p>
-            <p class="font-bold text-slate-800 mt-1">👤 Asesor: ${sellerDisplayName}</p>
-            <p class="text-slate-600 text-[11px] mt-0.5">⏰ Finalizada: ${targetRoute.finishedAt ? new Date(targetRoute.finishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Jornada Cerrada'}</p>
-            <p class="text-slate-500 font-mono text-[10px] mt-1">📍 Coords: ${endPoint[0].toFixed(6)}, ${endPoint[1].toFixed(6)}</p>
-            ${targetRoute.totalDistanceKm ? `<p class="text-[11px] font-semibold text-teal-700 mt-1">🚗 ${targetRoute.totalDistanceKm} km recorridos</p>` : ''}
-            ${targetRoute.notes ? `<p class="text-[11px] text-slate-700 mt-1 bg-amber-50 border border-amber-200 p-1.5 rounded">📝 ${targetRoute.notes}</p>` : ''}
+          <div class="p-3 text-slate-800 text-xs font-sans space-y-1.5">
+            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white bg-rose-600">
+              🛑 Cierre de Jornada / Fin de Ruta
+            </span>
+            <h4 class="font-black text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
+            ${matchedRoute.endAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.endAddress}</p>` : ''}
+            <p class="text-slate-400 text-[10px]">Hora cierre: ${endTime || 'Cierre registrado'}</p>
+            ${matchedRoute.closureNotes ? `<p class="italic text-slate-600 bg-slate-50 p-1 rounded border">"${matchedRoute.closureNotes}"</p>` : ''}
           </div>
         `);
     }
 
-    // Filter and sort visits chronologically
-    const routeVisits = visits.filter(v => {
-      if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
-      if (routeSellerId && routeSellerId !== 'all') {
-        const match = v.sellerId === routeSellerId || v.sellerEmail === routeSellerId || v.sellerName === routeSellerId;
-        if (!match) return false;
-      }
-      if (routeDate && routeDate !== 'all') {
-        const vDate = (v.createdAt || '').split('T')[0];
-        if (vDate !== routeDate) return false;
-      }
-      return true;
-    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-    // If no visits recorded yet, center directly on route start or end point!
-    if (routeVisits.length === 0) {
-      if (hasRouteStart && startPoint && hasRouteEnd && endPoint && mapInstanceRef.current) {
-        const bounds = L.latLngBounds([startPoint, endPoint]);
-        mapInstanceRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
-        setTimeout(() => (endMarkerInstance || startMarkerInstance)?.openPopup(), 400);
-      } else if (hasRouteEnd && endPoint && mapInstanceRef.current) {
-        mapInstanceRef.current.setView(endPoint, 15, { animate: true });
-        setTimeout(() => endMarkerInstance?.openPopup(), 400);
-      } else if (hasRouteStart && startPoint && mapInstanceRef.current) {
-        mapInstanceRef.current.setView(startPoint, 15, { animate: true });
-        setTimeout(() => startMarkerInstance?.openPopup(), 400);
-      }
-      return;
-    }
-
-    // Group visits by seller so different sellers in different regions are never connected by a single line
-    const visitsBySeller = new Map<string, typeof routeVisits>();
-    routeVisits.forEach(v => {
-      const sKey = String(v.sellerId || v.sellerEmail || v.sellerName || 'vendedor').trim().toLowerCase();
-      if (!visitsBySeller.has(sKey)) visitsBySeller.set(sKey, []);
-      visitsBySeller.get(sKey)!.push(v);
-    });
-
-    const allRouteBounds = L.latLngBounds([]);
-
-    visitsBySeller.forEach((sVisits) => {
-      const sLatLngs: [number, number][] = [];
-      const matchRoute = targetRoute && (routeSellerId !== 'all' || targetRoute.sellerId === sVisits[0]?.sellerId);
-      if (hasRouteStart && startPoint && matchRoute) {
-        sLatLngs.push(startPoint);
-        allRouteBounds.extend(startPoint);
-      }
-      sVisits.forEach(v => {
-        sLatLngs.push([v.latitude, v.longitude]);
-        allRouteBounds.extend([v.latitude, v.longitude]);
-      });
-      if (hasRouteEnd && endPoint && matchRoute) {
-        sLatLngs.push(endPoint);
-        allRouteBounds.extend(endPoint);
-      }
-
-      if (sLatLngs.length > 1) {
-        // 1. Background glow line
-        L.polyline(sLatLngs, {
-          color: '#0d9488',
-          weight: 8,
-          opacity: 0.35,
-          lineCap: 'round',
-          lineJoin: 'round'
-        }).addTo(routeGroup);
-
-        // 2. Dynamic route line
-        L.polyline(sLatLngs, {
-          color: '#0f766e',
-          weight: 4,
-          dashArray: '8, 8',
-          opacity: 0.95,
-          lineCap: 'round',
-          lineJoin: 'round'
-        }).addTo(routeGroup);
-      }
-    });
-
-    if (allRouteBounds.isValid() && mapInstanceRef.current) {
-      try {
-        mapInstanceRef.current.fitBounds(allRouteBounds, { padding: [60, 60], maxZoom: 15 });
-      } catch (e) {}
-    } else if (routeVisits.length === 1 && mapInstanceRef.current) {
-      mapInstanceRef.current.setView([routeVisits[0].latitude, routeVisits[0].longitude], 15, { animate: true });
-    }
-
-    // Add Stop Numbers and Step Badges
     routeVisits.forEach((v, idx) => {
-      const isStart = idx === 0 && !hasRouteStart;
-      const isEnd = (idx === routeVisits.length - 1) && !hasRouteEnd;
       const stepNum = idx + 1;
-      
+      const isStart = idx === 0 && !hasRouteStart;
+      const isEnd = idx === routeVisits.length - 1 && !hasRouteEnd;
+
+      const stopColor = isStart ? '#10b981' : isEnd ? '#f59e0b' : '#00696a';
+      const stopIcon = isStart ? '🚀' : isEnd ? '🏁' : stepNum;
+
       const prevVisit = idx > 0 ? routeVisits[idx - 1] : null;
-      const isSameSeller = prevVisit && (
-        (prevVisit.sellerId && v.sellerId && prevVisit.sellerId === v.sellerId) ||
-        (prevVisit.sellerEmail && v.sellerEmail && prevVisit.sellerEmail.toLowerCase() === v.sellerEmail.toLowerCase()) ||
-        (prevVisit.sellerName && v.sellerName && prevVisit.sellerName.toLowerCase() === v.sellerName.toLowerCase())
-      );
-      const prevPoint = isSameSeller ? prevVisit : (hasRouteStart && startPoint && (routeSellerId !== 'all' || targetRoute?.sellerId === v.sellerId) ? { latitude: startPoint[0], longitude: startPoint[1], createdAt: targetRoute?.startedAt } : null);
+      const prevPoint = prevVisit ? [prevVisit.latitude, prevVisit.longitude] : startPoint;
       let timeFromPrev = '';
       let distFromPrev = '';
 
-      if (prevPoint) {
-        if (prevPoint.createdAt) {
-          const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(prevPoint.createdAt).getTime());
-          const diffMins = Math.round(diffMs / 60000);
-          const hours = Math.floor(diffMins / 60);
-          const mins = diffMins % 60;
-          timeFromPrev = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
-        }
+      if (prevVisit) {
+        const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(prevVisit.createdAt).getTime());
+        const mins = Math.round(diffMs / 60000);
+        timeFromPrev = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+      } else if (matchedRoute?.startedAt) {
+        const diffMs = Math.max(0, new Date(v.createdAt).getTime() - new Date(matchedRoute.startedAt).getTime());
+        const mins = Math.round(diffMs / 60000);
+        timeFromPrev = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m (desde inicio)` : `${mins} min (desde inicio)`;
+      }
 
-        const R = 6371; // km
-        const dLat = ((v.latitude - prevPoint.latitude) * Math.PI) / 180;
-        const dLon = ((v.longitude - prevPoint.longitude) * Math.PI) / 180;
+      if (prevPoint) {
+        const R = 6371;
+        const dLat = ((v.latitude - prevPoint[0]) * Math.PI) / 180;
+        const dLon = ((v.longitude - prevPoint[1]) * Math.PI) / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos((prevPoint.latitude * Math.PI) / 180) * 
+                  Math.cos((prevPoint[0] * Math.PI) / 180) * 
                   Math.cos((v.latitude * Math.PI) / 180) * 
                   Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distKm = Math.round(R * c * 10) / 10;
-        distFromPrev = `${distKm} km`;
+        const dKm = Math.round(R * c * 10) / 10;
+        distFromPrev = `${dKm} km`;
       }
 
-      const stopColor = isEnd ? '#f59e0b' : '#0f766e';
-      const stopIcon = isEnd ? '🏁' : `#${stepNum}`;
-
       const stopHtml = `
-        <div class="flex flex-col items-center group cursor-pointer animate-fade-in">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md transition-transform transform group-hover:scale-115 whitespace-nowrap mb-0.5 font-sans flex items-center gap-1" style="background-color: ${stopColor}">
-            <span>${isStart ? 'Primera Parada' : isEnd ? 'Última Parada' : `Parada ${stepNum}`}</span>
+        <div class="flex flex-col items-center group cursor-pointer">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight" style="background-color: ${stopColor}">
+            #${stepNum} · ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
-          <div class="w-7 h-7 rounded-full text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-lg transition-transform transform group-hover:scale-110" style="background-color: ${stopColor}">
+          <div class="w-7 h-7 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-xs font-black transition-transform group-hover:scale-125" style="background-color: ${stopColor}">
             ${stopIcon}
           </div>
         </div>
       `;
 
       const customStopIcon = L.divIcon({
-        className: 'custom-route-step-pin',
+        className: 'custom-map-route-stop-pin',
         html: stopHtml,
-        iconSize: [36, 44],
-        iconAnchor: [18, 40]
+        iconSize: [48, 54],
+        iconAnchor: [24, 50],
+        popupAnchor: [0, -48]
       });
 
       const popupHtml = `
         <div class="p-3.5 text-slate-800 text-xs max-w-xs space-y-2 font-sans">
           <div class="border-b border-slate-100 pb-1.5 flex items-center justify-between">
             <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white" style="background-color: ${stopColor}">
-              ${isStart ? '🚩 Primera Parada de Visitas' : isEnd ? '🏁 Última Parada de Visitas' : `📍 Parada #${stepNum}`}
+              ${isStart ? '🚀 Salida / Inicio de Visitas' : isEnd ? '🏁 Última Visita' : `📍 Parada #${stepNum}`}
             </span>
             <span class="text-[11px] font-bold text-slate-500 font-mono">
               ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -717,7 +824,6 @@ export function ClientVisitsMap({
         .bindPopup(popupHtml);
     });
 
-    // If focused on closure, open popup on end marker
     if (focusLocation && hasRouteEnd && endPoint && Math.abs(focusLocation.latitude - endPoint[0]) < 0.0001 && Math.abs(focusLocation.longitude - endPoint[1]) < 0.0001) {
       setTimeout(() => endMarkerInstance?.openPopup(), 400);
     } else if (focusLocation && hasRouteStart && startPoint && Math.abs(focusLocation.latitude - startPoint[0]) < 0.0001 && Math.abs(focusLocation.longitude - startPoint[1]) < 0.0001) {
@@ -768,133 +874,263 @@ export function ClientVisitsMap({
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
   const handleZoomOut = () => mapInstanceRef.current?.zoomOut();
 
-  const geotaggedTotal = clients.filter(c => c.latitude && c.longitude).length;
+  const geotaggedTotal = userClients.filter(c => c.latitude && c.longitude).length;
 
   return (
-    <div className="relative w-full h-[360px] sm:h-[460px] md:h-[580px] rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-100 flex flex-col">
+    <div 
+      className={cn(
+        "relative w-full overflow-hidden flex flex-col transition-all duration-300",
+        isFullscreen
+          ? "fixed inset-0 z-[99999] w-screen h-[100dvh] rounded-none border-0 shadow-none bg-slate-900"
+          : "h-[380px] sm:h-[480px] md:h-[600px] rounded-2xl shadow-xs border border-slate-200/80 bg-slate-100"
+      )}
+    >
       {/* Leaflet Map DOM */}
       <div ref={mapContainerRef} className="w-full h-full flex-1" />
 
-      {/* Top Floating Bar: Search, Filters & Regions */}
-      <div className="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-1.5 pointer-events-none">
-        
-        {/* Left: Filter Pills & Search */}
-        <div className="flex items-center gap-1.5 flex-wrap pointer-events-auto">
-          {/* Status Filters */}
-          <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={cn(
-                "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                activeFilter === 'all' ? "bg-teal-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              Todos ({geotaggedTotal})
-            </button>
-            <button
-              onClick={() => setActiveFilter('visited')}
-              className={cn(
-                "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                activeFilter === 'visited' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              Visitados
-            </button>
-            <button
-              onClick={() => setActiveFilter('pending')}
-              className={cn(
-                "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                activeFilter === 'pending' ? "bg-rose-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              Pendientes
-            </button>
-          </div>
+      {/* Floating Pill when Controls are Hidden (Clean Mode) */}
+      {!showControls && (
+        <div className="absolute top-3 left-3 z-30 flex items-center gap-2 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-200">
+          <button
+            onClick={() => setShowControls(true)}
+            className="px-3.5 py-2 bg-slate-900/90 hover:bg-slate-950 text-white rounded-xl text-xs font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 border border-white/20 cursor-pointer"
+            title="Mostrar todos los controles, filtros y búsqueda"
+          >
+            <Eye size={15} className="text-teal-400" />
+            <span>Mostrar Botones</span>
+          </button>
 
-          {/* Quick Map Client Search */}
-          <div className="relative">
-            <div className="flex items-center bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-xl shadow-xs border border-slate-200/80">
-              <Search size={14} className="text-slate-400 shrink-0 mr-1.5" />
-              <input
-                type="text"
-                placeholder="Buscar pin de cliente..."
-                value={mapSearchTerm}
-                onChange={(e) => setMapSearchTerm(e.target.value)}
-                className="bg-transparent text-xs text-slate-800 placeholder:text-slate-400 font-medium focus:outline-none w-32 md:w-44"
-              />
-              {mapSearchTerm && (
-                <button onClick={() => setMapSearchTerm('')} className="text-slate-400 hover:text-slate-600">
-                  <X size={13} />
-                </button>
-              )}
+          {isFullscreen && (
+            <button
+              onClick={toggleFullscreen}
+              className="px-3.5 py-2 bg-white/95 hover:bg-white text-slate-800 rounded-xl text-xs font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 border border-slate-200 cursor-pointer"
+              title="Salir de pantalla completa (Esc)"
+            >
+              <Minimize2 size={15} className="text-rose-600" />
+              <span className="hidden sm:inline">Salir Pantalla Completa</span>
+            </button>
+          )}
+
+          {mapDateFilter !== 'all' && (
+            <div className="px-3 py-1.5 bg-teal-800/90 text-teal-100 rounded-xl text-[11px] font-bold shadow-md backdrop-blur-md border border-teal-600/40 flex items-center gap-1.5">
+              <span>Filtro: {mapDateFilter === 'today' ? 'Hoy' : mapDateFilter === 'yesterday' ? 'Ayer' : mapDateFilter === 'week' ? 'Semana' : 'Mes'}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top Floating Bar: Search, Filters, Date Range, Regions & View Toggles */}
+      {showControls && (
+        <div className="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-1.5 pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
+          
+          {/* Left: Filter Pills, Date Range (Estilo Ventas) & Search */}
+          <div className="flex items-center gap-1.5 flex-wrap pointer-events-auto">
+            {/* Status Filters */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
+              <button
+                onClick={() => {
+                  setActiveFilter('all');
+                  setMapDateFilter('all');
+                }}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  activeFilter === 'all' && mapDateFilter === 'all' ? "bg-teal-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Todos ({geotaggedTotal})
+              </button>
+              <button
+                onClick={() => setActiveFilter('visited')}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  activeFilter === 'visited' ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Visitados
+              </button>
+              <button
+                onClick={() => setActiveFilter('pending')}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  activeFilter === 'pending' ? "bg-rose-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Pendientes
+              </button>
             </div>
 
-            {/* Quick Search Autocomplete Dropdown */}
-            {matchingSearchClients.length > 0 && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white/98 backdrop-blur-md rounded-xl shadow-lg border border-slate-200 p-1.5 space-y-1 z-30">
-                {matchingSearchClients.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => {
-                      handleFlyToClient(c);
-                      setMapSearchTerm('');
-                    }}
-                    className="w-full text-left p-2 hover:bg-teal-50 rounded-lg text-xs font-bold text-slate-900 flex items-center justify-between transition-colors cursor-pointer"
-                  >
-                    <span className="truncate">{c.name}</span>
-                    <span className="text-[10px] text-teal-700 font-mono shrink-0 ml-1">📍 Volar</span>
+            {/* Date Range Filter Dropdown (Estilo Ventas: Hoy, Ayer, Semana, Mes) */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md px-2 py-1 rounded-xl shadow-xs border border-slate-200/80 gap-1.5">
+              <Calendar size={13} className="text-teal-600 shrink-0" />
+              <select
+                value={mapDateFilter}
+                onChange={(e) => {
+                  const val = e.target.value as any;
+                  setMapDateFilter(val);
+                  if (val !== 'all') {
+                    setActiveFilter('visited');
+                  }
+                }}
+                className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
+                title="Filtrar visitas en el mapa por fecha (como en ventas)"
+              >
+                <option value="all">📅 Todas las fechas</option>
+                <option value="today">☀️ Hoy ({dateCounts.today})</option>
+                <option value="yesterday">⛅ Ayer ({dateCounts.yesterday})</option>
+                <option value="week">📆 Esta Semana ({dateCounts.week})</option>
+                <option value="month">🗓️ Este Mes ({dateCounts.month})</option>
+                <option value="last_month">⏮️ Mes Anterior</option>
+              </select>
+            </div>
+
+            {/* Quick Map Client Search */}
+            <div className="relative">
+              <div className="flex items-center bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-xl shadow-xs border border-slate-200/80">
+                <Search size={14} className="text-slate-400 shrink-0 mr-1.5" />
+                <input
+                  type="text"
+                  placeholder="Buscar pin de cliente..."
+                  value={mapSearchTerm}
+                  onChange={(e) => setMapSearchTerm(e.target.value)}
+                  className="bg-transparent text-xs text-slate-800 placeholder:text-slate-400 font-medium focus:outline-none w-28 md:w-36"
+                />
+                {mapSearchTerm && (
+                  <button onClick={() => setMapSearchTerm('')} className="text-slate-400 hover:text-slate-600">
+                    <X size={13} />
                   </button>
-                ))}
+                )}
               </div>
-            )}
+
+              {/* Quick Search Autocomplete Dropdown */}
+              {matchingSearchClients.length > 0 && (
+                <div className="absolute top-full left-0 mt-1 w-64 bg-white/98 backdrop-blur-md rounded-xl shadow-lg border border-slate-200 p-1.5 space-y-1 z-30">
+                  {matchingSearchClients.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        handleFlyToClient(c);
+                        setMapSearchTerm('');
+                      }}
+                      className="w-full text-left p-2 hover:bg-teal-50 rounded-lg text-xs font-bold text-slate-900 flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span className="text-[10px] text-teal-700 font-mono shrink-0 ml-1">📍 Volar</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Regions, Layer Selector, Clean Mode & Fullscreen */}
+          <div className="flex items-center gap-1.5 self-end sm:self-auto pointer-events-auto flex-wrap">
+            {/* Region Shortcuts Dropdown */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
+              <select
+                value={selectedRegion}
+                onChange={(e) => handleSelectRegion(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none px-2 py-1 cursor-pointer"
+              >
+                {GUATEMALA_REGIONS.map(r => (
+                  <option key={r.id} value={r.id}>{r.icon} {r.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Layer Selector (Google Hybrid, Earth, Streets, Terrain, Esri) */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xs border border-slate-200/80 gap-1.5">
+              <Layers size={14} className="text-teal-600 shrink-0" />
+              <select
+                value={mapType}
+                onChange={(e) => setMapType(e.target.value as any)}
+                className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
+                title="Seleccionar capa de mapa"
+              >
+                <option value="satellite">🛰️ Satélite Híbrido (Google)</option>
+                <option value="earth">🌎 Google Earth (Satélite Limpio)</option>
+                <option value="streets">🗺️ Calles y Rutas (Google Maps)</option>
+                <option value="terrain">⛰️ Relieve / Fincas (Google)</option>
+                <option value="esri">🛰️ Satélite HD (Esri / Maxar)</option>
+              </select>
+            </div>
+
+            {/* Clean Mode Button (Ocultar Botones) */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
+              <button
+                onClick={() => setShowControls(false)}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1.5 cursor-pointer"
+                title="Ocultar botones y filtros para despejar la vista de la ruta y los pines"
+              >
+                <EyeOff size={14} className="text-amber-600" />
+                <span className="hidden md:inline">Ocultar Botones</span>
+              </button>
+            </div>
+
+            {/* Fullscreen Button */}
+            <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
+              <button
+                onClick={toggleFullscreen}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1.5 cursor-pointer"
+                title={isFullscreen ? "Salir de pantalla completa (Esc)" : "Ver mapa en pantalla completa"}
+              >
+                {isFullscreen ? (
+                  <>
+                    <Minimize2 size={14} className="text-rose-600" />
+                    <span>Salir</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 size={14} className="text-teal-600" />
+                    <span className="hidden md:inline">Pantalla Completa</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Right: Regions & Satellite Toggle */}
-        <div className="flex items-center gap-1.5 self-end md:self-auto pointer-events-auto">
-          {/* Region Shortcuts Dropdown */}
-          <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-xs border border-slate-200/80">
-            <select
-              value={selectedRegion}
-              onChange={(e) => handleSelectRegion(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none px-2 py-1 cursor-pointer"
-            >
-              {GUATEMALA_REGIONS.map(r => (
-                <option key={r.id} value={r.id}>{r.icon} {r.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Layer Selector */}
-          <div className="flex items-center bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xs border border-slate-200/80 gap-1.5">
-            <Layers size={14} className="text-teal-600 shrink-0" />
-            <select
-              value={mapType}
-              onChange={(e) => setMapType(e.target.value as any)}
-              className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
-              title="Seleccionar capa de mapa"
-            >
-              <option value="satellite">🛰️ Satélite Híbrido (Google)</option>
-              <option value="earth">🌎 Google Earth (Satélite Limpio)</option>
-              <option value="streets">🗺️ Calles y Rutas (Google Maps)</option>
-              <option value="terrain">⛰️ Relieve / Fincas (Google)</option>
-              <option value="esri">🛰️ Satélite HD (Esri / Maxar)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Zoom & Location Controls */}
+      {/* Right Floating Controls: Fullscreen, Clean View Toggle, GPS & Zoom */}
       <div className="absolute right-3 bottom-16 md:bottom-4 z-20 flex flex-col space-y-2 pointer-events-auto">
+        {/* Fullscreen Toggle */}
+        <button
+          onClick={toggleFullscreen}
+          className={cn(
+            "w-10 h-10 rounded-xl shadow-md border flex items-center justify-center transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md",
+            isFullscreen 
+              ? "bg-teal-600 hover:bg-teal-700 text-white border-teal-500 shadow-teal-600/30" 
+              : "bg-white/95 hover:bg-white text-slate-700 border-slate-200 shadow-xs"
+          )}
+          title={isFullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}
+        >
+          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+        </button>
+
+        {/* Clean Mode Toggle (Ocultar/Mostrar Botones) */}
+        <button
+          onClick={() => setShowControls(prev => !prev)}
+          className={cn(
+            "w-10 h-10 rounded-xl shadow-md border flex items-center justify-center transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md",
+            !showControls 
+              ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-500/30 ring-2 ring-amber-400/50" 
+              : "bg-white/95 hover:bg-white text-slate-700 border-slate-200 shadow-xs"
+          )}
+          title={showControls ? "Ocultar botones (Vista limpia de la ruta)" : "Mostrar botones"}
+        >
+          {showControls ? <EyeOff size={17} className="text-slate-600" /> : <Eye size={17} className="text-white animate-pulse" />}
+        </button>
+
+        {/* Center GPS on user */}
         <button
           onClick={handleCenterOnUser}
-          className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-700 rounded-xl shadow-sm border border-slate-200 flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+          className="w-10 h-10 bg-white/95 hover:bg-white text-slate-700 rounded-xl shadow-xs border border-slate-200 flex items-center justify-center transition-transform active:scale-95 cursor-pointer backdrop-blur-md"
           title="Centrar en mi ubicación GPS en vivo"
         >
           <Crosshair size={17} className={cn("text-teal-700", isGpsLoading && "animate-spin text-teal-600")} />
         </button>
 
-        <div className="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden divide-y divide-slate-100">
+        {/* Zoom In/Out */}
+        <div className="flex flex-col bg-white/95 backdrop-blur-md rounded-xl shadow-xs border border-slate-200 overflow-hidden divide-y divide-slate-100">
           <button
             onClick={handleZoomIn}
             className="w-10 h-9 hover:bg-slate-50 text-slate-700 font-bold flex items-center justify-center active:scale-95 cursor-pointer"
@@ -913,23 +1149,25 @@ export function ClientVisitsMap({
       </div>
 
       {/* Bottom Floating Quick Actions */}
-      <div className="absolute bottom-3 left-3 right-16 md:right-3 z-20 flex flex-wrap items-center gap-2 pointer-events-auto">
-        <button
-          onClick={onOpenMarkClientModal}
-          className="px-3.5 py-2 bg-white/95 hover:bg-white text-slate-800 rounded-xl shadow-xs border border-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-102 active:scale-95 backdrop-blur-md cursor-pointer"
-        >
-          <MapPin size={15} className="text-teal-600" />
-          <span>Marcar Cliente</span>
-        </button>
+      {showControls && (
+        <div className="absolute bottom-3 left-3 right-16 md:right-3 z-20 flex flex-wrap items-center gap-2 pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <button
+            onClick={onOpenMarkClientModal}
+            className="px-3.5 py-2 bg-white/95 hover:bg-white text-slate-800 rounded-xl shadow-xs border border-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-102 active:scale-95 backdrop-blur-md cursor-pointer"
+          >
+            <MapPin size={15} className="text-teal-600" />
+            <span>Marcar Cliente</span>
+          </button>
 
-        <button
-          onClick={onOpenRegisterVisitModal}
-          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-sm text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-102 active:scale-95 shadow-teal-600/10 cursor-pointer"
-        >
-          <Plus size={15} />
-          <span>Registrar Visita</span>
-        </button>
-      </div>
+          <button
+            onClick={onOpenRegisterVisitModal}
+            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-sm text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-102 active:scale-95 shadow-teal-600/10 cursor-pointer"
+          >
+            <Plus size={15} />
+            <span>Registrar Visita</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

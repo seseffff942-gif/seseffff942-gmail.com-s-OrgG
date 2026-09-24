@@ -3993,7 +3993,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
             ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
             ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3 OR seller_name ILIKE '%' || $3 || '%'))
           )
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [sellerIdStr, sellerEmailStr, sellerNameStr]);
       if (activeRes.rows && activeRes.rows.length > 0) {
@@ -4291,7 +4291,7 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req, res) => {
     try {
       const res2 = await neonPool.query(`
         SELECT * FROM public.seller_routes 
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC;
+        ORDER BY COALESCE(started_at, created_at) DESC;
       `);
       if (res2.rows && res2.rows.length > 0) {
         routes = res2.rows.map((r) => ({
@@ -4389,9 +4389,12 @@ app.get("/api/routes", requireAuth, asyncHandler(async (req, res) => {
   res.json(filtered);
 }));
 app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
-  const userId = req.user?.id ? String(req.user.id).trim() : "";
-  const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
-  const userName = req.user?.name ? String(req.user.name).trim().toLowerCase() : "";
+  const querySellerId = req.query.sellerId ? String(req.query.sellerId).trim() : "";
+  const querySellerEmail = req.query.sellerEmail ? String(req.query.sellerEmail).trim().toLowerCase() : "";
+  const querySellerName = req.query.sellerName ? String(req.query.sellerName).trim().toLowerCase() : "";
+  const userId = querySellerId || (req.user?.id ? String(req.user.id).trim() : "");
+  const userEmail = querySellerEmail || (req.user?.email ? String(req.user.email).trim().toLowerCase() : "");
+  const userName = querySellerName || (req.user?.name ? String(req.user.name).trim().toLowerCase() : "");
   let activeRoute = null;
   if (neonPool) {
     try {
@@ -4403,7 +4406,7 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
             ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2)) OR
             ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
           )
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [userId, userEmail, userName]);
       if (res2.rows && res2.rows.length > 0) {
@@ -4616,7 +4619,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
                 ($3 <> '' AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)) OR
                 ($4 <> '' AND (seller_email ILIKE $4 OR "sellerEmail" ILIKE $4))
               ))
-        ORDER BY COALESCE(started_at, "startedAt", created_at) DESC
+        ORDER BY COALESCE(started_at, created_at) DESC
         LIMIT 1;
       `, [id, reqSellerId, reqSellerName, reqSellerEmail]);
       if (dbRes.rows && dbRes.rows.length > 0) {
