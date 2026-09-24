@@ -3961,6 +3961,129 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
   res.json({ success: true, route: activeRoute || null });
 }));
 
+// ==========================================
+// WHATSAPP AUTOMATION FOR ROUTES (EVOLUTION BOT)
+// ==========================================
+// Activo en producción para enviar automáticamente a los asesores al cerrar su jornada
+const ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== 'false';
+const ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || '50248234048'; // Emanuel Lima (Dueño/CEO)
+
+function formatTimeGuatemala(isoString: string | null | undefined): string {
+  if (!isoString) return '--:--';
+  const d = new Date(isoString);
+  return d.toLocaleTimeString('es-GT', { timeZone: 'America/Guatemala', hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function formatDateGuatemala(isoString: string | null | undefined): string {
+  if (!isoString) return 'Hoy';
+  const d = new Date(isoString);
+  return d.toLocaleDateString('es-GT', { timeZone: 'America/Guatemala', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+async function sendWhatsAppEvolutionMessage(phone: string, text: string): Promise<boolean> {
+  let cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return false;
+
+  const endpoints = [
+    'http://localhost:8080/message/sendText/bot-recibos',
+    'http://evolution_api:8080/message/sendText/bot-recibos',
+    'http://185.166.39.49:8080/message/sendText/bot-recibos'
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'apikey': 'B6D711FCDE4D4FD5936544120E713976',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ number: cleanPhone, text })
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Route Automation] Mensaje enviado exitosamente a ${cleanPhone} vía ${url}`);
+        return true;
+      }
+    } catch (err: any) {
+      // Intentar con siguiente endpoint
+    }
+  }
+  console.warn(`[WhatsApp Route Automation] No se pudo enviar WhatsApp a ${cleanPhone}`);
+  return false;
+}
+
+async function dispatchRouteToN8nWebhook(payload: {
+  action: 'start_route' | 'finish_route';
+  sellerName: string;
+  sellerCode?: string;
+  startedAt: string;
+  finishedAt?: string;
+  phone?: string;
+  visits?: any[];
+}): Promise<boolean> {
+  const endpoints = [
+    'http://localhost:5678/webhook/rutas-visitas',
+    'http://n8n:5678/webhook/rutas-visitas',
+    'http://185.166.39.49:5678/webhook/rutas-visitas'
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[n8n Webhook Rutas] Disparado exitosamente a ${url}`);
+        return true;
+      }
+    } catch (err: any) {
+      // Intentar siguiente endpoint
+    }
+  }
+  return false;
+}
+
+function buildStartRouteWhatsAppMessage(sellerName: string, sellerCode: string, startedAt: string): string {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaStr = formatTimeGuatemala(startedAt);
+
+  return `🚀 *INICIO DE RUTA EN TERRENO - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Buenos días, *${sellerName}*! Has iniciado exitosamente tu ruta comercial:\n\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n⏰ *Hora de Salida:* ${horaStr}\n🟢 *Estado:* En Ruta Activa\n\n🎯 *Recomendaciones para el día:*\n• Registra cada visita en el punto exacto con tu ubicación GPS.\n• Fotografía de fachada o comprobante obligatoria.\n• Toma nota de pedidos y cobros para sincronización inmediata.\n\n💪 *¡Muchos éxitos en tus ventas y visitas de hoy! Vamos con todo el ánimo.* 🚜🌾\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
+}
+
+function buildFinishRouteWhatsAppMessage(sellerName: string, sellerCode: string, startedAt: string, finishedAt: string, visits: any[]): string {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  const horaFin = formatTimeGuatemala(finishedAt);
+
+  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
+
+  let visitsList = '';
+  if (!visits || visits.length === 0) {
+    visitsList = '• _No se registraron visitas durante esta jornada._\n';
+  } else {
+    visitsList = visits.map((v, idx) => {
+      const horaV = formatTimeGuatemala(v.createdAt || v.created_at);
+      const tipoRaw = String(v.visitType || v.visit_type || 'rutina').toLowerCase();
+      const tipoIcon = tipoRaw === 'pedido' ? '🛒' : (tipoRaw === 'cobro' ? '💰' : (tipoRaw === 'prospeccion' ? '🎯' : '📋'));
+      const tipoLabel = tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1);
+      const cName = v.clientName || v.client_name || 'Cliente';
+      const compName = v.companyName || v.company_name;
+      const clienteEmpresa = compName ? `${cName} _(${compName})_` : cName;
+      const notas = v.notes ? `\n   📝 _Nota:_ ${v.notes}` : '';
+
+      return `${idx + 1}. ⏰ *${horaV}* — *${clienteEmpresa}*\n   ${tipoIcon} *Razón:* ${tipoLabel}${notas}`;
+    }).join('\n\n');
+  }
+
+  return `🏁 *RESUMEN DE JORNADA & VISITAS - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Muchas gracias por tu entrega, esfuerzo y dedicación en la ruta de hoy!\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Inicio de Ruta:* ${horaInicio}\n🏁 *Hora Final de Ruta:* ${horaFin}\n⏱️ *Tiempo Total de Ruta:* ${duracionTexto}\n📍 *Total Clientes Visitados:* ${visits.length} visitas realizadas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 *¡Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. ¡A descansar y feliz retorno a casa!* 🚜💨\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
+}
+
 // Start a new route session (enforce only 1 active route)
 app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: any) => {
   const userId = req.user?.id ? String(req.user.id).trim() : '';
@@ -4360,7 +4483,145 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
     }]);
   } catch (e) { }
 
+  // 7. Enviar resumen por WhatsApp (Inactivo hoy por defecto para no disparar a los vendedores reales; solo se envía si ROUTE_WHATSAPP_AUTO_ENABLED es true o si req.body.sendWhatsAppTest es true)
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+    (async () => {
+      try {
+        const targetSellerId = targetRoute.sellerId || reqSellerId;
+        const targetSellerEmail = (targetRoute.sellerEmail || reqSellerEmail).toLowerCase();
+        const targetSellerName = targetRoute.sellerName || reqSellerName;
+
+        let routeVisits: any[] = [];
+        if (neonPool) {
+          try {
+            const vDb = await neonPool.query(`
+              SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+              FROM public.client_visits
+              WHERE (route_id = $1 OR "routeId" = $1)
+                 OR (
+                   ("createdAt" >= $2 OR created_at >= $2) AND
+                   (seller_id = $3 OR "sellerId" = $3 OR seller_email ILIKE $4 OR "sellerEmail" ILIKE $4 OR seller_name ILIKE $5 OR "sellerName" ILIKE $5)
+                 )
+              ORDER BY "createdAt" ASC;
+            `, [targetRoute.id, (targetRoute.startedAt || nowIso).split('T')[0], targetSellerId, targetSellerEmail, targetSellerName]);
+            routeVisits = vDb.rows;
+          } catch (e) {}
+        }
+
+        if (routeVisits.length === 0) {
+          const localVisits = readLocalVisits();
+          routeVisits = localVisits.filter((v: any) => 
+            v.routeId === targetRoute.id ||
+            ((v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) &&
+             new Date(v.createdAt).getTime() >= new Date(targetRoute.startedAt || nowIso).getTime() - 60000)
+          ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        }
+
+        let sCode = '';
+        let sellerPhone = '';
+        try {
+          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+          const foundUser = (allUsers || []).find((u: any) => 
+            (targetSellerId && String(u.id) === String(targetSellerId)) ||
+            (targetSellerEmail && String(u.email || '').toLowerCase() === targetSellerEmail) ||
+            (targetSellerName && String(u.name || '').toLowerCase() === targetSellerName.toLowerCase()) ||
+            (targetSellerName && (String(u.name || '').toLowerCase().includes(targetSellerName.toLowerCase()) || targetSellerName.toLowerCase().includes(String(u.name || '').toLowerCase())))
+          );
+          if (foundUser) {
+            sellerPhone = foundUser.phone || '';
+            sCode = foundUser.sellerCode || '';
+          }
+        } catch (e) {}
+
+        const recipientPhone = req.body.sendWhatsAppTest ? ROUTE_WHATSAPP_TEST_PHONE : (req.body.phone || sellerPhone || ROUTE_WHATSAPP_TEST_PHONE);
+        // Disparar vía webhook de n8n (rutas-visitas), con respaldo directo por Evolution API si n8n no responde
+        const n8nOk = await dispatchRouteToN8nWebhook({
+          action: 'finish_route',
+          sellerName: targetSellerName,
+          sellerCode: sCode,
+          startedAt: targetRoute.startedAt,
+          finishedAt: targetRoute.finishedAt,
+          phone: recipientPhone,
+          visits: routeVisits
+        });
+        if (!n8nOk) {
+          const msg = buildFinishRouteWhatsAppMessage(targetSellerName, sCode, targetRoute.startedAt, targetRoute.finishedAt, routeVisits);
+          await sendWhatsAppEvolutionMessage(recipientPhone, msg);
+        }
+      } catch (err) {
+        console.warn('[WhatsApp Finish Route Error]:', err);
+      }
+    })().catch(console.error);
+  }
+
   res.json({ success: true, message: "Ruta finalizada y archivada en historial con éxito.", route: targetRoute });
+}));
+
+// Endpoint para probar el resumen de jornada de WhatsApp hacia el número de prueba del usuario (48234048)
+app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const targetPhone = req.body.phone || ROUTE_WHATSAPP_TEST_PHONE;
+
+  const localRoutes = readLocalRoutes();
+  let route = localRoutes.find((r: any) => r.id === id);
+  if (!route && neonPool) {
+    try {
+      const rDb = await neonPool.query(`SELECT * FROM public.seller_routes WHERE id = $1 LIMIT 1;`, [id]);
+      if (rDb.rows.length > 0) route = rDb.rows[0];
+    } catch (e) {}
+  }
+
+  if (!route) {
+    return res.status(404).json({ error: "Ruta no encontrada." });
+  }
+
+  let routeVisits: any[] = [];
+  const sName = route.seller_name || route.sellerName || 'Asesor';
+  const startedAt = route.started_at || route.startedAt || new Date().toISOString();
+  const finishedAt = route.finished_at || route.finishedAt || new Date().toISOString();
+
+  if (neonPool) {
+    try {
+      const vDb = await neonPool.query(`
+        SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+        FROM public.client_visits
+        WHERE (route_id = $1 OR "routeId" = $1)
+           OR ("createdAt" >= $2 AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
+        ORDER BY "createdAt" ASC;
+      `, [route.id, startedAt.split('T')[0], `%${sName}%`]);
+      routeVisits = vDb.rows;
+    } catch (e) {}
+  }
+
+  let sCode = '';
+  try {
+    const { data: uData } = await localDb.from("users").select("sellerCode").ilike("name", `%${sName}%`).limit(1);
+    if (uData && uData[0]?.sellerCode) sCode = uData[0].sellerCode;
+  } catch (e) {}
+
+  const msg = buildFinishRouteWhatsAppMessage(sName, sCode, startedAt, finishedAt, routeVisits);
+  const n8nOk = await dispatchRouteToN8nWebhook({
+    action: 'finish_route',
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    finishedAt,
+    phone: targetPhone,
+    visits: routeVisits
+  });
+
+  let sent = n8nOk;
+  if (!sent) {
+    sent = await sendWhatsAppEvolutionMessage(targetPhone, msg);
+  }
+
+  res.json({
+    success: sent,
+    viaN8n: n8nOk,
+    message: sent ? `Resumen enviado con éxito a ${targetPhone} ${n8nOk ? 'vía n8n' : 'vía Evolution'}` : "Fallo al enviar mensaje WhatsApp",
+    recipient: targetPhone,
+    preview: msg
+  });
 }));
 
 // Visit frequency & stats endpoint (Strict multi-role security)

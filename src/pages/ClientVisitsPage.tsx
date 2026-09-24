@@ -488,6 +488,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       await api.finishRoute(target.id, {
         sellerId: target.sellerId,
         sellerName: target.sellerName,
+        phone: (target as any).phone || (target.sellerId === user.id ? user.phone : undefined),
         endLatitude: endLat,
         endLongitude: endLng,
         notes: finishNotes || undefined

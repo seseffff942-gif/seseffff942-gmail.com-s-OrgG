@@ -4446,6 +4446,116 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
   }
   res.json({ success: true, route: activeRoute || null });
 }));
+var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
+var ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || "50248234048";
+function formatTimeGuatemala(isoString) {
+  if (!isoString) return "--:--";
+  const d = new Date(isoString);
+  return d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit", hour12: true });
+}
+function formatDateGuatemala(isoString) {
+  if (!isoString) return "Hoy";
+  const d = new Date(isoString);
+  return d.toLocaleDateString("es-GT", { timeZone: "America/Guatemala", weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+async function sendWhatsAppEvolutionMessage(phone, text) {
+  let cleanPhone = String(phone || "").replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return false;
+  const endpoints = [
+    "http://localhost:8080/message/sendText/bot-recibos",
+    "http://evolution_api:8080/message/sendText/bot-recibos",
+    "http://185.166.39.49:8080/message/sendText/bot-recibos"
+  ];
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "apikey": "B6D711FCDE4D4FD5936544120E713976",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ number: cleanPhone, text })
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Route Automation] Mensaje enviado exitosamente a ${cleanPhone} v\xEDa ${url}`);
+        return true;
+      }
+    } catch (err) {
+    }
+  }
+  console.warn(`[WhatsApp Route Automation] No se pudo enviar WhatsApp a ${cleanPhone}`);
+  return false;
+}
+async function dispatchRouteToN8nWebhook(payload) {
+  const endpoints = [
+    "http://localhost:5678/webhook/rutas-visitas",
+    "http://n8n:5678/webhook/rutas-visitas",
+    "http://185.166.39.49:5678/webhook/rutas-visitas"
+  ];
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[n8n Webhook Rutas] Disparado exitosamente a ${url}`);
+        return true;
+      }
+    } catch (err) {
+    }
+  }
+  return false;
+}
+function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  const horaFin = formatTimeGuatemala(finishedAt);
+  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffHrs = Math.floor(diffMs / (1e3 * 60 * 60));
+  const diffMins = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
+  const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
+  let visitsList = "";
+  if (!visits || visits.length === 0) {
+    visitsList = "\u2022 _No se registraron visitas durante esta jornada._\n";
+  } else {
+    visitsList = visits.map((v, idx) => {
+      const horaV = formatTimeGuatemala(v.createdAt || v.created_at);
+      const tipoRaw = String(v.visitType || v.visit_type || "rutina").toLowerCase();
+      const tipoIcon = tipoRaw === "pedido" ? "\u{1F6D2}" : tipoRaw === "cobro" ? "\u{1F4B0}" : tipoRaw === "prospeccion" ? "\u{1F3AF}" : "\u{1F4CB}";
+      const tipoLabel = tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1);
+      const cName = v.clientName || v.client_name || "Cliente";
+      const compName = v.companyName || v.company_name;
+      const clienteEmpresa = compName ? `${cName} _(${compName})_` : cName;
+      const notas = v.notes ? `
+   \u{1F4DD} _Nota:_ ${v.notes}` : "";
+      return `${idx + 1}. \u23F0 *${horaV}* \u2014 *${clienteEmpresa}*
+   ${tipoIcon} *Raz\xF3n:* ${tipoLabel}${notas}`;
+    }).join("\n\n");
+  }
+  return `\u{1F3C1} *RESUMEN DE JORNADA & VISITAS - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\xA1Muchas gracias por tu entrega, esfuerzo y dedicaci\xF3n en la ruta de hoy!
+
+\u{1F464} *Asesor:* *${sellerName}*
+\u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
+\u{1F4C5} *Fecha:* ${fechaStr}
+
+\u23F0 *Hora de Inicio de Ruta:* ${horaInicio}
+\u{1F3C1} *Hora Final de Ruta:* ${horaFin}
+\u23F1\uFE0F *Tiempo Total de Ruta:* ${duracionTexto}
+\u{1F4CD} *Total Clientes Visitados:* ${visits.length} visitas realizadas
+
+\u{1F4CB} *DETALLE CRONOL\xD3GICO DE VISITAS:*
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+${visitsList}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F31F} *\xA1Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. \xA1A descansar y feliz retorno a casa!* \u{1F69C}\u{1F4A8}
+\u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
+}
 app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.user?.id ? String(req.user.id).trim() : "";
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
@@ -4793,7 +4903,128 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
     }]);
   } catch (e) {
   }
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+    (async () => {
+      try {
+        const targetSellerId = targetRoute.sellerId || reqSellerId;
+        const targetSellerEmail = (targetRoute.sellerEmail || reqSellerEmail).toLowerCase();
+        const targetSellerName = targetRoute.sellerName || reqSellerName;
+        let routeVisits = [];
+        if (neonPool) {
+          try {
+            const vDb = await neonPool.query(`
+              SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+              FROM public.client_visits
+              WHERE (route_id = $1 OR "routeId" = $1)
+                 OR (
+                   ("createdAt" >= $2 OR created_at >= $2) AND
+                   (seller_id = $3 OR "sellerId" = $3 OR seller_email ILIKE $4 OR "sellerEmail" ILIKE $4 OR seller_name ILIKE $5 OR "sellerName" ILIKE $5)
+                 )
+              ORDER BY "createdAt" ASC;
+            `, [targetRoute.id, (targetRoute.startedAt || nowIso).split("T")[0], targetSellerId, targetSellerEmail, targetSellerName]);
+            routeVisits = vDb.rows;
+          } catch (e) {
+          }
+        }
+        if (routeVisits.length === 0) {
+          const localVisits = readLocalVisits();
+          routeVisits = localVisits.filter(
+            (v) => v.routeId === targetRoute.id || (v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) && new Date(v.createdAt).getTime() >= new Date(targetRoute.startedAt || nowIso).getTime() - 6e4
+          ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        }
+        let sCode = "";
+        let sellerPhone = "";
+        try {
+          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+          const foundUser = (allUsers || []).find(
+            (u) => targetSellerId && String(u.id) === String(targetSellerId) || targetSellerEmail && String(u.email || "").toLowerCase() === targetSellerEmail || targetSellerName && String(u.name || "").toLowerCase() === targetSellerName.toLowerCase() || targetSellerName && (String(u.name || "").toLowerCase().includes(targetSellerName.toLowerCase()) || targetSellerName.toLowerCase().includes(String(u.name || "").toLowerCase()))
+          );
+          if (foundUser) {
+            sellerPhone = foundUser.phone || "";
+            sCode = foundUser.sellerCode || "";
+          }
+        } catch (e) {
+        }
+        const recipientPhone = req.body.sendWhatsAppTest ? ROUTE_WHATSAPP_TEST_PHONE : req.body.phone || sellerPhone || ROUTE_WHATSAPP_TEST_PHONE;
+        const n8nOk = await dispatchRouteToN8nWebhook({
+          action: "finish_route",
+          sellerName: targetSellerName,
+          sellerCode: sCode,
+          startedAt: targetRoute.startedAt,
+          finishedAt: targetRoute.finishedAt,
+          phone: recipientPhone,
+          visits: routeVisits
+        });
+        if (!n8nOk) {
+          const msg = buildFinishRouteWhatsAppMessage(targetSellerName, sCode, targetRoute.startedAt, targetRoute.finishedAt, routeVisits);
+          await sendWhatsAppEvolutionMessage(recipientPhone, msg);
+        }
+      } catch (err) {
+        console.warn("[WhatsApp Finish Route Error]:", err);
+      }
+    })().catch(console.error);
+  }
   res.json({ success: true, message: "Ruta finalizada y archivada en historial con \xE9xito.", route: targetRoute });
+}));
+app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const targetPhone = req.body.phone || ROUTE_WHATSAPP_TEST_PHONE;
+  const localRoutes = readLocalRoutes();
+  let route = localRoutes.find((r) => r.id === id);
+  if (!route && neonPool) {
+    try {
+      const rDb = await neonPool.query(`SELECT * FROM public.seller_routes WHERE id = $1 LIMIT 1;`, [id]);
+      if (rDb.rows.length > 0) route = rDb.rows[0];
+    } catch (e) {
+    }
+  }
+  if (!route) {
+    return res.status(404).json({ error: "Ruta no encontrada." });
+  }
+  let routeVisits = [];
+  const sName = route.seller_name || route.sellerName || "Asesor";
+  const startedAt = route.started_at || route.startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const finishedAt = route.finished_at || route.finishedAt || (/* @__PURE__ */ new Date()).toISOString();
+  if (neonPool) {
+    try {
+      const vDb = await neonPool.query(`
+        SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+        FROM public.client_visits
+        WHERE (route_id = $1 OR "routeId" = $1)
+           OR ("createdAt" >= $2 AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
+        ORDER BY "createdAt" ASC;
+      `, [route.id, startedAt.split("T")[0], `%${sName}%`]);
+      routeVisits = vDb.rows;
+    } catch (e) {
+    }
+  }
+  let sCode = "";
+  try {
+    const { data: uData } = await localDb.from("users").select("sellerCode").ilike("name", `%${sName}%`).limit(1);
+    if (uData && uData[0]?.sellerCode) sCode = uData[0].sellerCode;
+  } catch (e) {
+  }
+  const msg = buildFinishRouteWhatsAppMessage(sName, sCode, startedAt, finishedAt, routeVisits);
+  const n8nOk = await dispatchRouteToN8nWebhook({
+    action: "finish_route",
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    finishedAt,
+    phone: targetPhone,
+    visits: routeVisits
+  });
+  let sent = n8nOk;
+  if (!sent) {
+    sent = await sendWhatsAppEvolutionMessage(targetPhone, msg);
+  }
+  res.json({
+    success: sent,
+    viaN8n: n8nOk,
+    message: sent ? `Resumen enviado con \xE9xito a ${targetPhone} ${n8nOk ? "v\xEDa n8n" : "v\xEDa Evolution"}` : "Fallo al enviar mensaje WhatsApp",
+    recipient: targetPhone,
+    preview: msg
+  });
 }));
 app.get("/api/visits/stats", requireAuth, asyncHandler(async (req, res) => {
   const userRole = req.user?.role;

@@ -964,7 +964,7 @@ export const api = {
     return { success: true, route: newRoute };
   },
 
-  finishRoute: async (routeId: string, data?: { sellerId?: string; sellerName?: string; endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
+  finishRoute: async (routeId: string, data?: { sellerId?: string; sellerName?: string; phone?: string; endLatitude?: number; endLongitude?: number; notes?: string }): Promise<{ success: boolean; route: SellerRoute }> => {
     const nowIso = new Date().toISOString();
     try {
       const res = await fetchWithAuth(`/api/routes/${encodeURIComponent(routeId)}/finish`, {
