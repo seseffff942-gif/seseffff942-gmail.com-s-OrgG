@@ -4359,8 +4359,52 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
   const endTime = new Date(nowIso).getTime();
   const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1000 * 60)));
 
-  const finalEndLat = endLatitude ? parseFloat(endLatitude) : (targetRoute.endLatitude ?? targetRoute.startLatitude ?? null);
-  const finalEndLng = endLongitude ? parseFloat(endLongitude) : (targetRoute.endLongitude ?? targetRoute.startLongitude ?? null);
+  let finalEndLat = (endLatitude != null && endLatitude !== '') ? parseFloat(endLatitude) : null;
+  let finalEndLng = (endLongitude != null && endLongitude !== '') ? parseFloat(endLongitude) : null;
+
+  // Si no se proporcionaron coordenadas, o si son idénticas a las de inicio y el asesor visitó clientes:
+  const isIdenticalToStart = finalEndLat != null && finalEndLng != null && 
+    targetRoute.startLatitude != null && targetRoute.startLongitude != null &&
+    Math.abs(finalEndLat - targetRoute.startLatitude) < 0.0001 &&
+    Math.abs(finalEndLng - targetRoute.startLongitude) < 0.0001;
+
+  if (finalEndLat == null || finalEndLng == null || isIdenticalToStart) {
+    const targetSellerId = String(targetRoute.sellerId || reqSellerId || '').trim();
+    const targetSellerName = String(targetRoute.sellerName || reqSellerName || '').trim().toLowerCase();
+    const targetSellerEmail = String(targetRoute.sellerEmail || reqSellerEmail || '').trim().toLowerCase();
+
+    let allVisits = readLocalVisits();
+    if (neonPool) {
+      try {
+        const vDb = await neonPool.query(`
+          SELECT latitude, longitude, "clientName", "createdAt"
+          FROM public.client_visits
+          WHERE (route_id = $1 OR "routeId" = $1)
+             OR (
+               ("createdAt" >= $2 OR created_at >= $2) AND
+               (seller_id = $3 OR "sellerId" = $3 OR seller_email ILIKE $4 OR "sellerEmail" ILIKE $4 OR seller_name ILIKE $5 OR "sellerName" ILIKE $5)
+             )
+          ORDER BY "createdAt" ASC;
+        `, [targetRoute.id, (targetRoute.startedAt || nowIso).split('T')[0], targetSellerId, targetSellerEmail, targetSellerName]);
+        if (vDb.rows && vDb.rows.length > 0) {
+          allVisits = vDb.rows;
+        }
+      } catch (e) {}
+    }
+
+    const validVisits = allVisits.filter((v: any) => 
+      v.latitude && v.longitude && !isNaN(Number(v.latitude)) && !isNaN(Number(v.longitude))
+    );
+
+    const lastVisit = validVisits.length > 0 ? validVisits[validVisits.length - 1] : null;
+    if (lastVisit) {
+      finalEndLat = parseFloat(lastVisit.latitude);
+      finalEndLng = parseFloat(lastVisit.longitude);
+    } else if (finalEndLat == null) {
+      finalEndLat = targetRoute.endLatitude ?? targetRoute.startLatitude ?? null;
+      finalEndLng = targetRoute.endLongitude ?? targetRoute.startLongitude ?? null;
+    }
+  }
 
   targetRoute.status = 'completed';
   targetRoute.finishedAt = nowIso;

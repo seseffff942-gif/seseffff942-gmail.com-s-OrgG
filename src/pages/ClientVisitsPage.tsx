@@ -436,9 +436,45 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     if (!target) return;
     try {
       setIsFinishingRoute(true);
-      const freshLoc = await getFreshCoordinates();
-      const endLat = freshLoc?.latitude ?? currentLocation?.latitude;
-      const endLng = freshLoc?.longitude ?? currentLocation?.longitude;
+      const isFinishingSelf = (target.sellerId && String(target.sellerId).trim() === String(user.id).trim()) ||
+                              (target.sellerEmail && String(target.sellerEmail).trim().toLowerCase() === String(user.email).trim().toLowerCase()) ||
+                              user.role === 'seller';
+
+      // Buscar la última visita registrada en campo del asesor con coordenadas GPS válidas
+      const targetSellerId = String(target.sellerId || '').trim();
+      const targetSellerName = String(target.sellerName || '').trim().toLowerCase();
+      const targetSellerEmail = String(target.sellerEmail || '').trim().toLowerCase();
+
+      const sellerVisitsToday = visits.filter(v => {
+        if (!isTodayGuatemala(v.createdAt)) return false;
+        const vSellerId = String(v.sellerId || '').trim();
+        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
+        return (
+          (targetSellerId && vSellerId === targetSellerId) ||
+          (targetSellerEmail && vSellerEmail === targetSellerEmail) ||
+          (targetSellerName && vSellerName === targetSellerName)
+        ) && v.latitude && v.longitude && !isNaN(Number(v.latitude)) && !isNaN(Number(v.longitude));
+      }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      const lastVisit = sellerVisitsToday.length > 0 ? sellerVisitsToday[sellerVisitsToday.length - 1] : null;
+
+      let endLat: number | null = null;
+      let endLng: number | null = null;
+
+      if (isFinishingSelf) {
+        // Si el propio asesor cierra desde su teléfono, priorizar su GPS en tiempo real
+        const freshLoc = await getFreshCoordinates();
+        endLat = freshLoc?.latitude ?? currentLocation?.latitude ?? (lastVisit ? Number(lastVisit.latitude) : null);
+        endLng = freshLoc?.longitude ?? currentLocation?.longitude ?? (lastVisit ? Number(lastVisit.longitude) : null);
+      } else {
+        // Si un administrador cierra la ruta de un asesor desde oficina/computadora: NUNCA usar la ubicación del admin
+        if (lastVisit) {
+          endLat = Number(lastVisit.latitude);
+          endLng = Number(lastVisit.longitude);
+        }
+      }
+
       const nowIso = new Date().toISOString();
 
       // Immediate optimistic update to prevent UI flicker
@@ -3186,7 +3222,35 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                     <div className="flex justify-between border-t border-slate-200/60 pt-1.5">
                       <span className="text-slate-500 font-medium">GPS de Cierre:</span>
                       <span className="font-mono text-slate-700 text-[11px]">
-                        {currentLocation ? `${currentLocation.latitude.toFixed(5)}, ${currentLocation.longitude.toFixed(5)}` : 'Se registrará ubicación actual'}
+                        {(() => {
+                          const isSelf = targetToClose && (targetToClose.sellerId === user.id || targetToClose.sellerEmail === user.email || user.role === 'seller');
+                          const tSellerId = String(targetToClose?.sellerId || '').trim();
+                          const tSellerEmail = String(targetToClose?.sellerEmail || '').trim().toLowerCase();
+                          const tSellerName = String(targetToClose?.sellerName || '').trim().toLowerCase();
+                          const sellerVisitsToday = visits.filter(v => {
+                            if (!isTodayGuatemala(v.createdAt)) return false;
+                            const vId = String(v.sellerId || '').trim();
+                            const vEmail = String(v.sellerEmail || '').trim().toLowerCase();
+                            const vName = String(v.sellerName || '').trim().toLowerCase();
+                            return (
+                              (tSellerId && vId === tSellerId) ||
+                              (tSellerEmail && vEmail === tSellerEmail) ||
+                              (tSellerName && vName === tSellerName)
+                            ) && v.latitude && v.longitude;
+                          }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                          const lastVisit = sellerVisitsToday[sellerVisitsToday.length - 1];
+
+                          if (!isSelf && lastVisit) {
+                            return `📍 Última visita: ${lastVisit.clientName || 'Cliente'} (${Number(lastVisit.latitude).toFixed(4)}, ${Number(lastVisit.longitude).toFixed(4)})`;
+                          }
+                          if (currentLocation) {
+                            return `${currentLocation.latitude.toFixed(5)}, ${currentLocation.longitude.toFixed(5)}`;
+                          }
+                          if (lastVisit) {
+                            return `📍 Última visita: ${lastVisit.clientName || 'Cliente'}`;
+                          }
+                          return 'Se registrará ubicación de última parada';
+                        })()}
                       </span>
                     </div>
                   </div>
