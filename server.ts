@@ -3358,7 +3358,16 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   const lngNum = parseFloat(longitude);
   const nowIso = new Date().toISOString();
   const visitCreatedAt = capturedAt || createdAt || nowIso;
-  const visitId = id || offlineId || `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const isOffline = req.body.isOffline === true || Boolean(req.body.offlineId) || (typeof id === 'string' && (id.startsWith('visit_offline') || id.startsWith('VISIT_OFFLINE')));
+
+  let visitId = id;
+  if (!visitId) {
+    visitId = isOffline 
+      ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+      : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  } else if (!isOffline && (visitId.startsWith('visit_offline') || visitId.startsWith('VISIT_OFFLINE'))) {
+    visitId = `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
 
   const sellerIdStr = req.user?.id ? String(req.user.id).trim() : (req.body.sellerId ? String(req.body.sellerId).trim() : '');
   const sellerNameStr = req.user?.name ? String(req.user.name).trim() : (req.body.sellerName ? String(req.body.sellerName).trim() : 'Vendedor');

@@ -308,7 +308,7 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
       // ONLY plot clients with exact/registered GPS coordinates (no approximate clutter)
       if (!client.resolvedGeo || !client.resolvedGeo.isExact) return;
 
-      const { latitude, longitude } = client.resolvedGeo;
+      const { latitude, longitude, isExact = true, locationLabel = 'Ubicación' } = client.resolvedGeo;
       bounds.extend([latitude, longitude]);
 
       let pinColor = '#94a3b8'; // gray

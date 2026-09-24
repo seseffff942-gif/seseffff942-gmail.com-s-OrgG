@@ -307,11 +307,16 @@ export function RegisterVisitModal({
     const finalAcc = activeGps?.accuracy ?? (selectedClient.latitude ? 15 : undefined);
     const finalGpsSource = activeGps?.source || (finalLat !== 0 ? 'client_saved' : 'offline_provisional');
 
-    const offlineId = `visit_offline_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const isCurrentlyOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+    // Solo si está verdaderamente offline se le asigna el prefijo VISIT_OFFLINE; los normales llevan VISIT-
+    const generatedId = isCurrentlyOffline
+      ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+      : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const visitPayload: any = {
-      id: offlineId,
-      offlineId: offlineId,
+      id: generatedId,
+      ...(isCurrentlyOffline ? { offlineId: generatedId, isOffline: true } : { isOffline: false }),
       clientId: selectedClient.id,
       clientName: selectedClient.name,
       clientCode: selectedClient.clientCode,
@@ -328,37 +333,36 @@ export function RegisterVisitModal({
       photoUrl,
       capturedAt: capturedTimestamp,
       createdAt: capturedTimestamp,
-      gpsSource: finalGpsSource,
-      isOffline: !navigator.onLine
+      gpsSource: finalGpsSource
     };
 
-    // 1. Guardar de forma inmediata e indeleble en la cola offline local
-    try {
-      const storedQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-      storedQueue.unshift(visitPayload);
-      localStorage.setItem('offline_client_visits', JSON.stringify(storedQueue));
-    } catch (storageErr) {
-      console.warn('Could not store in offline_client_visits:', storageErr);
-    }
-
-    // 2. Si hay conexión a internet, intentar enviar al servidor en vivo
     let serverRes: any = null;
-    let savedOnline = false;
 
-    if (navigator.onLine) {
+    if (isCurrentlyOffline) {
+      // 1. Visita offline genuina: Guardar en la cola local de visitas pendientes
+      try {
+        const storedQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+        storedQueue.unshift(visitPayload);
+        localStorage.setItem('offline_client_visits', JSON.stringify(storedQueue));
+      } catch (storageErr) {
+        console.warn('Could not store in offline_client_visits:', storageErr);
+      }
+    } else {
+      // 2. Visita normal online: Enviar directo al servidor con su ID oficial VISIT-...
       try {
         serverRes = await api.createVisit(visitPayload);
-        if (serverRes && (serverRes.success || serverRes.visit)) {
-          savedOnline = true;
-          // Retirar de la cola offline ya que fue sincronizada
-          try {
-            const currentQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-            const updatedQueue = currentQueue.filter((v: any) => v.offlineId !== offlineId && v.id !== offlineId);
-            localStorage.setItem('offline_client_visits', JSON.stringify(updatedQueue));
-          } catch (e) {}
-        }
       } catch (networkErr: any) {
-        console.warn('Network submit failed, visit remains safely in offline queue:', networkErr);
+        console.warn('Network submit failed, converting to offline queue:', networkErr);
+        // Si el envío en vivo falló por corte de red, solo entonces pasa a offline
+        const offlineId = `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        visitPayload.id = offlineId;
+        visitPayload.offlineId = offlineId;
+        visitPayload.isOffline = true;
+        try {
+          const storedQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+          storedQueue.unshift(visitPayload);
+          localStorage.setItem('offline_client_visits', JSON.stringify(storedQueue));
+        } catch (storageErr) {}
       }
     }
 

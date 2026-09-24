@@ -2113,7 +2113,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               )}
 
               {/* Seller Filter for Admin */}
-              {user.role === 'admin' && availableSellers.length > 0 && activeTab !== 'routes' && (
+              {user.role === 'admin' && availableSellers.length > 0 && (activeTab as string) !== 'routes' && (
                 <select
                   value={selectedSellerFilter}
                   onChange={(e) => {

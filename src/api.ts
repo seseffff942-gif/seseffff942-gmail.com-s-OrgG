@@ -677,9 +677,10 @@ export const api = {
     return [];
   },
 
-  createVisit: async (visitData: Partial<ClientVisit> & { offlineId?: string; capturedAt?: string; gpsSource?: string }): Promise<{ success: boolean; visit: ClientVisit; deduplicated?: boolean }> => {
+  createVisit: async (visitData: Partial<ClientVisit> & { offlineId?: string; capturedAt?: string; gpsSource?: string; isOffline?: boolean }): Promise<{ success: boolean; visit: ClientVisit; deduplicated?: boolean }> => {
     const originalDate = visitData.capturedAt || visitData.createdAt || new Date().toISOString();
-    const visitId = visitData.id || visitData.offlineId || `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const isOffline = Boolean(visitData.isOffline || visitData.offlineId || (typeof navigator !== 'undefined' && !navigator.onLine));
+    const visitId = visitData.id || (isOffline ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}` : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
     
     const fallbackVisit: ClientVisit = {
       id: visitId,
