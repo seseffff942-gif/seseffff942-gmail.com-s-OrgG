@@ -5,7 +5,7 @@ import {
   ArrowUpRight, Clock, DollarSign, Share2, Tag, CheckCircle,
   Users, Layers, Flame, Award, HelpCircle, Calendar, Activity
 } from 'lucide-react';
-import { formatMoney, isTecunProduct, cn } from '../utils';
+import { formatMoney, isTecunProduct, isFiatProduct, cn } from '../utils';
 import { SellerPerformanceHistory } from './SellerPerformanceHistory';
 
 interface CommercialAnalyticsDashboardProps {
@@ -88,7 +88,7 @@ export function CommercialAnalyticsDashboard({
           const catalogProd = (products || []).find(p => (p.name || '').toLowerCase().trim() === key);
           map[key] = {
             name: name,
-            category: catalogProd?.category || (isTecunProduct({ name }) ? 'TECUN' : 'General'),
+            category: catalogProd?.category || (isTecunProduct({ name }) ? 'TECUN' : isFiatProduct({ name }) ? 'FIAT' : 'General'),
             totalQty: 0,
             totalRevenue: 0,
             occurrences: 0
@@ -145,7 +145,8 @@ export function CommercialAnalyticsDashboard({
           daysWithoutSale,
           neverSold: lastSale === 0,
           immobilizedCapital,
-          isTecun: isTecunProduct(p)
+          isTecun: isTecunProduct(p),
+          isFiat: isFiatProduct(p)
         };
       })
       .filter(p => p.daysWithoutSale >= 15 || p.neverSold)
@@ -157,6 +158,7 @@ export function CommercialAnalyticsDashboard({
     let agricolaTotal = 0;
     let veterinariaTotal = 0;
     let tecunTotal = 0;
+    let fiatTotal = 0;
     let generalTotal = 0;
 
     validInvoices.forEach(inv => {
@@ -166,6 +168,8 @@ export function CommercialAnalyticsDashboard({
         
         if (isTecunProduct({ name })) {
           tecunTotal += total;
+        } else if (isFiatProduct({ name })) {
+          fiatTotal += total;
         } else if (inv.invoiceType === 'veterinaria' || (it as any).category?.toLowerCase().includes('vet')) {
           veterinariaTotal += total;
         } else if (inv.invoiceType === 'agricola' || (it as any).category?.toLowerCase().includes('agri')) {
@@ -176,12 +180,13 @@ export function CommercialAnalyticsDashboard({
       });
     });
 
-    const sum = agricolaTotal + veterinariaTotal + tecunTotal + generalTotal || 1;
+    const sum = agricolaTotal + veterinariaTotal + tecunTotal + fiatTotal + generalTotal || 1;
 
     return [
       { name: 'Línea Agrícola', total: agricolaTotal, percent: ((agricolaTotal / sum) * 100).toFixed(1), color: 'bg-emerald-500', textColor: 'text-emerald-700' },
       { name: 'Línea Veterinaria', total: veterinariaTotal, percent: ((veterinariaTotal / sum) * 100).toFixed(1), color: 'bg-teal-500', textColor: 'text-teal-700' },
       { name: 'Línea Tecún (Químicos)', total: tecunTotal, percent: ((tecunTotal / sum) * 100).toFixed(1), color: 'bg-purple-500', textColor: 'text-purple-700' },
+      { name: 'Línea FIAT', total: fiatTotal, percent: ((fiatTotal / sum) * 100).toFixed(1), color: 'bg-indigo-500', textColor: 'text-indigo-700' },
       { name: 'Accesorios / Otros', total: generalTotal, percent: ((generalTotal / sum) * 100).toFixed(1), color: 'bg-amber-500', textColor: 'text-amber-700' }
     ].sort((a, b) => b.total - a.total);
   }, [validInvoices]);

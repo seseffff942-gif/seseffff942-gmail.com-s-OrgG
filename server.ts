@@ -3301,6 +3301,8 @@ app.get("/api/visits/:id/photo", requireAuth, asyncHandler(async (req: any, res:
 // Create a new visit checkpoint
 app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
   const {
+    id,
+    offlineId,
     clientId,
     clientName,
     clientCode,
@@ -3310,7 +3312,10 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     accuracy,
     visitType,
     notes,
-    photoUrl
+    photoUrl,
+    capturedAt,
+    createdAt,
+    gpsSource
   } = req.body;
 
   if (!clientId && !clientName) {
@@ -3320,9 +3325,56 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     return res.status(400).json({ error: "Coordenadas GPS requeridas para el checkpoint." });
   }
 
+  // 1. Escudo de seguridad anti-malware y compresión obligatoria a WebP
+  let sanitizedWebpPhoto = photoUrl || '';
+  if (photoUrl && typeof photoUrl === 'string') {
+    const lowerPhoto = photoUrl.toLowerCase();
+    if (lowerPhoto.includes('<script') || lowerPhoto.includes('javascript:') || lowerPhoto.includes('onload=') || lowerPhoto.includes('onerror=')) {
+      return res.status(400).json({ error: "Contenido de foto rechazado por directivas de seguridad (código no permitido)." });
+    }
+    if (!photoUrl.startsWith('data:image/') && !photoUrl.startsWith('http://') && !photoUrl.startsWith('https://') && !photoUrl.startsWith('/api/visits/')) {
+      return res.status(400).json({ error: "Formato de imagen inválido. Solo se admiten datos de imagen codificados." });
+    }
+
+    // Re-compresión obligatoria a WebP optimizado con Sharp
+    if (sharp && photoUrl.startsWith('data:image/')) {
+      try {
+        const matches = photoUrl.match(/^data:image\/[a-zA-Z0-9+]+;base64,(.+)$/);
+        if (matches && matches[1]) {
+          const inputBuffer = Buffer.from(matches[1], 'base64');
+          const webpBuffer = await sharp(inputBuffer)
+            .resize(900, 900, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 72 })
+            .toBuffer();
+          sanitizedWebpPhoto = `data:image/webp;base64,${webpBuffer.toString('base64')}`;
+        }
+      } catch (sharpErr) {
+        console.warn('Backend sharp WebP conversion error:', sharpErr);
+      }
+    }
+  }
+
   const latNum = parseFloat(latitude);
   const lngNum = parseFloat(longitude);
   const nowIso = new Date().toISOString();
+  const visitCreatedAt = capturedAt || createdAt || nowIso;
+  const visitId = id || offlineId || `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const sellerIdStr = req.user?.id ? String(req.user.id).trim() : (req.body.sellerId ? String(req.body.sellerId).trim() : '');
+  const sellerNameStr = req.user?.name ? String(req.user.name).trim() : (req.body.sellerName ? String(req.body.sellerName).trim() : 'Vendedor');
+  const sellerEmailStr = req.user?.email ? String(req.user.email).trim().toLowerCase() : (req.body.sellerEmail ? String(req.body.sellerEmail).trim().toLowerCase() : '');
+
+  // 2. DEDUPLICACIÓN ESTRICTA (Evita guardar doble si hubo retry o sincronización en cola)
+  const currentVisits = readLocalVisits();
+  const existingVisit = currentVisits.find((v: any) => 
+    (v.id && (v.id === visitId || v.id === offlineId)) ||
+    (v.offlineId && (v.offlineId === visitId || v.offlineId === offlineId)) ||
+    (v.clientId === clientId && v.sellerId === sellerIdStr && Math.abs(new Date(v.createdAt).getTime() - new Date(visitCreatedAt).getTime()) < 45000)
+  );
+
+  if (existingVisit) {
+    return res.json({ success: true, visit: existingVisit, deduplicated: true });
+  }
 
   // Check if client has registered location to calculate distance
   let calculatedDistance: number | undefined = undefined;
@@ -3332,14 +3384,17 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     if (targetClient && targetClient.latitude && targetClient.longitude) {
       calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
     } else {
-      // If client had no GPS yet, auto-geotag them on first visit!
-      if (clientId || clientName) {
+      // Auto-geotagging SEGURO: Solo auto-geotag si las coordenadas son reales y están en Guatemala (no ceros ni provisionales)
+      const isValidGuatemalaCoords = latNum >= 13.0 && latNum <= 18.5 && lngNum >= -93.0 && lngNum <= -87.0;
+      const isEligibleGps = isValidGuatemalaCoords && gpsSource !== 'offline_provisional';
+
+      if ((clientId || clientName) && isEligibleGps) {
         if (clientId) {
           updateLocalClient(clientId, {
             latitude: latNum,
             longitude: lngNum,
-            geotaggedAt: nowIso,
-            geotaggedBy: req.user?.name || req.user?.email
+            geotaggedAt: visitCreatedAt,
+            geotaggedBy: req.user?.name || req.user?.email || 'Vendedor'
           });
         }
         if (neonPool) {
@@ -3354,7 +3409,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
                   geotagged_by = COALESCE(geotagged_by, $4)
               WHERE (id = $5 OR id::text = $5::text OR "clientCode" = $5::text)
                  OR (LOWER(TRIM(name)) = LOWER(TRIM($6)));
-            `, [latNum, lngNum, nowIso, req.user?.name || req.user?.email || 'Vendedor', clientId || '', clientName || '']);
+            `, [latNum, lngNum, visitCreatedAt, req.user?.name || req.user?.email || 'Vendedor', clientId || '', clientName || '']);
           } catch (neGpsErr: any) {
             console.warn('[Auto-geotag visit neon warning]:', neGpsErr.message);
           }
@@ -3365,13 +3420,13 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     // Update client lastVisitAt
     if (clientId || clientName) {
       if (clientId) {
-        updateLocalClient(clientId, { lastVisitAt: nowIso });
+        updateLocalClient(clientId, { lastVisitAt: visitCreatedAt });
       }
       try {
         if (clientId) {
           await localDb.from("clients").update({
-            last_visit_at: nowIso,
-            lastVisitAt: nowIso
+            last_visit_at: visitCreatedAt,
+            lastVisitAt: visitCreatedAt
           }).eq("id", clientId);
         }
       } catch (e) { }
@@ -3383,7 +3438,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
             SET "lastVisitAt" = $1, last_visit_at = $1
             WHERE (id = $2 OR id::text = $2::text OR "clientCode" = $2::text)
                OR (LOWER(TRIM(name)) = LOWER(TRIM($3)));
-          `, [nowIso, clientId || '', clientName || '']);
+          `, [visitCreatedAt, clientId || '', clientName || '']);
         } catch (neVisErr: any) {
           console.warn('[Update lastVisitAt neon warning]:', neVisErr.message);
         }
@@ -3393,10 +3448,6 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   } catch (e) { }
 
   // Find or create active route session for this seller (Strict single active route)
-  const sellerIdStr = req.user?.id ? String(req.user.id).trim() : (req.body.sellerId ? String(req.body.sellerId).trim() : '');
-  const sellerNameStr = req.user?.name ? String(req.user.name).trim() : (req.body.sellerName ? String(req.body.sellerName).trim() : 'Vendedor');
-  const sellerEmailStr = req.user?.email ? String(req.user.email).trim().toLowerCase() : (req.body.sellerEmail ? String(req.body.sellerEmail).trim().toLowerCase() : '');
-
   let activeRoute: any = null;
 
   // 1. First check in PostgreSQL (Neon / Swarm Postgres)
@@ -3505,7 +3556,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   } catch (e) { }
 
   const newVisit = {
-    id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    id: visitId,
     clientId: clientId || '',
     clientName: clientName || '',
     clientCode: clientCode || '',
@@ -3520,12 +3571,11 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     distanceMeters: calculatedDistance,
     visitType: visitType || 'rutina',
     notes: notes || '',
-    photoUrl: photoUrl || '',
-    createdAt: nowIso
+    photoUrl: sanitizedWebpPhoto || '',
+    createdAt: visitCreatedAt
   };
 
   // Save locally
-  const currentVisits = readLocalVisits();
   currentVisits.unshift(newVisit);
   saveLocalVisits(currentVisits);
 

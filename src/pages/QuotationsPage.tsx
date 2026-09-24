@@ -8,7 +8,7 @@ import {
   Building2, Phone, MapPin, Calendar, Tag, ShieldAlert, ArrowRight,
   DollarSign, FileText, CheckCircle, Copy, ExternalLink, Sparkles, Edit2
 } from 'lucide-react';
-import { cn, printHtml, downloadHtmlAsPdf, formatMoney, compileQuotationTemplate, doesNotNeedStock } from '../utils';
+import { cn, printHtml, downloadHtmlAsPdf, formatMoney, compileQuotationTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProductImage, getFallbackImage, LOGO_PLACEHOLDER } from '../components/ProductImage';
 
@@ -28,7 +28,13 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   // Search & Filters for Catalog
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const categories = ['Todos', 'Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'Otros'];
+  const categories = useMemo(() => {
+    const base = ['Todos', 'Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'TECUN', 'FIAT', 'Otros'];
+    const extra = products
+      .map(p => p.category?.trim())
+      .filter((c): c is string => !!c && !base.includes(c));
+    return [...base, ...Array.from(new Set(extra))];
+  }, [products]);
 
   // Client Selection
   // Client Selection with Draft Persistence
@@ -612,7 +618,16 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       const matchesSearch = 
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+      let matchesCategory = true;
+      if (selectedCategory !== 'Todos') {
+        if (selectedCategory === 'FIAT') {
+          matchesCategory = p.category === 'FIAT' || isFiatProduct(p);
+        } else if (selectedCategory === 'TECUN') {
+          matchesCategory = p.category === 'TECUN' || isTecunProduct(p);
+        } else {
+          matchesCategory = p.category === selectedCategory;
+        }
+      }
       return matchesSearch && matchesCategory;
     });
   }, [products, searchTerm, selectedCategory]);

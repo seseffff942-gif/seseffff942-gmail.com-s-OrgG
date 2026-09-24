@@ -399,22 +399,60 @@ export function isTecunProduct(product: { id?: string; productId?: string; name?
   return tecunKeywords.some(keyword => nameL.includes(keyword));
 }
 
-export function calculateTecunStockBreakdown(product: { name?: string; category?: string; stock?: number } | null | undefined, requestedQty: number) {
-  const isTecun = isTecunProduct(product);
+export function isFiatProduct(product: { id?: string; productId?: string; name?: string; productName?: string; category?: string } | null | undefined): boolean {
+  if (!product) return false;
+  const nameL = (product.name || product.productName || '').toLowerCase().trim();
+  const catL = (product.category || '').toLowerCase().trim();
+  
+  if (catL === 'fiat' || catL.includes('fiat') || nameL.includes('fiat')) {
+    return true;
+  }
+
+  return false;
+}
+
+export function getSpecialSupplierType(product: { id?: string; productId?: string; name?: string; productName?: string; category?: string } | null | undefined): 'TECUN' | 'FIAT' | null {
+  if (isFiatProduct(product)) return 'FIAT';
+  if (isTecunProduct(product)) return 'TECUN';
+  return null;
+}
+
+export function isSpecialSupplierProduct(product: { id?: string; productId?: string; name?: string; productName?: string; category?: string } | null | undefined): boolean {
+  return isTecunProduct(product) || isFiatProduct(product);
+}
+
+export function calculateSupplierStockBreakdown(product: { name?: string; category?: string; stock?: number } | null | undefined, requestedQty: number) {
+  const supplier = getSpecialSupplierType(product);
+  const isSpecial = supplier !== null;
+  const isTecun = supplier === 'TECUN';
+  const isFiat = supplier === 'FIAT';
   const rawStock = Number(product?.stock) || 0;
   const physicalStock = Math.max(0, rawStock);
   const requested = Math.max(0, Number(requestedQty) || 0);
   const fromWarehouse = Math.min(physicalStock, requested);
-  const toOrderFromCompany = isTecun ? Math.max(0, requested - physicalStock) : 0;
-  const hasShortage = isTecun && toOrderFromCompany > 0;
+  const toOrderFromCompany = isSpecial ? Math.max(0, requested - physicalStock) : 0;
+  const hasShortage = isSpecial && toOrderFromCompany > 0;
   return {
+    isSpecial,
+    supplier,
+    supplierLabel: isFiat ? 'FIAT' : (isTecun ? 'TECÚN' : ''),
     isTecun,
+    isFiat,
     rawStock,
     physicalStock,
     requested,
     fromWarehouse,
     toOrderFromCompany,
     hasShortage
+  };
+}
+
+export function calculateTecunStockBreakdown(product: { name?: string; category?: string; stock?: number } | null | undefined, requestedQty: number) {
+  const breakdown = calculateSupplierStockBreakdown(product, requestedQty);
+  return {
+    ...breakdown,
+    isTecun: breakdown.isTecun || breakdown.isFiat,
+    hasShortage: breakdown.hasShortage
   };
 }
 
@@ -454,7 +492,7 @@ export function getCriticalStockThreshold(product: { name?: string; category?: s
 
 export function isCriticalStock(product: { name?: string; category?: string; stock?: number }): boolean {
   if (!product) return false;
-  if (isTecunProduct(product)) return false;
+  if (isTecunProduct(product) || isFiatProduct(product)) return false;
 
   const stock = product.stock || 0;
 
@@ -760,6 +798,100 @@ export async function compressImageToWebP(
 
     img.src = src;
   });
+}
+
+/**
+ * Validador estricto y sanitizador de seguridad para subida de fotos (Anti-ataques / Anti-malware).
+ * 1. Verifica tamaño (máximo 15MB).
+ * 2. Verifica extensión contra lista blanca estricta (.jpg, .jpeg, .png, .webp, .heic, .heif).
+ * 3. Bloquea expresamente ejecutables, scripts (.exe, .php, .js, .svg con XSS, .html, .py, etc.).
+ * 4. Valida MIME Type oficial de imagen (image/jpeg, image/png, image/webp, image/heic, etc.).
+ * 5. Lee magic bytes iniciales del archivo binario para confirmar formato de imagen real.
+ * 6. Sanitiza y re-codifica los píxeles puros vía Canvas HTML5 (destruye cualquier exploit EXIF, scripts o código oculto).
+ */
+export async function validateAndSanitizeImageFile(
+  file: File,
+  maxWidth: number = 1000,
+  maxHeight: number = 1000,
+  quality: number = 0.72
+): Promise<{ ok: boolean; error?: string; webpBase64?: string }> {
+  if (!file) {
+    return { ok: false, error: 'No se seleccionó ningún archivo.' };
+  }
+
+  // 1. Límite de tamaño: 15MB
+  const MAX_SIZE_BYTES = 15 * 1024 * 1024;
+  if (file.size > MAX_SIZE_BYTES) {
+    return { ok: false, error: 'El archivo excede el tamaño máximo permitido de 15MB.' };
+  }
+  if (file.size < 100) {
+    return { ok: false, error: 'El archivo de imagen está vacío o corrupto.' };
+  }
+
+  // 2. Extensión permitida
+  const name = file.name.toLowerCase();
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+  const hasValidExt = allowedExtensions.some(ext => name.endsWith(ext));
+  if (!hasValidExt) {
+    return {
+      ok: false,
+      error: 'Formato no permitido por seguridad. Solo se admiten fotos reales (.jpg, .jpeg, .png, .webp, .heic).'
+    };
+  }
+
+  // 3. Prohibir expresamente SVG y archivos ejecutables/scripts (evita vectores XSS e inyecciones)
+  const dangerousExtensions = ['.svg', '.html', '.htm', '.php', '.js', '.exe', '.bat', '.sh', '.py', '.apk', '.bin'];
+  if (dangerousExtensions.some(ext => name.endsWith(ext))) {
+    return {
+      ok: false,
+      error: 'Archivo rechazado por políticas de seguridad.'
+    };
+  }
+
+  // 4. Tipo MIME
+  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (file.type && !allowedMimes.includes(file.type.toLowerCase())) {
+    return {
+      ok: false,
+      error: `Tipo de archivo (${file.type}) no autorizado. Solo se permiten imágenes fotográficas.`
+    };
+  }
+
+  // 5. Verificación de Magic Bytes (Firmas binarias estándar de imagen)
+  try {
+    const slice = file.slice(0, 16);
+    const buffer = await slice.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    
+    // JPEG: FF D8 FF
+    const isJpeg = bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+    // WEBP: RIFF....WEBP (52 49 46 46 ... 57 45 42 50)
+    const isRiff = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+    // HEIC / HEIF: ftyp en bytes 4-7
+    const isHeic = (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70);
+
+    if (!isJpeg && !isPng && !isRiff && !isHeic && file.type !== 'image/heic') {
+      return {
+        ok: false,
+        error: 'El contenido del archivo no corresponde a una imagen fotográfica válida y segura.'
+      };
+    }
+  } catch (magicErr) {
+    console.warn('Magic bytes check warning:', magicErr);
+  }
+
+  // 6. Sanitización activa mediante recodificación en Canvas HTML5 (destruye cualquier script o payload)
+  try {
+    const sanitizedWebp = await compressImageToWebP(file, maxWidth, maxHeight, quality);
+    if (!sanitizedWebp || !sanitizedWebp.startsWith('data:image/')) {
+      return { ok: false, error: 'No se pudo procesar la imagen de forma segura.' };
+    }
+    return { ok: true, webpBase64: sanitizedWebp };
+  } catch (err: any) {
+    return { ok: false, error: 'Error al sanitizar y optimizar la imagen: ' + (err?.message || 'Error desconocido') };
+  }
 }
 
 /**

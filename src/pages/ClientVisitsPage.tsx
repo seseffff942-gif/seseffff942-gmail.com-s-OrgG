@@ -14,7 +14,7 @@ import {
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
   Download, FileSpreadsheet, Check, Shield, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
-  BarChart3, X
+  BarChart3, X, WifiOff
 } from 'lucide-react';
 import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller, getDiffCalendarDaysGT } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -50,6 +50,37 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
+  // Offline Visits Queue State
+  const [offlineVisitsQueue, setOfflineVisitsQueue] = useState<any[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
+  const [isSyncingVisits, setIsSyncingVisits] = useState(false);
+  const [syncVisitsMsg, setSyncVisitsMsg] = useState('');
+
+  // Sincronizar visitas offline acumuladas en terreno con coordenadas congeladas del sitio
+  const handleSyncOfflineVisits = async () => {
+    if (!navigator.onLine || isSyncingVisits) return;
+    setIsSyncingVisits(true);
+    try {
+      const res = await api.syncOfflineVisits();
+      const currentQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+      setOfflineVisitsQueue(currentQueue);
+      if (res.synced > 0) {
+        setSyncVisitsMsg(`✅ Se sincronizaron exitosamente ${res.synced} visita(s) guardadas sin conexión.`);
+        setTimeout(() => setSyncVisitsMsg(''), 8000);
+        await loadData(true);
+      }
+    } catch (e) {
+      console.warn('Error syncing offline visits:', e);
+    } finally {
+      setIsSyncingVisits(false);
+    }
+  };
+
   // Modals State
   const [isMarkModalOpen, setIsMarkModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -78,7 +109,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const [routeDate, setRouteDate] = useState<string>(getGuatemalaTodayIso());
   const [isRouteTraceActive, setIsRouteTraceActive] = useState<boolean>(false);
 
-  // Request & Watch GPS Location
+  // Request & Watch GPS Location (Optimizado para zonas remotas con satellite fallback)
   const requestLocation = () => {
     if (!navigator.geolocation) {
       setGpsError('Tu dispositivo no soporta geolocalización GPS.');
@@ -90,11 +121,18 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setCurrentLocation({
+        const fresh = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy
-        });
+        };
+        setCurrentLocation(fresh);
+        try {
+          localStorage.setItem('last_known_gps_coords', JSON.stringify({
+            ...fresh,
+            timestamp: Date.now()
+          }));
+        } catch (e) {}
         setIsGpsLoading(false);
       },
       (error) => {
@@ -102,17 +140,17 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         if (error.code === error.PERMISSION_DENIED) {
           msg = 'Permiso de ubicación denegado. Activa el GPS en los ajustes de tu navegador.';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          msg = 'Señal GPS no disponible temporalmente.';
+          msg = 'Señal GPS no disponible temporalmente en esta zona.';
         } else if (error.code === error.TIMEOUT) {
-          msg = 'Tiempo de espera agotado al obtener el GPS.';
+          msg = 'Tiempo de espera agotado al obtener el GPS satelital.';
         }
         setGpsError(msg);
         setIsGpsLoading(false);
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 10000
+        timeout: 35000,
+        maximumAge: 15000
       }
     );
   };
@@ -136,6 +174,12 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       ]);
       const statsData = await api.getVisitStats(visitsData);
 
+      if (clientsData && clientsData.length > 0) {
+        try {
+          localStorage.setItem('offline_clients_map', JSON.stringify(clientsData));
+        } catch (e) {}
+      }
+
       setClients(clientsData || []);
       setVisits(visitsData || []);
       setStats(statsData || null);
@@ -158,6 +202,15 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       }
     } catch (e) {
       console.error('Error loading visits data:', e);
+      // Fallback a caché local si estamos sin internet
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const cachedClients = localStorage.getItem('offline_clients_map');
+          if (cachedClients) {
+            setClients(JSON.parse(cachedClients));
+          }
+        } catch (cacheErr) {}
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -183,23 +236,44 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       loadData(true);
     }, 25000);
 
+    // 2. Monitoreo y auto-sincronización de cola de visitas offline al recuperar señal
+    window.addEventListener('online', handleSyncOfflineVisits);
+    const offlineCheckInterval = setInterval(() => {
+      try {
+        const q = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+        setOfflineVisitsQueue(q);
+        if (q.length > 0 && navigator.onLine) {
+          handleSyncOfflineVisits();
+        }
+      } catch (e) {}
+    }, 15000);
+
     let watchId: number | null = null;
     if (navigator.geolocation) {
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          setCurrentLocation({
+          const fresh = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
             accuracy: pos.coords.accuracy
-          });
+          };
+          setCurrentLocation(fresh);
+          try {
+            localStorage.setItem('last_known_gps_coords', JSON.stringify({
+              ...fresh,
+              timestamp: Date.now()
+            }));
+          } catch (e) {}
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 10000 }
+        { enableHighAccuracy: true, maximumAge: 15000 }
       );
     }
 
     return () => {
       clearInterval(syncInterval);
+      clearInterval(offlineCheckInterval);
+      window.removeEventListener('online', handleSyncOfflineVisits);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, []);
@@ -277,7 +351,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   };
 
   const handleVisitRegistered = (newVisit: ClientVisit) => {
-    setVisits(prev => [newVisit, ...prev]);
+    setVisits(prev => [newVisit, ...prev.filter(v => v.id !== newVisit.id)]);
+    try {
+      const q = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+      setOfflineVisitsQueue(q);
+    } catch (e) {}
     loadData(true);
   };
 
@@ -1398,6 +1476,34 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
           <span>{isGpsLoading ? "Obteniendo..." : "Actualizar GPS"}</span>
         </button>
       </div>
+
+      {/* OFFLINE VISITS QUEUE SYNC BANNER */}
+      {offlineVisitsQueue.length > 0 && (
+        <div className="bg-amber-600 text-white px-4 py-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2.5 text-xs font-bold shadow-md animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <WifiOff size={16} className="text-amber-200 shrink-0" />
+            <span>
+              Tienes {offlineVisitsQueue.length} {offlineVisitsQueue.length === 1 ? 'visita guardada' : 'visitas guardadas'} en terreno sin conexión (con coordenadas congeladas del sitio).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleSyncOfflineVisits}
+            disabled={isSyncingVisits || !navigator.onLine}
+            className="px-3 py-1 bg-white text-amber-950 rounded-xl text-xs font-black hover:bg-amber-50 active:scale-95 transition shadow-xs cursor-pointer flex items-center gap-1.5"
+          >
+            <RefreshCw size={12} className={cn(isSyncingVisits && "animate-spin text-amber-800")} />
+            <span>{isSyncingVisits ? 'Sincronizando...' : (!navigator.onLine ? 'Esperando señal...' : 'Sincronizar Ahora')}</span>
+          </button>
+        </div>
+      )}
+
+      {syncVisitsMsg && (
+        <div className="bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-md animate-in fade-in flex items-center gap-2">
+          <Check size={16} />
+          <span>{syncVisitsMsg}</span>
+        </div>
+      )}
 
       {activeTab !== 'control' && (
         <>
@@ -3029,6 +3135,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         currentUser={user}
         onVisitRegistered={handleVisitRegistered}
         preselectedClient={selectedClientForVisit}
+        onRefreshGps={requestLocation}
       />
 
       {/* FINALIZAR RUTA MODAL */}

@@ -677,10 +677,12 @@ export const api = {
     return [];
   },
 
-  createVisit: async (visitData: Partial<ClientVisit>): Promise<{ success: boolean; visit: ClientVisit }> => {
-    const nowIso = new Date().toISOString();
+  createVisit: async (visitData: Partial<ClientVisit> & { offlineId?: string; capturedAt?: string; gpsSource?: string }): Promise<{ success: boolean; visit: ClientVisit; deduplicated?: boolean }> => {
+    const originalDate = visitData.capturedAt || visitData.createdAt || new Date().toISOString();
+    const visitId = visitData.id || visitData.offlineId || `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    
     const fallbackVisit: ClientVisit = {
-      id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: visitId,
       clientId: visitData.clientId || '',
       clientName: visitData.clientName || '',
       clientCode: visitData.clientCode,
@@ -694,7 +696,7 @@ export const api = {
       visitType: visitData.visitType || 'rutina',
       notes: visitData.notes,
       photoUrl: visitData.photoUrl,
-      createdAt: nowIso
+      createdAt: originalDate
     };
 
     // Save in local storage cache first
@@ -703,7 +705,9 @@ export const api = {
         const cached = localStorage.getItem('cached_client_visits');
         const list = cached ? JSON.parse(cached) : [];
         if (Array.isArray(list)) {
-          localStorage.setItem('cached_client_visits', JSON.stringify([fallbackVisit, ...list]));
+          // Avoid duplicate entry in local cache
+          const filtered = list.filter((v: any) => v.id !== visitId && v.offlineId !== visitId);
+          localStorage.setItem('cached_client_visits', JSON.stringify([fallbackVisit, ...filtered]));
         }
       } catch (e) {}
     }
@@ -712,7 +716,12 @@ export const api = {
       const res = await fetchWithAuth('/api/visits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(visitData)
+        body: JSON.stringify({
+          ...visitData,
+          id: visitId,
+          createdAt: originalDate,
+          capturedAt: originalDate
+        })
       });
       const data = await safeJson(res);
       if (res.ok && data.success) {
@@ -720,11 +729,57 @@ export const api = {
         return data;
       }
     } catch (err) {
-      console.warn('API /visits failed:', err);
+      console.warn('API /visits offline/network failure:', err);
     }
 
     clearApiCache('clients');
     return { success: true, visit: fallbackVisit };
+  },
+
+  syncOfflineVisits: async (): Promise<{ synced: number; remaining: number }> => {
+    if (typeof localStorage === 'undefined' || !navigator.onLine) {
+      return { synced: 0, remaining: 0 };
+    }
+    let queue: any[] = [];
+    try {
+      queue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+    } catch (e) {
+      queue = [];
+    }
+    if (!Array.isArray(queue) || queue.length === 0) {
+      return { synced: 0, remaining: 0 };
+    }
+
+    let syncedCount = 0;
+    const remainingQueue: any[] = [];
+
+    for (const v of queue) {
+      try {
+        const res = await fetchWithAuth('/api/visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(v)
+        });
+        const data = await safeJson(res);
+        if (res.ok && data?.success) {
+          syncedCount++;
+        } else {
+          remainingQueue.push(v);
+        }
+      } catch (err) {
+        remainingQueue.push(v);
+      }
+    }
+
+    try {
+      localStorage.setItem('offline_client_visits', JSON.stringify(remainingQueue));
+    } catch (e) {}
+
+    if (syncedCount > 0) {
+      clearApiCache('clients');
+    }
+
+    return { synced: syncedCount, remaining: remainingQueue.length };
   },
 
   deleteVisit: async (id: string): Promise<{ success: boolean; message?: string }> => {

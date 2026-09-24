@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, calculateTecunStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, isClientOfSeller } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct, calculateTecunStockBreakdown, calculateSupplierStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, isClientOfSeller } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -26,7 +26,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [clients, setClients] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const categories = ['Todos', 'Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'Otros'];
+  const categoriesList = useMemo(() => {
+    const base = ['Todos', 'Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'TECUN', 'FIAT', 'Otros'];
+    const extra = products
+      .map(p => p.category?.trim())
+      .filter((c): c is string => !!c && !base.includes(c));
+    return [...base, ...Array.from(new Set(extra))];
+  }, [products]);
   const [showClientSuggestions, setShowClientSuggestions] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(!isMobile);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -458,6 +464,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         const tecunBreakdown = calculateTecunStockBreakdown(product, totalNewQty);
         setErrorMsg(`"${product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
         setTimeout(() => setErrorMsg(''), 7000);
+      } else if (isFiatProduct(product)) {
+        requiresAuth = true;
+        const fiatBreakdown = calculateSupplierStockBreakdown(product, totalNewQty);
+        setErrorMsg(`"${product.name}" (FIAT): En bodega hay ${fiatBreakdown.fromWarehouse} uds. Se solicitarán ${fiatBreakdown.toOrderFromCompany} uds a la empresa.`);
+        setTimeout(() => setErrorMsg(''), 7000);
       } else {
         setErrorMsg(`Stock insuficiente para "${product.name}"${variant ? ` (${variant.color} - ${variant.size})` : ''} (Disponible: ${maxStock}).`);
         setTimeout(() => setErrorMsg(''), 5000);
@@ -578,6 +589,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               setErrorMsg(`"${item.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
               setTimeout(() => setErrorMsg(''), 7000);
               return { ...item, quantity: newQ, requiresAuth: true };
+           } else if (isFiatProduct(item.product)) {
+              const fiatBreakdown = calculateSupplierStockBreakdown(item.product, newQ);
+              setErrorMsg(`"${item.product.name}" (FIAT): En bodega hay ${fiatBreakdown.fromWarehouse} uds. Se solicitarán ${fiatBreakdown.toOrderFromCompany} uds a la empresa.`);
+              setTimeout(() => setErrorMsg(''), 7000);
+              return { ...item, quantity: newQ, requiresAuth: true };
            } else {
               setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
               setTimeout(() => setErrorMsg(''), 5000);
@@ -693,18 +709,21 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       msg += `• ${quantity}x ${item.productName || item.name}${variantStr} a ${formatMoney(price)} = *${formatMoney(itemTotal)}*\n`;
     });
     
-    const tecunOrderItems = items.filter((item: any) => {
+    const specialOrderItems = items.filter((item: any) => {
       const isTec = isTecunProduct(item) || isTecunProduct({ name: item.productName || item.name, category: item.category });
-      return isTec && ((item.tecunToOrder && item.tecunToOrder > 0) || (item.requiresAuth));
+      const isFiat = isFiatProduct(item) || isFiatProduct({ name: item.productName || item.name, category: item.category });
+      return (isTec || isFiat) && ((item.tecunToOrder && item.tecunToOrder > 0) || (item.fiatToOrder && item.fiatToOrder > 0) || (item.requiresAuth));
     });
 
-    if (tecunOrderItems.length > 0) {
+    if (specialOrderItems.length > 0) {
       msg += `---------------------------------------\n`;
-      msg += `🏢 *REQUERIMIENTO PROVEEDOR TECÚN:*\n`;
-      tecunOrderItems.forEach((ti: any) => {
-        const warehouse = ti.tecunWarehouseStock !== undefined ? ti.tecunWarehouseStock : 0;
-        const toOrder = ti.tecunToOrder !== undefined ? ti.tecunToOrder : Math.max(0, (ti.quantity || 0) - warehouse);
-        msg += `⚠️ *${ti.productName || ti.name}*\n   ↳ Pedido: ${ti.quantity} | En Bodega: ${warehouse} | 👉 *Pedir a Tecún: ${toOrder} uds*\n`;
+      specialOrderItems.forEach((ti: any) => {
+        const isFiat = isFiatProduct(ti) || isFiatProduct({ name: ti.productName || ti.name, category: ti.category }) || ti.fiatToOrder !== undefined;
+        const supplierName = isFiat ? 'FIAT' : 'TECÚN';
+        const warehouse = (ti.fiatWarehouseStock !== undefined ? ti.fiatWarehouseStock : ti.tecunWarehouseStock) ?? 0;
+        const toOrder = (ti.fiatToOrder !== undefined ? ti.fiatToOrder : ti.tecunToOrder) ?? Math.max(0, (ti.quantity || 0) - warehouse);
+        msg += `🏢 *REQUERIMIENTO PROVEEDOR ${supplierName}:*\n`;
+        msg += `⚠️ *${ti.productName || ti.name}*\n   ↳ Pedido: ${ti.quantity} | En Bodega: ${warehouse} | 👉 *Pedir a ${supplierName}: ${toOrder} uds*\n`;
       });
     }
 
@@ -778,7 +797,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            effectivePrice = (price * i.appliedCustomOffer.buyQty) / (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
         }
 
-        const tecunBreakdown = calculateTecunStockBreakdown(i.product, i.quantity);
+        const supplierBreakdown = calculateSupplierStockBreakdown(i.product, i.quantity);
 
         return {
           productId: i.product.id,
@@ -791,9 +810,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           variantId: i.variant?.id || (i as any).variantId,
           color: i.variant?.color || (i as any).color,
           size: i.variant?.size || (i as any).size,
-          requiresAuth: i.requiresAuth || tecunBreakdown.hasShortage,
-          tecunWarehouseStock: tecunBreakdown.isTecun ? tecunBreakdown.fromWarehouse : undefined,
-          tecunToOrder: tecunBreakdown.isTecun ? tecunBreakdown.toOrderFromCompany : undefined
+          requiresAuth: i.requiresAuth || supplierBreakdown.hasShortage,
+          tecunWarehouseStock: supplierBreakdown.isTecun ? supplierBreakdown.fromWarehouse : undefined,
+          tecunToOrder: supplierBreakdown.isTecun ? supplierBreakdown.toOrderFromCompany : undefined,
+          fiatWarehouseStock: supplierBreakdown.isFiat ? supplierBreakdown.fromWarehouse : undefined,
+          fiatToOrder: supplierBreakdown.isFiat ? supplierBreakdown.toOrderFromCompany : undefined
         };
       });
 
@@ -973,7 +994,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       const maxStock = variantStock !== undefined ? variantStock : item.product.stock;
 
       if (item.quantity > maxStock && !doesNotNeedStock(item.product)) {
-        if (isTecunProduct(item.product)) {
+        if (isTecunProduct(item.product) || isFiatProduct(item.product)) {
           item.requiresAuth = true;
         } else {
           setErrorMsg(`Stock insuficiente para "${item.product.name}"${item.variant ? ` (${item.variant.color} - ${item.variant.size})` : ''} (Disponible: ${maxStock}).`);
@@ -1090,8 +1111,22 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
   const filteredProducts = products.filter(p => {
     if (p.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com') return false;
-    const matchSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+    const s = searchTerm.toLowerCase();
+    const matchSearch = !searchTerm || 
+      (p.name || '').toLowerCase().includes(s) || 
+      (p.category || '').toLowerCase().includes(s) ||
+      (p.id || '').toLowerCase().includes(s);
+    
+    let matchCategory = true;
+    if (selectedCategory !== 'Todos') {
+      if (selectedCategory === 'FIAT') {
+        matchCategory = p.category === 'FIAT' || isFiatProduct(p);
+      } else if (selectedCategory === 'TECUN') {
+        matchCategory = p.category === 'TECUN' || isTecunProduct(p);
+      } else {
+        matchCategory = p.category === selectedCategory;
+      }
+    }
     return matchSearch && matchCategory;
   });
 
@@ -1208,6 +1243,38 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               )}
             </div>
           </div>
+
+          {/* Interactive Category Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 scrollbar-hide hide-scrollbar">
+            {categoriesList.map((cat) => {
+              const isActive = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border",
+                    isActive
+                      ? "bg-[#0b4d2c] border-[#0b4d2c] text-white shadow-sm"
+                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-emerald-300"
+                  )}
+                >
+                  <span>{cat}</span>
+                  {cat === 'FIAT' && (
+                    <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase", isActive ? "bg-amber-400 text-[#0b4d2c]" : "bg-purple-100 text-purple-700")}>
+                      BAJO PEDIDO
+                    </span>
+                  )}
+                  {cat === 'TECUN' && (
+                    <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase", isActive ? "bg-amber-400 text-[#0b4d2c]" : "bg-purple-100 text-purple-700")}>
+                      BAJO PEDIDO
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Dynamic & Beautiful Products Catalog Grid */}
@@ -1234,11 +1301,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
               {filteredProducts.map((product) => {
                 const isExempt = doesNotNeedStock(product);
                 const isTecun = isTecunProduct(product);
+                const isFiat = isFiatProduct(product);
                 let displayStock = product.stock;
                 if (product.variants && product.variants.length > 0) {
                    displayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
                 }
-                const hasNoStock = displayStock === 0 && !product.is_external && !isExempt && !isTecun;
+                const hasNoStock = displayStock === 0 && !product.is_external && !isExempt && !isTecun && !isFiat;
                 
                 const cardMotionProps = isMobile ? {
                   initial: { opacity: 1, y: 0, scale: 1 },
@@ -1275,11 +1343,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                               ? "bg-[#16a34a] border-[#15803d] text-white"
                               : (isTecun
                                   ? (displayStock > 0 ? "bg-amber-500 border-amber-600 text-white" : "bg-purple-600 border-purple-700 text-white")
-                                  : (displayStock > 10 
-                                      ? "bg-emerald-50 border-emerald-100 text-emerald-800" 
-                                      : (displayStock > 0 
-                                          ? "bg-amber-50 border-amber-100 text-amber-800 animate-pulse" 
-                                          : "bg-red-50 border-red-100 text-red-700"))))
+                                  : (isFiat
+                                      ? (displayStock > 0 ? "bg-amber-500 border-amber-600 text-white" : "bg-purple-600 border-purple-700 text-white")
+                                      : (displayStock > 10 
+                                          ? "bg-emerald-50 border-emerald-100 text-emerald-800" 
+                                          : (displayStock > 0 
+                                              ? "bg-amber-50 border-amber-100 text-amber-800 animate-pulse" 
+                                              : "bg-red-50 border-red-100 text-red-700")))))
                       )}>
                         {product.is_external 
                           ? 'BAJO PEDIDO' 
@@ -1287,9 +1357,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                               ? 'STOCK ILIMITADO' 
                               : (isTecun 
                                   ? (displayStock > 0 ? <span>TECUN ({displayStock} DISP.)</span> : <span>TECUN (REVISIÓN)</span>)
-                                  : (displayStock > 10 
-                                      ? <span>Disponibles: {displayStock}</span> 
-                                      : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO'))))}
+                                  : (isFiat
+                                      ? (displayStock > 0 ? <span>FIAT ({displayStock} DISP.)</span> : <span>FIAT (REVISIÓN)</span>)
+                                      : (displayStock > 10 
+                                          ? <span>Disponibles: {displayStock}</span> 
+                                          : (displayStock > 0 ? <span>BAJO STOCK: {displayStock}</span> : 'AGOTADO')))))}
                       </span>
 
                       {product.hiddenFromSales && (user.role === 'admin' || user.email === 'limalopez22@gmail.com') && (
@@ -1828,6 +1900,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                          setErrorMsg(`"${it.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
                                          setTimeout(() => setErrorMsg(''), 7000);
                                          return { ...it, quantity: newQ, requiresAuth: true };
+                                      } else if (isFiatProduct(it.product)) {
+                                         const fiatBreakdown = calculateSupplierStockBreakdown(it.product, newQ);
+                                         setErrorMsg(`"${it.product.name}" (FIAT): En bodega hay ${fiatBreakdown.fromWarehouse} uds. Se solicitarán ${fiatBreakdown.toOrderFromCompany} uds a la empresa.`);
+                                         setTimeout(() => setErrorMsg(''), 7000);
+                                         return { ...it, quantity: newQ, requiresAuth: true };
                                       } else {
                                          setErrorMsg(`Falta de stock disponible para "${it.product.name}"${it.variant ? ` (${it.variant.color})` : ''}`);
                                          setTimeout(() => setErrorMsg(''), 4000);
@@ -1846,8 +1923,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         </div>
                       </div>
 
-                      {isTecunProduct(item.product) && (() => {
-                        const tb = calculateTecunStockBreakdown(item.product, item.quantity);
+                      {(isTecunProduct(item.product) || isFiatProduct(item.product)) && (() => {
+                        const isFiat = isFiatProduct(item.product);
+                        const supplierLabel = isFiat ? 'FIAT' : 'Tecún';
+                        const tb = calculateSupplierStockBreakdown(item.product, item.quantity);
                         return (
                           <div className={cn(
                             "mt-2.5 p-2 rounded-xl text-[10px] font-bold border transition-all",
@@ -1856,7 +1935,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                               : "bg-emerald-50/70 border-emerald-200 text-emerald-900"
                           )}>
                             <div className="flex items-center justify-between font-black uppercase text-[9px] tracking-wider mb-1 text-purple-800">
-                              <span>🏢 Control Proveedor Tecún</span>
+                              <span>🏢 Control Proveedor {supplierLabel}</span>
                               {tb.hasShortage ? (
                                 <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px] font-black">Requiere Pedido</span>
                               ) : (
@@ -1977,7 +2056,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     <div className="flex flex-wrap gap-2">
                       {Array.from(new Set(selectedProduct.variants.map(v => v.color))).map(color => {
                         const variantsInColor = selectedProduct.variants!.filter(v => v.color === color);
-                        const isColorExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct);
+                        const isColorExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct) || isFiatProduct(selectedProduct);
                         
                         // A color is blocked/out-of-stock if ALL variants under this color are blocked/out-of-stock
                         const isColorAllBlocked = variantsInColor.every(v => v.isBlocked);
@@ -2035,7 +2114,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide block">2. Seleccionar Medida / Talla</label>
                       <div className="flex flex-wrap gap-2">
                         {selectedProduct.variants!.filter(v => v.color === selectedColor).map(v => {
-                          const isSizeExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct);
+                          const isSizeExempt = selectedProduct.is_external || doesNotNeedStock(selectedProduct) || isTecunProduct(selectedProduct) || isFiatProduct(selectedProduct);
                           const isSizeBlocked = v.isBlocked;
                           const isSizeOutOfStock = !isSizeExempt && (v.stock !== undefined ? v.stock : selectedProduct.stock) <= 0;
                           const isSizeUnavailable = isSizeBlocked || isSizeOutOfStock;

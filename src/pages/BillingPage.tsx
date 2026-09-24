@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, isFiatProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -2157,92 +2157,102 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                                 </span>
                             )}
 
-                            {((item as any).tecunToOrder !== undefined || isTecunProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name })) && (
-                              <div className="mt-1.5 p-2 bg-purple-50/90 border border-purple-200 rounded-xl text-[10px] text-purple-950 font-bold">
-                                <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
-                                  <span>🏢 Detalle Proveedor Tecún</span>
-                                  {((item as any).tecunToOrder || 0) > 0 ? (
-                                    <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px]">Falta en Bodega</span>
-                                  ) : (
-                                    <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">En Bodega</span>
-                                  )}
+                            {((item as any).tecunToOrder !== undefined || (item as any).fiatToOrder !== undefined || isTecunProduct(item as any) || isFiatProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name }) || isFiatProduct({ name: item.productName || (item as any).name })) && (() => {
+                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
+                              const supplierName = isFiat ? 'FIAT' : 'Tecún';
+                              const toOrder = (item as any).fiatToOrder ?? (item as any).tecunToOrder ?? 0;
+                              const warehouse = (item as any).fiatWarehouseStock ?? (item as any).tecunWarehouseStock ?? 0;
+                              return (
+                                <div className="mt-1.5 p-2 bg-purple-50/90 border border-purple-200 rounded-xl text-[10px] text-purple-950 font-bold">
+                                  <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
+                                    <span>🏢 Detalle Proveedor {supplierName}</span>
+                                    {toOrder > 0 ? (
+                                      <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px]">Falta en Bodega</span>
+                                    ) : (
+                                      <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">En Bodega</span>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3">
+                                    <span>📦 Stock en Bodega: <strong className="font-extrabold text-slate-900">{warehouse}</strong> uds</span>
+                                    {toOrder > 0 && (
+                                      <span className="text-purple-700 font-extrabold bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
+                                        👉 Pedir a Empresa: {toOrder} uds
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3">
-                                  <span>📦 Stock en Bodega: <strong className="font-extrabold text-slate-900">{(item as any).tecunWarehouseStock ?? 0}</strong> uds</span>
-                                  {((item as any).tecunToOrder || 0) > 0 && (
-                                    <span className="text-purple-700 font-extrabold bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
-                                      👉 Pedir a Empresa: {(item as any).tecunToOrder} uds
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                             
-                            {(item as any).requiresAuth && !(item as any).isAuthorized && (
-                              <div className="mt-2 p-2 bg-slate-100 border border-slate-200 rounded-lg">
-                                <span className="block text-[10px] font-bold text-slate-700 mb-1 uppercase tracking-wider">¿Hay en existencia? (Autorización TECUN)</span>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={async () => {
-                                      if (!confirm('¿Confirmas que SI hay stock y autorizas la venta de este producto?')) return;
-                                      try {
-                                        let newItems = [...selectedInvoiceForModal.items];
-                                        newItems[idx] = { ...newItems[idx], isAuthorized: true };
-                                        await api.updateFullInvoice(selectedInvoiceForModal.id, {
-                                          client: selectedInvoiceForModal.client,
-                                          nit: selectedInvoiceForModal.nit,
-                                          phone: selectedInvoiceForModal.phone,
-                                          address: selectedInvoiceForModal.address,
-                                          notes: selectedInvoiceForModal.notes,
-                                          items: newItems,
-                                          isOwed: true
-                                        });
-                                        const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
-                                        setInvoices(refreshedInvoices);
-                                        const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
-                                        if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
-                                      } catch(err: any) {
-                                        alert("Error al autorizar: " + err.message);
-                                      }
-                                    }}
-                                    className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
-                                  >
-                                    Sí, autorizar
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      if (!confirm('¿Confirmas que NO hay stock? El producto será retirado de la factura y los totales se reajustarán.')) return;
-                                      try {
-                                        let newItems = [...selectedInvoiceForModal.items];
-                                        newItems.splice(idx, 1);
-                                        if (newItems.length === 0) {
-                                          alert("No puedes dejar la factura sin productos. Anula la factura en su lugar.");
-                                          return;
+                            {(item as any).requiresAuth && !(item as any).isAuthorized && (() => {
+                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
+                              const supplierLabel = isFiat ? 'FIAT' : 'TECUN';
+                              return (
+                                <div className="mt-2 p-2 bg-slate-100 border border-slate-200 rounded-lg">
+                                  <span className="block text-[10px] font-bold text-slate-700 mb-1 uppercase tracking-wider">¿Hay en existencia? (Autorización {supplierLabel})</span>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={async () => {
+                                        if (!confirm('¿Confirmas que SI hay stock y autorizas la venta de este producto?')) return;
+                                        try {
+                                          let newItems = [...selectedInvoiceForModal.items];
+                                          newItems[idx] = { ...newItems[idx], isAuthorized: true };
+                                          await api.updateFullInvoice(selectedInvoiceForModal.id, {
+                                            client: selectedInvoiceForModal.client,
+                                            nit: selectedInvoiceForModal.nit,
+                                            phone: selectedInvoiceForModal.phone,
+                                            address: selectedInvoiceForModal.address,
+                                            notes: selectedInvoiceForModal.notes,
+                                            items: newItems,
+                                            isOwed: true
+                                          });
+                                          const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+                                          setInvoices(refreshedInvoices);
+                                          const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
+                                          if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
+                                        } catch(err: any) {
+                                          alert("Error al autorizar: " + err.message);
                                         }
-                                        await api.updateFullInvoice(selectedInvoiceForModal.id, {
-                                          client: selectedInvoiceForModal.client,
-                                          nit: selectedInvoiceForModal.nit,
-                                          phone: selectedInvoiceForModal.phone,
-                                          address: selectedInvoiceForModal.address,
-                                          notes: selectedInvoiceForModal.notes,
-                                          items: newItems,
-                                          isOwed: true
-                                        });
-                                        const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
-                                        setInvoices(refreshedInvoices);
-                                        const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
-                                        if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
-                                      } catch(err: any) {
-                                        alert("Error al retirar: " + err.message);
-                                      }
-                                    }}
-                                    className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
-                                  >
-                                    No, retirar
-                                  </button>
+                                      }}
+                                      className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
+                                    >
+                                      Sí, autorizar
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (!confirm('¿Confirmas que NO hay stock? El producto será retirado de la factura y los totales se reajustarán.')) return;
+                                        try {
+                                          let newItems = [...selectedInvoiceForModal.items];
+                                          newItems.splice(idx, 1);
+                                          if (newItems.length === 0) {
+                                            alert("No puedes dejar la factura sin productos. Anula la factura en su lugar.");
+                                            return;
+                                          }
+                                          await api.updateFullInvoice(selectedInvoiceForModal.id, {
+                                            client: selectedInvoiceForModal.client,
+                                            nit: selectedInvoiceForModal.nit,
+                                            phone: selectedInvoiceForModal.phone,
+                                            address: selectedInvoiceForModal.address,
+                                            notes: selectedInvoiceForModal.notes,
+                                            items: newItems,
+                                            isOwed: true
+                                          });
+                                          const refreshedInvoices = await api.getInvoices(user.role === 'admin' ? undefined : user.email);
+                                          setInvoices(refreshedInvoices);
+                                          const updatedInvoice = refreshedInvoices.find(v => v.id === selectedInvoiceForModal.id);
+                                          if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
+                                        } catch(err: any) {
+                                          alert("Error al retirar: " + err.message);
+                                        }
+                                      }}
+                                      className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
+                                    >
+                                      No, retirar
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
 
                           </div>
                           <div className="text-right flex flex-col items-end gap-1">

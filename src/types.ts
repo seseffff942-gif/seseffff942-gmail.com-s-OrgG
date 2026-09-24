@@ -85,6 +85,8 @@ export interface InvoiceItem {
   isAuthorized?: boolean;
   tecunWarehouseStock?: number;
   tecunToOrder?: number;
+  fiatWarehouseStock?: number;
+  fiatToOrder?: number;
 }
 
 export interface Invoice {

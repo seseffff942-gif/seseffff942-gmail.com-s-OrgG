@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
 import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet } from 'lucide-react';
-import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText } from '../utils';
+import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -197,7 +197,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   } | null>(null);
 
   const categories = useMemo(() => {
-    const defaultCats = ['Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'Otros'];
+    const defaultCats = ['Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'TECUN', 'FIAT', 'Otros'];
     const uniqueCats = products.map(p => p.category).filter(Boolean) as string[];
     return ['Todos', ...Array.from(new Set([...defaultCats, ...uniqueCats]))];
   }, [products]);
@@ -209,6 +209,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
       case 'Agroquímicos': return Shield;
       case 'Semillas': return Sprout;
       case 'Herramientas': return Wrench;
+      case 'TECUN': return Briefcase;
+      case 'FIAT': return Briefcase;
       default: return Tag;
     }
   };
@@ -669,7 +671,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.category || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+      const matchesCategory = selectedCategory === 'Todos' || 
+        (selectedCategory === 'FIAT' ? (p.category === 'FIAT' || isFiatProduct(p)) :
+         selectedCategory === 'TECUN' ? (p.category === 'TECUN' || isTecunProduct(p)) :
+         p.category === selectedCategory);
       const cost = Number(p.costPrice ?? (p as any).cost_price) || 0;
       const price = Number(p.price) || 0;
       const matchesZeroMargin = !filterZeroMarginOnly || (cost > 0 && price <= cost);
@@ -1056,7 +1061,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             {categories.map((cat) => {
               const IconComponent = getCategoryIcon(cat);
               const isActive = selectedCategory === cat;
-              const countOfCat = cat === 'Todos' ? products.length : products.filter(p => p.category === cat).length;
+              const countOfCat = cat === 'Todos' 
+                ? products.length 
+                : (cat === 'FIAT'
+                    ? products.filter(p => p.category === 'FIAT' || isFiatProduct(p)).length
+                    : (cat === 'TECUN'
+                        ? products.filter(p => p.category === 'TECUN' || isTecunProduct(p)).length
+                        : products.filter(p => p.category === cat).length));
               return (
                 <button
                   key={cat}
@@ -1471,8 +1482,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           ? "Bajo Pedido (Externo) - Clic para cambiar" 
                           : (doesNotNeedStock(selectedProduct) 
                               ? `Exento de Stock (${selectedProduct.stock || 0} en físico)` 
-                              : (isTecunProduct(selectedProduct) && (selectedProduct.stock || 0) <= 0) 
-                                ? "0 unidades en stock (Autorización TECUN)" 
+                              : ((isTecunProduct(selectedProduct) || isFiatProduct(selectedProduct)) && (selectedProduct.stock || 0) <= 0) 
+                                ? `0 unidades en stock (Autorización ${isFiatProduct(selectedProduct) ? 'FIAT' : 'TECUN'})` 
                                 : ((selectedProduct.stock || 0) < 0 
                                     ? "0 unidades en stock (En pedido)" 
                                     : `${selectedProduct.stock} unidades en stock`))}
@@ -1665,12 +1676,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             {paginatedProducts.map((product) => {
               const isExempt = doesNotNeedStock(product);
               const isTecun = isTecunProduct(product);
+              const isFiat = isFiatProduct(product);
               let gridDisplayStock = product.stock;
               if (product.variants && product.variants.length > 0) {
                  gridDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
               }
-              const isOutOfStock = gridDisplayStock === 0 && !product.is_external && !isExempt && !isTecun;
-              const isCriticalStockVal = gridDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: gridDisplayStock }) && !product.is_external && !isExempt && !isTecun;
+              const isOutOfStock = gridDisplayStock === 0 && !product.is_external && !isExempt && !isTecun && !isFiat;
+              const isCriticalStockVal = gridDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: gridDisplayStock }) && !product.is_external && !isExempt && !isTecun && !isFiat;
               
               return (
                 <div
@@ -1807,9 +1819,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <div className="flex items-center justify-between text-[11px] font-bold">
                         <span className="text-slate-400 uppercase tracking-wider">Disponibilidad</span>
                         <span className={cn(
-                          product.is_external || isExempt ? "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold" : (isTecun && gridDisplayStock <= 0) ? "text-purple-700 font-extrabold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60" : (gridDisplayStock > 10 ? "text-emerald-600" : (gridDisplayStock > 0 ? "text-amber-600" : "text-red-600"))
+                          product.is_external || isExempt ? "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold" : ((isTecun || isFiat) && gridDisplayStock <= 0) ? "text-purple-700 font-extrabold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60" : (gridDisplayStock > 10 ? "text-emerald-600" : (gridDisplayStock > 0 ? "text-amber-600" : "text-red-600"))
                         )}>
-                          {product.is_external ? 'Ilimitado (Externo)' : (isExempt ? 'Exento de Stock' : (isTecun && gridDisplayStock <= 0) ? '0 unidades (Tecún)' : (gridDisplayStock < 0 ? '0 unidades (En pedido)' : <span className="notranslate" translate="no">{gridDisplayStock} unidades</span>))}
+                          {product.is_external ? 'Ilimitado (Externo)' : (isExempt ? 'Exento de Stock' : ((isTecun || isFiat) && gridDisplayStock <= 0) ? `0 unidades (${isFiat ? 'FIAT' : 'Tecún'})` : (gridDisplayStock < 0 ? '0 unidades (En pedido)' : <span className="notranslate" translate="no">{gridDisplayStock} unidades</span>))}
                         </span>
                       </div>
                       
@@ -1819,7 +1831,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           <div 
                             className={cn(
                               "h-full rounded-full transition-all duration-500",
-                              isExempt || gridDisplayStock > 10 ? "bg-emerald-500" : (isTecun && gridDisplayStock <= 0) ? "bg-purple-500" : (gridDisplayStock > 0 ? "bg-amber-400 animate-pulse" : "bg-red-500")
+                              isExempt || gridDisplayStock > 10 ? "bg-emerald-500" : ((isTecun || isFiat) && gridDisplayStock <= 0) ? "bg-purple-500" : (gridDisplayStock > 0 ? "bg-amber-400 animate-pulse" : "bg-red-500")
                             )}
                             style={{ width: `${isExempt ? 100 : Math.max(0, Math.min((gridDisplayStock / 30) * 100, 100))}%` }}
                           />
@@ -2044,12 +2056,13 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   {paginatedProducts.map((product) => {
                     const isExempt = doesNotNeedStock(product);
                     const isTecun = isTecunProduct(product);
+                    const isFiat = isFiatProduct(product);
                     let listDisplayStock = product.stock;
                     if (product.variants && product.variants.length > 0) {
                       listDisplayStock = product.variants.reduce((sum, v) => sum + (v.stock !== undefined ? v.stock : product.stock), 0);
                     }
-                    const isOutOfStock = listDisplayStock === 0 && !product.is_external && !isExempt && !isTecun;
-                    const isCriticalStockVal = listDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: listDisplayStock }) && !product.is_external && !isExempt && !isTecun;
+                    const isOutOfStock = listDisplayStock === 0 && !product.is_external && !isExempt && !isTecun && !isFiat;
+                    const isCriticalStockVal = listDisplayStock > 0 && isCriticalStock({ name: product.name, category: product.category, stock: listDisplayStock }) && !product.is_external && !isExempt && !isTecun && !isFiat;
 
                     return (
                       <tr 
@@ -2071,6 +2084,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                               <div className="flex items-center gap-2 mt-0.5">
                                 {product.is_external ? (
                                   <span className="text-[10px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">EXTERNO</span>
+                                ) : isFiat ? (
+                                  <span className="text-[10px] font-black text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">FIAT</span>
                                 ) : isTecun ? (
                                   <span className="text-[10px] font-black text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">TECÚN</span>
                                 ) : isExempt ? (
@@ -2332,7 +2347,7 @@ const aVal = (a.stock || 0) * aCost;
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs text-slate-705">
                         {displayProducts.map((p) => {
-                          const isExempt = doesNotNeedStock(p) || isTecunProduct(p);
+                          const isExempt = doesNotNeedStock(p) || isTecunProduct(p) || isFiatProduct(p);
                           let individualTotal = 0;
                           let individualCostTotal = 0;
                           let individualStock = 0;
@@ -2395,9 +2410,9 @@ const aVal = (a.stock || 0) * aCost;
                               <td className={cn("p-4 text-right font-bold text-slate-900 transition-colors", valuationFilterMode === 'stock' && "bg-blue-50/60 font-black text-blue-950")}>
                                 {p.is_external ? (
                                   <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-black">Externo</span>
-                                ) : (isTecunProduct(p) && individualStock <= 0) ? (
+                                ) : ((isTecunProduct(p) || isFiatProduct(p)) && individualStock <= 0) ? (
                                   <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/80 font-black">
-                                    0 (Tecún)
+                                    0 ({isFiatProduct(p) ? 'FIAT' : 'Tecún'})
                                   </span>
                                 ) : (
                                   <span className={cn(
@@ -2460,8 +2475,8 @@ const aVal = (a.stock || 0) * aCost;
                     individualCostTotal = individualStock * costPriceVal;
                   }
                 }
-                const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p);
-                const isCriticalStockVal = individualStock > 0 && isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p);
+                const isOutOfStock = individualStock === 0 && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p) && !isFiatProduct(p);
+                const isCriticalStockVal = individualStock > 0 && isCriticalStock({ name: p.name, category: p.category, stock: individualStock }) && !p.is_external && !doesNotNeedStock(p) && !isTecunProduct(p) && !isFiatProduct(p);
                 
                 return (
                   <div 
@@ -2487,10 +2502,10 @@ const aVal = (a.stock || 0) * aCost;
                       <div className="flex flex-col gap-0.5">
                         <span className="text-slate-400 uppercase text-[8px] tracking-wider font-extrabold">Existencia</span>
                         <span className={cn(
-                          p.is_external ? "text-emerald-600" : (isTecunProduct(p) && individualStock <= 0) ? "text-purple-700 font-black" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
+                          p.is_external ? "text-emerald-600" : ((isTecunProduct(p) || isFiatProduct(p)) && individualStock <= 0) ? "text-purple-700 font-black" : (isOutOfStock ? "text-red-500" : (isCriticalStockVal ? "text-amber-600" : "text-slate-800")),
                           "text-xs font-black"
                         )}>
-                          {p.is_external ? 'Lote Externo' : (isTecunProduct(p) && individualStock <= 0) ? '0 (Tecún)' : `${individualStock} uds`}
+                          {p.is_external ? 'Lote Externo' : ((isTecunProduct(p) || isFiatProduct(p)) && individualStock <= 0) ? `0 (${isFiatProduct(p) ? 'FIAT' : 'Tecún'})` : `${individualStock} uds`}
                         </span>
                       </div>
                       {isOwner && (

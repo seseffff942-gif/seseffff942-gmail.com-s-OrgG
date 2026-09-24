@@ -33,7 +33,7 @@ import {
   ScanLine,
   Download
 } from 'lucide-react';
-import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
+import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, isFiatProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -1817,14 +1817,20 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                         <span className="font-black text-slate-900 text-sm whitespace-nowrap">{formatMoney(item.total)}</span>
                       </div>
 
-                      {((item as any).tecunToOrder !== undefined || isTecunProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name })) && (() => {
+                      {((item as any).tecunToOrder !== undefined || (item as any).fiatToOrder !== undefined || isTecunProduct(item as any) || isFiatProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name }) || isFiatProduct({ name: item.productName || (item as any).name })) && (() => {
+                        const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
+                        const supplierName = isFiat ? 'FIAT' : 'Tecún';
                         const productObj = products.find(p => p.id === item.productId || (p.name || '').toLowerCase().trim() === (item.productName || (item as any).name || '').toLowerCase().trim());
-                        const rawStock = (item as any).tecunWarehouseStock !== undefined 
-                          ? Number((item as any).tecunWarehouseStock) 
-                          : Math.max(0, Number(productObj?.stock) || 0);
-                        const toOrder = (item as any).tecunToOrder !== undefined
-                          ? Number((item as any).tecunToOrder)
-                          : Math.max(0, (Number(item.quantity) || 0) - rawStock);
+                        const rawStock = (item as any).fiatWarehouseStock !== undefined 
+                          ? Number((item as any).fiatWarehouseStock)
+                          : ((item as any).tecunWarehouseStock !== undefined 
+                              ? Number((item as any).tecunWarehouseStock) 
+                              : Math.max(0, Number(productObj?.stock) || 0));
+                        const toOrder = (item as any).fiatToOrder !== undefined
+                          ? Number((item as any).fiatToOrder)
+                          : ((item as any).tecunToOrder !== undefined
+                              ? Number((item as any).tecunToOrder)
+                              : Math.max(0, (Number(item.quantity) || 0) - rawStock));
                         const hasShortage = toOrder > 0;
 
                         return (
@@ -1835,7 +1841,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                               : "bg-emerald-50/70 border-emerald-200 text-emerald-950"
                           )}>
                             <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
-                              <span>🏢 Control Proveedor Tecún</span>
+                              <span>🏢 Control Proveedor {supplierName}</span>
                               {hasShortage ? (
                                 <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px] font-black">Requiere Pedido</span>
                               ) : (
