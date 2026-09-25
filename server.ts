@@ -4310,6 +4310,68 @@ function buildFinishRouteWhatsAppMessage(sellerName: string, sellerCode: string,
   return `🏁 *RESUMEN DE JORNADA & VISITAS - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Muchas gracias por tu entrega, esfuerzo y dedicación en la ruta de hoy!\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Inicio de Ruta:* ${horaInicio}\n🏁 *Hora Final de Ruta:* ${horaFin}\n⏱️ *Tiempo Total de Ruta:* ${duracionTexto}\n📍 *Total Clientes Visitados:* ${visits.length} visitas realizadas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 *¡Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. ¡A descansar y feliz retorno a casa!* 🚜💨\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
 }
 
+function buildAdminFinishRouteWhatsAppMessage(
+  sellerName: string,
+  sellerCode: string,
+  startedAt: string,
+  finishedAt: string,
+  startLat?: number | null,
+  startLng?: number | null,
+  endLat?: number | null,
+  endLng?: number | null,
+  visits: any[] = [],
+  closureNotes?: string
+): string {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  const horaFin = formatTimeGuatemala(finishedAt);
+
+  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
+
+  const sLat = startLat != null ? parseFloat(String(startLat)) : null;
+  const sLng = startLng != null ? parseFloat(String(startLng)) : null;
+  const startGps = (sLat && sLng && !isNaN(sLat) && !isNaN(sLng))
+    ? `\n🟢 *Punto de Inicio:* https://maps.google.com/?q=${sLat},${sLng}\n   _Coords: (${sLat.toFixed(5)}, ${sLng.toFixed(5)})_`
+    : '';
+
+  const eLat = endLat != null ? parseFloat(String(endLat)) : null;
+  const eLng = endLng != null ? parseFloat(String(endLng)) : null;
+  const endGps = (eLat && eLng && !isNaN(eLat) && !isNaN(eLng))
+    ? `\n🛑 *Punto de Cierre:* https://maps.google.com/?q=${eLat},${eLng}\n   _Coords: (${eLat.toFixed(5)}, ${eLng.toFixed(5)})_`
+    : '';
+
+  let visitsList = '';
+  if (!visits || visits.length === 0) {
+    visitsList = '• _No se registraron visitas durante esta jornada._\n';
+  } else {
+    visitsList = visits.map((v, idx) => {
+      const horaV = formatTimeGuatemala(v.createdAt || v.created_at);
+      const tipoRaw = String(v.visitType || v.visit_type || 'rutina').toLowerCase();
+      const tipoIcon = tipoRaw === 'pedido' ? '🛒' : (tipoRaw === 'cobro' ? '💰' : (tipoRaw === 'prospeccion' ? '🎯' : '📋'));
+      const tipoLabel = tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1);
+      const cName = v.clientName || v.client_name || 'Cliente';
+      const compName = v.companyName || v.company_name;
+      const clienteEmpresa = compName ? `${cName} _(${compName})_` : cName;
+      const notas = v.notes ? `\n   📝 _Nota:_ ${v.notes}` : '';
+
+      const vLat = v.latitude != null ? parseFloat(String(v.latitude)) : null;
+      const vLng = v.longitude != null ? parseFloat(String(v.longitude)) : null;
+      const gpsLine = (vLat && vLng && !isNaN(vLat) && !isNaN(vLng))
+        ? `\n   📍 *GPS Visita:* https://maps.google.com/?q=${vLat},${vLng} _(${vLat.toFixed(5)}, ${vLng.toFixed(5)})_`
+        : '';
+
+      return `${idx + 1}. ⏰ *${horaV}* — *${clienteEmpresa}*\n   ${tipoIcon} *Razón:* ${tipoLabel}${notas}${gpsLine}`;
+    }).join('\n\n');
+  }
+
+  const notasCierre = closureNotes ? `\n\n📝 *Notas de Cierre del Asesor:*\n"${closureNotes}"` : '';
+
+  return `📊 *AUDITORÍA DE CIERRE DE RUTA - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEl asesor *${sellerName}* ha finalizado su jornada comercial:\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Salida:* ${horaInicio}${startGps}\n🏁 *Hora de Cierre:* ${horaFin}${endGps}\n⏱️ *Tiempo Total de Jornada:* ${duracionTexto}\n📍 *Total Visitas Realizadas:* ${visits ? visits.length : 0} visitas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS & GPS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}${notasCierre}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Control y Gestión de Rutas Comerciales Agricovet_`;
+}
+
 // Start a new route session (enforce only 1 active route)
 app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: any) => {
   const userId = req.user?.id ? String(req.user.id).trim() : '';
@@ -4812,6 +4874,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
                 COALESCE("sellerName", seller_name) AS "sellerName",
                 COALESCE("visitType", visit_type) AS "visitType",
                 notes,
+                latitude,
+                longitude,
                 COALESCE("createdAt", created_at::text) AS "createdAt"
               FROM public.client_visits
               WHERE (route_id = $1 OR "routeId" = $1)
@@ -4843,6 +4907,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
         }
 
         let sCode = '';
+        let sPhone = '';
         try {
           const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
           const foundUser = (allUsers || []).find((u: any) => 
@@ -4853,27 +4918,110 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
           );
           if (foundUser) {
             sCode = foundUser.sellerCode || '';
+            sPhone = foundUser.phone || '';
           }
         } catch (e) {}
 
-        // REGLA ESTRICTA: Mientras esté en pruebas o ajustes, enviar EXCLUSIVAMENTE al número del dueño (48234048)
-        const recipientPhone = ROUTE_WHATSAPP_TEST_PHONE;
+        if (!sCode) {
+          if (targetSellerName.toLowerCase().includes('herbert')) sCode = '1521';
+          else if (targetSellerName.toLowerCase().includes('erick')) sCode = '8363';
+        }
 
-        console.log(`[WhatsApp Route Automation] Preparando despacho para ${targetSellerName} con ${routeVisits.length} visita(s) hacia ${recipientPhone}`);
+        const adminSummaryMsg = buildAdminFinishRouteWhatsAppMessage(
+          targetSellerName,
+          sCode,
+          targetRoute.startedAt,
+          targetRoute.finishedAt,
+          targetRoute.startLatitude,
+          targetRoute.startLongitude,
+          targetRoute.endLatitude,
+          targetRoute.endLongitude,
+          routeVisits,
+          targetRoute.notes
+        );
 
-        // Disparar vía webhook de n8n (rutas-visitas), con respaldo directo por Evolution API si n8n no responde
-        const n8nOk = await dispatchRouteToN8nWebhook({
-          action: 'finish_route',
-          sellerName: targetSellerName,
-          sellerCode: sCode,
-          startedAt: targetRoute.startedAt,
-          finishedAt: targetRoute.finishedAt,
-          phone: recipientPhone,
-          visits: routeVisits
-        });
-        if (!n8nOk) {
-          const msg = buildFinishRouteWhatsAppMessage(targetSellerName, sCode, targetRoute.startedAt, targetRoute.finishedAt, routeVisits);
-          await sendWhatsAppEvolutionMessage(recipientPhone, msg);
+        const sellerSummaryMsg = buildFinishRouteWhatsAppMessage(
+          targetSellerName,
+          sCode,
+          targetRoute.startedAt,
+          targetRoute.finishedAt,
+          routeVisits
+        );
+
+        const isTest = Boolean(req.body.sendWhatsAppTest || req.body.isTest);
+
+        if (isTest) {
+          console.log(`[WhatsApp Finish Route] MODO PRUEBA: Despachando a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+          const okN8n = await dispatchRouteToN8nWebhook({
+            action: 'finish_route',
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okN8n) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+          }
+        } else {
+          // PRODUCCIÓN REAL:
+          // 1. Notificar a Emanuel (Dueño / CEO - 48234048) con reporte de auditoría y GPS completo
+          console.log(`[WhatsApp Finish Route] Notificando auditoría a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+          const okEmanuel = await dispatchRouteToN8nWebhook({
+            action: 'finish_route',
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okEmanuel) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+          }
+
+          // 2. Notificar a Sergio Lima (Supervisor - 50007840) con reporte de auditoría y GPS completo
+          console.log(`[WhatsApp Finish Route] Notificando auditoría a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+          const okSergio = await dispatchRouteToN8nWebhook({
+            action: 'finish_route',
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okSergio) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminSummaryMsg);
+          }
+
+          // 3. Enviar felicitación y resumen de jornada al Asesor
+          let cleanSellerPhone = String(sPhone || '').replace(/\D/g, '');
+          if (cleanSellerPhone.length === 8) cleanSellerPhone = '502' + cleanSellerPhone;
+          if (
+            cleanSellerPhone &&
+            cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE &&
+            cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE
+          ) {
+            console.log(`[WhatsApp Finish Route] Enviando felicitación al asesor ${targetSellerName} (${cleanSellerPhone})`);
+            const okSeller = await dispatchRouteToN8nWebhook({
+              action: 'finish_route',
+              sellerName: targetSellerName,
+              sellerCode: sCode,
+              startedAt: targetRoute.startedAt,
+              finishedAt: targetRoute.finishedAt,
+              phone: cleanSellerPhone,
+              visits: routeVisits,
+              customMessage: sellerSummaryMsg
+            });
+            if (!okSeller) {
+              await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerSummaryMsg);
+            }
+          }
         }
       } catch (err) {
         console.warn('[WhatsApp Finish Route Error]:', err);
@@ -4917,6 +5065,8 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
           COALESCE("sellerName", seller_name) AS "sellerName",
           COALESCE("visitType", visit_type) AS "visitType",
           notes,
+          latitude,
+          longitude,
           COALESCE("createdAt", created_at::text) AS "createdAt"
         FROM public.client_visits
         WHERE (route_id = $1 OR "routeId" = $1)
@@ -4935,13 +5085,39 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
     }
   }
 
+  if (routeVisits.length === 0) {
+    const localVisits = readLocalVisits();
+    routeVisits = localVisits.filter((v: any) => 
+      v.routeId === route.id ||
+      (v.sellerName?.toLowerCase() === sName.toLowerCase() &&
+       new Date(v.createdAt).getTime() >= new Date(startedAt).getTime() - 60000)
+    ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
   let sCode = '';
   try {
     const { data: uData } = await localDb.from("users").select("sellerCode").ilike("name", `%${sName}%`).limit(1);
     if (uData && uData[0]?.sellerCode) sCode = uData[0].sellerCode;
   } catch (e) {}
 
-  const msg = buildFinishRouteWhatsAppMessage(sName, sCode, startedAt, finishedAt, routeVisits);
+  const startLat = route.start_latitude ?? route.startLatitude;
+  const startLng = route.start_longitude ?? route.startLongitude;
+  const endLat = route.end_latitude ?? route.endLatitude;
+  const endLng = route.end_longitude ?? route.endLongitude;
+
+  const msg = buildAdminFinishRouteWhatsAppMessage(
+    sName,
+    sCode,
+    startedAt,
+    finishedAt,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    routeVisits,
+    route.notes
+  );
+
   const n8nOk = await dispatchRouteToN8nWebhook({
     action: 'finish_route',
     sellerName: sName,
@@ -4949,7 +5125,8 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
     startedAt,
     finishedAt,
     phone: targetPhone,
-    visits: routeVisits
+    visits: routeVisits,
+    customMessage: msg
   });
 
   let sent = n8nOk;
