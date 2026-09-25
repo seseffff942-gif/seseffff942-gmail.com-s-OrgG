@@ -445,22 +445,68 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     });
   };
 
+  const getForcedRealCoordinates = (): Promise<{ latitude: number; longitude: number; accuracy?: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Tu navegador o dispositivo no soporta geolocalización GPS.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          if (!lat || !lng || (lat === 0 && lng === 0)) {
+            reject(new Error('No se detectaron coordenadas GPS válidas.'));
+            return;
+          }
+          const fresh = {
+            latitude: lat,
+            longitude: lng,
+            accuracy: pos.coords.accuracy
+          };
+          setCurrentLocation(fresh);
+          resolve(fresh);
+        },
+        (err) => {
+          let msg = 'No se pudo obtener tu ubicación GPS en tiempo real.';
+          if (err.code === err.PERMISSION_DENIED) {
+            msg = 'Permiso de ubicación denegado. Debes permitir el acceso a tu GPS en los ajustes del navegador/dispositivo para poder iniciar tu ruta.';
+          } else if (err.code === err.POSITION_UNAVAILABLE) {
+            msg = 'Señal GPS no disponible. Asegúrate de tener activada la ubicación en tu teléfono.';
+          } else if (err.code === err.TIMEOUT) {
+            msg = 'Tiempo de espera agotado buscando señal GPS. Intenta de nuevo al aire libre o con mejor señal.';
+          }
+          reject(new Error(msg));
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  };
+
   const handleStartRoute = async () => {
     try {
       setIsStartingRoute(true);
-      const freshLoc = await getFreshCoordinates();
+      let freshLoc: { latitude: number; longitude: number } | null = null;
+      try {
+        freshLoc = await getForcedRealCoordinates();
+      } catch (locErr: any) {
+        alert(`⚠️ Ubicación GPS Obligatoria:\n\n${locErr.message}\n\nPara iniciar tu ruta es obligatorio registrar las coordenadas reales de tu salida.`);
+        return;
+      }
+
+      if (!freshLoc?.latitude || !freshLoc?.longitude || (freshLoc.latitude === 0 && freshLoc.longitude === 0)) {
+        alert('⚠️ Ubicación GPS Obligatoria:\n\nNo se detectó una posición GPS válida. Por favor activa tu GPS y pulsa "Iniciar Ruta" de nuevo.');
+        return;
+      }
+
       const res = await api.startRoute({
-        startLatitude: freshLoc?.latitude || currentLocation?.latitude,
-        startLongitude: freshLoc?.longitude || currentLocation?.longitude,
+        startLatitude: freshLoc.latitude,
+        startLongitude: freshLoc.longitude,
         notes: 'Jornada iniciada en terreno.'
       });
       setActiveRoute(res.route);
       await loadData(true);
-      if (res.route.startLatitude && res.route.startLongitude) {
-        alert('🟢 Jornada iniciada con éxito. Se guardó tu ubicación GPS de inicio.');
-      } else {
-        alert('🟢 Jornada iniciada. No se detectó señal GPS precisa; se actualizará automáticamente con tu primera visita.');
-      }
+      alert(`🟢 Jornada iniciada con éxito.\n📍 Ubicación GPS de salida registrada: (${freshLoc.latitude.toFixed(5)}, ${freshLoc.longitude.toFixed(5)}).`);
     } catch (e: any) {
       alert(e.message || 'Error al iniciar la jornada.');
     } finally {

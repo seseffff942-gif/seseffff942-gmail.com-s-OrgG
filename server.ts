@@ -164,7 +164,7 @@ const initialDb = {
     { id: "u3", name: "Vendedor 3", email: "ll4961839@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=12", password: "123" },
     { id: "u4", name: "Herbert Argueta", sellerCode: "1521", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
     { id: "u5", name: "Erick Juárez", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
-    { id: "u6", name: "Lima Lopez", email: "limalopez22@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
+    { id: "u6", name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50007840", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
   ],
   products: [
     { id: "p1", name: "Legatus mixx 30 OD litro", category: "Agroquímicos", stock: 100, price: 50.00 },
@@ -3966,7 +3966,8 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
 // ==========================================
 // Activo en producción para enviar automáticamente a los asesores al cerrar su jornada
 const ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== 'false';
-const ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || '50248234048'; // Emanuel Lima (Dueño/CEO)
+const ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || '50248234048'; // Emanuel Lima (Dueño/CEO - ÚNICO PARA PRUEBAS)
+const ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || '50250007840'; // Sergio Lima (Supervisor - SOLO EN PRODUCCIÓN REAL)
 
 function formatTimeGuatemala(isoString: string | null | undefined): string {
   if (!isoString) return '--:--';
@@ -4019,8 +4020,11 @@ async function dispatchRouteToN8nWebhook(payload: {
   sellerCode?: string;
   startedAt: string;
   finishedAt?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   phone?: string;
   visits?: any[];
+  customMessage?: string;
 }): Promise<boolean> {
   const endpoints = [
     'http://localhost:5678/webhook/rutas-visitas',
@@ -4051,6 +4055,12 @@ function buildStartRouteWhatsAppMessage(sellerName: string, sellerCode: string, 
   const horaStr = formatTimeGuatemala(startedAt);
 
   return `🚀 *INICIO DE RUTA EN TERRENO - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Buenos días, *${sellerName}*! Has iniciado exitosamente tu ruta comercial:\n\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n⏰ *Hora de Salida:* ${horaStr}\n🟢 *Estado:* En Ruta Activa\n\n🎯 *Recomendaciones para el día:*\n• Registra cada visita en el punto exacto con tu ubicación GPS.\n• Fotografía de fachada o comprobante obligatoria.\n• Toma nota de pedidos y cobros para sincronización inmediata.\n\n💪 *¡Muchos éxitos en tus ventas y visitas de hoy! Vamos con todo el ánimo.* 🚜🌾\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
+}
+
+function buildAdminStartRouteWhatsAppAlert(sellerName: string, sellerCode: string, startedAt: string, lat?: number | null, lng?: number | null): string {
+  const horaStr = formatTimeGuatemala(startedAt);
+  const gpsPart = (lat && lng) ? `\n📍 Ubicación: https://maps.google.com/?q=${lat},${lng}` : '';
+  return `🔔 *${sellerName}* ha iniciado ruta (${horaStr}).${gpsPart}`;
 }
 
 function buildFinishRouteWhatsAppMessage(sellerName: string, sellerCode: string, startedAt: string, finishedAt: string, visits: any[]): string {
@@ -4090,6 +4100,15 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : '';
   const userName = req.user?.name || 'Vendedor';
   const { startLatitude, startLongitude, notes } = req.body;
+  const latNum = startLatitude != null ? parseFloat(startLatitude) : null;
+  const lngNum = startLongitude != null ? parseFloat(startLongitude) : null;
+
+  // Validación estricta: NO permitir iniciar ruta sin coordenadas GPS reales capturadas
+  if (!req.body.isTest && !req.body.sendWhatsAppTest && (latNum == null || lngNum == null || isNaN(latNum) || isNaN(lngNum) || (latNum === 0 && lngNum === 0))) {
+    return res.status(400).json({ 
+      error: "Ubicación GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento." 
+    });
+  }
 
   const routes = readLocalRoutes();
   // Check if an active route already exists
@@ -4217,6 +4236,155 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
   } catch (e) { }
 
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+
+  // 3. Notificación de Inicio de Ruta por WhatsApp (Asíncrono para no retrasar la respuesta UI)
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+    (async () => {
+      try {
+        const isTest = Boolean(req.body.isTest || req.body.sendWhatsAppTest);
+
+        let sCode = '';
+        let sPhone = '';
+        try {
+          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+          const foundUser = (allUsers || []).find((u: any) =>
+            (userId && String(u.id) === String(userId)) ||
+            (userEmail && String(u.email || '').toLowerCase() === userEmail) ||
+            (userName && String(u.name || '').toLowerCase() === userName.toLowerCase()) ||
+            (userName && (String(u.name || '').toLowerCase().includes(userName.toLowerCase()) || userName.toLowerCase().includes(String(u.name || '').toLowerCase())))
+          );
+          if (foundUser) {
+            sCode = foundUser.sellerCode || '';
+            sPhone = foundUser.phone || '';
+          }
+        } catch (e) {}
+
+        if (!sCode) {
+          if (userName.toLowerCase().includes('herbert')) sCode = '1521';
+          else if (userName.toLowerCase().includes('erick')) sCode = '8363';
+        }
+
+        const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(
+          userName,
+          sCode,
+          newRoute.startedAt,
+          newRoute.startLatitude,
+          newRoute.startLongitude
+        );
+
+        const sellerMsg = buildStartRouteWhatsAppMessage(userName, sCode, newRoute.startedAt);
+
+        if (isTest) {
+          // REGLA ESTRICTA: Las pruebas van EXCLUSIVAMENTE a Emanuel (48234048). NUNCA a Sergio Lima ni a los asesores.
+          console.log(`[WhatsApp Start Route] MODO PRUEBA: Despachando alerta exclusivamente a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+          const okN8n = await dispatchRouteToN8nWebhook({
+            action: 'start_route',
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okN8n) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+          }
+        } else {
+          // PRODUCCIÓN REAL:
+          // 1. Notificar a Emanuel (Dueño / CEO - 48234048)
+          console.log(`[WhatsApp Start Route] Notificando a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+          const okEmanuel = await dispatchRouteToN8nWebhook({
+            action: 'start_route',
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okEmanuel) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+          }
+
+          // 2. Notificar a Sergio Lima (Supervisor - 50007840)
+          console.log(`[WhatsApp Start Route] Notificando a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+          const okSergio = await dispatchRouteToN8nWebhook({
+            action: 'start_route',
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okSergio) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminAlertMsg);
+          }
+
+          // 3. Confirmación al propio asesor si tiene teléfono registrado y no es administrador
+          let cleanSellerPhone = String(sPhone || '').replace(/\D/g, '');
+          if (cleanSellerPhone.length === 8) cleanSellerPhone = '502' + cleanSellerPhone;
+          if (
+            cleanSellerPhone &&
+            cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE &&
+            cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE
+          ) {
+            console.log(`[WhatsApp Start Route] Enviando confirmación al asesor ${userName} (${cleanSellerPhone})`);
+            const okSeller = await dispatchRouteToN8nWebhook({
+              action: 'start_route',
+              sellerName: userName,
+              sellerCode: sCode,
+              startedAt: newRoute.startedAt,
+              phone: cleanSellerPhone,
+              customMessage: sellerMsg
+            });
+            if (!okSeller) {
+              await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerMsg);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[WhatsApp Start Route Error]:', err);
+      }
+    })().catch(console.error);
+  }
+}));
+
+// Endpoint para prueba aislada y segura de alerta de inicio de ruta (EXCLUSIVO para número de pruebas 48234048)
+app.post("/api/routes/test-start-notification", requireAuth, asyncHandler(async (req: any, res: any) => {
+  const sName = req.body.sellerName || 'Erick Juárez (Prueba)';
+  const sCode = req.body.sellerCode || '8363';
+  const startedAt = req.body.startedAt || new Date().toISOString();
+  const lat = req.body.latitude || 14.6349;
+  const lng = req.body.longitude || -90.5068;
+
+  // REGLA ESTRICTA: Las pruebas NUNCA van a Sergio Lima, EXCLUSIVAMENTE a 48234048
+  const targetPhone = ROUTE_WHATSAPP_TEST_PHONE;
+  const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(sName, sCode, startedAt, lat, lng);
+
+  console.log(`[Test Start Route] Enviando prueba aislada exclusivamente a ${targetPhone}`);
+  const okN8n = await dispatchRouteToN8nWebhook({
+    action: 'start_route',
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    phone: targetPhone,
+    customMessage: adminAlertMsg
+  });
+
+  if (!okN8n) {
+    await sendWhatsAppEvolutionMessage(targetPhone, adminAlertMsg);
+  }
+
+  res.json({ 
+    success: true, 
+    message: `Prueba enviada exitosamente de forma EXCLUSIVA a tu número (${targetPhone}). Ningún mensaje fue enviado a Sergio Lima.`,
+    targetPhone,
+    preview: adminAlertMsg
+  });
 }));
 
 // Update an active route start location

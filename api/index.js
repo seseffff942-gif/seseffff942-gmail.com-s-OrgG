@@ -1189,7 +1189,7 @@ var initialDb = {
     { id: "u3", name: "Vendedor 3", email: "ll4961839@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=12", password: "123" },
     { id: "u4", name: "Herbert Argueta", sellerCode: "1521", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
     { id: "u5", name: "Erick Ju\xE1rez", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
-    { id: "u6", name: "Lima Lopez", email: "limalopez22@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
+    { id: "u6", name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50007840", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
   ],
   products: [
     { id: "p1", name: "Legatus mixx 30 OD litro", category: "Agroqu\xEDmicos", stock: 100, price: 50 },
@@ -4448,6 +4448,7 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
 }));
 var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
 var ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || "50248234048";
+var ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || "50250007840";
 function formatTimeGuatemala(isoString) {
   if (!isoString) return "--:--";
   const d = new Date(isoString);
@@ -4509,6 +4510,33 @@ async function dispatchRouteToN8nWebhook(payload) {
   }
   return false;
 }
+function buildStartRouteWhatsAppMessage(sellerName, sellerCode, startedAt) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaStr = formatTimeGuatemala(startedAt);
+  return `\u{1F680} *INICIO DE RUTA EN TERRENO - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\xA1Buenos d\xEDas, *${sellerName}*! Has iniciado exitosamente tu ruta comercial:
+
+\u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
+\u{1F4C5} *Fecha:* ${fechaStr}
+\u23F0 *Hora de Salida:* ${horaStr}
+\u{1F7E2} *Estado:* En Ruta Activa
+
+\u{1F3AF} *Recomendaciones para el d\xEDa:*
+\u2022 Registra cada visita en el punto exacto con tu ubicaci\xF3n GPS.
+\u2022 Fotograf\xEDa de fachada o comprobante obligatoria.
+\u2022 Toma nota de pedidos y cobros para sincronizaci\xF3n inmediata.
+
+\u{1F4AA} *\xA1Muchos \xE9xitos en tus ventas y visitas de hoy! Vamos con todo el \xE1nimo.* \u{1F69C}\u{1F33E}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
+}
+function buildAdminStartRouteWhatsAppAlert(sellerName, sellerCode, startedAt, lat, lng) {
+  const horaStr = formatTimeGuatemala(startedAt);
+  const gpsPart = lat && lng ? `
+\u{1F4CD} Ubicaci\xF3n: https://maps.google.com/?q=${lat},${lng}` : "";
+  return `\u{1F514} *${sellerName}* ha iniciado ruta (${horaStr}).${gpsPart}`;
+}
 function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits) {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
@@ -4561,6 +4589,13 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name || "Vendedor";
   const { startLatitude, startLongitude, notes } = req.body;
+  const latNum = startLatitude != null ? parseFloat(startLatitude) : null;
+  const lngNum = startLongitude != null ? parseFloat(startLongitude) : null;
+  if (!req.body.isTest && !req.body.sendWhatsAppTest && (latNum == null || lngNum == null || isNaN(latNum) || isNaN(lngNum) || latNum === 0 && lngNum === 0)) {
+    return res.status(400).json({
+      error: "Ubicaci\xF3n GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento."
+    });
+  }
   const routes = readLocalRoutes();
   const existingActive = routes.find((r) => {
     if (r.status !== "active") return false;
@@ -4682,6 +4717,128 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+    (async () => {
+      try {
+        const isTest = Boolean(req.body.isTest || req.body.sendWhatsAppTest);
+        let sCode = "";
+        let sPhone = "";
+        try {
+          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+          const foundUser = (allUsers || []).find(
+            (u) => userId && String(u.id) === String(userId) || userEmail && String(u.email || "").toLowerCase() === userEmail || userName && String(u.name || "").toLowerCase() === userName.toLowerCase() || userName && (String(u.name || "").toLowerCase().includes(userName.toLowerCase()) || userName.toLowerCase().includes(String(u.name || "").toLowerCase()))
+          );
+          if (foundUser) {
+            sCode = foundUser.sellerCode || "";
+            sPhone = foundUser.phone || "";
+          }
+        } catch (e) {
+        }
+        if (!sCode) {
+          if (userName.toLowerCase().includes("herbert")) sCode = "1521";
+          else if (userName.toLowerCase().includes("erick")) sCode = "8363";
+        }
+        const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(
+          userName,
+          sCode,
+          newRoute.startedAt,
+          newRoute.startLatitude,
+          newRoute.startLongitude
+        );
+        const sellerMsg = buildStartRouteWhatsAppMessage(userName, sCode, newRoute.startedAt);
+        if (isTest) {
+          console.log(`[WhatsApp Start Route] MODO PRUEBA: Despachando alerta exclusivamente a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+          const okN8n = await dispatchRouteToN8nWebhook({
+            action: "start_route",
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okN8n) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+          }
+        } else {
+          console.log(`[WhatsApp Start Route] Notificando a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+          const okEmanuel = await dispatchRouteToN8nWebhook({
+            action: "start_route",
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okEmanuel) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+          }
+          console.log(`[WhatsApp Start Route] Notificando a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+          const okSergio = await dispatchRouteToN8nWebhook({
+            action: "start_route",
+            sellerName: userName,
+            sellerCode: sCode,
+            startedAt: newRoute.startedAt,
+            latitude: newRoute.startLatitude,
+            longitude: newRoute.startLongitude,
+            phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+            customMessage: adminAlertMsg
+          });
+          if (!okSergio) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminAlertMsg);
+          }
+          let cleanSellerPhone = String(sPhone || "").replace(/\D/g, "");
+          if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+          if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
+            console.log(`[WhatsApp Start Route] Enviando confirmaci\xF3n al asesor ${userName} (${cleanSellerPhone})`);
+            const okSeller = await dispatchRouteToN8nWebhook({
+              action: "start_route",
+              sellerName: userName,
+              sellerCode: sCode,
+              startedAt: newRoute.startedAt,
+              phone: cleanSellerPhone,
+              customMessage: sellerMsg
+            });
+            if (!okSeller) {
+              await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerMsg);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[WhatsApp Start Route Error]:", err);
+      }
+    })().catch(console.error);
+  }
+}));
+app.post("/api/routes/test-start-notification", requireAuth, asyncHandler(async (req, res) => {
+  const sName = req.body.sellerName || "Erick Ju\xE1rez (Prueba)";
+  const sCode = req.body.sellerCode || "8363";
+  const startedAt = req.body.startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const lat = req.body.latitude || 14.6349;
+  const lng = req.body.longitude || -90.5068;
+  const targetPhone = ROUTE_WHATSAPP_TEST_PHONE;
+  const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(sName, sCode, startedAt, lat, lng);
+  console.log(`[Test Start Route] Enviando prueba aislada exclusivamente a ${targetPhone}`);
+  const okN8n = await dispatchRouteToN8nWebhook({
+    action: "start_route",
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    phone: targetPhone,
+    customMessage: adminAlertMsg
+  });
+  if (!okN8n) {
+    await sendWhatsAppEvolutionMessage(targetPhone, adminAlertMsg);
+  }
+  res.json({
+    success: true,
+    message: `Prueba enviada exitosamente de forma EXCLUSIVA a tu n\xFAmero (${targetPhone}). Ning\xFAn mensaje fue enviado a Sergio Lima.`,
+    targetPhone,
+    preview: adminAlertMsg
+  });
 }));
 app.put("/api/routes/:id/location", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
