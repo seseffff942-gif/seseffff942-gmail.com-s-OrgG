@@ -45,6 +45,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const [finishNotes, setFinishNotes] = useState('');
   const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; label?: string } | null>(null);
 
+  // Closing Route GPS State (Requerido estrictamente para cerrar jornada con coordenadas reales)
+  const [closingGps, setClosingGps] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
+  const [isAcquiringClosingGps, setIsAcquiringClosingGps] = useState(false);
+  const [closingGpsError, setClosingGpsError] = useState<string | null>(null);
+
   // GPS State
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -154,6 +159,57 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       }
     );
   };
+
+  // Solicitar permiso de ubicación y capturar coordenadas GPS satelitales en vivo para cierre de ruta
+  const requestClosingGps = () => {
+    if (!navigator.geolocation) {
+      setClosingGpsError('Este dispositivo o navegador no soporta geolocalización GPS.');
+      return;
+    }
+
+    setIsAcquiringClosingGps(true);
+    setClosingGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const fresh = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy
+        };
+        setClosingGps(fresh);
+        setCurrentLocation(fresh);
+        setIsAcquiringClosingGps(false);
+      },
+      (err) => {
+        console.warn('Closing GPS acquisition error:', err);
+        let msg = 'No se pudo obtener la ubicación GPS en tiempo real.';
+        if (err.code === 1) { // PERMISSION_DENIED
+          msg = 'Permiso de ubicación denegado. Para cerrar tu jornada debes habilitar la ubicación en tu navegador.';
+        } else if (err.code === 2) { // POSITION_UNAVAILABLE
+          msg = 'Señal GPS no disponible. Asegúrate de tener el GPS activado en tu teléfono.';
+        } else if (err.code === 3) { // TIMEOUT
+          msg = 'Tiempo de espera agotado buscando señal GPS. Intenta en un lugar despejado.';
+        }
+        setClosingGpsError(msg);
+        setIsAcquiringClosingGps(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 25000,
+        maximumAge: 0 // FORZAR lectura fresca en vivo sin caché, solicitando permiso si no está activo
+      }
+    );
+  };
+
+  // Disparar solicitud de ubicación GPS en tiempo real tan pronto se abre el modal de finalizar ruta
+  useEffect(() => {
+    if (showFinishRouteModal) {
+      setClosingGps(null);
+      setClosingGpsError(null);
+      requestClosingGps();
+    }
+  }, [showFinishRouteModal]);
 
   // Initial Data Fetch
   const loadData = async (quiet = false) => {
@@ -434,47 +490,17 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const handleFinishRoute = async () => {
     const target = routeToFinish || activeRoute;
     if (!target) return;
+
+    // Validación estricta exigida: NO DEJAR CERRAR RUTA SIN COORDENADAS GPS REALES
+    if (!closingGps || !closingGps.latitude || !closingGps.longitude || (closingGps.latitude === 0 && closingGps.longitude === 0)) {
+      alert('⚠️ Ubicación GPS Obligatoria:\n\nNo se puede finalizar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento.\n\nPor favor activa el GPS de tu teléfono o navegador y pulsa "Reintentar GPS" para registrar el punto exacto de cierre.');
+      return;
+    }
+
     try {
       setIsFinishingRoute(true);
-      const isFinishingSelf = (target.sellerId && String(target.sellerId).trim() === String(user.id).trim()) ||
-                              (target.sellerEmail && String(target.sellerEmail).trim().toLowerCase() === String(user.email).trim().toLowerCase()) ||
-                              user.role === 'seller';
-
-      // Buscar la última visita registrada en campo del asesor con coordenadas GPS válidas
-      const targetSellerId = String(target.sellerId || '').trim();
-      const targetSellerName = String(target.sellerName || '').trim().toLowerCase();
-      const targetSellerEmail = String(target.sellerEmail || '').trim().toLowerCase();
-
-      const sellerVisitsToday = visits.filter(v => {
-        if (!isTodayGuatemala(v.createdAt)) return false;
-        const vSellerId = String(v.sellerId || '').trim();
-        const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
-        const vSellerName = String(v.sellerName || '').trim().toLowerCase();
-        return (
-          (targetSellerId && vSellerId === targetSellerId) ||
-          (targetSellerEmail && vSellerEmail === targetSellerEmail) ||
-          (targetSellerName && vSellerName === targetSellerName)
-        ) && v.latitude && v.longitude && !isNaN(Number(v.latitude)) && !isNaN(Number(v.longitude));
-      }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-      const lastVisit = sellerVisitsToday.length > 0 ? sellerVisitsToday[sellerVisitsToday.length - 1] : null;
-
-      let endLat: number | null = null;
-      let endLng: number | null = null;
-
-      if (isFinishingSelf) {
-        // Si el propio asesor cierra desde su teléfono, priorizar su GPS en tiempo real
-        const freshLoc = await getFreshCoordinates();
-        endLat = freshLoc?.latitude ?? currentLocation?.latitude ?? (lastVisit ? Number(lastVisit.latitude) : null);
-        endLng = freshLoc?.longitude ?? currentLocation?.longitude ?? (lastVisit ? Number(lastVisit.longitude) : null);
-      } else {
-        // Si un administrador cierra la ruta de un asesor desde oficina/computadora: NUNCA usar la ubicación del admin
-        if (lastVisit) {
-          endLat = Number(lastVisit.latitude);
-          endLng = Number(lastVisit.longitude);
-        }
-      }
-
+      const endLat = closingGps.latitude;
+      const endLng = closingGps.longitude;
       const nowIso = new Date().toISOString();
 
       // Immediate optimistic update to prevent UI flicker
@@ -533,8 +559,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       setShowFinishRouteModal(false);
       setFinishNotes('');
       setRouteToFinish(null);
+      setClosingGps(null);
       await loadData(true);
-      alert(`🏁 Jornada ${target.sellerName ? 'de ' + target.sellerName : ''} finalizada con éxito y archivada en el historial de rutas.`);
+      alert(`🏁 Jornada ${target.sellerName ? 'de ' + target.sellerName : ''} finalizada con éxito y registrada con GPS (${endLat.toFixed(5)}, ${endLng.toFixed(5)}).`);
     } catch (e: any) {
       alert(e.message || 'Error al finalizar la jornada.');
     } finally {
@@ -3198,7 +3225,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                   <div>
                     <h3 className="text-lg font-black text-slate-900">¿Finalizar Jornada de Ruta?</h3>
                     <p className="text-xs text-slate-500 mt-1">
-                      Al finalizar, la jornada de <strong>{targetSeller}</strong> se cerrará con las paradas registradas y su ubicación GPS de cierre pasará automáticamente al <strong>Historial de Rutas</strong>.
+                      Al finalizar, la jornada de <strong>{targetSeller}</strong> se cerrará con las paradas registradas y su <strong>ubicación GPS real de cierre</strong> pasará automáticamente al historial.
                     </p>
                   </div>
 
@@ -3219,40 +3246,97 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                       <span className="text-slate-500 font-medium">Hora de cierre:</span>
                       <span className="font-mono text-emerald-700 font-bold">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <div className="flex justify-between border-t border-slate-200/60 pt-1.5">
-                      <span className="text-slate-500 font-medium">GPS de Cierre:</span>
-                      <span className="font-mono text-slate-700 text-[11px]">
-                        {(() => {
-                          const isSelf = targetToClose && (targetToClose.sellerId === user.id || targetToClose.sellerEmail === user.email || user.role === 'seller');
-                          const tSellerId = String(targetToClose?.sellerId || '').trim();
-                          const tSellerEmail = String(targetToClose?.sellerEmail || '').trim().toLowerCase();
-                          const tSellerName = String(targetToClose?.sellerName || '').trim().toLowerCase();
-                          const sellerVisitsToday = visits.filter(v => {
-                            if (!isTodayGuatemala(v.createdAt)) return false;
-                            const vId = String(v.sellerId || '').trim();
-                            const vEmail = String(v.sellerEmail || '').trim().toLowerCase();
-                            const vName = String(v.sellerName || '').trim().toLowerCase();
-                            return (
-                              (tSellerId && vId === tSellerId) ||
-                              (tSellerEmail && vEmail === tSellerEmail) ||
-                              (tSellerName && vName === tSellerName)
-                            ) && v.latitude && v.longitude;
-                          }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-                          const lastVisit = sellerVisitsToday[sellerVisitsToday.length - 1];
+                  </div>
 
-                          if (!isSelf && lastVisit) {
-                            return `📍 Última visita: ${lastVisit.clientName || 'Cliente'} (${Number(lastVisit.latitude).toFixed(4)}, ${Number(lastVisit.longitude).toFixed(4)})`;
-                          }
-                          if (currentLocation) {
-                            return `${currentLocation.latitude.toFixed(5)}, ${currentLocation.longitude.toFixed(5)}`;
-                          }
-                          if (lastVisit) {
-                            return `📍 Última visita: ${lastVisit.clientName || 'Cliente'}`;
-                          }
-                          return 'Se registrará ubicación de última parada';
-                        })()}
-                      </span>
+                  {/* BLOQUE DE CONTROL GPS OBLIGATORIO DE CIERRE */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                      <span>Ubicación GPS de Cierre (Obligatoria):</span>
+                      {closingGps && (
+                        <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          En Vivo
+                        </span>
+                      )}
                     </div>
+
+                    {isAcquiringClosingGps ? (
+                      <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3.5 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-sky-500/10 text-sky-600 flex items-center justify-center shrink-0 animate-spin">
+                          <RefreshCw size={16} />
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-bold text-sky-900">Solicitando permiso y capturando GPS...</div>
+                          <div className="text-[11px] text-sky-700 leading-tight">
+                            Si tu navegador te pregunta <em>"¿Permitir conocer tu ubicación?"</em>, pulsa <strong>Permitir</strong>.
+                          </div>
+                        </div>
+                      </div>
+                    ) : closingGpsError ? (
+                      <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3.5 space-y-2.5">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                            <AlertTriangle size={18} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-xs font-bold text-rose-900">Ubicación GPS Requerida</div>
+                            <div className="text-[11px] text-rose-700 leading-snug">
+                              {closingGpsError}
+                            </div>
+                            <div className="text-[10px] text-rose-600 font-medium">
+                              ⚠️ Si bloqueaste el permiso, pulsa el candado 🔒 en la barra de tu navegador y activa "Ubicación".
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={requestClosingGps}
+                          className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                        >
+                          <RefreshCw size={14} />
+                          <span>Solicitar Permiso y Reintentar GPS</span>
+                        </button>
+                      </div>
+                    ) : closingGps ? (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="text-xs font-bold text-emerald-900">GPS Real Capturado</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={requestClosingGps}
+                            disabled={isAcquiringClosingGps}
+                            className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer bg-emerald-100/70 hover:bg-emerald-200 px-2 py-0.5 rounded-lg transition"
+                          >
+                            <RefreshCw size={11} />
+                            <span>Actualizar GPS</span>
+                          </button>
+                        </div>
+                        <div className="font-mono text-xs text-emerald-800 font-semibold">
+                          📍 {closingGps.latitude.toFixed(6)}, {closingGps.longitude.toFixed(6)}
+                        </div>
+                        {closingGps.accuracy && (
+                          <div className="text-[10px] text-emerald-600">
+                            Margen de precisión: ±{Math.round(closingGps.accuracy)} metros (señal satelital en directo)
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 space-y-2">
+                        <div className="text-xs text-amber-800 font-medium">
+                          No se ha capturado la ubicación en tiempo real de este dispositivo.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={requestClosingGps}
+                          className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <RefreshCw size={14} />
+                          <span>Obtener Coordenadas GPS Ahora</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               );
@@ -3275,6 +3359,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 onClick={() => {
                   setShowFinishRouteModal(false);
                   setRouteToFinish(null);
+                  setClosingGps(null);
                 }}
                 disabled={isFinishingRoute}
                 className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
@@ -3285,11 +3370,24 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               <button
                 type="button"
                 onClick={handleFinishRoute}
-                disabled={isFinishingRoute}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5"
+                disabled={isFinishingRoute || isAcquiringClosingGps || !closingGps}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${
+                  !closingGps || isAcquiringClosingGps
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 cursor-pointer'
+                }`}
+                title={!closingGps ? 'Debes obtener coordenadas GPS reales para finalizar la ruta' : 'Confirmar y archivar'}
               >
                 <Flag size={14} />
-                <span>{isFinishingRoute ? 'Finalizando...' : 'Confirmar y Archivar'}</span>
+                <span>
+                  {isFinishingRoute 
+                    ? 'Finalizando...' 
+                    : isAcquiringClosingGps 
+                      ? 'Buscando GPS...' 
+                      : !closingGps 
+                        ? 'Bloqueado: Requiere GPS' 
+                        : 'Confirmar y Archivar'}
+                </span>
               </button>
             </div>
           </motion.div>
