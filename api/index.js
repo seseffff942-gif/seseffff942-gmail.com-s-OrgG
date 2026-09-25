@@ -4920,18 +4920,33 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
         let routeVisits = [];
         if (neonPool) {
           try {
+            const dateStr = (targetRoute.startedAt || nowIso).split("T")[0];
+            const sellerNamePattern = targetSellerName ? `%${targetSellerName}%` : "";
             const vDb = await neonPool.query(`
-              SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+              SELECT 
+                COALESCE("clientName", client_name) AS "clientName",
+                COALESCE("companyName", company_name) AS "companyName",
+                COALESCE("sellerName", seller_name) AS "sellerName",
+                COALESCE("visitType", visit_type) AS "visitType",
+                notes,
+                COALESCE("createdAt", created_at::text) AS "createdAt"
               FROM public.client_visits
               WHERE (route_id = $1 OR "routeId" = $1)
                  OR (
-                   ("createdAt" >= $2 OR created_at >= $2) AND
-                   (seller_id = $3 OR "sellerId" = $3 OR seller_email ILIKE $4 OR "sellerEmail" ILIKE $4 OR seller_name ILIKE $5 OR "sellerName" ILIKE $5)
+                   (
+                     (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
+                     ("createdAt" IS NOT NULL AND "createdAt" >= $2)
+                   )
+                   AND (
+                     seller_id = $3 OR "sellerId" = $3 OR
+                     (seller_name ILIKE $4 AND $4 <> '') OR ("sellerName" ILIKE $4 AND $4 <> '')
+                   )
                  )
-              ORDER BY "createdAt" ASC;
-            `, [targetRoute.id, (targetRoute.startedAt || nowIso).split("T")[0], targetSellerId, targetSellerEmail, targetSellerName]);
+              ORDER BY COALESCE(created_at, NOW()) ASC;
+            `, [targetRoute.id, dateStr, targetSellerId, sellerNamePattern]);
             routeVisits = vDb.rows;
           } catch (e) {
+            console.error("[Finish Route SQL Error fetching visits]:", e.message);
           }
         }
         if (routeVisits.length === 0) {
@@ -4941,19 +4956,18 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
         let sCode = "";
-        let sellerPhone = "";
         try {
           const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
           const foundUser = (allUsers || []).find(
             (u) => targetSellerId && String(u.id) === String(targetSellerId) || targetSellerEmail && String(u.email || "").toLowerCase() === targetSellerEmail || targetSellerName && String(u.name || "").toLowerCase() === targetSellerName.toLowerCase() || targetSellerName && (String(u.name || "").toLowerCase().includes(targetSellerName.toLowerCase()) || targetSellerName.toLowerCase().includes(String(u.name || "").toLowerCase()))
           );
           if (foundUser) {
-            sellerPhone = foundUser.phone || "";
             sCode = foundUser.sellerCode || "";
           }
         } catch (e) {
         }
-        const recipientPhone = req.body.sendWhatsAppTest ? ROUTE_WHATSAPP_TEST_PHONE : req.body.phone || sellerPhone || ROUTE_WHATSAPP_TEST_PHONE;
+        const recipientPhone = ROUTE_WHATSAPP_TEST_PHONE;
+        console.log(`[WhatsApp Route Automation] Preparando despacho para ${targetSellerName} con ${routeVisits.length} visita(s) hacia ${recipientPhone}`);
         const n8nOk = await dispatchRouteToN8nWebhook({
           action: "finish_route",
           sellerName: targetSellerName,
@@ -4995,15 +5009,29 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
   const finishedAt = route.finished_at || route.finishedAt || (/* @__PURE__ */ new Date()).toISOString();
   if (neonPool) {
     try {
+      const dateStr = startedAt.split("T")[0];
       const vDb = await neonPool.query(`
-        SELECT "clientName", "companyName", "sellerName", "visitType", notes, "createdAt"
+        SELECT 
+          COALESCE("clientName", client_name) AS "clientName",
+          COALESCE("companyName", company_name) AS "companyName",
+          COALESCE("sellerName", seller_name) AS "sellerName",
+          COALESCE("visitType", visit_type) AS "visitType",
+          notes,
+          COALESCE("createdAt", created_at::text) AS "createdAt"
         FROM public.client_visits
         WHERE (route_id = $1 OR "routeId" = $1)
-           OR ("createdAt" >= $2 AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3))
-        ORDER BY "createdAt" ASC;
-      `, [route.id, startedAt.split("T")[0], `%${sName}%`]);
+           OR (
+             (
+               (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
+               ("createdAt" IS NOT NULL AND "createdAt" >= $2)
+             )
+             AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)
+           )
+        ORDER BY COALESCE(created_at, NOW()) ASC;
+      `, [route.id, dateStr, `%${sName}%`]);
       routeVisits = vDb.rows;
     } catch (e) {
+      console.error("[send-whatsapp-test SQL Error]:", e.message);
     }
   }
   let sCode = "";
