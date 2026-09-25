@@ -647,13 +647,22 @@ export function ClientVisitsMap({
     if (endPoint) latLngs.push(endPoint);
 
     if (latLngs.length > 1) {
+      // Línea de borde/sombra de contraste para máxima visibilidad sobre cualquier capa de mapa (satelital o estándar)
+      L.polyline(latLngs, {
+        color: '#ffffff',
+        weight: 8,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeGroup);
+
+      // Trazo continuo y sólido principal (sin guiones) con color verde esmeralda/teal de Agricovet
       const polyline = L.polyline(latLngs, {
         color: '#00696a',
         weight: 5,
-        opacity: 0.9,
+        opacity: 0.95,
         lineCap: 'round',
-        lineJoin: 'round',
-        dashArray: '10, 10'
+        lineJoin: 'round'
       }).addTo(routeGroup);
 
       if (!focusLocation) {

@@ -4035,7 +4035,30 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       (r) => r.status === "active" && (sellerIdStr && (r.sellerId === sellerIdStr || r.seller_id === sellerIdStr || String(r.id || "").includes(sellerIdStr)) || sellerEmailStr && (r.sellerEmail?.toLowerCase() === sellerEmailStr || r.seller_email?.toLowerCase() === sellerEmailStr) || sellerNameStr && (r.sellerName?.toLowerCase() === sellerNameStr.toLowerCase() || r.seller_name?.toLowerCase() === sellerNameStr.toLowerCase()))
     );
   }
+  const todayGuatemala = getGuatemalaDateString(nowIso);
+  if (activeRoute) {
+    const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
+    if (routeGuatemala !== todayGuatemala) {
+      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala}`);
+      activeRoute.status = "completed";
+      activeRoute.finishedAt = nowIso;
+      if (neonPool && activeRoute.id) {
+        try {
+          await neonPool.query(`
+            UPDATE public.seller_routes
+            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
+                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al cambiar de d\xEDa)'
+            WHERE id = $2;
+          `, [nowIso, activeRoute.id]);
+        } catch (e) {
+        }
+      }
+      activeRoute = null;
+    }
+  }
+  let isNewAutoRoute = false;
   if (!activeRoute) {
+    isNewAutoRoute = true;
     activeRoute = {
       id: `route_${sellerIdStr || "seller"}_${Date.now()}`,
       sellerId: sellerIdStr,
@@ -4054,6 +4077,50 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       notes: "Jornada iniciada autom\xE1ticamente con primera visita."
     };
     routes.unshift(activeRoute);
+    if (neonPool) {
+      try {
+        await neonPool.query(`
+          UPDATE public.seller_routes
+          SET status = 'completed',
+              finished_at = $1,
+              "finishedAt" = $1,
+              notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente)'
+          WHERE status = 'active'
+            AND (
+              ($2 <> '' AND (seller_id = $2 OR "sellerId" = $2)) OR
+              ($3 <> '' AND (seller_email ILIKE $3 OR "sellerEmail" ILIKE $3)) OR
+              ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+            );
+        `, [nowIso, sellerIdStr, sellerEmailStr, sellerNameStr]);
+        await neonPool.query(`
+          INSERT INTO public.seller_routes (
+            id, seller_id, "sellerId", seller_name, "sellerName", seller_email, "sellerEmail",
+            status, started_at, "startedAt", start_latitude, "startLatitude", start_longitude, "startLongitude",
+            total_stops, "totalStops", total_distance_km, "totalDistanceKm", total_duration_mins, "totalDurationMins",
+            notes, created_at, "createdAt"
+          ) VALUES (
+            $1, $2, $2, $3, $3, $4, $4,
+            $5, $6, $6, $7, $7, $8, $8,
+            1, 1, 0, 0, 0, 0,
+            $9, $6, $6
+          ) ON CONFLICT (id) DO UPDATE SET
+            total_stops = EXCLUDED.total_stops,
+            "totalStops" = EXCLUDED."totalStops";
+        `, [
+          activeRoute.id,
+          activeRoute.sellerId,
+          activeRoute.sellerName,
+          activeRoute.sellerEmail,
+          activeRoute.status,
+          activeRoute.startedAt,
+          activeRoute.startLatitude,
+          activeRoute.startLongitude,
+          activeRoute.notes
+        ]);
+      } catch (neonErr) {
+        console.warn("[Auto-start Route Neon Warning]:", neonErr.message);
+      }
+    }
   } else {
     activeRoute.totalStops = (activeRoute.totalStops || 0) + 1;
   }
@@ -4240,6 +4307,16 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
   res.json({ success: true, visit: newVisit, activeRoute });
+  if (isNewAutoRoute) {
+    console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
+    sendStartRouteNotification({
+      route: activeRoute,
+      userName: sellerNameStr,
+      userEmail: sellerEmailStr,
+      userId: sellerIdStr,
+      isTest: Boolean(req.body.isTest || req.body.sendWhatsAppTest)
+    }).catch(console.error);
+  }
 }));
 app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -4444,6 +4521,13 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
       return userId && rSellerId === userId || userEmail && (rSellerEmail === userEmail || rSellerId === userEmail) || userName && rSellerName === userName;
     });
   }
+  if (activeRoute) {
+    const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
+    const todayGuatemala = getGuatemalaDateString();
+    if (routeGuatemala !== todayGuatemala) {
+      activeRoute = null;
+    }
+  }
   res.json({ success: true, route: activeRoute || null });
 }));
 var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
@@ -4458,6 +4542,11 @@ function formatDateGuatemala(isoString) {
   if (!isoString) return "Hoy";
   const d = new Date(isoString);
   return d.toLocaleDateString("es-GT", { timeZone: "America/Guatemala", weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+function getGuatemalaDateString(isoOrDate) {
+  const d = isoOrDate ? new Date(isoOrDate) : /* @__PURE__ */ new Date();
+  if (isNaN(d.getTime())) return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
 }
 async function sendWhatsAppEvolutionMessage(phone, text) {
   let cleanPhone = String(phone || "").replace(/\D/g, "");
@@ -4537,6 +4626,108 @@ function buildAdminStartRouteWhatsAppAlert(sellerName, sellerCode, startedAt, la
 \u{1F4CD} Ubicaci\xF3n: https://maps.google.com/?q=${lat},${lng}` : "";
   return `\u{1F514} *${sellerName}* ha iniciado ruta (${horaStr}).${gpsPart}`;
 }
+async function sendStartRouteNotification({
+  route,
+  userName,
+  userEmail,
+  userId,
+  isTest = false
+}) {
+  if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
+  try {
+    let sCode = "";
+    let sPhone = "";
+    try {
+      const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+      const foundUser = (allUsers || []).find(
+        (u) => userId && String(u.id) === String(userId) || userEmail && String(u.email || "").toLowerCase() === String(userEmail).toLowerCase() || userName && String(u.name || "").toLowerCase() === String(userName).toLowerCase() || userName && (String(u.name || "").toLowerCase().includes(String(userName).toLowerCase()) || String(userName).toLowerCase().includes(String(u.name || "").toLowerCase()))
+      );
+      if (foundUser) {
+        sCode = foundUser.sellerCode || "";
+        sPhone = foundUser.phone || "";
+        if (foundUser.name && (!userName || userName.toLowerCase() === "vendedor")) {
+          userName = foundUser.name;
+        }
+      }
+    } catch (e) {
+    }
+    if (!sCode) {
+      if (userName.toLowerCase().includes("herbert")) sCode = "1521";
+      else if (userName.toLowerCase().includes("erick")) sCode = "8363";
+    }
+    const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(
+      userName,
+      sCode,
+      route.startedAt,
+      route.startLatitude,
+      route.startLongitude
+    );
+    const sellerMsg = buildStartRouteWhatsAppMessage(userName, sCode, route.startedAt);
+    if (isTest) {
+      console.log(`[WhatsApp Start Route] MODO PRUEBA: Despachando alerta exclusivamente a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+      const okN8n = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_TEST_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okN8n) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+      }
+    } else {
+      console.log(`[WhatsApp Start Route] Notificando a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+      const okEmanuel = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_TEST_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okEmanuel) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+      }
+      console.log(`[WhatsApp Start Route] Notificando a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+      const okSergio = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okSergio) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminAlertMsg);
+      }
+      let cleanSellerPhone = String(sPhone || "").replace(/\D/g, "");
+      if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+      if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
+        console.log(`[WhatsApp Start Route] Enviando confirmaci\xF3n al asesor ${userName} (${cleanSellerPhone})`);
+        const okSeller = await dispatchRouteToN8nWebhook({
+          action: "start_route",
+          sellerName: userName,
+          sellerCode: sCode,
+          startedAt: route.startedAt,
+          phone: cleanSellerPhone,
+          customMessage: sellerMsg
+        });
+        if (!okSeller) {
+          await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerMsg);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[WhatsApp Start Route Error]:", err);
+  }
+}
 function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits) {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
@@ -4604,23 +4795,42 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
   });
   if (existingActive) {
-    if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
-      existingActive.startLatitude = parseFloat(startLatitude);
-      existingActive.startLongitude = parseFloat(startLongitude);
+    const existingDate = getGuatemalaDateString(existingActive.startedAt || existingActive.createdAt);
+    const todayDate = getGuatemalaDateString();
+    if (existingDate !== todayDate) {
+      existingActive.status = "completed";
+      existingActive.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
       saveLocalRoutes(routes);
       if (neonPool) {
         try {
           await neonPool.query(`
             UPDATE public.seller_routes 
-            SET start_latitude = $1, "startLatitude" = $1,
-                start_longitude = $2, "startLongitude" = $2
-            WHERE id = $3;
-          `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
+                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al iniciar nueva ruta)'
+            WHERE id = $2;
+          `, [existingActive.finishedAt, existingActive.id]);
         } catch (e) {
         }
       }
+    } else {
+      if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
+        existingActive.startLatitude = parseFloat(startLatitude);
+        existingActive.startLongitude = parseFloat(startLongitude);
+        saveLocalRoutes(routes);
+        if (neonPool) {
+          try {
+            await neonPool.query(`
+              UPDATE public.seller_routes 
+              SET start_latitude = $1, "startLatitude" = $1,
+                  start_longitude = $2, "startLongitude" = $2
+              WHERE id = $3;
+            `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+          } catch (e) {
+          }
+        }
+      }
+      return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
     }
-    return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const newRoute = {
@@ -4718,99 +4928,13 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
   if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
-    (async () => {
-      try {
-        const isTest = Boolean(req.body.isTest || req.body.sendWhatsAppTest);
-        let sCode = "";
-        let sPhone = "";
-        try {
-          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
-          const foundUser = (allUsers || []).find(
-            (u) => userId && String(u.id) === String(userId) || userEmail && String(u.email || "").toLowerCase() === userEmail || userName && String(u.name || "").toLowerCase() === userName.toLowerCase() || userName && (String(u.name || "").toLowerCase().includes(userName.toLowerCase()) || userName.toLowerCase().includes(String(u.name || "").toLowerCase()))
-          );
-          if (foundUser) {
-            sCode = foundUser.sellerCode || "";
-            sPhone = foundUser.phone || "";
-          }
-        } catch (e) {
-        }
-        if (!sCode) {
-          if (userName.toLowerCase().includes("herbert")) sCode = "1521";
-          else if (userName.toLowerCase().includes("erick")) sCode = "8363";
-        }
-        const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(
-          userName,
-          sCode,
-          newRoute.startedAt,
-          newRoute.startLatitude,
-          newRoute.startLongitude
-        );
-        const sellerMsg = buildStartRouteWhatsAppMessage(userName, sCode, newRoute.startedAt);
-        if (isTest) {
-          console.log(`[WhatsApp Start Route] MODO PRUEBA: Despachando alerta exclusivamente a ${ROUTE_WHATSAPP_TEST_PHONE}`);
-          const okN8n = await dispatchRouteToN8nWebhook({
-            action: "start_route",
-            sellerName: userName,
-            sellerCode: sCode,
-            startedAt: newRoute.startedAt,
-            latitude: newRoute.startLatitude,
-            longitude: newRoute.startLongitude,
-            phone: ROUTE_WHATSAPP_TEST_PHONE,
-            customMessage: adminAlertMsg
-          });
-          if (!okN8n) {
-            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
-          }
-        } else {
-          console.log(`[WhatsApp Start Route] Notificando a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
-          const okEmanuel = await dispatchRouteToN8nWebhook({
-            action: "start_route",
-            sellerName: userName,
-            sellerCode: sCode,
-            startedAt: newRoute.startedAt,
-            latitude: newRoute.startLatitude,
-            longitude: newRoute.startLongitude,
-            phone: ROUTE_WHATSAPP_TEST_PHONE,
-            customMessage: adminAlertMsg
-          });
-          if (!okEmanuel) {
-            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
-          }
-          console.log(`[WhatsApp Start Route] Notificando a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
-          const okSergio = await dispatchRouteToN8nWebhook({
-            action: "start_route",
-            sellerName: userName,
-            sellerCode: sCode,
-            startedAt: newRoute.startedAt,
-            latitude: newRoute.startLatitude,
-            longitude: newRoute.startLongitude,
-            phone: ROUTE_WHATSAPP_SERGIO_PHONE,
-            customMessage: adminAlertMsg
-          });
-          if (!okSergio) {
-            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminAlertMsg);
-          }
-          let cleanSellerPhone = String(sPhone || "").replace(/\D/g, "");
-          if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
-          if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
-            console.log(`[WhatsApp Start Route] Enviando confirmaci\xF3n al asesor ${userName} (${cleanSellerPhone})`);
-            const okSeller = await dispatchRouteToN8nWebhook({
-              action: "start_route",
-              sellerName: userName,
-              sellerCode: sCode,
-              startedAt: newRoute.startedAt,
-              phone: cleanSellerPhone,
-              customMessage: sellerMsg
-            });
-            if (!okSeller) {
-              await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerMsg);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("[WhatsApp Start Route Error]:", err);
-      }
-    })().catch(console.error);
+    sendStartRouteNotification({
+      route: newRoute,
+      userName,
+      userEmail,
+      userId,
+      isTest: Boolean(req.body.isTest || req.body.sendWhatsAppTest)
+    }).catch(console.error);
   }
 }));
 app.post("/api/routes/test-start-notification", requireAuth, asyncHandler(async (req, res) => {
