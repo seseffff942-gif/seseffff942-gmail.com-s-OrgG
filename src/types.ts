@@ -13,6 +13,8 @@ export interface Client {
   clientCode?: string;
   isBlocked?: boolean;
   isPendingSync?: boolean;
+  isProspect?: boolean;
+  clientType?: 'regular' | 'prospect';
   latitude?: number;
   longitude?: number;
   locationAddress?: string;

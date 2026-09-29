@@ -2694,7 +2694,11 @@ async function safeInsertClient(clientData) {
       geotaggedAt: clientData.geotaggedAt,
       geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      geotagged_by: clientData.geotaggedBy
+      geotagged_by: clientData.geotaggedBy,
+      isProspect: clientData.isProspect || false,
+      is_prospect: clientData.isProspect || false,
+      clientType: clientData.clientType || (clientData.isProspect ? "prospect" : "regular"),
+      client_type: clientData.clientType || (clientData.isProspect ? "prospect" : "regular")
     };
     const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
     if (!errorWithFallbacks) return true;
@@ -2702,6 +2706,13 @@ async function safeInsertClient(clientData) {
     let prunedPayload = { ...payload };
     let needsRetry = false;
     const errMsg = errorWithFallbacks.message;
+    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
+      delete prunedPayload.isProspect;
+      delete prunedPayload.is_prospect;
+      delete prunedPayload.clientType;
+      delete prunedPayload.client_type;
+      needsRetry = true;
+    }
     if (errMsg.includes("sellerId") || errMsg.includes('column "sellerId"') || errMsg.includes("schema cache")) {
       delete prunedPayload.sellerId;
       needsRetry = true;
@@ -3100,7 +3111,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
 }));
 app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   invalidateCache("clients");
-  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy } = req.body;
+  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy, isProspect, clientType } = req.body;
   if (!name) {
     return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
   }
@@ -3240,6 +3251,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     longitude: longitude !== void 0 && longitude !== null && longitude !== "" ? Number(longitude) : void 0,
     locationAddress: locationAddress || address || void 0,
     geotaggedAt: geotaggedAt || (latitude !== void 0 && latitude !== null && latitude !== "" ? (/* @__PURE__ */ new Date()).toISOString() : void 0),
+    isProspect: isProspect === true || clientType === "prospect",
+    clientType: isProspect === true || clientType === "prospect" ? "prospect" : clientType || "regular",
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
@@ -7518,6 +7531,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       if (!matchedClient.phone && phone) updates.phone = phone;
       if (!matchedClient.address && address) updates.address = address;
       if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+      if (matchedClient.isProspect || matchedClient.clientType === "prospect") {
+        updates.isProspect = false;
+        updates.clientType = "regular";
+      }
       const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
       if (!currentSeller && (sellerId || saleOwner)) {
         updates.sellerId = sellerId || saleOwner;

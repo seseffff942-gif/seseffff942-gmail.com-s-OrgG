@@ -1916,7 +1916,11 @@ async function safeInsertClient(clientData: any) {
       geotaggedAt: clientData.geotaggedAt,
       geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      geotagged_by: clientData.geotaggedBy
+      geotagged_by: clientData.geotaggedBy,
+      isProspect: clientData.isProspect || false,
+      is_prospect: clientData.isProspect || false,
+      clientType: clientData.clientType || (clientData.isProspect ? 'prospect' : 'regular'),
+      client_type: clientData.clientType || (clientData.isProspect ? 'prospect' : 'regular')
     };
 
     const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
@@ -1929,6 +1933,13 @@ async function safeInsertClient(clientData: any) {
     let needsRetry = false;
 
     const errMsg = errorWithFallbacks.message;
+    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
+      delete prunedPayload.isProspect;
+      delete prunedPayload.is_prospect;
+      delete prunedPayload.clientType;
+      delete prunedPayload.client_type;
+      needsRetry = true;
+    }
     if (errMsg.includes("sellerId") || errMsg.includes("column \"sellerId\"") || errMsg.includes("schema cache")) {
       delete prunedPayload.sellerId;
       needsRetry = true;
@@ -2414,7 +2425,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
 
 app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
   invalidateCache("clients");
-  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy } = req.body;
+  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy, isProspect, clientType } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
@@ -2578,6 +2589,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
     longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
     locationAddress: locationAddress || address || undefined,
     geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
+    isProspect: isProspect === true || clientType === 'prospect',
+    clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
     createdAt: new Date().toISOString()
   };
 
@@ -7560,6 +7573,11 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       if (!matchedClient.phone && phone) updates.phone = phone;
       if (!matchedClient.address && address) updates.address = address;
       if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+
+      if (matchedClient.isProspect || matchedClient.clientType === 'prospect') {
+        updates.isProspect = false;
+        updates.clientType = 'regular';
+      }
 
       const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
       if (!currentSeller && (sellerId || saleOwner)) {

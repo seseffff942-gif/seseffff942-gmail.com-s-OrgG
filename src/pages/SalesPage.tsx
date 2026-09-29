@@ -50,6 +50,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [showSearchClientModal, setShowSearchClientModal] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [clientSearchFilter, setClientSearchFilter] = useState<'all' | 'mine'>(user.role === 'admin' ? 'all' : 'mine');
+  const [clientTypeSearchFilter, setClientTypeSearchFilter] = useState<'all' | 'regular' | 'prospect'>('regular');
   const [clientModalTab, setClientModalTab] = useState<'search' | 'create'>('search');
   const [newClientName, setNewClientName] = useState('');
   const [newClientCompanyName, setNewClientCompanyName] = useState('');
@@ -2552,32 +2553,73 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     )}
                   </div>
 
-                  {/* Sellers vs All filter tabs */}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setClientSearchFilter('mine')}
-                      className={cn(
-                        "px-4 py-2 rounded-xl text-xs font-black tracking-wide transition-all",
-                        clientSearchFilter === 'mine'
-                          ? "bg-teal-500 text-white shadow-sm"
-                          : "bg-slate-200 hover:bg-slate-300 text-slate-600"
-                      )}
-                    >
-                      Mis Clientes Asignados
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setClientSearchFilter('all')}
-                      className={cn(
-                        "px-4 py-2 rounded-xl text-xs font-black tracking-wide transition-all",
-                        clientSearchFilter === 'all'
-                          ? "bg-teal-500 text-white shadow-sm"
-                          : "bg-slate-200 hover:bg-slate-300 text-slate-600"
-                      )}
-                    >
-                      Todos los Clientes ({clients.length})
-                    </button>
+                  {/* Sellers vs All filter tabs and Regular vs Prospect tabs */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setClientSearchFilter('mine')}
+                        className={cn(
+                          "px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer",
+                          clientSearchFilter === 'mine'
+                            ? "bg-teal-700 text-white shadow-sm"
+                            : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                        )}
+                      >
+                        Mis Asignados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClientSearchFilter('all')}
+                        className={cn(
+                          "px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer",
+                          clientSearchFilter === 'all'
+                            ? "bg-teal-700 text-white shadow-sm"
+                            : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                        )}
+                      >
+                        Todos ({clients.length})
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1 bg-slate-200/80 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setClientTypeSearchFilter('regular')}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer",
+                          clientTypeSearchFilter === 'regular'
+                            ? "bg-white text-slate-900 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        )}
+                      >
+                        Cartera Regular
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClientTypeSearchFilter('prospect')}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer",
+                          clientTypeSearchFilter === 'prospect'
+                            ? "bg-purple-700 text-white shadow-2xs"
+                            : "text-purple-800 hover:text-purple-950 font-black"
+                        )}
+                      >
+                        <span>Prospectos</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClientTypeSearchFilter('all')}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer",
+                          clientTypeSearchFilter === 'all'
+                            ? "bg-white text-slate-900 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        )}
+                      >
+                        Ver Todos
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2589,6 +2631,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       if (clientSearchFilter === 'mine' && c.sellerId !== user.email) {
                         return false;
                       }
+
+                      const isProspect = Boolean(c.isProspect || c.clientType === 'prospect');
+                      if (clientTypeSearchFilter === 'regular' && isProspect) return false;
+                      if (clientTypeSearchFilter === 'prospect' && !isProspect) return false;
                       
                       if (!queryLower) return true;
                       const nameMatch = (c.name || '').toLowerCase().includes(queryLower);
@@ -2674,10 +2720,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                 >
                                   <div className="flex justify-between items-start gap-2">
                                     <div className="flex-1">
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
                                         <h4 className="font-black text-slate-850 text-sm group-hover:text-teal-600 transition-colors">
                                           {c.name}
                                         </h4>
+                                        {(c.isProspect || c.clientType === 'prospect') && (
+                                          <span className="bg-purple-100 text-purple-800 border border-purple-200 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                            🎯 Prospecto
+                                          </span>
+                                        )}
                                         {c.isBlocked && (
                                           <span className="bg-red-100 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Bloqueado</span>
                                         )}

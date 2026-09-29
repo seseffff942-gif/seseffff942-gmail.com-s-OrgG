@@ -6,7 +6,7 @@ import {
   ShoppingCart, DollarSign, UserPlus, Package, 
   ClipboardCheck, Camera, AlertCircle, Sparkles, Navigation,
   Tag, Image as ImageIcon, Trash2, Box, RefreshCw, Upload,
-  WifiOff, Compass, ShieldCheck
+  WifiOff, Compass, ShieldCheck, Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeSearchText, validateAndSanitizeImageFile, isClientOfSeller } from '../utils';
@@ -20,6 +20,7 @@ interface RegisterVisitModalProps {
   onVisitRegistered: (visit: ClientVisit) => void;
   preselectedClient?: Client | null;
   onRefreshGps?: () => void;
+  onClientCreated?: (newClient: Client) => void;
 }
 
 const VISIT_TYPES: { id: VisitType; label: string; icon: any; color: string; bg: string; border: string }[] = [
@@ -61,7 +62,8 @@ export function RegisterVisitModal({
   currentUser,
   onVisitRegistered,
   preselectedClient,
-  onRefreshGps
+  onRefreshGps,
+  onClientCreated
 }: RegisterVisitModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(preselectedClient || null);
@@ -75,6 +77,16 @@ export function RegisterVisitModal({
   const [gpsSourceChoice, setGpsSourceChoice] = useState<'device' | 'client_saved' | 'last_known'>('device');
   const [isManualGpsLoading, setIsManualGpsLoading] = useState(false);
   const [localDeviceGps, setLocalDeviceGps] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(currentLocation);
+
+  // Estado para Alta Rápida de Cliente In Situ (solo Nombre y Dirección obligatorios)
+  const [isQuickCreatingClient, setIsQuickCreatingClient] = useState(false);
+  const [quickName, setQuickName] = useState('');
+  const [quickAddress, setQuickAddress] = useState('');
+  const [quickPhone, setQuickPhone] = useState('');
+  const [quickCompanyName, setQuickCompanyName] = useState('');
+  const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
+  const [quickClientError, setQuickClientError] = useState('');
+  const [localCreatedClients, setLocalCreatedClients] = useState<Client[]>([]);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +119,12 @@ export function RegisterVisitModal({
     setSuccessSaved(false);
     setGpsSourceChoice('device');
     setIsManualGpsLoading(false);
+    setIsQuickCreatingClient(false);
+    setQuickName('');
+    setQuickAddress('');
+    setQuickPhone('');
+    setQuickCompanyName('');
+    setQuickClientError('');
   };
 
   useEffect(() => {
@@ -197,10 +215,28 @@ export function RegisterVisitModal({
     return null;
   }, [gpsSourceChoice, localDeviceGps, lastKnownGps, selectedClient]);
 
+  const combinedClients = useMemo(() => {
+    if (localCreatedClients.length === 0) return clients;
+    const existingIds = new Set(clients.map(c => c.id));
+    const newOnes = localCreatedClients.filter(c => !existingIds.has(c.id));
+    return [...newOnes, ...clients];
+  }, [clients, localCreatedClients]);
+
   const sellerClients = useMemo(() => {
-    if (currentUser.role === 'admin') return clients;
-    return clients.filter(c => isClientOfSeller(c, currentUser));
-  }, [clients, currentUser]);
+    if (currentUser.role === 'admin') return combinedClients;
+    return combinedClients.filter(c => isClientOfSeller(c, currentUser));
+  }, [combinedClients, currentUser]);
+
+  const otherClients = useMemo(() => {
+    if (currentUser.role === 'admin') return [];
+    const term = normalizeSearchText(searchTerm);
+    if (!term || term.length < 2) return [];
+    return combinedClients.filter(c => !isClientOfSeller(c, currentUser) && (
+      normalizeSearchText(c.name).includes(term) ||
+      normalizeSearchText(c.clientCode).includes(term) ||
+      normalizeSearchText(c.companyName).includes(term)
+    )).slice(0, 5);
+  }, [combinedClients, currentUser, searchTerm]);
 
   const nearbyClients = useMemo(() => {
     if (!activeGps) return [];
@@ -242,6 +278,89 @@ export function RegisterVisitModal({
       );
     }).slice(0, 25);
   }, [sellerClients, searchTerm]);
+
+  // Guardar cliente express in situ (solo Nombre y Dirección obligatorios)
+  const handleSaveQuickClient = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setQuickClientError('');
+
+    const cleanName = quickName.trim();
+    const cleanAddress = quickAddress.trim();
+
+    if (!cleanName) {
+      setQuickClientError('El nombre o nombre del negocio es obligatorio.');
+      return;
+    }
+    if (!cleanAddress) {
+      setQuickClientError('La dirección o referencia de ubicación es obligatoria.');
+      return;
+    }
+
+    setIsSavingQuickClient(true);
+    try {
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      const effectiveSellerId = currentUser.role === 'seller'
+        ? (currentUser.email || currentUser.id || '')
+        : (currentUser.id || currentUser.email || '');
+
+      const payload = {
+        name: cleanName,
+        address: cleanAddress,
+        phone: quickPhone.trim() || undefined,
+        companyName: quickCompanyName.trim() || undefined,
+        nit: 'C/F',
+        clientCode: code,
+        sellerId: effectiveSellerId,
+        latitude: activeGps?.latitude ?? localDeviceGps?.latitude ?? undefined,
+        longitude: activeGps?.longitude ?? localDeviceGps?.longitude ?? undefined,
+        locationAddress: cleanAddress,
+        geotaggedAt: new Date().toISOString(),
+        geotaggedBy: currentUser.name || currentUser.email || 'Vendedor',
+        isProspect: true,
+        clientType: 'prospect' as const
+      };
+
+      const newCli = await api.addClient(payload);
+      const fullCli: Client = {
+        ...newCli,
+        name: cleanName,
+        address: cleanAddress,
+        phone: quickPhone.trim() || newCli.phone || '',
+        companyName: quickCompanyName.trim() || newCli.companyName || '',
+        nit: newCli.nit || 'C/F',
+        clientCode: newCli.clientCode || code,
+        sellerId: effectiveSellerId,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        locationAddress: cleanAddress,
+        geotaggedAt: payload.geotaggedAt,
+        geotaggedBy: payload.geotaggedBy,
+        isProspect: true,
+        clientType: 'prospect'
+      };
+
+      setLocalCreatedClients(prev => [fullCli, ...prev]);
+      if (onClientCreated) {
+        onClientCreated(fullCli);
+      }
+      setSelectedClient(fullCli);
+      setIsQuickCreatingClient(false);
+      setQuickName('');
+      setQuickAddress('');
+      setQuickPhone('');
+      setQuickCompanyName('');
+      setSearchTerm('');
+
+      // Si el motivo de visita era rutina, cambiar automáticamente a prospección
+      if (visitType === 'rutina') {
+        setVisitType('prospeccion');
+      }
+    } catch (err: any) {
+      setQuickClientError(err.message || 'Error al registrar el nuevo cliente.');
+    } finally {
+      setIsSavingQuickClient(false);
+    }
+  };
 
   const distanceToSelected = useMemo(() => {
     if (!activeGps || !selectedClient?.latitude || !selectedClient?.longitude) return null;
@@ -499,12 +618,28 @@ export function RegisterVisitModal({
 
           {/* 1. Client Selection */}
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              1. Cliente que estás visitando *
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                1. Cliente que estás visitando *
+              </label>
+              {!selectedClient && !isQuickCreatingClient && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickName(searchTerm);
+                    setIsQuickCreatingClient(true);
+                    setQuickClientError('');
+                  }}
+                  className="text-[11px] font-bold text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200/90 px-2.5 py-1 rounded-xl flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-2xs"
+                >
+                  <Plus size={13} strokeWidth={2.5} />
+                  <span>+ Nuevo Cliente / Prospecto</span>
+                </button>
+              )}
+            </div>
 
             {selectedClient ? (
-              <div className="p-3.5 bg-teal-50/80 border border-teal-300 rounded-2xl flex items-center justify-between shadow-2xs">
+              <div className="p-3.5 bg-teal-50/80 border border-teal-300 rounded-2xl flex items-center justify-between shadow-2xs animate-in fade-in duration-150">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-xs text-teal-950">{selectedClient.name}</span>
@@ -528,6 +663,139 @@ export function RegisterVisitModal({
                 >
                   Cambiar
                 </button>
+              </div>
+            ) : isQuickCreatingClient ? (
+              /* FORMULARIO DE ALTA RÁPIDA IN SITU (SOLO NOMBRE Y DIRECCIÓN OBLIGATORIOS) */
+              <div className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-teal-100">
+                  <div className="flex items-center gap-2 text-teal-950 font-bold text-xs">
+                    <UserPlus size={16} className="text-teal-700" />
+                    <span>Registrar Cliente In Situ (Prospecto / Nuevo)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickCreatingClient(false);
+                      setQuickClientError('');
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-2 py-0.5 rounded-lg hover:bg-slate-200/50 cursor-pointer"
+                  >
+                    Volver a buscar
+                  </button>
+                </div>
+
+                <div className="p-2.5 bg-white/80 border border-teal-100 rounded-xl">
+                  <p className="text-[11px] text-teal-900 leading-snug">
+                    <strong className="text-teal-950">Solo Nombre y Dirección son requeridos.</strong> No inventes datos: el NIT se guardará como <strong>C/F</strong> y las coordenadas GPS se asignarán de inmediato.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                      Nombre o Nombre del Negocio *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Veterinaria San Marcos o Don Pedro"
+                      value={quickName}
+                      onChange={(e) => setQuickName(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-teal-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-700 placeholder:text-slate-400 shadow-2xs text-slate-900"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                      Dirección o Referencia del Lugar *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. 2da Calle 4-15 Zona 1 o Frente al parque municipal"
+                      value={quickAddress}
+                      onChange={(e) => setQuickAddress(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-teal-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-700 placeholder:text-slate-400 shadow-2xs text-slate-900"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Teléfono (Opcional)
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="Ej. 5555-1234"
+                        value={quickPhone}
+                        onChange={(e) => setQuickPhone(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 placeholder:text-slate-400 text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Empresa / Razón Social (Opcional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Granja El Sol"
+                        value={quickCompanyName}
+                        onChange={(e) => setQuickCompanyName(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 placeholder:text-slate-400 text-slate-800"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {activeGps ? (
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-100/70 border border-emerald-300/80 px-2.5 py-1.5 rounded-xl">
+                    <MapPin size={12} className="text-emerald-700 shrink-0" />
+                    <span>GPS del sitio listo ({activeGps.latitude.toFixed(5)}, {activeGps.longitude.toFixed(5)})</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-amber-800 bg-amber-100/70 border border-amber-300/80 px-2.5 py-1.5 rounded-xl">
+                    <AlertCircle size={12} className="text-amber-700 shrink-0" />
+                    <span>GPS esperando satélites. Puedes continuar y se asociará la señal disponible.</span>
+                  </div>
+                )}
+
+                {quickClientError && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                    <AlertCircle size={14} className="shrink-0 text-rose-600" />
+                    <span>{quickClientError}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSaveQuickClient}
+                    disabled={isSavingQuickClient}
+                    className="flex-1 py-2.5 px-3 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingQuickClient ? (
+                      <>
+                        <RefreshCw size={13} className="animate-spin" />
+                        <span>Guardando cliente...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={14} strokeWidth={2.5} />
+                        <span>Guardar y Continuar Visita</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickCreatingClient(false);
+                      setQuickClientError('');
+                    }}
+                    disabled={isSavingQuickClient}
+                    className="py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -560,29 +828,79 @@ export function RegisterVisitModal({
                     placeholder="Buscar por Nombre, Código (ej: 1234), Empresa..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400"
+                    className="w-full pl-8 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 font-medium placeholder:text-slate-400 text-slate-900"
                   />
                 </div>
 
-                <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-2xl bg-white shadow-2xs">
-                  {filteredClients.map(c => (
-                    <div 
-                      key={c.id}
-                      onClick={() => setSelectedClient(c)}
-                      className="p-2.5 hover:bg-teal-50/60 cursor-pointer flex items-center justify-between text-xs transition-colors"
-                    >
-                      <div>
-                        <span className="font-bold text-slate-900">{c.name}</span>
-                        {c.companyName && <span className="text-slate-400 ml-1.5">({c.companyName})</span>}
+                {/* Lista de clientes encontrados */}
+                {filteredClients.length > 0 ? (
+                  <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-2xl bg-white shadow-2xs">
+                    {filteredClients.map(c => (
+                      <div 
+                        key={c.id}
+                        onClick={() => setSelectedClient(c)}
+                        className="p-2.5 hover:bg-teal-50/60 cursor-pointer flex items-center justify-between text-xs transition-colors"
+                      >
+                        <div>
+                          <span className="font-bold text-slate-900">{c.name}</span>
+                          {c.companyName && <span className="text-slate-400 ml-1.5">({c.companyName})</span>}
+                        </div>
+                        {c.clientCode && (
+                          <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold">
+                            #{c.clientCode}
+                          </span>
+                        )}
                       </div>
-                      {c.clientCode && (
-                        <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold">
-                          #{c.clientCode}
-                        </span>
-                      )}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3.5 text-center space-y-2 bg-slate-50/80 border border-dashed border-slate-200 rounded-2xl">
+                    <p className="text-xs text-slate-600 font-medium">
+                      {searchTerm 
+                        ? `No se encontró "${searchTerm}" en tu cartera.` 
+                        : 'No tienes clientes asignados o en esta zona.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickName(searchTerm);
+                        setIsQuickCreatingClient(true);
+                        setQuickClientError('');
+                      }}
+                      className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <UserPlus size={14} />
+                      <span>{searchTerm ? `Registrar "${searchTerm}" como cliente nuevo` : 'Registrar cliente nuevo in situ'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Si no está en su cartera pero sí existe en la empresa */}
+                {otherClients.length > 0 && (
+                  <div className="p-2.5 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
+                      <Building2 size={12} className="text-slate-400" />
+                      Clientes registrados en la empresa (no asignados a ti):
+                    </span>
+                    <div className="divide-y divide-slate-100 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                      {otherClients.map(c => (
+                        <div 
+                          key={c.id} 
+                          onClick={() => setSelectedClient(c)} 
+                          className="p-2 hover:bg-teal-50/70 cursor-pointer flex items-center justify-between text-xs transition-colors"
+                        >
+                          <div>
+                            <span className="font-bold text-slate-900">{c.name}</span>
+                            {c.companyName && <span className="text-slate-400 ml-1 text-[11px]">({c.companyName})</span>}
+                          </div>
+                          <span className="text-[10px] text-teal-800 font-bold bg-teal-100/70 px-2 py-0.5 rounded-lg border border-teal-200">
+                            Visitar
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

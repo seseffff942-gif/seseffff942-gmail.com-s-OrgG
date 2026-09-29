@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, Client, Invoice } from '../types';
 import { api } from '../api';
 import { 
-  Search, Plus, User as UserIcon, FileText, ChevronRight, 
+  Search, Plus, User as UserIcon, UserPlus, FileText, ChevronRight, 
   CornerDownRight, Users, Edit2, X, Building2, Phone, 
   MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
@@ -22,6 +22,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'sales' | 'invoices'>('name');
+  const [portfolioFilter, setPortfolioFilter] = useState<'all' | 'regular' | 'prospect'>('all');
   
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -350,12 +351,30 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     return name.slice(0, 2).toUpperCase();
   };
 
+  const regularClientsCount = useMemo(() => {
+    return allowedClients.filter(c => !c.isProspect && c.clientType !== 'prospect').length;
+  }, [allowedClients]);
+
+  const prospectClientsCount = useMemo(() => {
+    return allowedClients.filter(c => c.isProspect || c.clientType === 'prospect').length;
+  }, [allowedClients]);
+
   // Sort and filter clients
-  const searchedClients = allowedClients.filter(c => 
-    (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (c.companyName && c.companyName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (c.nit && c.nit.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const searchedClients = allowedClients.filter(c => {
+    const isProsp = Boolean(c.isProspect || c.clientType === 'prospect');
+    if (portfolioFilter === 'regular' && isProsp) return false;
+    if (portfolioFilter === 'prospect' && !isProsp) return false;
+
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+
+    return (
+      (c.name || '').toLowerCase().includes(term) || 
+      (c.companyName && c.companyName.toLowerCase().includes(term)) ||
+      (c.nit && c.nit.toLowerCase().includes(term)) ||
+      (c.clientCode && c.clientCode.toLowerCase().includes(term))
+    );
+  });
 
   const sortedClients = [...searchedClients].sort((a, b) => {
     if (sortBy === 'name') {
@@ -442,7 +461,17 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
             </div>
           </div>
           <h4 className="text-2xl font-black text-slate-950">{totalPortfolioClients}</h4>
-          <p className="text-xs text-slate-400 mt-1 font-medium">Asociados activos</p>
+          <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
+            <span>{regularClientsCount} regulares</span>
+            {prospectClientsCount > 0 && (
+              <>
+                <span>·</span>
+                <span className="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                  {prospectClientsCount} prospectos
+                </span>
+              </>
+            )}
+          </p>
         </motion.div>
 
         <motion.div 
@@ -497,55 +526,128 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       </div>
 
       {/* FILTER & OPTION CONTROLS */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col gap-4">
         
-        {/* Search Input */}
-        <div className="relative w-full md:max-w-md">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-            <Search size={16} />
-          </span>
-          <input
-            type="text"
-            className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 text-sm rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 block pl-10 pr-4 py-2.5 outline-none font-medium transition-all"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por cliente, agro-veterinaria o NIT..."
-          />
-          {searchTerm && (
-            <button 
-              onClick={() => setSearchTerm('')} 
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+        {/* Row 1: Segment Tabs (Cartera Regular vs Prospectos vs Todos) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
+            <button
+              type="button"
+              onClick={() => setPortfolioFilter('regular')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer",
+                portfolioFilter === 'regular'
+                  ? "bg-white text-teal-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
             >
-              <X size={16} />
+              <Building2 size={13} />
+              <span>Cartera Regular</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-black",
+                portfolioFilter === 'regular' ? "bg-teal-100 text-teal-800" : "bg-slate-200 text-slate-600"
+              )}>
+                {regularClientsCount}
+              </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setPortfolioFilter('prospect')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer",
+                portfolioFilter === 'prospect'
+                  ? "bg-purple-700 text-white shadow-xs"
+                  : "text-purple-800 hover:text-purple-950"
+              )}
+            >
+              <UserPlus size={13} />
+              <span>Clientes Prospectos</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-black",
+                portfolioFilter === 'prospect' ? "bg-white text-purple-900" : "bg-purple-100 text-purple-800"
+              )}>
+                {prospectClientsCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPortfolioFilter('all')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer",
+                portfolioFilter === 'all'
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <span>Todos</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-black",
+                portfolioFilter === 'all' ? "bg-slate-200 text-slate-800" : "bg-slate-200 text-slate-600"
+              )}>
+                {allowedClients.length}
+              </span>
+            </button>
+          </div>
+
+          {portfolioFilter === 'prospect' && (
+            <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1 rounded-xl">
+              🎯 Clientes levantados en terreno sin historial de compra previa
+            </span>
           )}
         </div>
 
-        {/* Sort Controls */}
-        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-          <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-1">
-            <ArrowUpDown size={14} />
-            Ordenar por:
-          </span>
-          <div className="flex rounded-xl bg-slate-50 p-1 border border-slate-200">
-            <button
-              onClick={() => setSortBy('name')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'name' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
-            >
-              Nombre
-            </button>
-            <button
-              onClick={() => setSortBy('sales')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
-            >
-              Ventas Totales
-            </button>
-            <button
-              onClick={() => setSortBy('invoices')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'invoices' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
-            >
-              Facturas
-            </button>
+        {/* Row 2: Search Input and Sort Controls */}
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+          {/* Search Input */}
+          <div className="relative w-full md:max-w-md">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 text-sm rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 block pl-10 pr-4 py-2.5 outline-none font-medium transition-all"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por cliente, agro-veterinaria o NIT..."
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')} 
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          {/* Sort Controls */}
+          <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+            <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-1">
+              <ArrowUpDown size={14} />
+              Ordenar por:
+            </span>
+            <div className="flex rounded-xl bg-slate-50 p-1 border border-slate-200">
+              <button
+                onClick={() => setSortBy('name')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'name' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                Nombre
+              </button>
+              <button
+                onClick={() => setSortBy('sales')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                Ventas Totales
+              </button>
+              <button
+                onClick={() => setSortBy('invoices')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${sortBy === 'invoices' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                Facturas
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -583,10 +685,15 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                         {getClientInitials(client.name)}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-extrabold text-slate-900 text-base leading-tight">
                             {client.name}
                           </h3>
+                          {(client.isProspect || client.clientType === 'prospect') && (
+                            <span className="bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                              🎯 Prospecto
+                            </span>
+                          )}
                           {client.isBlocked && (
                             <span className="bg-red-100 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Bloqueado</span>
                           )}
@@ -756,8 +863,13 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                       {getClientInitials(selectedClient.name)}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-xl font-black text-slate-900 tracking-tight">{selectedClient.name}</h2>
+                        {(selectedClient.isProspect || selectedClient.clientType === 'prospect') && (
+                          <span className="bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
+                            🎯 Prospecto
+                          </span>
+                        )}
                         {selectedClient.isBlocked && (
                           <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Bloqueado</span>
                         )}
@@ -801,6 +913,41 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                     )}
                   </div>
                 </div>
+
+                {/* Banner si el cliente es prospecto */}
+                {(selectedClient.isProspect || selectedClient.clientType === 'prospect') && (
+                  <div className="mt-4 p-3.5 bg-purple-50/90 border border-purple-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-purple-950 flex items-center gap-1.5">
+                        <UserPlus size={14} className="text-purple-700" />
+                        Cliente en Etapa de Prospección (Sin Compras Registradas)
+                      </span>
+                      <p className="text-[11px] text-purple-800">
+                        Registrado durante visita en terreno. Cuando facture o lo decidas, puedes pasarlo a Cartera Regular.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const updated = await api.updateClient(selectedClient.id, {
+                            ...selectedClient,
+                            isProspect: false,
+                            clientType: 'regular'
+                          });
+                          setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
+                          setSelectedClient(updated);
+                          alert(`¡Cliente "${updated.name}" promovido a Cartera Regular con éxito!`);
+                        } catch (err: any) {
+                          alert(err.message || 'Error al actualizar');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 active:scale-95 text-white rounded-xl font-bold text-xs shadow-xs transition cursor-pointer self-start sm:self-auto shrink-0"
+                    >
+                      Convertir a Cartera Regular
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5 pt-4 border-t border-slate-100 text-xs font-medium text-slate-600">
                   <div>

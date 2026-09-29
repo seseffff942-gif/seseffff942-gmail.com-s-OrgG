@@ -3246,6 +3246,13 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         onVisitRegistered={handleVisitRegistered}
         preselectedClient={selectedClientForVisit}
         onRefreshGps={requestLocation}
+        onClientCreated={(newCli) => {
+          setClients(prev => {
+            const exists = prev.some(c => c.id === newCli.id);
+            if (exists) return prev.map(c => c.id === newCli.id ? newCli : c);
+            return [newCli, ...prev];
+          });
+        }}
       />
 
       {/* FINALIZAR RUTA MODAL */}

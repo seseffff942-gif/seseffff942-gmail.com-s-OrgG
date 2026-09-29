@@ -741,6 +741,29 @@ export const api = {
     if (typeof localStorage === 'undefined' || !navigator.onLine) {
       return { synced: 0, remaining: 0 };
     }
+
+    // 1. Sincronizar clientes creados offline si hay en cola
+    try {
+      const clientQueue = JSON.parse(localStorage.getItem('offline_clients_queue') || '[]');
+      if (Array.isArray(clientQueue) && clientQueue.length > 0) {
+        const remainingClients: any[] = [];
+        for (const cli of clientQueue) {
+          try {
+            const resCli = await fetchWithAuth('/api/clients', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cli)
+            });
+            if (!resCli.ok) remainingClients.push(cli);
+          } catch {
+            remainingClients.push(cli);
+          }
+        }
+        localStorage.setItem('offline_clients_queue', JSON.stringify(remainingClients));
+      }
+    } catch (e) {}
+
+    // 2. Sincronizar visitas offline
     let queue: any[] = [];
     try {
       queue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
