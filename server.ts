@@ -133,7 +133,7 @@ export async function getGlobalMaintenanceMode(): Promise<boolean> {
       globalMaintenanceCache = { enabled: val, timestamp: Date.now() };
       return val;
     }
-  } catch (e) {}
+  } catch (e) { }
   return globalMaintenanceCache.enabled;
 }
 
@@ -1081,7 +1081,7 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
     const trackingData = clientData.map((c: any) => {
       const clientSales = salesByClientId.get(c.id) || [];
       const activeSales = clientSales.filter((s: any) => s.status !== 'cancelled');
-      
+
       let avgFrequencyDays = 0;
       let daysSinceLastPurchase = 0;
       let firstPurchaseDate = null;
@@ -1090,14 +1090,14 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       if (activeSales.length > 0) {
         firstPurchaseDate = activeSales[0].date;
         lastPurchaseDate = activeSales[activeSales.length - 1].date;
-        
+
         if (activeSales.length > 1) {
           const first = new Date(firstPurchaseDate).getTime();
           const last = new Date(lastPurchaseDate).getTime();
           const totalDays = (last - first) / (1000 * 60 * 60 * 24);
           avgFrequencyDays = Math.round(totalDays / (activeSales.length - 1));
         }
-        
+
         daysSinceLastPurchase = Math.round(
           (Date.now() - new Date(lastPurchaseDate).getTime()) / (1000 * 60 * 60 * 24)
         );
@@ -1197,8 +1197,8 @@ app.post("/api/admin/maintenance", requireAuth, asyncHandler(async (req: any, re
   res.json({
     success: true,
     maintenance: nextVal,
-    message: nextVal 
-      ? "Modo mantenimiento activado globalmente en todos los dispositivos y teléfonos." 
+    message: nextVal
+      ? "Modo mantenimiento activado globalmente en todos los dispositivos y teléfonos."
       : "Modo mantenimiento desactivado globalmente."
   });
 }));
@@ -2471,8 +2471,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, false);
 
-  const effectiveSellerId = (req.user?.role === 'seller') 
-    ? (req.user.email || req.user.id) 
+  const effectiveSellerId = (req.user?.role === 'seller')
+    ? (req.user.email || req.user.id)
     : (sellerId || req.user?.email || '');
   const effectiveGeotaggedBy = req.user?.name || req.user?.email || '';
 
@@ -3083,7 +3083,7 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
         if (!targetName && found.name) targetName = String(found.name).trim();
         if (!targetCode && (found.clientCode || found.client_code)) targetCode = String(found.clientCode || found.client_code).trim();
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const locationUpdates = {
@@ -3292,7 +3292,7 @@ app.get("/api/visits/:id/photo", requireAuth, asyncHandler(async (req: any, res:
       }
       return res.json({ photoUrl: raw });
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const localVisits = readLocalVisits();
   const found = localVisits.find((v: any) => v.id === id);
@@ -3375,7 +3375,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
 
   let visitId = id;
   if (!visitId) {
-    visitId = isOffline 
+    visitId = isOffline
       ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
       : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   } else if (!isOffline && (visitId.startsWith('visit_offline') || visitId.startsWith('VISIT_OFFLINE'))) {
@@ -3388,7 +3388,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
 
   // 2. DEDUPLICACIÓN ESTRICTA (Evita guardar doble si hubo retry o sincronización en cola)
   const currentVisits = readLocalVisits();
-  const existingVisit = currentVisits.find((v: any) => 
+  const existingVisit = currentVisits.find((v: any) =>
     (v.id && (v.id === visitId || v.id === offlineId)) ||
     (v.offlineId && (v.offlineId === visitId || v.offlineId === offlineId)) ||
     (v.clientId === clientId && v.sellerId === sellerIdStr && Math.abs(new Date(v.createdAt).getTime() - new Date(visitCreatedAt).getTime()) < 45000)
@@ -3549,7 +3549,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
                 notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente al cambiar de día)'
             WHERE id = $2;
           `, [nowIso, activeRoute.id]);
-        } catch (e) {}
+        } catch (e) { }
       }
       activeRoute = null; // Forzar inicio de nueva jornada de hoy
     }
@@ -4198,7 +4198,7 @@ async function sendStartRouteNotification({
           userName = foundUser.name;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     if (!sCode) {
       if (userName.toLowerCase().includes('herbert')) sCode = '1521';
@@ -4396,8 +4396,8 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
 
   // Validación estricta: NO permitir iniciar ruta sin coordenadas GPS reales capturadas
   if (!req.body.isTest && !req.body.sendWhatsAppTest && (latNum == null || lngNum == null || isNaN(latNum) || isNaN(lngNum) || (latNum === 0 && lngNum === 0))) {
-    return res.status(400).json({ 
-      error: "Ubicación GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento." 
+    return res.status(400).json({
+      error: "Ubicación GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento."
     });
   }
 
@@ -4425,7 +4425,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
                 notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente al iniciar nueva ruta)'
             WHERE id = $2;
           `, [existingActive.finishedAt, existingActive.id]);
-        } catch (e) {}
+        } catch (e) { }
       }
     } else {
       if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
@@ -4584,8 +4584,8 @@ app.post("/api/routes/test-start-notification", requireAuth, asyncHandler(async 
     await sendWhatsAppEvolutionMessage(targetPhone, adminAlertMsg);
   }
 
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: `Prueba enviada exitosamente de forma EXCLUSIVA a tu número (${targetPhone}). Ningún mensaje fue enviado a Sergio Lima.`,
     targetPhone,
     preview: adminAlertMsg
@@ -4692,9 +4692,9 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
 
   // 2. Search in local JSON routes
   const localRoutes = readLocalRoutes();
-  const localIdx = localRoutes.findIndex((r: any) => 
-    r.id === id || 
-    r.key === id || 
+  const localIdx = localRoutes.findIndex((r: any) =>
+    r.id === id ||
+    r.key === id ||
     (r.status === 'active' && (
       (reqSellerId && (r.sellerId === reqSellerId || r.seller_id === reqSellerId)) ||
       (reqSellerName && (r.sellerName?.toLowerCase() === reqSellerName.toLowerCase())) ||
@@ -4715,7 +4715,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
       sId = parts[0] || sId;
     }
     const allVisits = readLocalVisits();
-    const matchedVisits = allVisits.filter((v: any) => 
+    const matchedVisits = allVisits.filter((v: any) =>
       v.sellerId === sId || v.sellerName === sId || v.sellerEmail === sId ||
       v.sellerName?.toLowerCase() === sName.toLowerCase() ||
       (v.createdAt || '').startsWith(nowIso.split('T')[0])
@@ -4909,7 +4909,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
                  )
               ORDER BY COALESCE(created_at, NOW()) ASC;
             `, [targetRoute.id, dateStr, targetSellerId, sellerNamePattern]);
-            
+
             // Deduplicate visits
             const seenVisits = new Set<string>();
             routeVisits = (vDb.rows || []).filter((v: any) => {
@@ -4926,10 +4926,10 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
         if (routeVisits.length === 0) {
           const localVisits = readLocalVisits();
           const targetStartedMs = new Date(targetRoute.startedAt || nowIso).getTime();
-          routeVisits = localVisits.filter((v: any) => 
+          routeVisits = localVisits.filter((v: any) =>
             v.routeId === targetRoute.id ||
             ((v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) &&
-             new Date(v.createdAt).getTime() >= targetStartedMs - 120000)
+              new Date(v.createdAt).getTime() >= targetStartedMs - 120000)
           ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
 
@@ -4943,7 +4943,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
                 SET total_stops = $1, "totalStops" = $1
                 WHERE id = $2;
               `, [routeVisits.length, targetRoute.id]);
-            } catch (e: any) {}
+            } catch (e: any) { }
           }
         }
 
@@ -4951,7 +4951,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
         let sPhone = '';
         try {
           const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
-          const foundUser = (allUsers || []).find((u: any) => 
+          const foundUser = (allUsers || []).find((u: any) =>
             (targetSellerId && String(u.id) === String(targetSellerId)) ||
             (targetSellerEmail && String(u.email || '').toLowerCase() === targetSellerEmail) ||
             (targetSellerName && String(u.name || '').toLowerCase() === targetSellerName.toLowerCase()) ||
@@ -4961,7 +4961,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
             sCode = foundUser.sellerCode || '';
             sPhone = foundUser.phone || '';
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (!sCode) {
           if (targetSellerName.toLowerCase().includes('herbert')) sCode = '1521';
@@ -5084,7 +5084,7 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
     try {
       const rDb = await neonPool.query(`SELECT * FROM public.seller_routes WHERE id = $1 LIMIT 1;`, [id]);
       if (rDb.rows.length > 0) route = rDb.rows[0];
-    } catch (e) {}
+    } catch (e) { }
   }
 
   if (!route) {
@@ -5124,7 +5124,7 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
            )
         ORDER BY COALESCE(created_at, NOW()) ASC;
       `, [route.id, dateStr, `%${sName}%`]);
-      
+
       const seen = new Set<string>();
       routeVisits = (vDb.rows || []).filter((v: any) => {
         const key = v.id || `${v.clientName}_${v.createdAt}`;
@@ -5139,10 +5139,10 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
 
   if (routeVisits.length === 0) {
     const localVisits = readLocalVisits();
-    routeVisits = localVisits.filter((v: any) => 
+    routeVisits = localVisits.filter((v: any) =>
       v.routeId === route.id ||
       (v.sellerName?.toLowerCase() === sName.toLowerCase() &&
-       new Date(v.createdAt).getTime() >= new Date(startedAtStr).getTime() - 120000)
+        new Date(v.createdAt).getTime() >= new Date(startedAtStr).getTime() - 120000)
     ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
@@ -5150,7 +5150,7 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
   try {
     const { data: uData } = await localDb.from("users").select("sellerCode").ilike("name", `%${sName}%`).limit(1);
     if (uData && uData[0]?.sellerCode) sCode = uData[0].sellerCode;
-  } catch (e) {}
+  } catch (e) { }
 
   const startLat = route.start_latitude ?? route.startLatitude;
   const startLng = route.start_longitude ?? route.startLongitude;

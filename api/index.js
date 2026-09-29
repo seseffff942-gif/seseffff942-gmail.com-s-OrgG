@@ -8215,41 +8215,6 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
         notes = updateTagInNotes(notes, "TRACKING", guideNumber);
       }
       if (folio !== void 0) {
-        const parsedFolio = parseInt(folio);
-        if (!isNaN(parsedFolio)) {
-          const currentMap = await getFolioMap();
-          const previousFolio = currentMap[String(id)];
-          if (previousFolio !== parsedFolio) {
-            console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-            const { data: otherInvoices } = await localDb.from("invoices").select("id, notes, status, folio").eq("is_archived", false).neq("id", id);
-            if (otherInvoices && otherInvoices.length > 0) {
-              const updates = [];
-              for (const otherInv of otherInvoices) {
-                if (otherInv.status === "cancelled" || otherInv.status === "rejected") {
-                  continue;
-                }
-                const otherCurrentFolio = currentMap[String(otherInv.id)];
-                if (otherCurrentFolio !== void 0 && otherCurrentFolio >= parsedFolio) {
-                  const otherNewFolio = otherCurrentFolio + 1;
-                  let otherNotes = otherInv.notes || "";
-                  otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
-                  updates.push({
-                    id: otherInv.id,
-                    notes: otherNotes,
-                    folio: String(otherNewFolio)
-                  });
-                }
-              }
-              if (updates.length > 0) {
-                console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
-                for (const update of updates) {
-                  await localDb.from("invoices").update({ notes: update.notes, folio: update.folio }).eq("id", update.id);
-                  await syncInvoiceToPermanentBackup(update.id);
-                }
-              }
-            }
-          }
-        }
         notes = updateTagInNotes(notes, "FOLIO", folio);
         updateData.folio = String(folio);
       }
