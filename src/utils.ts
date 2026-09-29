@@ -60,25 +60,36 @@ export function isClientOfSeller(
   return false;
 }
 
+/** Zona horaria del negocio. Guatemala es UTC-6 (sin horario de verano). */
+export const TZ_GUATEMALA = 'America/Guatemala';
+
+/**
+ * Dia calendario en Guatemala (YYYY-MM-DD) de una fecha/timestamp.
+ * Se calcula SIEMPRE en hora de Guatemala (UTC-6) usando Intl.
+ */
+export function diaGuatemala(fecha?: any): string {
+  if (fecha === undefined || fecha === null || fecha === '') {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(new Date());
+  }
+  if (typeof fecha === 'string') {
+    const trimmed = fecha.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
+}
+
 export function getGuatemalaTodayIso(): string {
-  // Guatemala is UTC-6
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const gtDate = new Date(utc - (6 * 3600000));
-  return gtDate.toISOString().split('T')[0];
+  return diaGuatemala();
 }
 
 export function isTodayGuatemala(dateStr?: string | Date | null): boolean {
   if (!dateStr) return false;
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return false;
-    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-    const gtD = new Date(utc - (6 * 3600000)).toISOString().split('T')[0];
-    return gtD === getGuatemalaTodayIso();
-  } catch {
-    return false;
-  }
+  const dIso = diaGuatemala(dateStr);
+  return Boolean(dIso && dIso === diaGuatemala());
 }
 
 /**
@@ -134,21 +145,15 @@ export function parseGuatemalaDateParts(dateStr?: string | Date | null): {
 
   // Fallback con conversión estricta a UTC-6 de Guatemala
   try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-    const gtDate = new Date(utc - (6 * 3600000));
-    const year = gtDate.getFullYear();
-    const month = gtDate.getMonth() + 1; // 1-12
-    const day = gtDate.getDate();
-    const monthPadded = String(month).padStart(2, '0');
-    const dayPadded = String(day).padStart(2, '0');
+    const iso = diaGuatemala(dateStr);
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const [yStr, mStr, dStr] = iso.split('-');
     return {
-      year,
-      month,
-      day,
-      yearMonth: `${year}-${monthPadded}`,
-      isoDate: `${year}-${monthPadded}-${dayPadded}`
+      year: parseInt(yStr, 10),
+      month: parseInt(mStr, 10),
+      day: parseInt(dStr, 10),
+      yearMonth: `${yStr}-${mStr}`,
+      isoDate: iso
     };
   } catch {
     return null;
@@ -929,33 +934,7 @@ const NIT_CERTIFICADOR = '12521337';
  */
 const DIAS_CREDITO_FCAM = 30;
 
-/** Formatea una fecha como dd/mm/yyyy. */
-/** Zona horaria del negocio. Guatemala es UTC-6 (sin horario de verano). */
-export const TZ_GUATEMALA = 'America/Guatemala';
-
-/**
- * Dia calendario en Guatemala (YYYY-MM-DD) de una fecha/timestamp.
- *
- * Se calcula SIEMPRE en hora de Guatemala, no en la del dispositivo: asi la
- * fecha que ve el usuario y el filtro de "folios de hoy" coinciden aunque el
- * timestamp se guarde en UTC o el equipo tenga otra zona. Sin esto, entre las
- * 18:00 y medianoche de Guatemala el dia en UTC ya cambio y la factura salia
- * con la fecha del dia anterior / no aparecia en los folios del dia.
- */
-export function diaGuatemala(fecha?: any): string {
-  if (fecha === undefined || fecha === null || fecha === '') {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(new Date());
-  }
-  if (typeof fecha === 'string') {
-    const trimmed = fecha.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      return trimmed;
-    }
-  }
-  const d = new Date(fecha);
-  if (isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ_GUATEMALA }).format(d);
-}
+// diaGuatemala y TZ_GUATEMALA exportados arriba
 
 /**
  * Calcula la diferencia en días calendario exactos en zona horaria de Guatemala (UTC-6).

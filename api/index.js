@@ -5094,8 +5094,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           sellerName: row.seller_name || row.sellerName || reqSellerName,
           sellerEmail: row.seller_email || row.sellerEmail || reqSellerEmail,
           status: row.status,
-          startedAt: row.started_at || row.startedAt,
-          finishedAt: row.finished_at || row.finishedAt,
+          startedAt: row.started_at ? row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at) : row.startedAt || nowIso,
+          finishedAt: row.finished_at ? row.finished_at instanceof Date ? row.finished_at.toISOString() : String(row.finished_at) : row.finishedAt || null,
           startLatitude: row.start_latitude ?? row.startLatitude,
           startLongitude: row.start_longitude ?? row.startLongitude,
           endLatitude: row.end_latitude ?? row.endLatitude,
@@ -5104,7 +5104,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           totalDistanceKm: row.total_distance_km ?? row.totalDistanceKm ?? 0,
           totalDurationMins: row.total_duration_mins ?? row.totalDurationMins ?? 0,
           notes: row.notes || notes || "",
-          createdAt: row.created_at || row.createdAt
+          createdAt: row.created_at ? row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at) : row.createdAt || nowIso
         };
       }
     } catch (e) {
@@ -5161,7 +5161,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
       const updateRes = await neonPool.query(`
         UPDATE public.seller_routes
         SET status = 'completed',
-            finished_at = $1, "finishedAt" = $1,
+            finished_at = $1::timestamptz, "finishedAt" = $1::text,
             end_latitude = $2, "endLatitude" = $2,
             end_longitude = $3, "endLongitude" = $3,
             total_stops = COALESCE(total_stops, $4), "totalStops" = COALESCE("totalStops", $4),
@@ -5196,7 +5196,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
             started_at, finished_at, start_latitude, start_longitude,
             end_latitude, end_longitude, total_stops, total_distance_km,
             total_duration_mins, notes, created_at
-          ) VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          ) VALUES ($1, $2, $3, $4, 'completed', $5::timestamptz, $6::timestamptz, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
           ON CONFLICT (id) DO UPDATE SET
             status = 'completed',
             finished_at = EXCLUDED.finished_at,
@@ -5265,10 +5265,12 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
         let routeVisits = [];
         if (neonPool) {
           try {
-            const dateStr = (targetRoute.startedAt || nowIso).split("T")[0];
+            const startedAtStr = targetRoute.startedAt instanceof Date ? targetRoute.startedAt.toISOString() : String(targetRoute.startedAt || nowIso);
+            const dateStr = startedAtStr.includes("T") ? startedAtStr.split("T")[0] : startedAtStr.substring(0, 10);
             const sellerNamePattern = targetSellerName ? `%${targetSellerName}%` : "";
             const vDb = await neonPool.query(`
               SELECT 
+                id,
                 COALESCE("clientName", client_name) AS "clientName",
                 COALESCE("companyName", company_name) AS "companyName",
                 COALESCE("sellerName", seller_name) AS "sellerName",
@@ -5280,27 +5282,48 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
               FROM public.client_visits
               WHERE (route_id = $1 OR "routeId" = $1)
                  OR (
-                   (
+                   (route_id IS NULL OR route_id = '' OR route_id = $1)
+                   AND (
                      (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
                      ("createdAt" IS NOT NULL AND "createdAt" >= $2)
                    )
                    AND (
-                     seller_id = $3 OR "sellerId" = $3 OR
-                     (seller_name ILIKE $4 AND $4 <> '') OR ("sellerName" ILIKE $4 AND $4 <> '')
+                     ($3 <> '' AND (seller_id = $3 OR "sellerId" = $3)) OR
+                     ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
                    )
                  )
               ORDER BY COALESCE(created_at, NOW()) ASC;
             `, [targetRoute.id, dateStr, targetSellerId, sellerNamePattern]);
-            routeVisits = vDb.rows;
+            const seenVisits = /* @__PURE__ */ new Set();
+            routeVisits = (vDb.rows || []).filter((v) => {
+              const key = v.id || `${v.clientName}_${v.createdAt}`;
+              if (seenVisits.has(key)) return false;
+              seenVisits.add(key);
+              return true;
+            });
           } catch (e) {
             console.error("[Finish Route SQL Error fetching visits]:", e.message);
           }
         }
         if (routeVisits.length === 0) {
           const localVisits = readLocalVisits();
+          const targetStartedMs = new Date(targetRoute.startedAt || nowIso).getTime();
           routeVisits = localVisits.filter(
-            (v) => v.routeId === targetRoute.id || (v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) && new Date(v.createdAt).getTime() >= new Date(targetRoute.startedAt || nowIso).getTime() - 6e4
+            (v) => v.routeId === targetRoute.id || (v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) && new Date(v.createdAt).getTime() >= targetStartedMs - 12e4
           ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        }
+        if (routeVisits.length > 0) {
+          targetRoute.totalStops = routeVisits.length;
+          if (neonPool) {
+            try {
+              await neonPool.query(`
+                UPDATE public.seller_routes
+                SET total_stops = $1, "totalStops" = $1
+                WHERE id = $2;
+              `, [routeVisits.length, targetRoute.id]);
+            } catch (e) {
+            }
+          }
         }
         let sCode = "";
         let sPhone = "";
@@ -5428,11 +5451,14 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
   const sName = route.seller_name || route.sellerName || "Asesor";
   const startedAt = route.started_at || route.startedAt || (/* @__PURE__ */ new Date()).toISOString();
   const finishedAt = route.finished_at || route.finishedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const startedAtStr = startedAt instanceof Date ? startedAt.toISOString() : String(startedAt);
+  const finishedAtStr = finishedAt instanceof Date ? finishedAt.toISOString() : String(finishedAt);
   if (neonPool) {
     try {
-      const dateStr = startedAt.split("T")[0];
+      const dateStr = startedAtStr.includes("T") ? startedAtStr.split("T")[0] : startedAtStr.substring(0, 10);
       const vDb = await neonPool.query(`
         SELECT 
+          id,
           COALESCE("clientName", client_name) AS "clientName",
           COALESCE("companyName", company_name) AS "companyName",
           COALESCE("sellerName", seller_name) AS "sellerName",
@@ -5444,7 +5470,8 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
         FROM public.client_visits
         WHERE (route_id = $1 OR "routeId" = $1)
            OR (
-             (
+             (route_id IS NULL OR route_id = '' OR route_id = $1)
+             AND (
                (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
                ("createdAt" IS NOT NULL AND "createdAt" >= $2)
              )
@@ -5452,7 +5479,13 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
            )
         ORDER BY COALESCE(created_at, NOW()) ASC;
       `, [route.id, dateStr, `%${sName}%`]);
-      routeVisits = vDb.rows;
+      const seen = /* @__PURE__ */ new Set();
+      routeVisits = (vDb.rows || []).filter((v) => {
+        const key = v.id || `${v.clientName}_${v.createdAt}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     } catch (e) {
       console.error("[send-whatsapp-test SQL Error]:", e.message);
     }
@@ -5460,7 +5493,7 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
   if (routeVisits.length === 0) {
     const localVisits = readLocalVisits();
     routeVisits = localVisits.filter(
-      (v) => v.routeId === route.id || v.sellerName?.toLowerCase() === sName.toLowerCase() && new Date(v.createdAt).getTime() >= new Date(startedAt).getTime() - 6e4
+      (v) => v.routeId === route.id || v.sellerName?.toLowerCase() === sName.toLowerCase() && new Date(v.createdAt).getTime() >= new Date(startedAtStr).getTime() - 12e4
     ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
   let sCode = "";
@@ -5476,8 +5509,8 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
   const msg = buildAdminFinishRouteWhatsAppMessage(
     sName,
     sCode,
-    startedAt,
-    finishedAt,
+    startedAtStr,
+    finishedAtStr,
     startLat,
     startLng,
     endLat,
@@ -5868,6 +5901,17 @@ function getLogoTiBase64() {
   }
   return cachedLogoTiBase64;
 }
+function getDiaGuatemala(dateInput) {
+  const d = dateInput ? new Date(dateInput) : /* @__PURE__ */ new Date();
+  if (isNaN(d.getTime())) return "";
+  const gtOffset = -6 * 60;
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 6e4;
+  const gt = new Date(utcMs + gtOffset * 6e4);
+  const year = gt.getFullYear();
+  const month = String(gt.getMonth() + 1).padStart(2, "0");
+  const day = String(gt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 async function checkAndDispatchDailySales(options) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
@@ -5897,10 +5941,37 @@ async function checkAndDispatchDailySales(options) {
       };
     }
   }
-  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
-  if (invErr) {
-    console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
-    return { error: `Error al consultar facturas: ${invErr.message}` };
+  const startOfDayMs = (/* @__PURE__ */ new Date(`${todayLabel}T00:00:00-06:00`)).getTime();
+  const endOfDayMs = (/* @__PURE__ */ new Date(`${todayLabel}T23:59:59.999-06:00`)).getTime();
+  let invoicesData = [];
+  try {
+    const queryRes = await pgPool.query(`
+      SELECT id, folio, "clientName", nit, "totalAmount", date, items, invoice_type, status, "sellerId"
+      FROM invoices
+      WHERE (date >= $1 AND date <= $2)
+         OR (id ~ '^INV-[0-9]+' AND (split_part(id, '-', 2))::numeric >= $3 AND (split_part(id, '-', 2))::numeric <= $4)
+      ORDER BY folio::int ASC;
+    `, [startOfDay, endOfDay, startOfDayMs, endOfDayMs]);
+    invoicesData = queryRes.rows || [];
+    for (const inv of invoicesData) {
+      if (inv.id && inv.id.startsWith("INV-")) {
+        const parts = inv.id.split("-");
+        const ts = parseInt(parts[1], 10);
+        if (!isNaN(ts) && ts >= startOfDayMs && ts <= endOfDayMs) {
+          const invDateGT = inv.date ? getDiaGuatemala(inv.date) : "";
+          if (invDateGT !== todayLabel) {
+            const correctedDate = new Date(ts).toISOString();
+            console.warn(`[AUTO-SALES-CRON] \u26A0\uFE0F Factura folio #${inv.folio} (${inv.id}) creada hoy pero con fecha err\xF3nea (${inv.date}). Auto-corrigiendo en DB a ${correctedDate}`);
+            await pgPool.query(`UPDATE invoices SET date = $1 WHERE id = $2`, [correctedDate, inv.id]);
+            inv.date = correctedDate;
+          }
+        }
+      }
+    }
+  } catch (queryErr) {
+    console.error("[AUTO-SALES-CRON] Error en consulta avanzada de facturas:", queryErr.message);
+    const fallback = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
+    invoicesData = fallback.data || [];
   }
   function formatTelefonoDestinatario(rawPhone) {
     if (!rawPhone) return "";
@@ -6111,10 +6182,22 @@ async function checkAndDispatchWeeklySales(options) {
       };
     }
   }
-  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfWeek).lte("date", endOfWeek);
-  if (invErr) {
-    console.error("[AUTO-WEEKLY-SALES-CRON] Error al consultar facturas semanales:", invErr.message);
-    return { error: `Error al consultar facturas semanales: ${invErr.message}` };
+  const startOfWeekMs = (/* @__PURE__ */ new Date(`${mYear}-${mMonth}-${mDay}T00:00:00-06:00`)).getTime();
+  const endOfWeekMs = (/* @__PURE__ */ new Date(`${todayLabel}T23:59:59.999-06:00`)).getTime();
+  let invoicesData = [];
+  try {
+    const queryRes = await pgPool.query(`
+      SELECT id, folio, "clientName", nit, "totalAmount", date, items, invoice_type, status, "sellerId"
+      FROM invoices
+      WHERE (date >= $1 AND date <= $2)
+         OR (id ~ '^INV-[0-9]+' AND (split_part(id, '-', 2))::numeric >= $3 AND (split_part(id, '-', 2))::numeric <= $4)
+      ORDER BY folio::int ASC;
+    `, [startOfWeek, endOfWeek, startOfWeekMs, endOfWeekMs]);
+    invoicesData = queryRes.rows || [];
+  } catch (queryErr) {
+    console.error("[AUTO-WEEKLY-SALES-CRON] Error en consulta avanzada de facturas semanales:", queryErr.message);
+    const fallback = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfWeek).lte("date", endOfWeek);
+    invoicesData = fallback.data || [];
   }
   function formatTelefonoDestinatario(rawPhone) {
     if (!rawPhone) return "";
@@ -7596,7 +7679,8 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       authFlag += "|||DEBT:true";
     }
     const isUserAdmin = req.user && req.user.role === "admin";
-    const saleExactTimestamp = isUserAdmin && customDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+    const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
+    const saleExactTimestamp = isExplicitCustomDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
     const invoiceDataRaw = {
       id: id2,
       sellerId: saleOwner,
@@ -7907,7 +7991,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     newNotes += "|||AUTH:authorized";
   }
   const isUserAdmin = req.user && req.user.role === "admin";
-  const targetDate = isUserAdmin ? customDate || date : null;
+  const targetDate = isUserAdmin && (customDate || date) ? customDate || date : null;
   const updatedDataRaw = {
     notes: newNotes,
     items: formattedItems,
@@ -7915,7 +7999,13 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     status: isOwed ? "pending" : oldInvoice.paidAmount >= total ? "paid" : oldInvoice.status === "sent" ? "sent" : "pending"
   };
   if (targetDate) {
-    updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? (/* @__PURE__ */ new Date(`${targetDate}T12:00:00-06:00`)).toISOString() : /^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString();
+    const targetDateGT = getDiaGuatemala(targetDate);
+    const oldDateGT = oldInvoice.date ? getDiaGuatemala(oldInvoice.date) : "";
+    if (targetDateGT && targetDateGT === oldDateGT && oldInvoice.date) {
+    } else {
+      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? (/* @__PURE__ */ new Date(`${targetDate}T12:00:00-06:00`)).toISOString() : /^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString();
+      console.log(`[AUDIT] \u26A0\uFE0F Fecha modificada en factura ${oldInvoice.folio || id} por admin (${req.user?.email}): de ${oldInvoice.date} a ${updatedDataRaw.date}`);
+    }
   }
   if (client !== void 0) updatedDataRaw["clientName"] = client;
   if (phone !== void 0) updatedDataRaw["customerPhone"] = phone;
@@ -10787,6 +10877,7 @@ export {
   app,
   server_default as default,
   fetchGlobalDbModeFromDb,
+  getDiaGuatemala,
   getGlobalDbMode,
   getGlobalMaintenanceMode,
   isClientOfSeller,

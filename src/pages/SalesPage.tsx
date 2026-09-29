@@ -213,10 +213,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [transportMethod, setTransportMethod] = useState<'bus' | 'paqueteria' | 'personal' | ''>(() => (localStorage.getItem('draft_transportMethod') as any) || '');
   const [shippingHandled, setShippingHandled] = useState(() => localStorage.getItem('draft_shippingHandled') === 'true');
   const [customDate, setCustomDate] = useState<string>(() => {
+    const today = diaGuatemala();
     const saved = localStorage.getItem('draft_customDate');
-    if (saved) return saved;
-    return diaGuatemala();
+    if (saved && saved === today) return saved;
+    try { localStorage.removeItem('draft_customDate'); } catch (e) {}
+    return today;
   });
+  const [isCustomDateChanged, setIsCustomDateChanged] = useState<boolean>(false);
 
   const checkClientCoincidences = (name: string, companyName: string, phone: string) => {
     const blockedClients = clients.filter(c => c.isBlocked);
@@ -240,7 +243,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     localStorage.setItem('draft_checkoutIsOwed', String(checkoutIsOwed));
     localStorage.setItem('draft_transportMethod', transportMethod);
     localStorage.setItem('draft_shippingHandled', String(shippingHandled));
-    localStorage.setItem('draft_customDate', customDate);
+    if (isCustomDateChanged && customDate === diaGuatemala()) {
+      localStorage.setItem('draft_customDate', customDate);
+    } else if (!isCustomDateChanged) {
+      localStorage.removeItem('draft_customDate');
+    }
     localStorage.setItem('draft_invoiceType', invoiceType);
     if (editingInvoiceId) {
       localStorage.setItem('draft_edit_invoice_id', editingInvoiceId);
@@ -333,6 +340,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         if (inv.notes) {
           setNotes(inv.notes);
         }
+        if (inv.date) {
+          setCustomDate(diaGuatemala(inv.date));
+        } else {
+          setCustomDate(diaGuatemala());
+        }
+        setIsCustomDateChanged(false);
 
         // Robust parsing of items list
         let parsedItems = inv.items;
@@ -829,7 +842,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             isOwed,
             notes,
             sellerId: sellerIdToUse,
-            customDate: user?.role === 'admin' ? (customDate || undefined) : undefined
+            customDate: (user?.role === 'admin' && isCustomDateChanged) ? customDate : undefined
          });
          setEditingInvoiceId(null);
          setEditInvoiceSellerId(null);
@@ -846,7 +859,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           invoiceType: invoiceType as 'agricola' | 'veterinaria',
           creditDays: invoiceType === 'agricola' ? 60 : 30,
           debtAlert: OMITIR_LIMITACION_FACTURAS_VENCIDAS ? false : (debtType !== 'none'),
-          customDate: user?.role === 'admin' ? (customDate || undefined) : undefined,
+          customDate: (user?.role === 'admin' && isCustomDateChanged && customDate !== diaGuatemala()) ? customDate : undefined,
           transportMethod: transportMethod || undefined
         };
 
@@ -913,6 +926,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       setTransportMethod('');
       setShippingHandled(false);
       setCustomDate(diaGuatemala());
+      setIsCustomDateChanged(false);
+      try { localStorage.removeItem('draft_customDate'); } catch (e) {}
       setDebtType('none');
       setIsDebtAuthorized(false);
       setIsSubmitting(false);
@@ -1634,7 +1649,10 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     <input
                       type="date"
                       value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
+                      onChange={(e) => {
+                        setCustomDate(e.target.value);
+                        setIsCustomDateChanged(true);
+                      }}
                       className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-[#0b4d2c] outline-none font-bold text-slate-800 transition-all text-xs cursor-pointer"
                     />
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
