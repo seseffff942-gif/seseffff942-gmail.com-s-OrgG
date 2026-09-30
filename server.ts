@@ -8378,54 +8378,6 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req:
         notes = updateTagInNotes(notes, "TRACKING", guideNumber);
       }
       if (folio !== undefined) {
-        const parsedFolio = parseInt(folio);
-        if (!isNaN(parsedFolio)) {
-          // Determine current assigned folios using getFolioMap()
-          const currentMap = await getFolioMap();
-          const previousFolio = currentMap[String(id)];
-
-          // Only perform sequential cascading shifting if the folio assignment is actually changing
-          if (previousFolio !== parsedFolio) {
-            console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-
-            // Query all active (non-archived) invoices excluding the current invoice
-            const { data: otherInvoices } = await localDb.from("invoices")
-              .select("id, notes, status, folio")
-              .eq("is_archived", false)
-              .neq("id", id);
-
-            if (otherInvoices && otherInvoices.length > 0) {
-              const updates = [];
-              for (const otherInv of otherInvoices) {
-                // Skip cancelled/rejected invoices
-                if (otherInv.status === 'cancelled' || otherInv.status === 'rejected') {
-                  continue;
-                }
-
-                const otherCurrentFolio = currentMap[String(otherInv.id)];
-                if (otherCurrentFolio !== undefined && otherCurrentFolio >= parsedFolio) {
-                  const otherNewFolio = otherCurrentFolio + 1;
-                  let otherNotes = otherInv.notes || "";
-                  otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
-
-                  updates.push({
-                    id: otherInv.id,
-                    notes: otherNotes,
-                    folio: String(otherNewFolio)
-                  });
-                }
-              }
-
-              if (updates.length > 0) {
-                console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
-                for (const update of updates) {
-                  await localDb.from("invoices").update({ notes: update.notes, folio: update.folio }).eq('id', update.id);
-                  await syncInvoiceToPermanentBackup(update.id);
-                }
-              }
-            }
-          }
-        }
         notes = updateTagInNotes(notes, "FOLIO", folio);
         updateData.folio = String(folio);
       }
