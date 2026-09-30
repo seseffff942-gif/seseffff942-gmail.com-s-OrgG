@@ -445,8 +445,6 @@ export default function App() {
         onShowInstallGuide={() => {
           if (isIOS) {
             setShowIOSInstallHelper(true);
-          } else if (deferredPrompt) {
-            handleInstallClick();
           } else {
             setShowGeneralInstallHelper(true);
           }
@@ -593,62 +591,125 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL DE INSTALACIÓN GENERAL */}
+        {/* MODAL DE INSTALACIÓN GENERAL: PWA Y APK NATIVA */}
         {showGeneralInstallHelper && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-              <div className="p-6 relative">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[92vh] flex flex-col">
+              {/* Header */}
+              <div className="p-5 sm:p-6 pb-4 relative border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-teal-50/70 via-emerald-50/50 to-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center border border-teal-100 shadow-sm shrink-0">
+                    <img src="/agricovet.png" alt="Agricovet App" className="w-8 h-8 object-contain" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 leading-tight">Instalar / Descargar Agricovet</h3>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">Elige la opción que prefieras para tu dispositivo</p>
+                  </div>
+                </div>
                 <button 
                   onClick={() => setShowGeneralInstallHelper(false)}
-                  className="absolute top-4 right-4 text-slate-400 hover:text-slate-650 p-1 bg-slate-50 rounded-full cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 p-1.5 bg-white/80 hover:bg-white rounded-full transition-colors border border-slate-200/60 shadow-sm cursor-pointer"
                 >
                   <X size={18} />
                 </button>
+              </div>
 
-                <div className="text-center mb-5 mt-2">
-                  <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
-                    <Download size={28} className="text-[#00696a]" />
+              {/* Body con 2 Opciones */}
+              <div className="p-5 sm:p-6 space-y-4 overflow-y-auto">
+                {/* Opción 1: Aplicación Web Rápida (PWA) */}
+                <div className="bg-gradient-to-br from-teal-50/60 to-slate-50 border border-teal-200/70 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-teal-600 text-white text-[10px] font-black uppercase tracking-wider rounded-md">
+                        Opción 1
+                      </span>
+                      <h4 className="font-extrabold text-slate-900 text-sm">Aplicación Web Rápida (PWA)</h4>
+                    </div>
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-100/80 px-2 py-0.5 rounded-full">
+                      Ligera • Sin descargas pesadas
+                    </span>
                   </div>
-                  <h3 className="text-lg font-bold text-slate-800">Descargar Agricovet</h3>
-                  <p className="text-xs text-slate-500 mt-1">Sigue el proceso desde tu navegador</p>
+
+                  <p className="text-xs text-slate-600 mb-3">
+                    Instala un acceso directo oficial en tu pantalla de inicio. Funciona como una app normal, guarda datos offline y se actualiza al instante sin descargar archivos.
+                  </p>
+
+                  {deferredPrompt ? (
+                    <button
+                      onClick={() => {
+                        handleInstallClick();
+                        setShowGeneralInstallHelper(false);
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl font-black text-white bg-[#00696a] hover:bg-[#004f50] transition-all flex items-center justify-center gap-2 text-xs shadow-md shadow-teal-900/10 cursor-pointer active:scale-[0.98]"
+                    >
+                      <Download size={15} />
+                      Instalar Web App (PWA) Directamente
+                    </button>
+                  ) : (
+                    <div className="bg-white/80 border border-teal-100/80 rounded-xl p-3 space-y-2">
+                      <p className="text-[11px] font-bold text-slate-700">Pasos para instalar la Web App (PWA):</p>
+                      <ul className="space-y-2 text-xs text-slate-600">
+                        <li className="flex gap-2.5 items-start">
+                          <CheckCircle2 size={15} className="text-teal-600 shrink-0 mt-0.5" />
+                          <span>
+                            <strong className="text-slate-800">1. Menú del navegador:</strong> Toca los <strong>tres puntos (⋮)</strong> arriba a la derecha en Chrome/Edge, o el botón <strong>Compartir (⎋)</strong> en Safari iPhone.
+                          </span>
+                        </li>
+                        <li className="flex gap-2.5 items-start">
+                          <CheckCircle2 size={15} className="text-teal-600 shrink-0 mt-0.5" />
+                          <span>
+                            <strong className="text-slate-800">2. Instalar:</strong> Pulsa <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla principal"</strong>.
+                          </span>
+                        </li>
+                        <li className="flex gap-2.5 items-start">
+                          <CheckCircle2 size={15} className="text-teal-600 shrink-0 mt-0.5" />
+                          <span>
+                            <strong className="text-slate-800">3. Confirmar:</strong> Acepta y aparecerá el icono de Agricovet directo en tu celular.
+                          </span>
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
-                <ul className="space-y-4 mb-6 text-xs text-slate-600">
-                  <li className="flex gap-3">
-                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-800 block font-bold">1. Menú del navegador</strong>
-                      <span className="text-slate-500">Toca los tres puntos de opciones (generalmente arriba a la derecha).</span>
+                {/* Opción 2: APK Nativa para Android */}
+                <div className="bg-gradient-to-br from-emerald-50/60 to-slate-50 border border-emerald-200/70 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded-md">
+                        Opción 2
+                      </span>
+                      <h4 className="font-extrabold text-slate-900 text-sm">APK Nativa Android (.apk)</h4>
                     </div>
-                  </li>
-                  <li className="flex gap-3">
-                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-800 block font-bold">2. Agregar/Instalar</strong>
-                      <span className="text-slate-500">Busca la opción "Instalar aplicación" o "Agregar a pantalla principal".</span>
-                    </div>
-                  </li>
-                  <li className="flex gap-3">
-                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-800 block font-bold">3. Confirmar</strong>
-                      <span className="text-slate-500">Acepta la instalación para crear un icono de acceso directo en tu dispositivo.</span>
-                    </div>
-                  </li>
-                </ul>
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                      Solo Android • Archivo Instalador
+                    </span>
+                  </div>
 
-                <a
-                  href="/agricovet.apk"
-                  download="agricovet.apk"
-                  className="mb-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors text-center text-xs shadow-md"
-                >
-                  <Download size={15} />
-                  Descargar APK Nativa Android (.apk)
-                </a>
+                  <p className="text-xs text-slate-600 mb-3">
+                    Descarga directa del instalador (.apk) para instalar la aplicación tradicionalmente en celulares y tablets Android.
+                  </p>
 
+                  <a
+                    href="/agricovet.apk"
+                    download="agricovet.apk"
+                    className="w-full py-2.5 px-4 rounded-xl font-black text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-900/10 cursor-pointer active:scale-[0.98]"
+                  >
+                    <Download size={15} />
+                    Descargar APK Nativa Android (.apk)
+                  </a>
+
+                  <p className="text-[10px] text-slate-500 mt-2 text-center">
+                    💡 Si tu celular dice <em>"Archivo potencialmente dañino"</em> o pide permisos para instalar apps de fuentes desconocidas, pulsa <strong>"Descargar de todos modos"</strong> y <strong>"Permitir"</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
                 <button
                   onClick={() => setShowGeneralInstallHelper(false)}
-                  className="w-full py-2.5 rounded-xl font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer text-center text-xs"
+                  className="px-5 py-2 rounded-xl font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer text-xs shadow-sm"
                 >
                   Cerrar
                 </button>

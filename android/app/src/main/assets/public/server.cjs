@@ -33,6 +33,7 @@ __export(server_exports, {
   app: () => app,
   default: () => server_default,
   fetchGlobalDbModeFromDb: () => fetchGlobalDbModeFromDb,
+  getDiaGuatemala: () => getDiaGuatemala,
   getGlobalDbMode: () => getGlobalDbMode,
   getGlobalMaintenanceMode: () => getGlobalMaintenanceMode,
   isClientOfSeller: () => isClientOfSeller,
@@ -1231,7 +1232,7 @@ var initialDb = {
     { id: "u3", name: "Vendedor 3", email: "ll4961839@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=12", password: "123" },
     { id: "u4", name: "Herbert Argueta", sellerCode: "1521", email: "gruasytransportesali@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=13", password: "123" },
     { id: "u5", name: "Erick Ju\xE1rez", email: "jerickottoniel@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=14", password: "123" },
-    { id: "u6", name: "Lima Lopez", email: "limalopez22@gmail.com", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
+    { id: "u6", name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50007840", role: "seller", photo: "https://i.pravatar.cc/150?u=Lima", password: "123" }
   ],
   products: [
     { id: "p1", name: "Legatus mixx 30 OD litro", category: "Agroqu\xEDmicos", stock: 100, price: 50 },
@@ -2736,7 +2737,11 @@ async function safeInsertClient(clientData) {
       geotaggedAt: clientData.geotaggedAt,
       geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      geotagged_by: clientData.geotaggedBy
+      geotagged_by: clientData.geotaggedBy,
+      isProspect: clientData.isProspect || false,
+      is_prospect: clientData.isProspect || false,
+      clientType: clientData.clientType || (clientData.isProspect ? "prospect" : "regular"),
+      client_type: clientData.clientType || (clientData.isProspect ? "prospect" : "regular")
     };
     const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
     if (!errorWithFallbacks) return true;
@@ -2744,6 +2749,13 @@ async function safeInsertClient(clientData) {
     let prunedPayload = { ...payload };
     let needsRetry = false;
     const errMsg = errorWithFallbacks.message;
+    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
+      delete prunedPayload.isProspect;
+      delete prunedPayload.is_prospect;
+      delete prunedPayload.clientType;
+      delete prunedPayload.client_type;
+      needsRetry = true;
+    }
     if (errMsg.includes("sellerId") || errMsg.includes('column "sellerId"') || errMsg.includes("schema cache")) {
       delete prunedPayload.sellerId;
       needsRetry = true;
@@ -3142,7 +3154,7 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
 }));
 app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   invalidateCache("clients");
-  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy } = req.body;
+  const { id, name, companyName, nit, phone, address, sellerId, clientCode, latitude, longitude, locationAddress, geotaggedAt, geotaggedBy, isProspect, clientType } = req.body;
   if (!name) {
     return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
   }
@@ -3282,6 +3294,8 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     longitude: longitude !== void 0 && longitude !== null && longitude !== "" ? Number(longitude) : void 0,
     locationAddress: locationAddress || address || void 0,
     geotaggedAt: geotaggedAt || (latitude !== void 0 && latitude !== null && latitude !== "" ? (/* @__PURE__ */ new Date()).toISOString() : void 0),
+    isProspect: isProspect === true || clientType === "prospect",
+    clientType: isProspect === true || clientType === "prospect" ? "prospect" : clientType || "regular",
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
@@ -3895,6 +3909,8 @@ app.get("/api/visits/:id/photo", requireAuth, asyncHandler(async (req, res) => {
 }));
 app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   const {
+    id,
+    offlineId,
     clientId,
     clientName,
     clientCode,
@@ -3904,7 +3920,10 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     accuracy,
     visitType,
     notes,
-    photoUrl
+    photoUrl,
+    capturedAt,
+    createdAt,
+    gpsSource
   } = req.body;
   if (!clientId && !clientName) {
     return res.status(400).json({ error: "Identificaci\xF3n de cliente requerida." });
@@ -3912,9 +3931,49 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   if (latitude === void 0 || longitude === void 0) {
     return res.status(400).json({ error: "Coordenadas GPS requeridas para el checkpoint." });
   }
+  let sanitizedWebpPhoto = photoUrl || "";
+  if (photoUrl && typeof photoUrl === "string") {
+    const lowerPhoto = photoUrl.toLowerCase();
+    if (lowerPhoto.includes("<script") || lowerPhoto.includes("javascript:") || lowerPhoto.includes("onload=") || lowerPhoto.includes("onerror=")) {
+      return res.status(400).json({ error: "Contenido de foto rechazado por directivas de seguridad (c\xF3digo no permitido)." });
+    }
+    if (!photoUrl.startsWith("data:image/") && !photoUrl.startsWith("http://") && !photoUrl.startsWith("https://") && !photoUrl.startsWith("/api/visits/")) {
+      return res.status(400).json({ error: "Formato de imagen inv\xE1lido. Solo se admiten datos de imagen codificados." });
+    }
+    if (sharp && photoUrl.startsWith("data:image/")) {
+      try {
+        const matches = photoUrl.match(/^data:image\/[a-zA-Z0-9+]+;base64,(.+)$/);
+        if (matches && matches[1]) {
+          const inputBuffer = Buffer.from(matches[1], "base64");
+          const webpBuffer = await sharp(inputBuffer).resize(900, 900, { fit: "inside", withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
+          sanitizedWebpPhoto = `data:image/webp;base64,${webpBuffer.toString("base64")}`;
+        }
+      } catch (sharpErr) {
+        console.warn("Backend sharp WebP conversion error:", sharpErr);
+      }
+    }
+  }
   const latNum = parseFloat(latitude);
   const lngNum = parseFloat(longitude);
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const visitCreatedAt = capturedAt || createdAt || nowIso;
+  const isOffline = req.body.isOffline === true || Boolean(req.body.offlineId) || typeof id === "string" && (id.startsWith("visit_offline") || id.startsWith("VISIT_OFFLINE"));
+  let visitId = id;
+  if (!visitId) {
+    visitId = isOffline ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}` : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  } else if (!isOffline && (visitId.startsWith("visit_offline") || visitId.startsWith("VISIT_OFFLINE"))) {
+    visitId = `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
+  const sellerIdStr = req.user?.id ? String(req.user.id).trim() : req.body.sellerId ? String(req.body.sellerId).trim() : "";
+  const sellerNameStr = req.user?.name ? String(req.user.name).trim() : req.body.sellerName ? String(req.body.sellerName).trim() : "Vendedor";
+  const sellerEmailStr = req.user?.email ? String(req.user.email).trim().toLowerCase() : req.body.sellerEmail ? String(req.body.sellerEmail).trim().toLowerCase() : "";
+  const currentVisits = readLocalVisits();
+  const existingVisit = currentVisits.find(
+    (v) => v.id && (v.id === visitId || v.id === offlineId) || v.offlineId && (v.offlineId === visitId || v.offlineId === offlineId) || v.clientId === clientId && v.sellerId === sellerIdStr && Math.abs(new Date(v.createdAt).getTime() - new Date(visitCreatedAt).getTime()) < 45e3
+  );
+  if (existingVisit) {
+    return res.json({ success: true, visit: existingVisit, deduplicated: true });
+  }
   let calculatedDistance = void 0;
   try {
     const localClients = readLocalClients();
@@ -3922,13 +3981,15 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     if (targetClient && targetClient.latitude && targetClient.longitude) {
       calculatedDistance = calculateDistanceMeters(latNum, lngNum, targetClient.latitude, targetClient.longitude);
     } else {
-      if (clientId || clientName) {
+      const isValidGuatemalaCoords = latNum >= 13 && latNum <= 18.5 && lngNum >= -93 && lngNum <= -87;
+      const isEligibleGps = isValidGuatemalaCoords && gpsSource !== "offline_provisional";
+      if ((clientId || clientName) && isEligibleGps) {
         if (clientId) {
           updateLocalClient(clientId, {
             latitude: latNum,
             longitude: lngNum,
-            geotaggedAt: nowIso,
-            geotaggedBy: req.user?.name || req.user?.email
+            geotaggedAt: visitCreatedAt,
+            geotaggedBy: req.user?.name || req.user?.email || "Vendedor"
           });
         }
         if (neonPool) {
@@ -3943,7 +4004,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
                   geotagged_by = COALESCE(geotagged_by, $4)
               WHERE (id = $5 OR id::text = $5::text OR "clientCode" = $5::text)
                  OR (LOWER(TRIM(name)) = LOWER(TRIM($6)));
-            `, [latNum, lngNum, nowIso, req.user?.name || req.user?.email || "Vendedor", clientId || "", clientName || ""]);
+            `, [latNum, lngNum, visitCreatedAt, req.user?.name || req.user?.email || "Vendedor", clientId || "", clientName || ""]);
           } catch (neGpsErr) {
             console.warn("[Auto-geotag visit neon warning]:", neGpsErr.message);
           }
@@ -3952,13 +4013,13 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     }
     if (clientId || clientName) {
       if (clientId) {
-        updateLocalClient(clientId, { lastVisitAt: nowIso });
+        updateLocalClient(clientId, { lastVisitAt: visitCreatedAt });
       }
       try {
         if (clientId) {
           await localDb.from("clients").update({
-            last_visit_at: nowIso,
-            lastVisitAt: nowIso
+            last_visit_at: visitCreatedAt,
+            lastVisitAt: visitCreatedAt
           }).eq("id", clientId);
         }
       } catch (e) {
@@ -3970,7 +4031,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
             SET "lastVisitAt" = $1, last_visit_at = $1
             WHERE (id = $2 OR id::text = $2::text OR "clientCode" = $2::text)
                OR (LOWER(TRIM(name)) = LOWER(TRIM($3)));
-          `, [nowIso, clientId || "", clientName || ""]);
+          `, [visitCreatedAt, clientId || "", clientName || ""]);
         } catch (neVisErr) {
           console.warn("[Update lastVisitAt neon warning]:", neVisErr.message);
         }
@@ -3979,9 +4040,6 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     }
   } catch (e) {
   }
-  const sellerIdStr = req.user?.id ? String(req.user.id).trim() : req.body.sellerId ? String(req.body.sellerId).trim() : "";
-  const sellerNameStr = req.user?.name ? String(req.user.name).trim() : req.body.sellerName ? String(req.body.sellerName).trim() : "Vendedor";
-  const sellerEmailStr = req.user?.email ? String(req.user.email).trim().toLowerCase() : req.body.sellerEmail ? String(req.body.sellerEmail).trim().toLowerCase() : "";
   let activeRoute = null;
   if (neonPool) {
     try {
@@ -4033,7 +4091,30 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       (r) => r.status === "active" && (sellerIdStr && (r.sellerId === sellerIdStr || r.seller_id === sellerIdStr || String(r.id || "").includes(sellerIdStr)) || sellerEmailStr && (r.sellerEmail?.toLowerCase() === sellerEmailStr || r.seller_email?.toLowerCase() === sellerEmailStr) || sellerNameStr && (r.sellerName?.toLowerCase() === sellerNameStr.toLowerCase() || r.seller_name?.toLowerCase() === sellerNameStr.toLowerCase()))
     );
   }
+  const todayGuatemala = getGuatemalaDateString(nowIso);
+  if (activeRoute) {
+    const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
+    if (routeGuatemala !== todayGuatemala) {
+      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala}`);
+      activeRoute.status = "completed";
+      activeRoute.finishedAt = nowIso;
+      if (neonPool && activeRoute.id) {
+        try {
+          await neonPool.query(`
+            UPDATE public.seller_routes
+            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
+                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al cambiar de d\xEDa)'
+            WHERE id = $2;
+          `, [nowIso, activeRoute.id]);
+        } catch (e) {
+        }
+      }
+      activeRoute = null;
+    }
+  }
+  let isNewAutoRoute = false;
   if (!activeRoute) {
+    isNewAutoRoute = true;
     activeRoute = {
       id: `route_${sellerIdStr || "seller"}_${Date.now()}`,
       sellerId: sellerIdStr,
@@ -4052,6 +4133,50 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
       notes: "Jornada iniciada autom\xE1ticamente con primera visita."
     };
     routes.unshift(activeRoute);
+    if (neonPool) {
+      try {
+        await neonPool.query(`
+          UPDATE public.seller_routes
+          SET status = 'completed',
+              finished_at = $1,
+              "finishedAt" = $1,
+              notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente)'
+          WHERE status = 'active'
+            AND (
+              ($2 <> '' AND (seller_id = $2 OR "sellerId" = $2)) OR
+              ($3 <> '' AND (seller_email ILIKE $3 OR "sellerEmail" ILIKE $3)) OR
+              ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+            );
+        `, [nowIso, sellerIdStr, sellerEmailStr, sellerNameStr]);
+        await neonPool.query(`
+          INSERT INTO public.seller_routes (
+            id, seller_id, "sellerId", seller_name, "sellerName", seller_email, "sellerEmail",
+            status, started_at, "startedAt", start_latitude, "startLatitude", start_longitude, "startLongitude",
+            total_stops, "totalStops", total_distance_km, "totalDistanceKm", total_duration_mins, "totalDurationMins",
+            notes, created_at, "createdAt"
+          ) VALUES (
+            $1, $2, $2, $3, $3, $4, $4,
+            $5, $6, $6, $7, $7, $8, $8,
+            1, 1, 0, 0, 0, 0,
+            $9, $6, $6
+          ) ON CONFLICT (id) DO UPDATE SET
+            total_stops = EXCLUDED.total_stops,
+            "totalStops" = EXCLUDED."totalStops";
+        `, [
+          activeRoute.id,
+          activeRoute.sellerId,
+          activeRoute.sellerName,
+          activeRoute.sellerEmail,
+          activeRoute.status,
+          activeRoute.startedAt,
+          activeRoute.startLatitude,
+          activeRoute.startLongitude,
+          activeRoute.notes
+        ]);
+      } catch (neonErr) {
+        console.warn("[Auto-start Route Neon Warning]:", neonErr.message);
+      }
+    }
   } else {
     activeRoute.totalStops = (activeRoute.totalStops || 0) + 1;
   }
@@ -4075,7 +4200,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
   }
   const newVisit = {
-    id: `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    id: visitId,
     clientId: clientId || "",
     clientName: clientName || "",
     clientCode: clientCode || "",
@@ -4090,10 +4215,9 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     distanceMeters: calculatedDistance,
     visitType: visitType || "rutina",
     notes: notes || "",
-    photoUrl: photoUrl || "",
-    createdAt: nowIso
+    photoUrl: sanitizedWebpPhoto || "",
+    createdAt: visitCreatedAt
   };
-  const currentVisits = readLocalVisits();
   currentVisits.unshift(newVisit);
   saveLocalVisits(currentVisits);
   try {
@@ -4239,6 +4363,16 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
   res.json({ success: true, visit: newVisit, activeRoute });
+  if (isNewAutoRoute) {
+    console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
+    sendStartRouteNotification({
+      route: activeRoute,
+      userName: sellerNameStr,
+      userEmail: sellerEmailStr,
+      userId: sellerIdStr,
+      isTest: Boolean(req.body.isTest || req.body.sendWhatsAppTest)
+    }).catch(console.error);
+  }
 }));
 app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -4443,13 +4577,336 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
       return userId && rSellerId === userId || userEmail && (rSellerEmail === userEmail || rSellerId === userEmail) || userName && rSellerName === userName;
     });
   }
+  if (activeRoute) {
+    const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
+    const todayGuatemala = getGuatemalaDateString();
+    if (routeGuatemala !== todayGuatemala) {
+      activeRoute = null;
+    }
+  }
   res.json({ success: true, route: activeRoute || null });
 }));
+var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
+var ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || "50248234048";
+var ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || "50250007840";
+function formatTimeGuatemala(isoString) {
+  if (!isoString) return "--:--";
+  const d = new Date(isoString);
+  return d.toLocaleTimeString("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit", hour12: true });
+}
+function formatDateGuatemala(isoString) {
+  if (!isoString) return "Hoy";
+  const d = new Date(isoString);
+  return d.toLocaleDateString("es-GT", { timeZone: "America/Guatemala", weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+function getGuatemalaDateString(isoOrDate) {
+  const d = isoOrDate ? new Date(isoOrDate) : /* @__PURE__ */ new Date();
+  if (isNaN(d.getTime())) return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+}
+async function sendWhatsAppEvolutionMessage(phone, text) {
+  let cleanPhone = String(phone || "").replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return false;
+  const endpoints = [
+    "http://localhost:8080/message/sendText/bot-recibos",
+    "http://evolution_api:8080/message/sendText/bot-recibos",
+    "http://185.166.39.49:8080/message/sendText/bot-recibos"
+  ];
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "apikey": "B6D711FCDE4D4FD5936544120E713976",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ number: cleanPhone, text })
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Route Automation] Mensaje enviado exitosamente a ${cleanPhone} v\xEDa ${url}`);
+        return true;
+      }
+    } catch (err) {
+    }
+  }
+  console.warn(`[WhatsApp Route Automation] No se pudo enviar WhatsApp a ${cleanPhone}`);
+  return false;
+}
+async function dispatchRouteToN8nWebhook(payload) {
+  const endpoints = [
+    "http://localhost:5678/webhook/rutas-visitas",
+    "http://n8n:5678/webhook/rutas-visitas",
+    "http://185.166.39.49:5678/webhook/rutas-visitas"
+  ];
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[n8n Webhook Rutas] Disparado exitosamente a ${url}`);
+        return true;
+      }
+    } catch (err) {
+    }
+  }
+  return false;
+}
+function buildStartRouteWhatsAppMessage(sellerName, sellerCode, startedAt) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaStr = formatTimeGuatemala(startedAt);
+  return `\u{1F680} *INICIO DE RUTA EN TERRENO - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\xA1Buenos d\xEDas, *${sellerName}*! Has iniciado exitosamente tu ruta comercial:
+
+\u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
+\u{1F4C5} *Fecha:* ${fechaStr}
+\u23F0 *Hora de Salida:* ${horaStr}
+\u{1F7E2} *Estado:* En Ruta Activa
+
+\u{1F3AF} *Recomendaciones para el d\xEDa:*
+\u2022 Registra cada visita en el punto exacto con tu ubicaci\xF3n GPS.
+\u2022 Fotograf\xEDa de fachada o comprobante obligatoria.
+\u2022 Toma nota de pedidos y cobros para sincronizaci\xF3n inmediata.
+
+\u{1F4AA} *\xA1Muchos \xE9xitos en tus ventas y visitas de hoy! Vamos con todo el \xE1nimo.* \u{1F69C}\u{1F33E}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
+}
+function buildAdminStartRouteWhatsAppAlert(sellerName, sellerCode, startedAt, lat, lng) {
+  const horaStr = formatTimeGuatemala(startedAt);
+  const gpsPart = lat && lng ? `
+\u{1F4CD} Ubicaci\xF3n: https://maps.google.com/?q=${lat},${lng}` : "";
+  return `\u{1F514} *${sellerName}* ha iniciado ruta (${horaStr}).${gpsPart}`;
+}
+async function sendStartRouteNotification({
+  route,
+  userName,
+  userEmail,
+  userId,
+  isTest = false
+}) {
+  if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
+  try {
+    let sCode = "";
+    let sPhone = "";
+    try {
+      const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+      const foundUser = (allUsers || []).find(
+        (u) => userId && String(u.id) === String(userId) || userEmail && String(u.email || "").toLowerCase() === String(userEmail).toLowerCase() || userName && String(u.name || "").toLowerCase() === String(userName).toLowerCase() || userName && (String(u.name || "").toLowerCase().includes(String(userName).toLowerCase()) || String(userName).toLowerCase().includes(String(u.name || "").toLowerCase()))
+      );
+      if (foundUser) {
+        sCode = foundUser.sellerCode || "";
+        sPhone = foundUser.phone || "";
+        if (foundUser.name && (!userName || userName.toLowerCase() === "vendedor")) {
+          userName = foundUser.name;
+        }
+      }
+    } catch (e) {
+    }
+    if (!sCode) {
+      if (userName.toLowerCase().includes("herbert")) sCode = "1521";
+      else if (userName.toLowerCase().includes("erick")) sCode = "8363";
+    }
+    const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(
+      userName,
+      sCode,
+      route.startedAt,
+      route.startLatitude,
+      route.startLongitude
+    );
+    const sellerMsg = buildStartRouteWhatsAppMessage(userName, sCode, route.startedAt);
+    if (isTest) {
+      console.log(`[WhatsApp Start Route] MODO PRUEBA: Despachando alerta exclusivamente a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+      const okN8n = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_TEST_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okN8n) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+      }
+    } else {
+      console.log(`[WhatsApp Start Route] Notificando a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+      const okEmanuel = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_TEST_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okEmanuel) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminAlertMsg);
+      }
+      console.log(`[WhatsApp Start Route] Notificando a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+      const okSergio = await dispatchRouteToN8nWebhook({
+        action: "start_route",
+        sellerName: userName,
+        sellerCode: sCode,
+        startedAt: route.startedAt,
+        latitude: route.startLatitude,
+        longitude: route.startLongitude,
+        phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+        customMessage: adminAlertMsg
+      });
+      if (!okSergio) {
+        await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminAlertMsg);
+      }
+      let cleanSellerPhone = String(sPhone || "").replace(/\D/g, "");
+      if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+      if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
+        console.log(`[WhatsApp Start Route] Enviando confirmaci\xF3n al asesor ${userName} (${cleanSellerPhone})`);
+        const okSeller = await dispatchRouteToN8nWebhook({
+          action: "start_route",
+          sellerName: userName,
+          sellerCode: sCode,
+          startedAt: route.startedAt,
+          phone: cleanSellerPhone,
+          customMessage: sellerMsg
+        });
+        if (!okSeller) {
+          await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerMsg);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[WhatsApp Start Route Error]:", err);
+  }
+}
+function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  const horaFin = formatTimeGuatemala(finishedAt);
+  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffHrs = Math.floor(diffMs / (1e3 * 60 * 60));
+  const diffMins = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
+  const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
+  let visitsList = "";
+  if (!visits || visits.length === 0) {
+    visitsList = "\u2022 _No se registraron visitas durante esta jornada._\n";
+  } else {
+    visitsList = visits.map((v, idx) => {
+      const horaV = formatTimeGuatemala(v.createdAt || v.created_at);
+      const tipoRaw = String(v.visitType || v.visit_type || "rutina").toLowerCase();
+      const tipoIcon = tipoRaw === "pedido" ? "\u{1F6D2}" : tipoRaw === "cobro" ? "\u{1F4B0}" : tipoRaw === "prospeccion" ? "\u{1F3AF}" : "\u{1F4CB}";
+      const tipoLabel = tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1);
+      const cName = v.clientName || v.client_name || "Cliente";
+      const compName = v.companyName || v.company_name;
+      const clienteEmpresa = compName ? `${cName} _(${compName})_` : cName;
+      const notas = v.notes ? `
+   \u{1F4DD} _Nota:_ ${v.notes}` : "";
+      return `${idx + 1}. \u23F0 *${horaV}* \u2014 *${clienteEmpresa}*
+   ${tipoIcon} *Raz\xF3n:* ${tipoLabel}${notas}`;
+    }).join("\n\n");
+  }
+  return `\u{1F3C1} *RESUMEN DE JORNADA & VISITAS - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\xA1Muchas gracias por tu entrega, esfuerzo y dedicaci\xF3n en la ruta de hoy!
+
+\u{1F464} *Asesor:* *${sellerName}*
+\u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
+\u{1F4C5} *Fecha:* ${fechaStr}
+
+\u23F0 *Hora de Inicio de Ruta:* ${horaInicio}
+\u{1F3C1} *Hora Final de Ruta:* ${horaFin}
+\u23F1\uFE0F *Tiempo Total de Ruta:* ${duracionTexto}
+\u{1F4CD} *Total Clientes Visitados:* ${visits.length} visitas realizadas
+
+\u{1F4CB} *DETALLE CRONOL\xD3GICO DE VISITAS:*
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+${visitsList}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F31F} *\xA1Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. \xA1A descansar y feliz retorno a casa!* \u{1F69C}\u{1F4A8}
+\u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
+}
+function buildAdminFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, startLat, startLng, endLat, endLng, visits = [], closureNotes) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  const horaFin = formatTimeGuatemala(finishedAt);
+  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffHrs = Math.floor(diffMs / (1e3 * 60 * 60));
+  const diffMins = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
+  const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
+  const sLat = startLat != null ? parseFloat(String(startLat)) : null;
+  const sLng = startLng != null ? parseFloat(String(startLng)) : null;
+  const startGps = sLat && sLng && !isNaN(sLat) && !isNaN(sLng) ? `
+\u{1F7E2} *Punto de Inicio:* https://maps.google.com/?q=${sLat},${sLng}
+   _Coords: (${sLat.toFixed(5)}, ${sLng.toFixed(5)})_` : "";
+  const eLat = endLat != null ? parseFloat(String(endLat)) : null;
+  const eLng = endLng != null ? parseFloat(String(endLng)) : null;
+  const endGps = eLat && eLng && !isNaN(eLat) && !isNaN(eLng) ? `
+\u{1F6D1} *Punto de Cierre:* https://maps.google.com/?q=${eLat},${eLng}
+   _Coords: (${eLat.toFixed(5)}, ${eLng.toFixed(5)})_` : "";
+  let visitsList = "";
+  if (!visits || visits.length === 0) {
+    visitsList = "\u2022 _No se registraron visitas durante esta jornada._\n";
+  } else {
+    visitsList = visits.map((v, idx) => {
+      const horaV = formatTimeGuatemala(v.createdAt || v.created_at);
+      const tipoRaw = String(v.visitType || v.visit_type || "rutina").toLowerCase();
+      const tipoIcon = tipoRaw === "pedido" ? "\u{1F6D2}" : tipoRaw === "cobro" ? "\u{1F4B0}" : tipoRaw === "prospeccion" ? "\u{1F3AF}" : "\u{1F4CB}";
+      const tipoLabel = tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1);
+      const cName = v.clientName || v.client_name || "Cliente";
+      const compName = v.companyName || v.company_name;
+      const clienteEmpresa = compName ? `${cName} _(${compName})_` : cName;
+      const notas = v.notes ? `
+   \u{1F4DD} _Nota:_ ${v.notes}` : "";
+      const vLat = v.latitude != null ? parseFloat(String(v.latitude)) : null;
+      const vLng = v.longitude != null ? parseFloat(String(v.longitude)) : null;
+      const gpsLine = vLat && vLng && !isNaN(vLat) && !isNaN(vLng) ? `
+   \u{1F4CD} *GPS Visita:* https://maps.google.com/?q=${vLat},${vLng} _(${vLat.toFixed(5)}, ${vLng.toFixed(5)})_` : "";
+      return `${idx + 1}. \u23F0 *${horaV}* \u2014 *${clienteEmpresa}*
+   ${tipoIcon} *Raz\xF3n:* ${tipoLabel}${notas}${gpsLine}`;
+    }).join("\n\n");
+  }
+  const notasCierre = closureNotes ? `
+
+\u{1F4DD} *Notas de Cierre del Asesor:*
+"${closureNotes}"` : "";
+  return `\u{1F4CA} *AUDITOR\xCDA DE CIERRE DE RUTA - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+El asesor *${sellerName}* ha finalizado su jornada comercial:
+
+\u{1F464} *Asesor:* *${sellerName}*
+\u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
+\u{1F4C5} *Fecha:* ${fechaStr}
+
+\u23F0 *Hora de Salida:* ${horaInicio}${startGps}
+\u{1F3C1} *Hora de Cierre:* ${horaFin}${endGps}
+\u23F1\uFE0F *Tiempo Total de Jornada:* ${duracionTexto}
+\u{1F4CD} *Total Visitas Realizadas:* ${visits ? visits.length : 0} visitas
+
+\u{1F4CB} *DETALLE CRONOL\xD3GICO DE VISITAS & GPS:*
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+${visitsList}${notasCierre}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Control y Gesti\xF3n de Rutas Comerciales Agricovet_`;
+}
 app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.user?.id ? String(req.user.id).trim() : "";
   const userEmail = req.user?.email ? String(req.user.email).trim().toLowerCase() : "";
   const userName = req.user?.name || "Vendedor";
   const { startLatitude, startLongitude, notes } = req.body;
+  const latNum = startLatitude != null ? parseFloat(startLatitude) : null;
+  const lngNum = startLongitude != null ? parseFloat(startLongitude) : null;
+  if (!req.body.isTest && !req.body.sendWhatsAppTest && (latNum == null || lngNum == null || isNaN(latNum) || isNaN(lngNum) || latNum === 0 && lngNum === 0)) {
+    return res.status(400).json({
+      error: "Ubicaci\xF3n GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento."
+    });
+  }
   const routes = readLocalRoutes();
   const existingActive = routes.find((r) => {
     if (r.status !== "active") return false;
@@ -4458,23 +4915,42 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
   });
   if (existingActive) {
-    if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
-      existingActive.startLatitude = parseFloat(startLatitude);
-      existingActive.startLongitude = parseFloat(startLongitude);
+    const existingDate = getGuatemalaDateString(existingActive.startedAt || existingActive.createdAt);
+    const todayDate = getGuatemalaDateString();
+    if (existingDate !== todayDate) {
+      existingActive.status = "completed";
+      existingActive.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
       saveLocalRoutes(routes);
       if (neonPool) {
         try {
           await neonPool.query(`
             UPDATE public.seller_routes 
-            SET start_latitude = $1, "startLatitude" = $1,
-                start_longitude = $2, "startLongitude" = $2
-            WHERE id = $3;
-          `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
+                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al iniciar nueva ruta)'
+            WHERE id = $2;
+          `, [existingActive.finishedAt, existingActive.id]);
         } catch (e) {
         }
       }
+    } else {
+      if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
+        existingActive.startLatitude = parseFloat(startLatitude);
+        existingActive.startLongitude = parseFloat(startLongitude);
+        saveLocalRoutes(routes);
+        if (neonPool) {
+          try {
+            await neonPool.query(`
+              UPDATE public.seller_routes 
+              SET start_latitude = $1, "startLatitude" = $1,
+                  start_longitude = $2, "startLongitude" = $2
+              WHERE id = $3;
+            `, [existingActive.startLatitude, existingActive.startLongitude, existingActive.id]);
+          } catch (e) {
+          }
+        }
+      }
+      return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
     }
-    return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const newRoute = {
@@ -4571,6 +5047,42 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+    sendStartRouteNotification({
+      route: newRoute,
+      userName,
+      userEmail,
+      userId,
+      isTest: Boolean(req.body.isTest || req.body.sendWhatsAppTest)
+    }).catch(console.error);
+  }
+}));
+app.post("/api/routes/test-start-notification", requireAuth, asyncHandler(async (req, res) => {
+  const sName = req.body.sellerName || "Erick Ju\xE1rez (Prueba)";
+  const sCode = req.body.sellerCode || "8363";
+  const startedAt = req.body.startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const lat = req.body.latitude || 14.6349;
+  const lng = req.body.longitude || -90.5068;
+  const targetPhone = ROUTE_WHATSAPP_TEST_PHONE;
+  const adminAlertMsg = buildAdminStartRouteWhatsAppAlert(sName, sCode, startedAt, lat, lng);
+  console.log(`[Test Start Route] Enviando prueba aislada exclusivamente a ${targetPhone}`);
+  const okN8n = await dispatchRouteToN8nWebhook({
+    action: "start_route",
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    phone: targetPhone,
+    customMessage: adminAlertMsg
+  });
+  if (!okN8n) {
+    await sendWhatsAppEvolutionMessage(targetPhone, adminAlertMsg);
+  }
+  res.json({
+    success: true,
+    message: `Prueba enviada exitosamente de forma EXCLUSIVA a tu n\xFAmero (${targetPhone}). Ning\xFAn mensaje fue enviado a Sergio Lima.`,
+    targetPhone,
+    preview: adminAlertMsg
+  });
 }));
 app.put("/api/routes/:id/location", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -4604,6 +5116,14 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
   const { id } = req.params;
   const { endLatitude, endLongitude, notes, sellerId: bodySellerId, sellerName: bodySellerName } = req.body;
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const endLatNum = endLatitude != null && endLatitude !== "" ? parseFloat(endLatitude) : NaN;
+  const endLngNum = endLongitude != null && endLongitude !== "" ? parseFloat(endLongitude) : NaN;
+  if (isNaN(endLatNum) || isNaN(endLngNum) || endLatNum === 0 && endLngNum === 0 || Math.abs(endLatNum) > 90 || Math.abs(endLngNum) > 180) {
+    return res.status(400).json({
+      success: false,
+      error: "Coordenadas GPS de cierre obligatorias. No se puede finalizar la jornada de ruta sin la ubicaci\xF3n real capturada por el dispositivo."
+    });
+  }
   const reqSellerId = String(bodySellerId || req.user?.id || "").trim();
   const reqSellerName = String(bodySellerName || req.user?.name || "").trim();
   const reqSellerEmail = String(req.user?.email || "").trim().toLowerCase();
@@ -4630,8 +5150,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           sellerName: row.seller_name || row.sellerName || reqSellerName,
           sellerEmail: row.seller_email || row.sellerEmail || reqSellerEmail,
           status: row.status,
-          startedAt: row.started_at || row.startedAt,
-          finishedAt: row.finished_at || row.finishedAt,
+          startedAt: row.started_at ? row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at) : row.startedAt || nowIso,
+          finishedAt: row.finished_at ? row.finished_at instanceof Date ? row.finished_at.toISOString() : String(row.finished_at) : row.finishedAt || null,
           startLatitude: row.start_latitude ?? row.startLatitude,
           startLongitude: row.start_longitude ?? row.startLongitude,
           endLatitude: row.end_latitude ?? row.endLatitude,
@@ -4640,7 +5160,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           totalDistanceKm: row.total_distance_km ?? row.totalDistanceKm ?? 0,
           totalDurationMins: row.total_duration_mins ?? row.totalDurationMins ?? 0,
           notes: row.notes || notes || "",
-          createdAt: row.created_at || row.createdAt
+          createdAt: row.created_at ? row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at) : row.createdAt || nowIso
         };
       }
     } catch (e) {
@@ -4684,8 +5204,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
   const startTime = new Date(targetRoute.startedAt || targetRoute.createdAt || nowIso).getTime();
   const endTime = new Date(nowIso).getTime();
   const totalDurationMins = Math.max(1, Math.round((endTime - startTime) / (1e3 * 60)));
-  const finalEndLat = endLatitude ? parseFloat(endLatitude) : targetRoute.endLatitude ?? targetRoute.startLatitude ?? null;
-  const finalEndLng = endLongitude ? parseFloat(endLongitude) : targetRoute.endLongitude ?? targetRoute.startLongitude ?? null;
+  const finalEndLat = endLatNum;
+  const finalEndLng = endLngNum;
   targetRoute.status = "completed";
   targetRoute.finishedAt = nowIso;
   targetRoute.endLatitude = finalEndLat;
@@ -4697,7 +5217,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
       const updateRes = await neonPool.query(`
         UPDATE public.seller_routes
         SET status = 'completed',
-            finished_at = $1, "finishedAt" = $1,
+            finished_at = $1::timestamptz, "finishedAt" = $1::text,
             end_latitude = $2, "endLatitude" = $2,
             end_longitude = $3, "endLongitude" = $3,
             total_stops = COALESCE(total_stops, $4), "totalStops" = COALESCE("totalStops", $4),
@@ -4732,7 +5252,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
             started_at, finished_at, start_latitude, start_longitude,
             end_latitude, end_longitude, total_stops, total_distance_km,
             total_duration_mins, notes, created_at
-          ) VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          ) VALUES ($1, $2, $3, $4, 'completed', $5::timestamptz, $6::timestamptz, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
           ON CONFLICT (id) DO UPDATE SET
             status = 'completed',
             finished_at = EXCLUDED.finished_at,
@@ -4792,7 +5312,289 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
     }]);
   } catch (e) {
   }
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+    (async () => {
+      try {
+        const targetSellerId = targetRoute.sellerId || reqSellerId;
+        const targetSellerEmail = (targetRoute.sellerEmail || reqSellerEmail).toLowerCase();
+        const targetSellerName = targetRoute.sellerName || reqSellerName;
+        let routeVisits = [];
+        if (neonPool) {
+          try {
+            const startedAtStr = targetRoute.startedAt instanceof Date ? targetRoute.startedAt.toISOString() : String(targetRoute.startedAt || nowIso);
+            const dateStr = startedAtStr.includes("T") ? startedAtStr.split("T")[0] : startedAtStr.substring(0, 10);
+            const sellerNamePattern = targetSellerName ? `%${targetSellerName}%` : "";
+            const vDb = await neonPool.query(`
+              SELECT 
+                id,
+                COALESCE("clientName", client_name) AS "clientName",
+                COALESCE("companyName", company_name) AS "companyName",
+                COALESCE("sellerName", seller_name) AS "sellerName",
+                COALESCE("visitType", visit_type) AS "visitType",
+                notes,
+                latitude,
+                longitude,
+                COALESCE("createdAt", created_at::text) AS "createdAt"
+              FROM public.client_visits
+              WHERE (route_id = $1 OR "routeId" = $1)
+                 OR (
+                   (route_id IS NULL OR route_id = '' OR route_id = $1)
+                   AND (
+                     (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
+                     ("createdAt" IS NOT NULL AND "createdAt" >= $2)
+                   )
+                   AND (
+                     ($3 <> '' AND (seller_id = $3 OR "sellerId" = $3)) OR
+                     ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+                   )
+                 )
+              ORDER BY COALESCE(created_at, NOW()) ASC;
+            `, [targetRoute.id, dateStr, targetSellerId, sellerNamePattern]);
+            const seenVisits = /* @__PURE__ */ new Set();
+            routeVisits = (vDb.rows || []).filter((v) => {
+              const key = v.id || `${v.clientName}_${v.createdAt}`;
+              if (seenVisits.has(key)) return false;
+              seenVisits.add(key);
+              return true;
+            });
+          } catch (e) {
+            console.error("[Finish Route SQL Error fetching visits]:", e.message);
+          }
+        }
+        if (routeVisits.length === 0) {
+          const localVisits = readLocalVisits();
+          const targetStartedMs = new Date(targetRoute.startedAt || nowIso).getTime();
+          routeVisits = localVisits.filter(
+            (v) => v.routeId === targetRoute.id || (v.sellerId === targetSellerId || v.sellerEmail?.toLowerCase() === targetSellerEmail || v.sellerName?.toLowerCase() === targetSellerName.toLowerCase()) && new Date(v.createdAt).getTime() >= targetStartedMs - 12e4
+          ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        }
+        if (routeVisits.length > 0) {
+          targetRoute.totalStops = routeVisits.length;
+          if (neonPool) {
+            try {
+              await neonPool.query(`
+                UPDATE public.seller_routes
+                SET total_stops = $1, "totalStops" = $1
+                WHERE id = $2;
+              `, [routeVisits.length, targetRoute.id]);
+            } catch (e) {
+            }
+          }
+        }
+        let sCode = "";
+        let sPhone = "";
+        try {
+          const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+          const foundUser = (allUsers || []).find(
+            (u) => targetSellerId && String(u.id) === String(targetSellerId) || targetSellerEmail && String(u.email || "").toLowerCase() === targetSellerEmail || targetSellerName && String(u.name || "").toLowerCase() === targetSellerName.toLowerCase() || targetSellerName && (String(u.name || "").toLowerCase().includes(targetSellerName.toLowerCase()) || targetSellerName.toLowerCase().includes(String(u.name || "").toLowerCase()))
+          );
+          if (foundUser) {
+            sCode = foundUser.sellerCode || "";
+            sPhone = foundUser.phone || "";
+          }
+        } catch (e) {
+        }
+        if (!sCode) {
+          if (targetSellerName.toLowerCase().includes("herbert")) sCode = "1521";
+          else if (targetSellerName.toLowerCase().includes("erick")) sCode = "8363";
+        }
+        const adminSummaryMsg = buildAdminFinishRouteWhatsAppMessage(
+          targetSellerName,
+          sCode,
+          targetRoute.startedAt,
+          targetRoute.finishedAt,
+          targetRoute.startLatitude,
+          targetRoute.startLongitude,
+          targetRoute.endLatitude,
+          targetRoute.endLongitude,
+          routeVisits,
+          targetRoute.notes
+        );
+        const sellerSummaryMsg = buildFinishRouteWhatsAppMessage(
+          targetSellerName,
+          sCode,
+          targetRoute.startedAt,
+          targetRoute.finishedAt,
+          routeVisits
+        );
+        const isTest = Boolean(req.body.sendWhatsAppTest || req.body.isTest);
+        if (isTest) {
+          console.log(`[WhatsApp Finish Route] MODO PRUEBA: Despachando a ${ROUTE_WHATSAPP_TEST_PHONE}`);
+          const okN8n = await dispatchRouteToN8nWebhook({
+            action: "finish_route",
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okN8n) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+          }
+        } else {
+          console.log(`[WhatsApp Finish Route] Notificando auditor\xEDa a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+          const okEmanuel = await dispatchRouteToN8nWebhook({
+            action: "finish_route",
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_TEST_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okEmanuel) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+          }
+          console.log(`[WhatsApp Finish Route] Notificando auditor\xEDa a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+          const okSergio = await dispatchRouteToN8nWebhook({
+            action: "finish_route",
+            sellerName: targetSellerName,
+            sellerCode: sCode,
+            startedAt: targetRoute.startedAt,
+            finishedAt: targetRoute.finishedAt,
+            phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+            visits: routeVisits,
+            customMessage: adminSummaryMsg
+          });
+          if (!okSergio) {
+            await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminSummaryMsg);
+          }
+          let cleanSellerPhone = String(sPhone || "").replace(/\D/g, "");
+          if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+          if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
+            console.log(`[WhatsApp Finish Route] Enviando felicitaci\xF3n al asesor ${targetSellerName} (${cleanSellerPhone})`);
+            const okSeller = await dispatchRouteToN8nWebhook({
+              action: "finish_route",
+              sellerName: targetSellerName,
+              sellerCode: sCode,
+              startedAt: targetRoute.startedAt,
+              finishedAt: targetRoute.finishedAt,
+              phone: cleanSellerPhone,
+              visits: routeVisits,
+              customMessage: sellerSummaryMsg
+            });
+            if (!okSeller) {
+              await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerSummaryMsg);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[WhatsApp Finish Route Error]:", err);
+      }
+    })().catch(console.error);
+  }
   res.json({ success: true, message: "Ruta finalizada y archivada en historial con \xE9xito.", route: targetRoute });
+}));
+app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const targetPhone = req.body.phone || ROUTE_WHATSAPP_TEST_PHONE;
+  const localRoutes = readLocalRoutes();
+  let route = localRoutes.find((r) => r.id === id);
+  if (!route && neonPool) {
+    try {
+      const rDb = await neonPool.query(`SELECT * FROM public.seller_routes WHERE id = $1 LIMIT 1;`, [id]);
+      if (rDb.rows.length > 0) route = rDb.rows[0];
+    } catch (e) {
+    }
+  }
+  if (!route) {
+    return res.status(404).json({ error: "Ruta no encontrada." });
+  }
+  let routeVisits = [];
+  const sName = route.seller_name || route.sellerName || "Asesor";
+  const startedAt = route.started_at || route.startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const finishedAt = route.finished_at || route.finishedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const startedAtStr = startedAt instanceof Date ? startedAt.toISOString() : String(startedAt);
+  const finishedAtStr = finishedAt instanceof Date ? finishedAt.toISOString() : String(finishedAt);
+  if (neonPool) {
+    try {
+      const dateStr = startedAtStr.includes("T") ? startedAtStr.split("T")[0] : startedAtStr.substring(0, 10);
+      const vDb = await neonPool.query(`
+        SELECT 
+          id,
+          COALESCE("clientName", client_name) AS "clientName",
+          COALESCE("companyName", company_name) AS "companyName",
+          COALESCE("sellerName", seller_name) AS "sellerName",
+          COALESCE("visitType", visit_type) AS "visitType",
+          notes,
+          latitude,
+          longitude,
+          COALESCE("createdAt", created_at::text) AS "createdAt"
+        FROM public.client_visits
+        WHERE (route_id = $1 OR "routeId" = $1)
+           OR (
+             (route_id IS NULL OR route_id = '' OR route_id = $1)
+             AND (
+               (created_at IS NOT NULL AND created_at >= ($2 || ' 00:00:00Z')::timestamptz) OR
+               ("createdAt" IS NOT NULL AND "createdAt" >= $2)
+             )
+             AND (seller_name ILIKE $3 OR "sellerName" ILIKE $3)
+           )
+        ORDER BY COALESCE(created_at, NOW()) ASC;
+      `, [route.id, dateStr, `%${sName}%`]);
+      const seen = /* @__PURE__ */ new Set();
+      routeVisits = (vDb.rows || []).filter((v) => {
+        const key = v.id || `${v.clientName}_${v.createdAt}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    } catch (e) {
+      console.error("[send-whatsapp-test SQL Error]:", e.message);
+    }
+  }
+  if (routeVisits.length === 0) {
+    const localVisits = readLocalVisits();
+    routeVisits = localVisits.filter(
+      (v) => v.routeId === route.id || v.sellerName?.toLowerCase() === sName.toLowerCase() && new Date(v.createdAt).getTime() >= new Date(startedAtStr).getTime() - 12e4
+    ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  let sCode = "";
+  try {
+    const { data: uData } = await localDb.from("users").select("sellerCode").ilike("name", `%${sName}%`).limit(1);
+    if (uData && uData[0]?.sellerCode) sCode = uData[0].sellerCode;
+  } catch (e) {
+  }
+  const startLat = route.start_latitude ?? route.startLatitude;
+  const startLng = route.start_longitude ?? route.startLongitude;
+  const endLat = route.end_latitude ?? route.endLatitude;
+  const endLng = route.end_longitude ?? route.endLongitude;
+  const msg = buildAdminFinishRouteWhatsAppMessage(
+    sName,
+    sCode,
+    startedAtStr,
+    finishedAtStr,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    routeVisits,
+    route.notes
+  );
+  const n8nOk = await dispatchRouteToN8nWebhook({
+    action: "finish_route",
+    sellerName: sName,
+    sellerCode: sCode,
+    startedAt,
+    finishedAt,
+    phone: targetPhone,
+    visits: routeVisits,
+    customMessage: msg
+  });
+  let sent = n8nOk;
+  if (!sent) {
+    sent = await sendWhatsAppEvolutionMessage(targetPhone, msg);
+  }
+  res.json({
+    success: sent,
+    viaN8n: n8nOk,
+    message: sent ? `Resumen enviado con \xE9xito a ${targetPhone} ${n8nOk ? "v\xEDa n8n" : "v\xEDa Evolution"}` : "Fallo al enviar mensaje WhatsApp",
+    recipient: targetPhone,
+    preview: msg
+  });
 }));
 app.get("/api/visits/stats", requireAuth, asyncHandler(async (req, res) => {
   const userRole = req.user?.role;
@@ -5155,6 +5957,17 @@ function getLogoTiBase64() {
   }
   return cachedLogoTiBase64;
 }
+function getDiaGuatemala(dateInput) {
+  const d = dateInput ? new Date(dateInput) : /* @__PURE__ */ new Date();
+  if (isNaN(d.getTime())) return "";
+  const gtOffset = -6 * 60;
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 6e4;
+  const gt = new Date(utcMs + gtOffset * 6e4);
+  const year = gt.getFullYear();
+  const month = String(gt.getMonth() + 1).padStart(2, "0");
+  const day = String(gt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 async function checkAndDispatchDailySales(options) {
   const SALES_THRESHOLD = Number(options?.threshold) || 8750;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
@@ -5184,10 +5997,37 @@ async function checkAndDispatchDailySales(options) {
       };
     }
   }
-  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
-  if (invErr) {
-    console.error("[AUTO-SALES-CRON] Error al consultar facturas:", invErr.message);
-    return { error: `Error al consultar facturas: ${invErr.message}` };
+  const startOfDayMs = (/* @__PURE__ */ new Date(`${todayLabel}T00:00:00-06:00`)).getTime();
+  const endOfDayMs = (/* @__PURE__ */ new Date(`${todayLabel}T23:59:59.999-06:00`)).getTime();
+  let invoicesData = [];
+  try {
+    const queryRes = await pgPool.query(`
+      SELECT id, folio, "clientName", nit, "totalAmount", date, items, invoice_type, status, "sellerId"
+      FROM invoices
+      WHERE (date >= $1 AND date <= $2)
+         OR (id ~ '^INV-[0-9]+' AND (split_part(id, '-', 2))::numeric >= $3 AND (split_part(id, '-', 2))::numeric <= $4)
+      ORDER BY folio::int ASC;
+    `, [startOfDay, endOfDay, startOfDayMs, endOfDayMs]);
+    invoicesData = queryRes.rows || [];
+    for (const inv of invoicesData) {
+      if (inv.id && inv.id.startsWith("INV-")) {
+        const parts = inv.id.split("-");
+        const ts = parseInt(parts[1], 10);
+        if (!isNaN(ts) && ts >= startOfDayMs && ts <= endOfDayMs) {
+          const invDateGT = inv.date ? getDiaGuatemala(inv.date) : "";
+          if (invDateGT !== todayLabel) {
+            const correctedDate = new Date(ts).toISOString();
+            console.warn(`[AUTO-SALES-CRON] \u26A0\uFE0F Factura folio #${inv.folio} (${inv.id}) creada hoy pero con fecha err\xF3nea (${inv.date}). Auto-corrigiendo en DB a ${correctedDate}`);
+            await pgPool.query(`UPDATE invoices SET date = $1 WHERE id = $2`, [correctedDate, inv.id]);
+            inv.date = correctedDate;
+          }
+        }
+      }
+    }
+  } catch (queryErr) {
+    console.error("[AUTO-SALES-CRON] Error en consulta avanzada de facturas:", queryErr.message);
+    const fallback = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfDay).lte("date", endOfDay);
+    invoicesData = fallback.data || [];
   }
   function formatTelefonoDestinatario(rawPhone) {
     if (!rawPhone) return "";
@@ -5398,10 +6238,22 @@ async function checkAndDispatchWeeklySales(options) {
       };
     }
   }
-  const { data: invoicesData, error: invErr } = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfWeek).lte("date", endOfWeek);
-  if (invErr) {
-    console.error("[AUTO-WEEKLY-SALES-CRON] Error al consultar facturas semanales:", invErr.message);
-    return { error: `Error al consultar facturas semanales: ${invErr.message}` };
+  const startOfWeekMs = (/* @__PURE__ */ new Date(`${mYear}-${mMonth}-${mDay}T00:00:00-06:00`)).getTime();
+  const endOfWeekMs = (/* @__PURE__ */ new Date(`${todayLabel}T23:59:59.999-06:00`)).getTime();
+  let invoicesData = [];
+  try {
+    const queryRes = await pgPool.query(`
+      SELECT id, folio, "clientName", nit, "totalAmount", date, items, invoice_type, status, "sellerId"
+      FROM invoices
+      WHERE (date >= $1 AND date <= $2)
+         OR (id ~ '^INV-[0-9]+' AND (split_part(id, '-', 2))::numeric >= $3 AND (split_part(id, '-', 2))::numeric <= $4)
+      ORDER BY folio::int ASC;
+    `, [startOfWeek, endOfWeek, startOfWeekMs, endOfWeekMs]);
+    invoicesData = queryRes.rows || [];
+  } catch (queryErr) {
+    console.error("[AUTO-WEEKLY-SALES-CRON] Error en consulta avanzada de facturas semanales:", queryErr.message);
+    const fallback = await localDb.from("invoices").select("id, folio, clientName, nit, totalAmount, date, items, invoice_type, status, sellerId").gte("date", startOfWeek).lte("date", endOfWeek);
+    invoicesData = fallback.data || [];
   }
   function formatTelefonoDestinatario(rawPhone) {
     if (!rawPhone) return "";
@@ -6722,6 +7574,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       if (!matchedClient.phone && phone) updates.phone = phone;
       if (!matchedClient.address && address) updates.address = address;
       if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+      if (matchedClient.isProspect || matchedClient.clientType === "prospect") {
+        updates.isProspect = false;
+        updates.clientType = "regular";
+      }
       const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
       if (!currentSeller && (sellerId || saleOwner)) {
         updates.sellerId = sellerId || saleOwner;
@@ -6883,7 +7739,8 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       authFlag += "|||DEBT:true";
     }
     const isUserAdmin = req.user && req.user.role === "admin";
-    const saleExactTimestamp = isUserAdmin && customDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+    const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
+    const saleExactTimestamp = isExplicitCustomDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
     const invoiceDataRaw = {
       id: id2,
       sellerId: saleOwner,
@@ -7194,7 +8051,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     newNotes += "|||AUTH:authorized";
   }
   const isUserAdmin = req.user && req.user.role === "admin";
-  const targetDate = isUserAdmin ? customDate || date : null;
+  const targetDate = isUserAdmin && (customDate || date) ? customDate || date : null;
   const updatedDataRaw = {
     notes: newNotes,
     items: formattedItems,
@@ -7202,7 +8059,13 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     status: isOwed ? "pending" : oldInvoice.paidAmount >= total ? "paid" : oldInvoice.status === "sent" ? "sent" : "pending"
   };
   if (targetDate) {
-    updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? (/* @__PURE__ */ new Date(`${targetDate}T12:00:00-06:00`)).toISOString() : /^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString();
+    const targetDateGT = getDiaGuatemala(targetDate);
+    const oldDateGT = oldInvoice.date ? getDiaGuatemala(oldInvoice.date) : "";
+    if (targetDateGT && targetDateGT === oldDateGT && oldInvoice.date) {
+    } else {
+      updatedDataRaw.date = /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? (/* @__PURE__ */ new Date(`${targetDate}T12:00:00-06:00`)).toISOString() : /^\d{4}-\d{2}-\d{2}T/.test(targetDate) ? targetDate : new Date(targetDate).toISOString();
+      console.log(`[AUDIT] \u26A0\uFE0F Fecha modificada en factura ${oldInvoice.folio || id} por admin (${req.user?.email}): de ${oldInvoice.date} a ${updatedDataRaw.date}`);
+    }
   }
   if (client !== void 0) updatedDataRaw["clientName"] = client;
   if (phone !== void 0) updatedDataRaw["customerPhone"] = phone;
@@ -7395,41 +8258,6 @@ app.put("/api/invoices/:id", requireAuth, requireAdmin, asyncHandler(async (req,
         notes = updateTagInNotes(notes, "TRACKING", guideNumber);
       }
       if (folio !== void 0) {
-        const parsedFolio = parseInt(folio);
-        if (!isNaN(parsedFolio)) {
-          const currentMap = await getFolioMap();
-          const previousFolio = currentMap[String(id)];
-          if (previousFolio !== parsedFolio) {
-            console.log(`[FolioCascade] Shifting folios starting from ${parsedFolio} to make room for invoice ${id}`);
-            const { data: otherInvoices } = await localDb.from("invoices").select("id, notes, status, folio").eq("is_archived", false).neq("id", id);
-            if (otherInvoices && otherInvoices.length > 0) {
-              const updates = [];
-              for (const otherInv of otherInvoices) {
-                if (otherInv.status === "cancelled" || otherInv.status === "rejected") {
-                  continue;
-                }
-                const otherCurrentFolio = currentMap[String(otherInv.id)];
-                if (otherCurrentFolio !== void 0 && otherCurrentFolio >= parsedFolio) {
-                  const otherNewFolio = otherCurrentFolio + 1;
-                  let otherNotes = otherInv.notes || "";
-                  otherNotes = updateTagInNotes(otherNotes, "FOLIO", otherNewFolio);
-                  updates.push({
-                    id: otherInv.id,
-                    notes: otherNotes,
-                    folio: String(otherNewFolio)
-                  });
-                }
-              }
-              if (updates.length > 0) {
-                console.log(`[FolioCascade] Updating ${updates.length} other invoices with higher folios`);
-                for (const update of updates) {
-                  await localDb.from("invoices").update({ notes: update.notes, folio: update.folio }).eq("id", update.id);
-                  await syncInvoiceToPermanentBackup(update.id);
-                }
-              }
-            }
-          }
-        }
         notes = updateTagInNotes(notes, "FOLIO", folio);
         updateData.folio = String(folio);
       }
@@ -10074,6 +10902,7 @@ if (isDirectRun) {
   activeDatabaseMode,
   app,
   fetchGlobalDbModeFromDb,
+  getDiaGuatemala,
   getGlobalDbMode,
   getGlobalMaintenanceMode,
   isClientOfSeller,
