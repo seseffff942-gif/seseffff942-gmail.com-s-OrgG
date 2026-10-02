@@ -1107,10 +1107,16 @@ if (pgPool) {
       token TEXT PRIMARY KEY,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+      id TEXT PRIMARY KEY,
+      endpoint TEXT UNIQUE NOT NULL,
+      keys JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `).then(() => {
-    console.log("[DB] \u2705 Tabla public.fcm_tokens verificada en PostgreSQL");
+    console.log("[DB] \u2705 Tablas public.fcm_tokens y public.push_subscriptions verificadas en PostgreSQL");
   }).catch((err) => {
-    console.warn("[DB] Aviso al verificar public.fcm_tokens:", err.message);
+    console.warn("[DB] Aviso al verificar tablas de notificaciones:", err.message);
   });
 }
 var PANIC_STATE_FILE = path2.join(process.cwd(), "panic_state.json");
@@ -2122,6 +2128,7 @@ var VAPID_FILE = path2.join(process.cwd(), "vapid_keys.json");
 var SUBSCRIPTIONS_FILE = path2.join(process.cwd(), "push_subscriptions.json");
 var FCM_TOKENS_FILE = path2.join(process.cwd(), "fcm_tokens.json");
 var FIREBASE_SERVICE_ACCOUNT_FILE = path2.join(process.cwd(), "firebase-service-account.json");
+var FIREBASE_SERVICE_ACCOUNT_STORAGE = path2.join(process.cwd(), "storage", "firebase-service-account.json");
 var firebaseAdminApp = null;
 try {
   let serviceAccount = null;
@@ -2129,6 +2136,12 @@ try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   } else if (fs2.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
     serviceAccount = JSON.parse(fs2.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  } else if (fs2.existsSync(FIREBASE_SERVICE_ACCOUNT_STORAGE)) {
+    serviceAccount = JSON.parse(fs2.readFileSync(FIREBASE_SERVICE_ACCOUNT_STORAGE, "utf8"));
+  } else if (fs2.existsSync("/app/storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(fs2.readFileSync("/app/storage/firebase-service-account.json", "utf8"));
+  } else if (fs2.existsSync("/data/agricovet_storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(fs2.readFileSync("/data/agricovet_storage/firebase-service-account.json", "utf8"));
   }
   if (serviceAccount && serviceAccount.private_key) {
     firebaseAdminApp = admin.initializeApp({

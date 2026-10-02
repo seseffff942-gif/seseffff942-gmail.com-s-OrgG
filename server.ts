@@ -70,10 +70,16 @@ if (pgPool) {
       token TEXT PRIMARY KEY,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+      id TEXT PRIMARY KEY,
+      endpoint TEXT UNIQUE NOT NULL,
+      keys JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `).then(() => {
-    console.log("[DB] ✅ Tabla public.fcm_tokens verificada en PostgreSQL");
+    console.log("[DB] ✅ Tablas public.fcm_tokens y public.push_subscriptions verificadas en PostgreSQL");
   }).catch((err: any) => {
-    console.warn("[DB] Aviso al verificar public.fcm_tokens:", err.message);
+    console.warn("[DB] Aviso al verificar tablas de notificaciones:", err.message);
   });
 }
 
@@ -1273,6 +1279,7 @@ const VAPID_FILE = path.join(process.cwd(), "vapid_keys.json");
 const SUBSCRIPTIONS_FILE = path.join(process.cwd(), "push_subscriptions.json");
 const FCM_TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
 const FIREBASE_SERVICE_ACCOUNT_FILE = path.join(process.cwd(), "firebase-service-account.json");
+const FIREBASE_SERVICE_ACCOUNT_STORAGE = path.join(process.cwd(), "storage", "firebase-service-account.json");
 
 let firebaseAdminApp: any = null;
 try {
@@ -1281,6 +1288,12 @@ try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
     serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  } else if (fs.existsSync(FIREBASE_SERVICE_ACCOUNT_STORAGE)) {
+    serviceAccount = JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_STORAGE, "utf8"));
+  } else if (fs.existsSync("/app/storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(fs.readFileSync("/app/storage/firebase-service-account.json", "utf8"));
+  } else if (fs.existsSync("/data/agricovet_storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(fs.readFileSync("/data/agricovet_storage/firebase-service-account.json", "utf8"));
   }
   if (serviceAccount && serviceAccount.private_key) {
     firebaseAdminApp = admin.initializeApp({
