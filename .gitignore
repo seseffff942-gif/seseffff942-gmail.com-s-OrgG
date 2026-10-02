@@ -36,3 +36,4 @@ _git_push.cjs
 .chrome-live-session/
 .chrome-shots-session/
 *.pptx
+scratch/

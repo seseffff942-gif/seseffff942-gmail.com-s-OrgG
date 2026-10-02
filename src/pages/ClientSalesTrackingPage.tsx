@@ -311,21 +311,32 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
       const { latitude, longitude, isExact = true, locationLabel = 'Ubicación' } = client.resolvedGeo;
       bounds.extend([latitude, longitude]);
 
-      let pinColor = '#94a3b8'; // gray
+      let pinColor = '#64748b'; // slate suave
       if (client.totalSales > 0) {
         if (client.daysSinceLastPurchase <= 15) {
           pinColor = '#10b981'; // green
         } else if (client.daysSinceLastPurchase <= 45) {
-          pinColor = '#f59e0b'; // yellow
+          pinColor = '#f59e0b'; // amber
         } else {
-          pinColor = '#ef4444'; // red
+          pinColor = '#e11d48'; // rose
         }
       }
 
       const markerHtml = `
-        <div class="relative group cursor-pointer" style="transform: translate3d(0,0,0);">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-emerald-400 transition-transform group-hover:scale-125" style="background-color: ${pinColor}">
-            <span class="text-white text-[10px] font-black">${client.totalSales}</span>
+        <div class="relative flex items-center justify-center group cursor-pointer" style="width: 28px; height: 28px;">
+          <!-- Floating micro-card on hover only -->
+          <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 whitespace-nowrap">
+            <div class="bg-slate-900/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xl border border-slate-700/80 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${pinColor}"></span>
+              <span class="max-w-[130px] truncate text-slate-100">${client.name}</span>
+              <span class="text-[9px] text-slate-400 font-mono">· ${client.totalSales} fact.</span>
+            </div>
+            <div class="w-2 h-2 bg-slate-900 rotate-45 mx-auto -mt-1 border-r border-b border-slate-700/80"></div>
+          </div>
+
+          <!-- Sleek minimal pin dot -->
+          <div class="w-4 h-4 rounded-full border-2 border-white shadow-md transition-transform duration-200 ease-out group-hover:scale-125 flex items-center justify-center" style="background-color: ${pinColor}; box-shadow: 0 2px 6px rgba(0,0,0,0.35);">
+            <span class="text-white text-[8px] font-bold font-mono leading-none">${client.totalSales > 0 ? (client.totalSales > 99 ? '+' : client.totalSales) : ''}</span>
           </div>
         </div>
       `;
@@ -333,8 +344,9 @@ export function ClientSalesTrackingPage({ user, isMobile = false, embedded = fal
       const customIcon = L.divIcon({
         html: markerHtml,
         className: 'custom-client-marker',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -14]
       });
 
       const marker = L.marker([latitude, longitude], { icon: customIcon }).addTo(markersGroup);

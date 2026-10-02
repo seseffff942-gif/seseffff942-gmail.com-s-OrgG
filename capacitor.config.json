@@ -3,6 +3,7 @@
   "appName": "Agricovet App",
   "webDir": "dist",
   "server": {
+    "url": "https://agricovet.lat",
     "androidScheme": "https",
     "cleartext": true,
     "allowNavigation": [

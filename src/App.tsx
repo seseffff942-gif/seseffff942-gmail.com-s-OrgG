@@ -22,6 +22,7 @@ import { ClientVisitsPage } from './pages/ClientVisitsPage';
 import { ClientSalesTrackingPage } from './pages/ClientSalesTrackingPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
+import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
 import { api, clearApiCache } from './api';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle, Database, RefreshCw } from 'lucide-react';
 
@@ -367,45 +368,8 @@ export default function App() {
 
   const appContent = (
     <div className={`flex flex-col min-h-screen bg-surface font-sans h-screen overflow-hidden`}>
+      <UpdateNotificationBanner />
 
-      {/* Banner de Mantenimiento Activo para SuperAdmin */}
-      {isMaintenanceMode && isSuperAdmin && (
-        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white font-semibold text-[10px] md:text-xs px-3 py-1.5 flex items-center justify-between shadow-md z-[70] sticky top-0 border-b border-amber-500/40">
-          <div className="flex items-center gap-2 truncate">
-            <span className="flex h-2 w-2 relative shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-300"></span>
-            </span>
-            <span className="truncate">
-              🛠️ <strong className="font-bold">Mantenimiento Activo</strong>
-              <span className="hidden sm:inline"> — Acceso maestro habilitado para <strong>{user?.email}</strong></span>
-            </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 ml-2">
-            <button 
-              onClick={toggleMaintenanceMode}
-              className="bg-white/20 hover:bg-white/30 text-white font-black text-[9px] uppercase tracking-tight px-2.5 py-1 rounded-full transition-all cursor-pointer border border-white/25 active:scale-95 whitespace-nowrap"
-            >
-              Desactivar
-            </button>
-          </div>
-        </div>
-      )}
-      {!isMaintenanceMode && isSuperAdmin && (
-        <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-emerald-100 font-medium text-[10px] md:text-[11px] px-3 py-1 flex items-center justify-between z-[55] sticky top-0 border-b border-emerald-700/50">
-          <span className="flex items-center gap-1.5 truncate">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
-            <span className="truncate">🟢 Web abierta</span>
-            <span className="hidden sm:inline text-emerald-300/80">(Visible para todos)</span>
-          </span>
-          <button
-            onClick={toggleMaintenanceMode}
-            className="bg-emerald-500/30 hover:bg-emerald-500/50 text-white font-bold text-[9px] uppercase px-2 py-0.5 rounded transition cursor-pointer border border-emerald-400/30 shrink-0 ml-2 whitespace-nowrap"
-          >
-            Mantenimiento
-          </button>
-        </div>
-      )}
       {isOffline && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white font-medium text-xs md:text-sm px-4 py-2.5 flex items-center justify-between shadow-md z-50">
           <span className="flex items-center gap-2">
@@ -442,6 +406,9 @@ export default function App() {
         onImpersonate={handleImpersonate}
         isMobile={isMobile}
         showInstallButton={!isStandalone}
+        isMaintenanceMode={isMaintenanceMode}
+        onToggleMaintenanceMode={toggleMaintenanceMode}
+        isSuperAdmin={isSuperAdmin}
         onShowInstallGuide={() => {
           if (isIOS) {
             setShowIOSInstallHelper(true);
@@ -672,36 +639,65 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Opción 2: APK Nativa para Android */}
-                <div className="bg-gradient-to-br from-emerald-50/60 to-slate-50 border border-emerald-200/70 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                {/* Opción 2: APK Nativa Inteligente (Auto-Actualizable) */}
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50/40 border-2 border-emerald-500/40 rounded-2xl p-4 shadow-sm relative overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded-md">
-                        Opción 2
+                      <span className="px-2 py-0.5 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider rounded-md">
+                        Recomendado
                       </span>
-                      <h4 className="font-extrabold text-slate-900 text-sm">APK Nativa Android (.apk)</h4>
+                      <h4 className="font-extrabold text-slate-900 text-sm">APK Nativa en Tiempo Real (.apk)</h4>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-full">
-                      Solo Android • Archivo Instalador
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Auto-Actualizable
                     </span>
                   </div>
 
                   <p className="text-xs text-slate-600 mb-3">
-                    Descarga directa del instalador (.apk) para instalar la aplicación tradicionalmente en celulares y tablets Android.
+                    Instala esta versión una sola vez. Recibe parches, correcciones y cambios de funciones automáticamente sin volver a descargar archivos APK.
+                  </p>
+
+                  <a
+                    href="/agricovet-live.apk"
+                    download="agricovet-live.apk"
+                    className="w-full py-2.5 px-4 rounded-xl font-black text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-900/10 cursor-pointer active:scale-[0.98]"
+                  >
+                    <Download size={15} />
+                    Descargar APK Nativa en Tiempo Real (.apk)
+                  </a>
+
+                  <p className="text-[10px] text-slate-500 mt-2 text-center">
+                    💡 Si el teléfono solicita confirmación, selecciona <strong>"Descargar de todos modos"</strong> e <strong>"Instalar"</strong>.
+                  </p>
+                </div>
+
+                {/* Opción 3: APK Nativa Clásica (Fija / Respaldo) */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-xs relative overflow-hidden opacity-90">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-slate-600 text-white text-[10px] font-black uppercase tracking-wider rounded-md">
+                        Respaldo
+                      </span>
+                      <h4 className="font-bold text-slate-800 text-sm">APK Nativa Clásica (Fija)</h4>
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-full">
+                      Versión Anterior
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mb-3">
+                    Instalador tradicional anterior guardado en el servidor para casos de emergencia o respaldo estático.
                   </p>
 
                   <a
                     href="/agricovet.apk"
                     download="agricovet.apk"
-                    className="w-full py-2.5 px-4 rounded-xl font-black text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-900/10 cursor-pointer active:scale-[0.98]"
+                    className="w-full py-2 px-4 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-all flex items-center justify-center gap-2 text-xs shadow-xs cursor-pointer active:scale-[0.98]"
                   >
-                    <Download size={15} />
-                    Descargar APK Nativa Android (.apk)
+                    <Download size={14} />
+                    Descargar APK Clásica de Respaldo (.apk)
                   </a>
-
-                  <p className="text-[10px] text-slate-500 mt-2 text-center">
-                    💡 Si tu celular dice <em>"Archivo potencialmente dañino"</em> o pide permisos para instalar apps de fuentes desconocidas, pulsa <strong>"Descargar de todos modos"</strong> y <strong>"Permitir"</strong>.
-                  </p>
                 </div>
               </div>
 

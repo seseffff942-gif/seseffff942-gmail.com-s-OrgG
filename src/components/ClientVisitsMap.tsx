@@ -312,9 +312,9 @@ export function ClientVisitsMap({
     const userLatLng: [number, number] = [currentLocation.latitude, currentLocation.longitude];
 
     const userHtml = `
-      <div class="relative flex items-center justify-center">
-        <div class="absolute w-9 h-9 rounded-full bg-teal-500/25 animate-ping"></div>
-        <div class="w-5 h-5 rounded-full bg-teal-700 border-2 border-white shadow-lg flex items-center justify-center text-white">
+      <div class="relative flex items-center justify-center" style="width: 28px; height: 28px;">
+        <div class="absolute w-7 h-7 rounded-full bg-emerald-500/25 animate-ping"></div>
+        <div class="w-4 h-4 rounded-full bg-emerald-600 border-2 border-white shadow-lg flex items-center justify-center">
           <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
         </div>
       </div>
@@ -323,8 +323,8 @@ export function ClientVisitsMap({
     const userIcon = L.divIcon({
       className: 'custom-map-user-pin',
       html: userHtml,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
     });
 
     if (userMarkerRef.current) {
@@ -333,10 +333,13 @@ export function ClientVisitsMap({
       userMarkerRef.current = L.marker(userLatLng, { icon: userIcon, zIndexOffset: 1000 })
         .addTo(map)
         .bindPopup(`
-          <div class="p-3.5 text-xs font-sans">
-            <p class="font-bold text-teal-900 text-sm flex items-center gap-1">📍 Tu Posición Actual</p>
+          <div class="p-3 text-xs font-sans">
+            <p class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Tu Posición Actual
+            </p>
             <p class="text-slate-500 text-[11px] font-mono mt-1">${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)}</p>
-            ${currentLocation.accuracy ? `<p class="text-[10px] text-teal-700 font-bold mt-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-100 w-fit">Precisión GPS: ±${Math.round(currentLocation.accuracy)}m</p>` : ''}
+            ${currentLocation.accuracy ? `<p class="text-[10px] text-emerald-800 font-bold mt-1.5 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 w-fit">Precisión GPS: ±${Math.round(currentLocation.accuracy)}m</p>` : ''}
           </div>
         `);
     }
@@ -348,10 +351,10 @@ export function ClientVisitsMap({
       } else {
         userAccuracyCircleRef.current = L.circle(userLatLng, {
           radius: currentLocation.accuracy,
-          color: '#00696a',
-          fillColor: '#00696a',
-          fillOpacity: 0.08,
-          weight: 1.5
+          color: '#059669',
+          fillColor: '#059669',
+          fillOpacity: 0.06,
+          weight: 1.2
         }).addTo(map);
       }
     }
@@ -450,39 +453,44 @@ export function ClientVisitsMap({
       const isVisitedRecently = diffDays !== null && diffDays <= 7;
       const isUrgent = diffDays !== null && diffDays > 15;
 
+      // Executive, clean color palette (ZERO harsh cyan/blue)
       const pinColor = isToday 
-        ? '#10b981' // Verde esmeralda vivo para HOY
-        : isYesterday 
-          ? '#0284c7' // Azul cielo para AYER
-          : isVisitedRecently 
-            ? '#0d9488' // Teal para esta semana (<7d)
-            : isUrgent 
-              ? '#ef4444' // Rojo para urgente (>15d)
-              : lastVisit 
-                ? '#00696a' // Verde azulado estándar
-                : '#64748b'; // Slate para clientes sin visita
+        ? '#10b981' // Esmeralda vivo para HOY
+        : isVisitedRecently 
+          ? '#059669' // Verde bosque refinado (<7d)
+          : isUrgent 
+            ? '#e11d48' // Rosa/carmín para urgente (>15d)
+            : lastVisit 
+              ? '#0f766e' // Dark teal profesional
+              : '#64748b'; // Slate suave para clientes sin visita
 
       const badgeText = diffDays === null 
         ? 'Sin Visita' 
         : isToday 
-          ? 'Hoy' 
+          ? 'Visitado Hoy' 
           : isYesterday 
-            ? 'Ayer' 
-            : `${diffDays}d`;
+            ? 'Visitado Ayer' 
+            : `Hace ${diffDays} días`;
 
-      const badgeStyle = isToday
-        ? 'background: linear-gradient(135deg, #059669, #10b981); box-shadow: 0 2px 6px rgba(16,185,129,0.45);'
-        : isYesterday
-          ? 'background: linear-gradient(135deg, #0284c7, #38bdf8); box-shadow: 0 2px 6px rgba(2,132,199,0.45);'
-          : `background-color: ${pinColor};`;
-
+      // Minimalist, non-invasive pin (compact 16px beacon, double ring, smooth hover tooltip)
       const pinHtml = `
-        <div class="flex flex-col items-center group cursor-pointer">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white transition-transform transform group-hover:scale-110 whitespace-nowrap mb-0.5 font-sans" style="${badgeStyle}">
-            ${badgeText}
+        <div class="relative flex items-center justify-center group cursor-pointer" style="width: 32px; height: 32px;">
+          <!-- Floating micro-card on hover only (no invasive clutter on map) -->
+          <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 ease-out transform group-hover:-translate-y-1 z-50 whitespace-nowrap">
+            <div class="bg-slate-900/95 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-xl border border-slate-700/80 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${pinColor}"></span>
+              <span class="max-w-[140px] truncate text-slate-100 font-semibold">${client.name}</span>
+              <span class="text-[9px] text-slate-400 font-medium">· ${badgeText}</span>
+            </div>
+            <div class="w-2 h-2 bg-slate-900 rotate-45 mx-auto -mt-1 border-r border-b border-slate-700/80"></div>
           </div>
-          <div class="w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-white text-[11px] font-bold transition-transform group-hover:scale-110" style="background-color: ${pinColor}">
-            📍
+
+          <!-- Subtle pulse ring for today's visits -->
+          ${isToday ? `<div class="absolute w-6 h-6 rounded-full bg-emerald-500/25 map-pin-pulse-today pointer-events-none"></div>` : ''}
+
+          <!-- Sleek minimalist pin dot -->
+          <div class="w-3.5 h-3.5 rounded-full border-2 border-white shadow-md transition-transform duration-200 ease-out group-hover:scale-125 flex items-center justify-center" style="background-color: ${pinColor}; box-shadow: 0 2px 6px rgba(0,0,0,0.35);">
+            <div class="w-1 h-1 rounded-full bg-white opacity-85"></div>
           </div>
         </div>
       `;
@@ -490,9 +498,9 @@ export function ClientVisitsMap({
       const pinIcon = L.divIcon({
         className: 'custom-map-client-pin',
         html: pinHtml,
-        iconSize: [40, 48],
-        iconAnchor: [20, 44],
-        popupAnchor: [0, -42]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -14]
       });
 
       const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${client.latitude},${client.longitude}`;
@@ -502,46 +510,47 @@ export function ClientVisitsMap({
       popupContent.className = 'p-3.5 text-slate-800 text-xs max-w-xs space-y-2.5 font-sans';
       popupContent.innerHTML = `
         <div class="border-b border-slate-100 pb-2">
-          <div class="flex items-center justify-between gap-2">
-            <h4 class="font-bold text-sm text-slate-900 leading-snug">${client.name}</h4>
-            ${client.clientCode ? `<span class="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">#${client.clientCode}</span>` : ''}
+          <div class="flex items-start justify-between gap-2">
+            <h4 class="font-extrabold text-sm text-slate-900 leading-snug">${client.name}</h4>
+            ${client.clientCode ? `<span class="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">#${client.clientCode}</span>` : ''}
           </div>
-          ${client.companyName ? `<p class="text-slate-500 text-[11px] font-medium mt-0.5">${client.companyName}</p>` : ''}
+          ${client.companyName ? `<p class="text-slate-500 text-[11px] font-medium mt-0.5 truncate">${client.companyName}</p>` : ''}
         </div>
 
-        <div class="space-y-1 text-[11px] text-slate-600">
-          ${client.phone ? `<p class="flex items-center gap-1.5">📞 <a href="tel:${client.phone}" class="text-teal-700 font-bold hover:underline">${client.phone}</a></p>` : ''}
-          ${client.address ? `<p class="flex items-center gap-1.5 text-slate-500">🏢 ${client.address}</p>` : ''}
-          <p class="flex items-center gap-1.5 font-medium">
-            🕒 Última Visita: ${
+        <div class="space-y-1.5 text-[11px] text-slate-600">
+          ${client.phone ? `<p class="flex items-center gap-1.5">📞 <a href="tel:${client.phone}" class="text-emerald-700 font-bold hover:underline">${client.phone}</a></p>` : ''}
+          ${client.address ? `<p class="flex items-center gap-1.5 text-slate-500">🏢 <span class="truncate">${client.address}</span></p>` : ''}
+          <div class="flex items-center gap-1.5 pt-0.5">
+            <span class="text-slate-400 font-medium">Estado:</span>
+            ${
               !lastVisit 
-                ? '<span class="text-slate-400 font-bold">Sin visitas registradas</span>' 
+                ? '<span class="text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md text-[10px]">Sin visitas registradas</span>' 
                 : isToday 
-                  ? `<span class="text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Hoy · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
+                  ? `<span class="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[10px]">Hoy · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
                   : isYesterday
-                    ? `<span class="text-sky-700 font-black bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">Ayer · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
-                    : `<span class="${isUrgent ? 'text-rose-700 font-black' : 'text-slate-700 font-bold'}">Hace ${diffDays} días (${fechaDDMMYYYY(lastVisit.createdAt)})</span>`
+                    ? `<span class="text-emerald-900 font-bold bg-emerald-50/80 px-2 py-0.5 rounded-md border border-emerald-200/80 text-[10px]">Ayer · ${new Date(lastVisit.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`
+                    : `<span class="${isUrgent ? 'text-rose-700 bg-rose-50 border border-rose-200' : 'text-slate-700 bg-slate-100'} font-bold px-2 py-0.5 rounded-md text-[10px]">Hace ${diffDays} días (${fechaDDMMYYYY(lastVisit.createdAt)})</span>`
             }
-          </p>
+          </div>
         </div>
 
         <div class="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
-          <button id="visit-btn-${client.id}" class="w-full py-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-center transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer text-xs">
-            📌 Registrar Visita Aquí
+          <button id="visit-btn-${client.id}" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-center transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer text-xs">
+            <span>📍 Registrar Visita Aquí</span>
           </button>
           <div class="flex gap-1.5">
-            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-xl text-center transition-colors flex items-center justify-center gap-1 text-[10px]">
-              🗺️ Google Maps
+            <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-center transition-colors flex items-center justify-center gap-1 text-[11px]">
+              <span>Google Maps</span>
             </a>
-            <a href="${wazeUrl}" target="_blank" rel="noopener noreferrer" class="flex-1 py-1.5 bg-sky-50 hover:bg-sky-100 border border-sky-200/60 text-sky-800 font-bold rounded-xl text-center transition-colors flex items-center justify-center gap-1 text-[10px]">
-              🚗 Waze
+            <a href="${wazeUrl}" target="_blank" rel="noopener noreferrer" class="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-center transition-colors flex items-center justify-center gap-1 text-[11px]">
+              <span>Waze</span>
             </a>
           </div>
-          <div class="flex gap-1.5 pt-1 border-t border-slate-100/80">
-            <button id="remark-btn-${client.id}" class="flex-1 py-1 px-2 bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
+          <div class="flex gap-1.5 pt-1 border-t border-slate-100">
+            <button id="remark-btn-${client.id}" class="flex-1 py-1 px-2 bg-slate-50 hover:bg-slate-100 text-slate-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
               📍 Refijar GPS
             </button>
-            <button id="clear-gps-btn-${client.id}" class="py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors" title="Borrar ubicación guardada">
+            <button id="clear-gps-btn-${client.id}" class="py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors" title="Borrar ubicación guardada">
               🗑️ Borrar GPS
             </button>
           </div>
@@ -647,19 +656,19 @@ export function ClientVisitsMap({
     if (endPoint) latLngs.push(endPoint);
 
     if (latLngs.length > 1) {
-      // Línea de borde/sombra de contraste para máxima visibilidad sobre cualquier capa de mapa (satelital o estándar)
+      // Línea de contraste suave para visibilidad sobre cualquier capa
       L.polyline(latLngs, {
         color: '#ffffff',
-        weight: 8,
-        opacity: 0.95,
+        weight: 6,
+        opacity: 0.8,
         lineCap: 'round',
         lineJoin: 'round'
       }).addTo(routeGroup);
 
-      // Trazo continuo y sólido principal (sin guiones) con color verde esmeralda/teal de Agricovet
+      // Trazo continuo y estilizado color verde bosque/esmeralda
       const polyline = L.polyline(latLngs, {
-        color: '#00696a',
-        weight: 5,
+        color: '#059669',
+        weight: 3.5,
         opacity: 0.95,
         lineCap: 'round',
         lineJoin: 'round'
@@ -676,31 +685,37 @@ export function ClientVisitsMap({
     if (startPoint && matchedRoute) {
       const startTime = matchedRoute.startedAt ? new Date(matchedRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       const startHtml = `
-        <div class="flex flex-col items-center group cursor-pointer">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight bg-emerald-600">
-            🟢 INICIO DE RUTA ${startTime ? `· ${startTime}` : ''}
+        <div class="relative flex items-center justify-center group cursor-pointer" style="width: 32px; height: 32px;">
+          <!-- Tooltip on hover -->
+          <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 whitespace-nowrap">
+            <div class="bg-slate-900/95 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-md border border-slate-700">
+              Inicio de Ruta ${startTime ? `· ${startTime}` : ''}
+            </div>
           </div>
-          <div class="w-8 h-8 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-black bg-emerald-600 transition-transform group-hover:scale-125">
-            🏁
+          <!-- Clean Start Chip -->
+          <div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white shadow-lg flex items-center justify-center text-white transition-transform group-hover:scale-125">
+            <svg class="w-3 h-3 fill-current" viewBox="0 0 24 24">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
           </div>
         </div>
       `;
       const startIcon = L.divIcon({
         className: 'custom-map-route-start-pin',
         html: startHtml,
-        iconSize: [52, 58],
-        iconAnchor: [26, 54],
-        popupAnchor: [0, -50]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -14]
       });
 
       startMarkerInstance = L.marker(startPoint, { icon: startIcon, zIndexOffset: 2500 })
         .addTo(routeGroup)
         .bindPopup(`
           <div class="p-3 text-slate-800 text-xs font-sans space-y-1.5">
-            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white bg-emerald-600">
-              🏁 Punto de Partida / Apertura
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-emerald-800 bg-emerald-50 border border-emerald-200">
+              Punto de Partida / Apertura
             </span>
-            <h4 class="font-black text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
+            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
             ${matchedRoute.startAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.startAddress}</p>` : ''}
             <p class="text-slate-400 text-[10px]">Hora: ${startTime || 'Inicio de jornada'}</p>
           </div>
@@ -710,31 +725,37 @@ export function ClientVisitsMap({
     if (endPoint && matchedRoute) {
       const endTime = matchedRoute.endedAt ? new Date(matchedRoute.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       const endHtml = `
-        <div class="flex flex-col items-center group cursor-pointer">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight bg-rose-600">
-            🔴 CIERRE DE RUTA ${endTime ? `· ${endTime}` : ''}
+        <div class="relative flex items-center justify-center group cursor-pointer" style="width: 32px; height: 32px;">
+          <!-- Tooltip on hover -->
+          <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 whitespace-nowrap">
+            <div class="bg-slate-900/95 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-md border border-slate-700">
+              Cierre de Ruta ${endTime ? `· ${endTime}` : ''}
+            </div>
           </div>
-          <div class="w-8 h-8 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-black bg-rose-600 transition-transform group-hover:scale-125">
-            🛑
+          <!-- Clean End Chip -->
+          <div class="w-6 h-6 rounded-full bg-rose-600 border-2 border-white shadow-lg flex items-center justify-center text-white transition-transform group-hover:scale-125">
+            <svg class="w-3 h-3 fill-current" viewBox="0 0 24 24">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            </svg>
           </div>
         </div>
       `;
       const endIcon = L.divIcon({
         className: 'custom-map-route-end-pin',
         html: endHtml,
-        iconSize: [52, 58],
-        iconAnchor: [26, 54],
-        popupAnchor: [0, -50]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -14]
       });
 
       endMarkerInstance = L.marker(endPoint, { icon: endIcon, zIndexOffset: 2600 })
         .addTo(routeGroup)
         .bindPopup(`
           <div class="p-3 text-slate-800 text-xs font-sans space-y-1.5">
-            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white bg-rose-600">
-              🛑 Cierre de Jornada / Fin de Ruta
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-rose-800 bg-rose-50 border border-rose-200">
+              Cierre de Jornada / Fin de Ruta
             </span>
-            <h4 class="font-black text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
+            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
             ${matchedRoute.endAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.endAddress}</p>` : ''}
             <p class="text-slate-400 text-[10px]">Hora cierre: ${endTime || 'Cierre registrado'}</p>
             ${matchedRoute.closureNotes ? `<p class="italic text-slate-600 bg-slate-50 p-1 rounded border">"${matchedRoute.closureNotes}"</p>` : ''}
@@ -747,8 +768,7 @@ export function ClientVisitsMap({
       const isStart = idx === 0 && !hasRouteStart;
       const isEnd = idx === routeVisits.length - 1 && !hasRouteEnd;
 
-      const stopColor = isStart ? '#10b981' : isEnd ? '#f59e0b' : '#00696a';
-      const stopIcon = isStart ? '🚀' : isEnd ? '🏁' : stepNum;
+      const stopColor = isStart ? '#10b981' : isEnd ? '#e11d48' : '#0f766e';
 
       const prevVisit = idx > 0 ? routeVisits[idx - 1] : null;
       const prevPoint = prevVisit ? [prevVisit.latitude, prevVisit.longitude] : startPoint;
@@ -779,12 +799,16 @@ export function ClientVisitsMap({
       }
 
       const stopHtml = `
-        <div class="flex flex-col items-center group cursor-pointer">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md mb-0.5 whitespace-nowrap font-mono tracking-tight" style="background-color: ${stopColor}">
-            #${stepNum} · ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <div class="relative flex items-center justify-center group cursor-pointer" style="width: 28px; height: 28px;">
+          <!-- Tooltip on hover -->
+          <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 whitespace-nowrap">
+            <div class="bg-slate-900/95 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-md border border-slate-700">
+              Parada #${stepNum} · ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
           </div>
-          <div class="w-7 h-7 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white text-xs font-black transition-transform group-hover:scale-125" style="background-color: ${stopColor}">
-            ${stopIcon}
+          <!-- Numbered Chip -->
+          <div class="w-5 h-5 rounded-full border-2 border-white shadow-md flex items-center justify-center text-white text-[10px] font-mono font-bold transition-transform group-hover:scale-125" style="background-color: ${stopColor}">
+            ${stepNum}
           </div>
         </div>
       `;
@@ -792,16 +816,16 @@ export function ClientVisitsMap({
       const customStopIcon = L.divIcon({
         className: 'custom-map-route-stop-pin',
         html: stopHtml,
-        iconSize: [48, 54],
-        iconAnchor: [24, 50],
-        popupAnchor: [0, -48]
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -14]
       });
 
       const popupHtml = `
         <div class="p-3.5 text-slate-800 text-xs max-w-xs space-y-2 font-sans">
           <div class="border-b border-slate-100 pb-1.5 flex items-center justify-between">
-            <span class="text-[10px] font-black px-2 py-0.5 rounded-full text-white" style="background-color: ${stopColor}">
-              ${isStart ? '🚀 Salida / Inicio de Visitas' : isEnd ? '🏁 Última Visita' : `📍 Parada #${stepNum}`}
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style="background-color: ${stopColor}">
+              ${isStart ? 'Salida / Inicio' : isEnd ? 'Última Visita' : `Parada #${stepNum}`}
             </span>
             <span class="text-[11px] font-bold text-slate-500 font-mono">
               ${new Date(v.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -809,20 +833,20 @@ export function ClientVisitsMap({
           </div>
 
           <div>
-            <h4 class="font-black text-sm text-slate-950">${v.clientName}</h4>
+            <h4 class="font-extrabold text-sm text-slate-950">${v.clientName}</h4>
             ${v.companyName ? `<p class="text-slate-500 text-[11px]">${v.companyName}</p>` : ''}
             <p class="text-slate-400 text-[10px] mt-0.5">Asesor: <strong class="text-slate-700">${v.sellerName}</strong></p>
           </div>
 
           ${prevPoint ? `
-            <div class="bg-teal-50/80 p-2 rounded-xl border border-teal-100 text-[11px] text-teal-900 space-y-0.5">
-              <p class="font-bold flex items-center gap-1">⏱️ Traslado: <span class="text-teal-700 font-black">${timeFromPrev || 'Registrado'}</span></p>
+            <div class="bg-emerald-50/80 p-2 rounded-xl border border-emerald-100 text-[11px] text-emerald-950 space-y-0.5">
+              <p class="font-bold flex items-center gap-1">⏱️ Traslado: <span class="text-emerald-700 font-black">${timeFromPrev || 'Registrado'}</span></p>
               ${distFromPrev ? `<p class="font-medium text-slate-600 flex items-center gap-1">🚗 Distancia tramo: <span class="font-bold text-slate-800">${distFromPrev}</span></p>` : ''}
             </div>
           ` : ''}
 
           <div class="text-[11px] text-slate-600 space-y-1">
-            <p><strong>Gestión:</strong> <span class="capitalize font-bold text-teal-800">${v.visitType || 'Rutina'}</span></p>
+            <p><strong>Gestión:</strong> <span class="capitalize font-bold text-emerald-800">${v.visitType || 'Rutina'}</span></p>
             ${v.notes ? `<p class="italic text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">"${v.notes}"</p>` : ''}
           </div>
         </div>

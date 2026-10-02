@@ -21,6 +21,9 @@ interface NavigationProps {
   isMobile?: boolean;
   onShowInstallGuide?: () => void;
   showInstallButton?: boolean;
+  isMaintenanceMode?: boolean;
+  onToggleMaintenanceMode?: () => void;
+  isSuperAdmin?: boolean;
 }
 
 function NotificationsPopover({ 
@@ -123,41 +126,40 @@ function NotificationsPopover({
   };
 
   // Filter criteria
+  const visitCount = notifications.filter(n => n.type?.includes('visit') || n.title?.toLowerCase().includes('visita')).length;
+  const salesCount = notifications.filter(n => ['new_order', 'sale_authorized', 'sale_rejected', 'payment_received'].includes(n.type) || n.title?.toLowerCase().includes('venta') || n.title?.toLowerCase().includes('pedido') || n.title?.toLowerCase().includes('pago')).length;
+  const invCount = notifications.filter(n => ['out_of_stock', 'low_stock', 'restock', 'price_changed'].includes(n.type) || n.title?.toLowerCase().includes('stock') || n.title?.toLowerCase().includes('agotado')).length;
+
   const filteredNotifications = notifications.filter(n => {
     const matchesSearch = 
       n.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
       n.message.toLowerCase().includes(searchTerm.toLowerCase());
     
-    if (categoryFilter === 'all') return matchesSearch;
-    if (categoryFilter === 'inventory') {
-      return matchesSearch && ['out_of_stock', 'low_stock', 'restock', 'price_changed'].includes(n.type);
+    if (!matchesSearch) return false;
+    if (categoryFilter === 'all') return true;
+    if (categoryFilter === 'visits') {
+      return n.type?.includes('visit') || n.title?.toLowerCase().includes('visita');
     }
     if (categoryFilter === 'sales') {
-      return matchesSearch && ['new_order', 'sale_authorized', 'sale_rejected', 'payment_received'].includes(n.type);
+      return ['new_order', 'sale_authorized', 'sale_rejected', 'payment_received'].includes(n.type) || n.title?.toLowerCase().includes('venta') || n.title?.toLowerCase().includes('pedido') || n.title?.toLowerCase().includes('pago');
     }
-    return matchesSearch;
+    if (categoryFilter === 'inventory') {
+      return ['out_of_stock', 'low_stock', 'restock', 'price_changed'].includes(n.type) || n.title?.toLowerCase().includes('stock') || n.title?.toLowerCase().includes('agotado');
+    }
+    return true;
   });
-
-  // Count helper
-  const stats = {
-    total: notifications.length,
-    outOfStock: notifications.filter(n => n.type === 'out_of_stock').length,
-    lowStock: notifications.filter(n => n.type === 'low_stock').length,
-    orders: notifications.filter(n => n.type === 'new_order').length,
-    payments: notifications.filter(n => n.type === 'payment_received').length,
-  };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Immersive Dark Backdrop with Blur */}
+          {/* Backdrop with Soft Blur */}
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md"
+            className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm"
           />
 
           {/* Sliding Notifications Side Sheet */}
@@ -165,411 +167,286 @@ function NotificationsPopover({
             initial={{ x: '100%', opacity: 0.95 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '100%', opacity: 0.95 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 220 }}
-            className="fixed inset-y-0 right-0 z-[999] w-full sm:max-w-[460px] md:max-w-[480px] bg-slate-50/98 backdrop-blur-2xl shadow-[0_0_60px_rgba(15,25,44,0.18)] flex flex-col h-full border-l border-slate-200 relative overflow-hidden"
+            transition={{ type: 'spring', damping: 30, stiffness: 260 }}
+            className="fixed inset-y-0 right-0 z-[999] w-full sm:max-w-[440px] md:max-w-[460px] bg-slate-50 flex flex-col h-full border-l border-slate-200 overflow-hidden shadow-2xl select-none"
           >
-            {/* Cinematic Floating Blobs deep in backdrop */}
-            <motion.div 
-              animate={{ 
-                x: [0, 40, -20, 0], 
-                y: [0, -60, 40, 0],
-                rotate: [0, 180, 360] 
-              }}
-              transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-              className="absolute top-[20%] -right-20 w-48 h-48 bg-emerald-500/5 rounded-full blur-[60px] pointer-events-none"
-            />
-            <motion.div 
-              animate={{ 
-                x: [0, -30, 50, 0], 
-                y: [0, 40, -40, 0],
-                rotate: [360, 180, 0] 
-              }}
-              transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-              className="absolute bottom-[10%] -left-20 w-56 h-56 bg-amber-400/5 rounded-full blur-[70px] pointer-events-none"
-            />
-            <motion.div 
-              animate={{ 
-                scale: [1, 1.2, 0.9, 1],
-                opacity: [0.3, 0.7, 0.3, 0.3] 
-              }}
-              transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
-              className="absolute top-[45%] left-10 w-2 h-2 bg-emerald-400 rounded-full blur-[1px] pointer-events-none"
-            />
-            <motion.div 
-              animate={{ 
-                scale: [1, 0.8, 1.4, 1],
-                opacity: [0.2, 0.6, 0.2, 0.2] 
-              }}
-              transition={{ duration: 18, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-              className="absolute bottom-[35%] right-20 w-3 h-3 bg-teal-300 rounded-full blur-[2px] pointer-events-none"
-            />
-
-            {/* Header with Premium Corporate Emerald-Teal Gradient */}
-            <div className={cn(
-              "text-white px-6 py-6 flex flex-col gap-4 shadow-md relative overflow-hidden shrink-0 transition-colors duration-300",
-              isSilentModeActive
-                ? "bg-gradient-to-br from-[#471515] to-[#1e0707]"
-                : "bg-gradient-to-br from-[#0c5c35] to-[#042616]"
-            )}>
-              <div className="absolute top-0 right-0 w-36 h-36 bg-emerald-500/10 rounded-full blur-[40px] pointer-events-none" />
-              <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-teal-400/10 rounded-full blur-[30px] pointer-events-none" />
-              
-              <div className="flex items-center justify-between z-10">
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "p-2.5 backdrop-blur-md rounded-xl border shadow-inner transition-colors",
-                    isSilentModeActive
-                      ? "bg-rose-500/20 border-rose-400/30 text-rose-300"
-                      : "bg-white/10 border-white/10 text-emerald-300"
-                  )}>
-                    {isSilentModeActive ? <BellOff size={20} /> : <Bell className="animate-pulse" size={20} />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-1.5 w-1.5 relative">
-                        <span className={cn(
-                          "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                          isSilentModeActive ? "bg-rose-400" : "bg-emerald-400"
-                        )}></span>
-                        <span className={cn(
-                          "relative inline-flex rounded-full h-1.5 w-1.5",
-                          isSilentModeActive ? "bg-rose-500" : "bg-emerald-500"
-                        )}></span>
-                      </span>
-                      <span className={cn(
-                        "text-[9px] font-extrabold uppercase tracking-widest font-mono",
-                        isSilentModeActive ? "text-rose-300" : "text-emerald-300"
-                      )}>
-                        {isSilentModeActive ? "🔕 Modo Silencioso Activo" : "🔔 Monitoreo Activo"}
-                      </span>
-                    </div>
-                    <h3 className="font-sans font-bold text-[20px] tracking-tight text-white leading-tight">Canal de Alertas</h3>
-                  </div>
+            {/* Clean Minimalist Header */}
+            <div className="bg-white border-b border-slate-200/80 px-4 py-3.5 flex items-center justify-between shrink-0 shadow-xs z-30">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={cn(
+                  "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border transition-colors",
+                  isSilentModeActive
+                    ? "bg-rose-50 text-rose-600 border-rose-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                )}>
+                  {isSilentModeActive ? <BellOff size={18} /> : <Bell size={18} />}
                 </div>
-                
-                <div className="flex items-center gap-2">
-                  {/* Botón Silenciar / Activar App (SOLO ADMINS) */}
-                  {user.role === 'admin' && (
-                    <button
-                      onClick={onToggleSilentMode}
-                      disabled={isUpdatingSilentMode}
-                      title={isSilentModeActive ? "Las notificaciones y sonidos están apagados. Haz clic para activar" : "Silenciar todas las notificaciones y sonidos de la app"}
-                      className={cn(
-                        "px-2.5 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 border shadow-sm",
-                        isSilentModeActive
-                          ? "bg-rose-500/25 border-rose-400/40 text-rose-200 hover:bg-rose-500/35"
-                          : "bg-white/10 border-white/15 text-emerald-200 hover:bg-white/20"
-                      )}
-                    >
-                      {isSilentModeActive ? <BellOff size={13} className="text-rose-400" /> : <Bell size={13} className="text-emerald-300" />}
-                      <span>{isUpdatingSilentMode ? "..." : isSilentModeActive ? "Silenciado (Activar)" : "Silenciar App"}</span>
-                    </button>
-                  )}
-
-                  {/* Sound Toggle Button with Testing option */}
-                  <div className="flex items-center bg-white/10 backdrop-blur-md rounded-xl border border-white/5 p-0.5">
-                    {user.role === 'admin' ? (
-                      <button 
-                        onClick={() => {
-                          const val = !soundsEnabled;
-                          setSoundsEnabled(val);
-                          localStorage.setItem('notifications_sounds_enabled', String(val));
-                          if (val) {
-                            setTimeout(playTestChime, 150);
-                          }
-                        }}
-                        title={soundsEnabled ? "Silenciar alertas (Haz clic para silenciar)" : "Activar sonido de alertas"}
-                        className={cn(
-                          "p-2 rounded-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center",
-                          soundsEnabled ? "text-emerald-300 bg-white/10 hover:bg-white/15" : "text-white/60 hover:text-white"
-                        )}
-                      >
-                        {soundsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
-                      </button>
-                    ) : (
-                      <div 
-                        title="Sonido de alertas obligatorio para vendedores"
-                        className="px-2 py-1 text-emerald-300 flex items-center gap-1 text-[10px] font-bold"
-                      >
-                        <Volume2 size={14} className="text-emerald-400" />
-                        <span className="hidden sm:inline">Sonido Activo</span>
-                      </div>
-                    )}
-                    <button
-                      onClick={playTestChime}
-                      title="Probar sonido actual de alerta Agricovet"
-                      className="px-2 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-200 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Probar
-                    </button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-sans font-bold text-sm text-slate-900 leading-none">
+                      Notificaciones
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-mono font-bold">
+                      {notifications.length}
+                    </span>
                   </div>
-
-                  {/* Close button with active rotation */}
-                  <button 
-                    onClick={onClose} 
-                    className="p-2 bg-white/10 hover:bg-white/15 active:scale-95 text-white/90 hover:text-white rounded-xl transition-all cursor-pointer border border-white/5"
-                  >
-                    <X size={16} />
-                  </button>
+                  <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
+                    {isSilentModeActive ? "🔕 Modo silencioso activo" : "Monitoreo en tiempo real"}
+                  </p>
                 </div>
               </div>
 
-              {/* Bento Stats Display within Header */}
-              <div className="grid grid-cols-3 gap-2.5 mt-2 z-10">
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-3 flex flex-col justify-between transition-all hover:bg-white/10">
-                  <span className="text-[9px] font-black text-emerald-300 uppercase tracking-widest block font-sans">Total Activo</span>
-                  <span className="text-xl font-bold text-white mt-1 leading-none font-mono">{stats.total}</span>
-                </div>
-                <div className={cn(
-                  "border rounded-xl p-3 flex flex-col justify-between transition-all hover:bg-opacity-20",
-                  stats.outOfStock > 0 
-                    ? "bg-red-500/15 border-red-500/20 text-red-100" 
-                    : "bg-white/5 border-white/10 text-white/40"
-                )}>
-                  <span className="text-[9px] font-black uppercase tracking-widest block font-sans">Crítico</span>
-                  <span className={cn(
-                    "text-xl font-bold mt-1 leading-none font-mono",
-                    stats.outOfStock > 0 ? "text-red-300 font-extrabold" : "text-white/40"
-                  )}>{stats.outOfStock}</span>
-                </div>
-                <div className={cn(
-                  "border rounded-xl p-3 flex flex-col justify-between transition-all hover:bg-opacity-20",
-                  stats.lowStock > 0 
-                    ? "bg-amber-500/15 border-amber-500/20 text-amber-100" 
-                    : "bg-white/5 border-white/10 text-white/40"
-                )}>
-                  <span className="text-[9px] font-black uppercase tracking-widest block font-sans font-extrabold">Alerta</span>
-                  <span className={cn(
-                    "text-xl font-bold mt-1 leading-none font-mono",
-                    stats.lowStock > 0 ? "text-amber-300 font-extrabold" : "text-white/40"
-                  )}>{stats.lowStock}</span>
-                </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {user.role === 'admin' && (
+                  <button
+                    onClick={onToggleSilentMode}
+                    disabled={isUpdatingSilentMode}
+                    title={isSilentModeActive ? "Activar sonidos" : "Silenciar notificaciones"}
+                    className={cn(
+                      "p-2 rounded-xl transition-all cursor-pointer border text-xs active:scale-95",
+                      isSilentModeActive
+                        ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    {isSilentModeActive ? <BellOff size={15} /> : <Bell size={15} />}
+                  </button>
+                )}
+
+                <button
+                  onClick={playTestChime}
+                  title="Probar sonido"
+                  className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition-all cursor-pointer active:scale-95"
+                >
+                  <Volume2 size={15} />
+                </button>
+
+                {notifications.length > 0 && !showConfirmClear && (
+                  <button
+                    onClick={() => setShowConfirmClear(true)}
+                    title="Limpiar todas las alertas"
+                    className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-400 hover:text-rose-600 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all cursor-pointer active:scale-95 ml-1"
+                >
+                  <X size={16} />
+                </button>
               </div>
             </div>
 
             {/* Filter and Search Bar */}
-            <div className="p-5 border-b border-slate-200/50 flex flex-col gap-4 bg-white shadow-sm z-20">
+            <div className="bg-white border-b border-slate-200/80 px-4 py-2.5 flex flex-col gap-2 shrink-0 z-20">
               {/* Search Bar */}
               <div className="relative">
-                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="text"
-                  placeholder="Filtrar por producto, cliente o folios..."
+                  placeholder="Buscar por vendedor, cliente o folios..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-11 pr-16 py-2.5 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c5c35]/20 focus:border-[#0c5c35] transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-10 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
                 />
                 {searchTerm && (
                   <button 
                     onClick={() => setSearchTerm('')} 
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-[#0c5c35] hover:text-[#05301a] transition-colors uppercase tracking-wider"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 hover:text-slate-600"
                   >
-                    Borrar
+                    ✕
                   </button>
                 )}
               </div>
 
-              {/* Category Filters Switches with Animated Highlighting Slider */}
-              <div className="flex bg-slate-100/90 p-1 rounded-xl relative">
-                {['all', 'inventory', 'sales'].map((tab) => {
-                  const isActive = categoryFilter === tab;
-                  const label = tab === 'all' ? 'Todas' : tab === 'inventory' ? 'Inventario' : 'Finanzas';
+              {/* Category Filter Pills */}
+              <div className="flex gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+                {[
+                  { id: 'all', label: 'Todas', count: notifications.length },
+                  { id: 'visits', label: 'Visitas', count: visitCount },
+                  { id: 'sales', label: 'Ventas', count: salesCount },
+                  { id: 'inventory', label: 'Inventario', count: invCount },
+                ].map(tab => {
+                  const isActive = categoryFilter === tab.id;
                   return (
-                    <button 
-                      key={tab}
-                      onClick={() => setCategoryFilter(tab as any)}
+                    <button
+                      key={tab.id}
+                      onClick={() => setCategoryFilter(tab.id as any)}
                       className={cn(
-                        "flex-1 py-2 px-2 text-center text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all cursor-pointer relative z-10",
-                        isActive ? "text-white" : "text-slate-500 hover:text-slate-805"
+                        "px-3 py-1 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer",
+                        isActive
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "bg-slate-100 hover:bg-slate-200 text-slate-600"
                       )}
                     >
-                      {isActive && (
-                        <motion.div 
-                          layoutId="category_pill"
-                          className="absolute inset-0 bg-[#0c5c35] rounded-lg -z-10 shadow-sm"
-                          transition={{ type: "spring", stiffness: 350, damping: 30 }}
-                        />
-                      )}
-                      {label}
+                      <span>{tab.label}</span>
+                      <span className={cn(
+                        "text-[10px] px-1.5 py-0.2 rounded-full font-mono",
+                        isActive ? "bg-white/20 text-white" : "bg-white text-slate-500 border border-slate-200"
+                      )}>
+                        {tab.count}
+                      </span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* List with Animated Cards over a soft, breathing, neutral background */}
-            <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4 bg-slate-100/40">
+            {/* List of Notification Cards */}
+            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3 bg-slate-50">
+              {/* Confirm Clear Banner */}
+              <AnimatePresence>
+                {showConfirmClear && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mb-3 overflow-hidden bg-rose-50 border border-rose-200 p-3.5 rounded-2xl flex flex-col gap-2.5 shadow-sm"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={15} />
+                      <div className="flex-1">
+                        <h4 className="text-xs font-bold text-rose-900">¿Borrar todas las notificaciones?</h4>
+                        <p className="text-[11px] text-rose-700 leading-relaxed mt-0.5">Se eliminarán permanentemente todas las alertas de la lista.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 self-end">
+                      <button 
+                        onClick={() => setShowConfirmClear(false)}
+                        className="px-3 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        onClick={handleClearAll}
+                        className="px-3.5 py-1 text-[10px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
+                      >
+                        Sí, Borrar Todo
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {loading ? (
                 <div className="py-24 text-center flex flex-col items-center justify-center">
-                  <div className="w-10 h-10 rounded-full border-4 border-slate-200 border-t-[#0c5c35] animate-spin mb-4 shadow-sm" />
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Sincronizando Alertas Inteligentes...</p>
+                  <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-emerald-600 animate-spin mb-3 shadow-xs" />
+                  <p className="text-xs font-medium text-slate-400">Cargando notificaciones...</p>
                 </div>
               ) : (
                 <>
-                  <div className="flex justify-between items-center px-1 mb-1">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                      Visualizando {filteredNotifications.length} de {notifications.length}
-                    </span>
-                    {notifications.length > 0 && !showConfirmClear && (
-                      <button 
-                        onClick={() => setShowConfirmClear(true)}
-                        className="text-[10px] text-red-650 hover:text-red-700 font-extrabold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer hover:underline"
-                      >
-                        <Trash2 size={11} className="text-red-500" /> Limpiar Todo
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Aesthetic Non-Modal Confirmation bar */}
-                  <AnimatePresence>
-                    {showConfirmClear && (
-                      <motion.div 
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mb-4 overflow-hidden bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-col gap-2.5 shadow-sm"
-                      >
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={15} />
-                          <div className="flex-1">
-                            <h4 className="text-xs font-black text-red-900 uppercase">¿Confirmar limpieza general?</h4>
-                            <p className="text-[10px] text-red-750 font-bold leading-relaxed mt-0.5">Se eliminarán permanentemente todas las alertas de tu historial de Agricovet.</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 self-end">
-                          <button 
-                            onClick={() => setShowConfirmClear(false)}
-                            className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
-                          <button 
-                            onClick={handleClearAll}
-                            className="px-3.5 py-1.5 text-[9px] font-black uppercase tracking-wide bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
-                          >
-                            Sí, Borrar Todo
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
-                  </  AnimatePresence>
-
-                  <div className="space-y-4">
+                  <div className="space-y-2.5">
                     <AnimatePresence initial={false}>
-                      {filteredNotifications.map((n, idx) => {
-                        const isOutOfStock = n.type === 'out_of_stock';
-                        const isLowStock = n.type === 'low_stock';
+                      {filteredNotifications.map((n) => {
+                        const isVisit = n.type?.includes('visit') || n.title?.toLowerCase().includes('visita');
+                        const isSale = ['new_order', 'sale_authorized', 'order'].includes(n.type) || n.title?.toLowerCase().includes('venta') || n.title?.toLowerCase().includes('pedido');
+                        const isPayment = n.type === 'payment_received' || n.title?.toLowerCase().includes('pago') || n.title?.toLowerCase().includes('abono');
+                        const isOutOfStock = n.type === 'out_of_stock' || n.title?.toLowerCase().includes('agotado');
+                        const isLowStock = n.type === 'low_stock' || n.title?.toLowerCase().includes('bajo stock');
                         const isRestock = n.type === 'restock';
                         const isPriceChanged = n.type === 'price_changed';
-                        const isRejected = n.type === 'sale_rejected';
-                        const isAuthorized = n.type === 'sale_authorized';
-                        const isNewOrder = n.type === 'new_order';
-                        const isPayment = n.type === 'payment_received';
+
+                        let icon = <Bell size={16} className="text-slate-600" />;
+                        let iconBg = "bg-slate-100 text-slate-600 border-slate-200";
+
+                        if (isVisit) {
+                          icon = <MapPin size={16} className="text-emerald-600" />;
+                          iconBg = "bg-emerald-50 text-emerald-600 border-emerald-200";
+                        } else if (isSale) {
+                          icon = <ShoppingCart size={16} className="text-teal-600" />;
+                          iconBg = "bg-teal-50 text-teal-600 border-teal-200";
+                        } else if (isPayment) {
+                          icon = <CreditCard size={16} className="text-sky-600" />;
+                          iconBg = "bg-sky-50 text-sky-600 border-sky-200";
+                        } else if (isOutOfStock) {
+                          icon = <XCircle size={16} className="text-rose-600" />;
+                          iconBg = "bg-rose-50 text-rose-600 border-rose-200";
+                        } else if (isLowStock) {
+                          icon = <AlertTriangle size={16} className="text-amber-600" />;
+                          iconBg = "bg-amber-50 text-amber-600 border-amber-200";
+                        } else if (isRestock) {
+                          icon = <Box size={16} className="text-indigo-600" />;
+                          iconBg = "bg-indigo-50 text-indigo-600 border-indigo-200";
+                        } else if (isPriceChanged) {
+                          icon = <Tag size={16} className="text-purple-600" />;
+                          iconBg = "bg-purple-50 text-purple-600 border-purple-200";
+                        }
 
                         return (
-                          <motion.div 
+                          <motion.div
                             key={n.id}
                             layout
-                            custom={idx}
-                            initial={{ opacity: 0, y: 15, scale: 0.98 }}
-                            animate={{ 
-                              opacity: 1, 
-                              y: 0, 
-                              scale: 1,
-                              transition: {
-                                delay: Math.min(idx * 0.04, 0.4),
-                                duration: 0.35,
-                                ease: [0.16, 1, 0.3, 1]
-                              }
-                            }}
-                            exit={{ opacity: 0, scale: 0.95, x: 50, transition: { duration: 0.25 } }}
-                            whileHover={{ y: -2, scale: 1.01, transition: { duration: 0.15 } }}
-                            className={cn(
-                              "group relative flex gap-4 p-5 rounded-2xl bg-white border border-slate-100/70 shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_20px_rgba(0,0,0,0.04)] transition-all duration-300 relative overflow-hidden",
-                              isOutOfStock && "border-l-4 border-l-red-500",
-                              isLowStock && "border-l-4 border-l-amber-500",
-                              isRestock && "border-l-4 border-l-emerald-500",
-                              isPriceChanged && "border-l-4 border-l-violet-500",
-                              isNewOrder && "border-l-4 border-l-teal-500",
-                              isAuthorized && "border-l-4 border-l-green-500",
-                              isRejected && "border-l-4 border-l-rose-500",
-                              isPayment && "border-l-4 border-l-sky-500"
-                            )}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-xs hover:shadow-sm transition-all relative group"
                           >
-                            {/* Ambient Glow Overlay */}
-                            <div className="absolute top-0 right-0 w-28 h-28 bg-slate-50/50 rounded-full blur-xl pointer-events-none group-hover:bg-emerald-50/5 transition-colors" />
-
-                            {/* Animated Icon badge with modern glass container */}
-                            <div className={cn(
-                              "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 shadow-[0_2px_6px_rgba(0,0,0,0.01)] border transition-transform duration-300 group-hover:scale-105",
-                              isOutOfStock && "bg-red-50/80 border-red-100 text-red-600",
-                              isLowStock && "bg-amber-50/80 border-amber-100 text-amber-600",
-                              isRestock && "bg-emerald-50/80 border-emerald-100 text-emerald-600",
-                              isPriceChanged && "bg-violet-50/80 border-violet-100 text-violet-600",
-                              isNewOrder && "bg-teal-50/80 border-teal-100 text-[#00696a]",
-                              isAuthorized && "bg-green-50/80 border-green-100 text-green-600",
-                              isRejected && "bg-rose-50/80 border-rose-100 text-rose-600",
-                              isPayment && "bg-sky-50/80 border-sky-100 text-sky-600"
-                            )}>
-                              {isOutOfStock && <XCircle size={18} className="animate-pulse" />}
-                              {isLowStock && <AlertTriangle size={18} />}
-                              {isRestock && <Box size={18} />}
-                              {isPriceChanged && <Tag size={18} />}
-                              {isNewOrder && <ShoppingCart size={18} />}
-                              {isAuthorized && <CheckCircle size={18} />}
-                              {isRejected && <XCircle size={18} />}
-                              {isPayment && <CreditCard size={18} />}
-                            </div>
-
-                            <div className="flex-1 min-w-0 pr-4 z-10">
-                              <span className="text-[13px] font-bold tracking-tight block text-slate-800 leading-snug">
-                                {n.title}
-                              </span>
-                              <p className="text-[11.5px] text-slate-500 font-medium leading-relaxed mt-1 break-words">
-                                {n.message}
-                              </p>
-                              
-                              <div className="flex items-center gap-2 mt-3">
-                                <span className="text-[9px] text-slate-400 font-extrabold flex items-center gap-1.5 bg-slate-50 border border-slate-100/50 px-2.5 py-0.5 rounded-lg font-mono">
-                                  <Clock size={10} className="text-slate-400 shrink-0" />
-                                  {new Date(n.createdAt).toLocaleDateString('es-GT', { month: 'short', day: 'numeric' })}, {new Date(n.createdAt).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
+                            <div className="flex items-start gap-3">
+                              <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border mt-0.5", iconBg)}>
+                                {icon}
                               </div>
 
-                              {/* Direct Action Link button */}
-                              {(n.productId || n.invoiceId) && (
-                                <button
-                                  onClick={() => {
-                                    if (n.productId) {
-                                      localStorage.setItem('highlight_product_id', n.productId);
-                                      onChangeTab('inventory');
-                                    } else if (n.invoiceId) {
-                                      localStorage.setItem('highlight_invoice_id', n.invoiceId);
-                                      const tab = user.role === 'admin' ? 'daily-sales' : 'my-sales';
-                                      onChangeTab(tab);
-                                    }
-                                    onClose();
-                                  }}
-                                  className={cn(
-                                    "mt-3 text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1.5 px-3.5 py-2 rounded-xl w-max shadow-sm transition-all active:scale-95 cursor-pointer border",
-                                    isOutOfStock || isLowStock || isRestock 
-                                      ? "bg-emerald-50 text-[#0c5c35] hover:bg-emerald-100/80 border-emerald-100" 
-                                      : "bg-teal-50 text-[#0c5c35] hover:bg-[#0c5c35]/10 border-teal-100"
-                                  )}
-                                >
-                                  {isOutOfStock || isLowStock || isRestock ? 'Editar Stock' : 'Ver Documento'}
-                                  <ExternalLink size={9.5} />
-                                </button>
-                              )}
-                            </div>
+                              <div className="flex-1 min-w-0 pr-6">
+                                <h4 className="text-xs font-bold text-slate-800 leading-snug">
+                                  {n.title.replace(/^📍\s*/, '')}
+                                </h4>
+                                <p className="text-[11.5px] text-slate-600 leading-relaxed mt-1">
+                                  {n.message}
+                                </p>
 
-                            <button 
-                              onClick={(e) => handleDelete(n.id, e)}
-                              className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all rounded-lg cursor-pointer"
-                              title="Descartar notificación"
-                            >
-                              <X size={12} />
-                            </button>
+                                <div className="flex items-center gap-2.5 mt-2.5 flex-wrap">
+                                  <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1 font-mono">
+                                    <Clock size={11} className="text-slate-400" />
+                                    {new Date(n.createdAt).toLocaleDateString('es-GT', { month: 'short', day: 'numeric' })}, {new Date(n.createdAt).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+
+                                  {/* Direct action links */}
+                                  {isVisit && (
+                                    <button
+                                      onClick={() => {
+                                        onChangeTab('visits');
+                                        onClose();
+                                      }}
+                                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer border border-emerald-200/60"
+                                    >
+                                      <span>Ver en Visitas</span>
+                                      <ExternalLink size={10} />
+                                    </button>
+                                  )}
+
+                                  {(n.productId || n.invoiceId) && (
+                                    <button
+                                      onClick={() => {
+                                        if (n.productId) {
+                                          localStorage.setItem('highlight_product_id', n.productId);
+                                          onChangeTab('inventory');
+                                        } else if (n.invoiceId) {
+                                          localStorage.setItem('highlight_invoice_id', n.invoiceId);
+                                          const tab = user.role === 'admin' ? 'daily-sales' : 'my-sales';
+                                          onChangeTab(tab);
+                                        }
+                                        onClose();
+                                      }}
+                                      className="text-[10px] font-bold text-[#00696a] hover:text-[#004f50] bg-teal-50 hover:bg-teal-100 px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer border border-teal-200/60"
+                                    >
+                                      <span>{n.productId ? 'Ver Producto' : 'Ver Venta'}</span>
+                                      <ExternalLink size={10} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={(e) => handleDelete(n.id, e)}
+                                className="absolute top-3 right-3 p-1 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                                title="Eliminar notificación"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           </motion.div>
                         );
                       })}
@@ -577,20 +454,13 @@ function NotificationsPopover({
                   </div>
 
                   {filteredNotifications.length === 0 && (
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="py-16 px-6 text-center flex flex-col items-center justify-center bg-white border border-slate-100 rounded-3xl shadow-sm max-w-sm mx-auto mt-4"
-                    >
-                      <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-4 relative">
-                        <div className="absolute inset-0 bg-[#0c5c35]/5 rounded-full animate-ping opacity-30" />
-                        <Bell size={20} className="text-[#0c5c35] stroke-[1.8]" />
+                    <div className="py-20 text-center flex flex-col items-center justify-center">
+                      <div className="w-12 h-12 bg-white border border-slate-200 rounded-full flex items-center justify-center mb-3 shadow-xs">
+                        <Bell size={20} className="text-slate-400" />
                       </div>
-                      <h4 className="text-[13px] font-black text-slate-800 uppercase tracking-widest mb-1.5 leading-none">Buzón Comercial al Día</h4>
-                      <p className="text-[11.5px] text-slate-400 font-semibold leading-relaxed max-w-[240px]">
-                        No hay alertas que requieran tu atención. Todas las operaciones comerciales fluyen de manera normal.
-                      </p>
-                    </motion.div>
+                      <h4 className="text-xs font-bold text-slate-700">Sin notificaciones</h4>
+                      <p className="text-[11px] text-slate-400 max-w-[200px] mt-1">No hay alertas en esta categoría.</p>
+                    </div>
                   )}
                 </>
               )}
@@ -602,7 +472,7 @@ function NotificationsPopover({
   );
 }
 
-export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout, onReturnToAdmin, onImpersonate, isMobile, onShowInstallGuide, showInstallButton }: NavigationProps) {
+export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout, onReturnToAdmin, onImpersonate, isMobile, onShowInstallGuide, showInstallButton, isMaintenanceMode, onToggleMaintenanceMode, isSuperAdmin }: NavigationProps) {
   const [logoUrl, setLogoUrl] = useState(() => localStorage.getItem('app_logo_url') || '/agricovet.png');
 
   const [sellers, setSellers] = useState<User[]>([]);
@@ -1159,6 +1029,12 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                 {isOnline ? "Local" : "Offline"}
               </span>
             </button>
+            {isMaintenanceMode && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-black uppercase tracking-wider shrink-0" title="Mantenimiento Activo">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                <span>Mantenimiento</span>
+              </span>
+            )}
             {user.role === 'admin' && (
               <div className="hidden xs:block">
                 <PanicButton variant="compact" />
@@ -1334,6 +1210,41 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                   <X size={14} />
                 </button>
               </div>
+
+              {/* Control de Mantenimiento Global (SuperAdmin) */}
+              {(isSuperAdmin || user?.email === 'seseffff942@gmail.com') && onToggleMaintenanceMode && (
+                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={cn(
+                      "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-sm font-bold border",
+                      isMaintenanceMode 
+                        ? "bg-amber-500/15 border-amber-500/30 text-amber-600" 
+                        : "bg-emerald-500/15 border-emerald-500/30 text-emerald-600"
+                    )}>
+                      {isMaintenanceMode ? "🛠️" : "🟢"}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 leading-tight">
+                        Modo Mantenimiento
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                        {isMaintenanceMode ? "Activo (Solo acceso SuperAdmin)" : "Web abierta al público"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={onToggleMaintenanceMode}
+                    className={cn(
+                      "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 shadow-xs active:scale-95",
+                      isMaintenanceMode
+                        ? "bg-amber-600 hover:bg-amber-700 text-white"
+                        : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                    )}
+                  >
+                    {isMaintenanceMode ? "Desactivar" : "Activar"}
+                  </button>
+                </div>
+              )}
 
               {/* Mobile Impersonation Panel */}
               {user?.email === 'seseffff942@gmail.com' && (

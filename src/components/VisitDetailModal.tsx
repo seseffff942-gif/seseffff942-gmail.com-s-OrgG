@@ -92,12 +92,9 @@ export function VisitDetailModal({ isOpen, onClose, visit, client, onDeleteVisit
 
       // Custom visit pin
       const visitPinHtml = `
-        <div class="flex flex-col items-center">
-          <div class="px-2 py-0.5 rounded-full text-[9px] font-bold text-white bg-teal-700 shadow-sm whitespace-nowrap mb-0.5">
-            📸 Punto de Visita
-          </div>
-          <div class="w-7 h-7 rounded-full bg-teal-600 border-2 border-white shadow-md flex items-center justify-center text-white text-xs font-bold">
-            📍
+        <div class="relative flex items-center justify-center" style="width: 28px; height: 28px;">
+          <div class="w-5 h-5 rounded-full bg-emerald-600 border-2 border-white shadow-lg flex items-center justify-center">
+            <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
           </div>
         </div>
       `;
@@ -105,8 +102,8 @@ export function VisitDetailModal({ isOpen, onClose, visit, client, onDeleteVisit
       const visitIcon = L.divIcon({
         className: 'custom-visit-detail-pin',
         html: visitPinHtml,
-        iconSize: [40, 48],
-        iconAnchor: [20, 44]
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
       });
 
       L.marker([lat, lng], { icon: visitIcon })
@@ -117,20 +114,17 @@ export function VisitDetailModal({ isOpen, onClose, visit, client, onDeleteVisit
       // If client has registered location, show client pin too
       if (client?.latitude && client?.longitude && !isNaN(client.latitude) && !isNaN(client.longitude)) {
         const clientPinHtml = `
-          <div class="flex flex-col items-center">
-            <div class="px-2 py-0.5 rounded-full text-[9px] font-bold text-white bg-emerald-700 shadow-sm whitespace-nowrap mb-0.5">
-              🏢 Local Registrado
-            </div>
-            <div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white shadow-md flex items-center justify-center text-white text-[11px] font-bold">
-              🏬
+          <div class="relative flex items-center justify-center" style="width: 28px; height: 28px;">
+            <div class="w-5 h-5 rounded-full bg-slate-700 border-2 border-white shadow-lg flex items-center justify-center">
+              <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
             </div>
           </div>
         `;
         const clientIcon = L.divIcon({
           className: 'custom-client-detail-pin',
           html: clientPinHtml,
-          iconSize: [40, 48],
-          iconAnchor: [20, 44]
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
         });
 
         L.marker([client.latitude, client.longitude], { icon: clientIcon }).addTo(map);

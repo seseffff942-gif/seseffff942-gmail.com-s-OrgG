@@ -66,25 +66,76 @@
   }
 }
 
+/* ==========================================================================
+   NATIVE MOBILE OPTIMIZATIONS (100% Native App Feel & Zero Touch Lag)
+   ========================================================================== */
+html, body {
+  /* Elimina el retraso de 300ms de touch en móviles Android/iOS */
+  touch-action: manipulation;
+  /* Evita que se seleccione texto o aparezca lupa al mantener presionado */
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Elimina el molesto pull-to-refresh y el rebote elástico de navegador */
+  overscroll-behavior-y: none;
+  /* Elimina el destello gris/azul al tocar botones en WebView Android */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Permitir selección normal y escritura en campos de texto */
+input, textarea, [contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  touch-action: auto !important;
+}
+
+/* Leaflet & Map Custom Styling */
 /* Leaflet & Map Custom Styling */
 @import "leaflet/dist/leaflet.css";
 
-.custom-map-user-pin {
-  background: transparent;
-  border: none;
+.custom-map-user-pin,
+.custom-map-client-pin,
+.custom-map-route-start-pin,
+.custom-map-route-end-pin,
+.custom-map-route-stop-pin,
+.custom-visit-detail-pin,
+.custom-client-detail-pin,
+.custom-client-marker {
+  background: transparent !important;
+  border: none !important;
 }
 
-.custom-map-client-pin {
-  background: transparent;
-  border: none;
+@keyframes map-pin-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.map-pin-pulse-today {
+  animation: map-pin-pulse 2s infinite ease-in-out;
 }
 
 .leaflet-popup-content-wrapper {
-  border-radius: 1rem !important;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 20px 30px -10px rgba(15, 23, 42, 0.2), 0 10px 15px -3px rgba(15, 23, 42, 0.1) !important;
   padding: 0 !important;
   overflow: hidden !important;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid rgba(226, 232, 240, 0.9) !important;
+  background: #ffffff !important;
+}
+
+.leaflet-popup-tip {
+  background: #ffffff !important;
+  box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.1) !important;
 }
 
 .leaflet-popup-content {
@@ -96,4 +147,5 @@
   font-family: 'Inter', system-ui, sans-serif !important;
   z-index: 10;
 }
+
 
