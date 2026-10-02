@@ -56,7 +56,7 @@ export function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#050c09] text-slate-100 flex font-sans relative overflow-hidden select-none">
+    <div className="min-h-screen bg-[#050c09] text-slate-100 flex font-sans relative overflow-hidden select-none pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]">
       
       {/* BACKGROUND REFLECTIVE GLOW EFFECT (Orbs and Dust) */}
       <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">

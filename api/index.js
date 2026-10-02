@@ -1101,6 +1101,18 @@ var localDb = createLocalDb({
   pool: pgPool,
   storageDir: path2.join(process.cwd(), "storage")
 });
+if (pgPool) {
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS public.fcm_tokens (
+      token TEXT PRIMARY KEY,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).then(() => {
+    console.log("[DB] \u2705 Tabla public.fcm_tokens verificada en PostgreSQL");
+  }).catch((err) => {
+    console.warn("[DB] Aviso al verificar public.fcm_tokens:", err.message);
+  });
+}
 var PANIC_STATE_FILE = path2.join(process.cwd(), "panic_state.json");
 var lastDbModeCached = {
   mode: "local",
@@ -2235,27 +2247,38 @@ function saveFcmTokens(tokens) {
 async function getFcmTokens() {
   const local = readFcmTokens();
   const tokenSet = new Set(local);
-  try {
-    const { data, error } = await localDb.from("fcm_tokens").select("token");
-    if (!error && Array.isArray(data)) {
-      data.forEach((r) => {
-        if (r?.token) tokenSet.add(r.token);
-      });
+  if (pgPool) {
+    try {
+      const res = await pgPool.query("SELECT token FROM public.fcm_tokens;");
+      if (res && Array.isArray(res.rows)) {
+        res.rows.forEach((r) => {
+          if (r?.token) tokenSet.add(r.token);
+        });
+      }
+    } catch (e) {
     }
-  } catch (e) {
   }
   return Array.from(tokenSet);
 }
 async function registerFcmToken(token) {
   if (!token || typeof token !== "string") return;
+  const cleanToken = token.trim();
+  if (!cleanToken) return;
   const tokens = readFcmTokens();
-  if (!tokens.includes(token)) {
-    tokens.push(token);
+  if (!tokens.includes(cleanToken)) {
+    tokens.push(cleanToken);
     saveFcmTokens(tokens);
   }
-  try {
-    await localDb.from("fcm_tokens").upsert([{ token, updated_at: (/* @__PURE__ */ new Date()).toISOString() }], { onConflict: "token" });
-  } catch (e) {
+  if (pgPool) {
+    try {
+      await pgPool.query(
+        "INSERT INTO public.fcm_tokens (token, updated_at) VALUES ($1, NOW()) ON CONFLICT (token) DO UPDATE SET updated_at = NOW();",
+        [cleanToken]
+      );
+      console.log(`[FCM] \u{1F4F2} Token registrado exitosamente en DB: ${cleanToken.substring(0, 16)}...`);
+    } catch (e) {
+      console.warn("[FCM] Error saving token to pgPool:", e.message);
+    }
   }
 }
 async function broadcastPushNotification(title, message, url = "/") {
@@ -2326,11 +2349,21 @@ async function broadcastPushNotification(title, message, url = "/") {
         if (failedTokens.length > 0) {
           const currentTokens = readFcmTokens().filter((t) => !failedTokens.includes(t));
           saveFcmTokens(currentTokens);
+          if (pgPool) {
+            try {
+              await pgPool.query("DELETE FROM public.fcm_tokens WHERE token = ANY($1::text[])", [failedTokens]);
+            } catch (e) {
+            }
+          }
         }
       }
     } catch (fcmErr) {
       console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
     }
+  } else if (!firebaseAdminApp && fcmTokens.length > 0) {
+    console.warn(`[FCM Android Push] \u26A0\uFE0F Se tienen ${fcmTokens.length} tokens pero Firebase Admin no est\xE1 conectado.`);
+  } else if (fcmTokens.length === 0) {
+    console.log(`[FCM Android Push] \u2139\uFE0F No hay tokens nativos registrados para enviar multicast.`);
   }
 }
 function readLocalNotifications() {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 // Agricovet PWA App - Soporte iOS e Instalación optimizada detectando Standalone
 import { User } from './types';
 import { Login } from './components/Login';
@@ -228,8 +229,9 @@ export default function App() {
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     setIsIOS(ios);
 
-    // Detect standalone mode (already installed on homescreen)
-    const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+    // Detect standalone mode (already installed on homescreen or running in Capacitor Native APK)
+    const isCapacitor = Capacitor.isNativePlatform();
+    const standalone = isCapacitor || window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
     setIsStandalone(standalone);
 
     // Prompt iOS users after 3 seconds if they haven't dismissed it previously
@@ -243,6 +245,15 @@ export default function App() {
       }
     }
   }, []);
+
+  React.useEffect(() => {
+    if (user && Capacitor.isNativePlatform()) {
+      const fcm = localStorage.getItem('agricovet_fcm_token');
+      if (fcm) {
+        api.sendFcmToken(fcm).catch(() => {});
+      }
+    }
+  }, [user]);
 
   React.useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -371,7 +382,7 @@ export default function App() {
       <UpdateNotificationBanner />
 
       {isOffline && (
-        <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white font-medium text-xs md:text-sm px-4 py-2.5 flex items-center justify-between shadow-md z-50">
+        <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white font-medium text-xs md:text-sm px-4 pt-[calc(0.625rem+env(safe-area-inset-top,0px))] pb-2.5 flex items-center justify-between shadow-md z-50">
           <span className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0" />
             <span>Sin conexión a internet. Cambios se guardarán de forma local.</span>
@@ -380,7 +391,7 @@ export default function App() {
         </div>
       )}
       {isImpersonating && (
-        <div className="bg-slate-900/95 backdrop-blur-sm text-white font-bold text-[10px] md:text-xs px-3 py-1.5 flex items-center justify-between shadow-md z-[60] sticky top-0 border-b border-teal-500/30">
+        <div className="bg-slate-900/95 backdrop-blur-sm text-white font-bold text-[10px] md:text-xs px-3 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 flex items-center justify-between shadow-md z-[60] sticky top-0 border-b border-teal-500/30">
           <div className="flex items-center gap-2 truncate mr-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
             <p className="truncate text-slate-200">
@@ -409,6 +420,7 @@ export default function App() {
         isMaintenanceMode={isMaintenanceMode}
         onToggleMaintenanceMode={toggleMaintenanceMode}
         isSuperAdmin={isSuperAdmin}
+        hasTopBanner={isOffline || isImpersonating}
         onShowInstallGuide={() => {
           if (isIOS) {
             setShowIOSInstallHelper(true);

@@ -24,6 +24,7 @@ interface NavigationProps {
   isMaintenanceMode?: boolean;
   onToggleMaintenanceMode?: () => void;
   isSuperAdmin?: boolean;
+  hasTopBanner?: boolean;
 }
 
 function NotificationsPopover({ 
@@ -52,7 +53,7 @@ function NotificationsPopover({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'inventory' | 'sales'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'inventory' | 'sales' | 'visits'>('all');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
 
   const fetchNotifications = async (quiet = false) => {
@@ -170,8 +171,8 @@ function NotificationsPopover({
             transition={{ type: 'spring', damping: 30, stiffness: 260 }}
             className="fixed inset-y-0 right-0 z-[999] w-full sm:max-w-[440px] md:max-w-[460px] bg-slate-50 flex flex-col h-full border-l border-slate-200 overflow-hidden shadow-2xl select-none"
           >
-            {/* Clean Minimalist Header */}
-            <div className="bg-white border-b border-slate-200/80 px-4 py-3.5 flex items-center justify-between shrink-0 shadow-xs z-30">
+            {/* Clean Minimalist Header with Status Bar Safe Area Padding */}
+            <div className="bg-white border-b border-slate-200/80 px-4 pt-[calc(0.875rem+env(safe-area-inset-top,0px))] pb-3.5 flex items-center justify-between shrink-0 shadow-xs z-30">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className={cn(
                   "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border transition-colors",
@@ -472,7 +473,7 @@ function NotificationsPopover({
   );
 }
 
-export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout, onReturnToAdmin, onImpersonate, isMobile, onShowInstallGuide, showInstallButton, isMaintenanceMode, onToggleMaintenanceMode, isSuperAdmin }: NavigationProps) {
+export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout, onReturnToAdmin, onImpersonate, isMobile, onShowInstallGuide, showInstallButton, isMaintenanceMode, onToggleMaintenanceMode, isSuperAdmin, hasTopBanner }: NavigationProps) {
   const [logoUrl, setLogoUrl] = useState(() => localStorage.getItem('app_logo_url') || '/agricovet.png');
 
   const [sellers, setSellers] = useState<User[]>([]);
@@ -627,7 +628,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     setPushErrorMsg('');
     try {
       if (Capacitor.isNativePlatform()) {
-        const ok = await initNativeNotifications();
+        const ok = await initNativeNotifications(undefined, true);
         if (ok) {
           setIsSubscribedToPush(true);
           setPushStatus('granted');
@@ -1000,8 +1001,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
   return (
     <>
-      {/* Mobile Top Header */}
-      <header className="md:hidden sticky top-0 z-50 bg-white border-b border-slate-200 flex justify-between items-center px-4 h-16 w-full select-none">
+      {/* Mobile Top Header with Status Bar Safe Area Support */}
+      <header className={cn(
+        "md:hidden sticky top-0 z-50 bg-white border-b border-slate-200 flex justify-between items-center px-4 w-full select-none transition-all shadow-xs",
+        hasTopBanner 
+          ? "h-16" 
+          : "pt-[env(safe-area-inset-top,0px)] min-h-[calc(4rem+env(safe-area-inset-top,0px))]"
+      )}>
         <div className="flex items-center gap-1.5">
           <img src={logoUrl} alt="Agricovet" className="h-8 w-8 object-contain" onError={(e) => { e.currentTarget.src = LOGO_PLACEHOLDER; }} />
           <div className="flex items-center gap-1.5">

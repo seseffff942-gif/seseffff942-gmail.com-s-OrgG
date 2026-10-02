@@ -19,12 +19,17 @@ function getNumericNotificationId(idStr?: string | number): number {
   return Math.abs(hash) % 2000000000;
 }
 
-export async function initNativeNotifications(onNotificationClick?: (data: any) => void) {
+export async function initNativeNotifications(onNotificationClick?: (data: any) => void, force = false) {
   if (!Capacitor.isNativePlatform()) {
     return false;
   }
 
-  if (isInitialized) {
+  // If already initialized and not forced, ensure cached token is synced and return
+  if (isInitialized && !force) {
+    const cachedToken = localStorage.getItem('agricovet_fcm_token');
+    if (cachedToken) {
+      api.sendFcmToken(cachedToken).catch(() => {});
+    }
     return true;
   }
 
@@ -36,25 +41,32 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
       await LocalNotifications.deleteChannel({ id: 'agricovet_orders_channel_v3' });
     } catch (delErr) {}
 
-    // 2. Create Android Notification Channel with custom sound & MAX importance
+    // 2. Create Android Notification Channel on both LocalNotifications and PushNotifications
+    const channelConfig = {
+      id: 'agricovet_orders_channel_v4',
+      name: 'Pedidos y Facturación Agricovet',
+      description: 'Notificaciones prioritarias con sonido de pedidos y facturas',
+      importance: 5 as const, // 5 = High / Heads-up popup
+      visibility: 1 as const, // 1 = Public
+      sound: 'whatsapp.wav',
+      vibration: true,
+      lights: true,
+      lightColor: '#16a34a',
+    };
+
     try {
-      await LocalNotifications.createChannel({
-        id: 'agricovet_orders_channel_v4',
-        name: 'Pedidos y Facturación Agricovet',
-        description: 'Notificaciones prioritarias con sonido de pedidos y facturas',
-        importance: 5, // 5 = High / Heads-up popup
-        visibility: 1, // 1 = Public
-        sound: 'whatsapp.wav',
-        vibration: true,
-        lights: true,
-        lightColor: '#16a34a',
-      });
-      console.log('[Native Notifications] Channel agricovet_orders_channel_v4 created with sound whatsapp.wav');
+      await LocalNotifications.createChannel(channelConfig);
     } catch (chanErr) {
-      console.warn('[Native Notifications] Channel creation warning:', chanErr);
+      console.warn('[Native Notifications] Local Channel creation warning:', chanErr);
     }
 
-    // 3. Request Local & Push Notification Permissions (Android 13+)
+    try {
+      await PushNotifications.createChannel(channelConfig);
+    } catch (pushChanErr) {
+      console.warn('[Native Notifications] Push Channel creation warning:', pushChanErr);
+    }
+
+    // 3. Request Local Notification Permissions (Android 13+)
     try {
       const permStatus = await LocalNotifications.checkPermissions();
       if (permStatus.display !== 'granted') {
@@ -65,25 +77,21 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
       console.warn('[Native Notifications] Permission request error:', permErr);
     }
 
-    // 4. Request Firebase Cloud Messaging (FCM) Native Push Registration
+    // 4. Attach FCM Device Token Registration & Push Listeners BEFORE calling register()
     try {
-      const pushPerm = await PushNotifications.checkPermissions();
-      if (pushPerm.receive !== 'granted') {
-        await PushNotifications.requestPermissions();
+      if (force) {
+        await PushNotifications.removeAllListeners().catch(() => {});
       }
-      await PushNotifications.register();
-      console.log('[Native Push] PushNotifications.register() invoked successfully.');
-    } catch (pushErr) {
-      console.warn('[Native Push] Push register warning:', pushErr);
-    }
 
-    // 5. Listen for FCM Device Token Registration
-    try {
       PushNotifications.addListener('registration', (token) => {
         console.log('[Native Push] FCM Token received:', token.value);
         if (token?.value) {
           localStorage.setItem('agricovet_fcm_token', token.value);
-          api.sendFcmToken(token.value).catch(() => {});
+          api.sendFcmToken(token.value).then(() => {
+            console.log('[Native Push] ✅ FCM Token registered on server successfully.');
+          }).catch((err) => {
+            console.warn('[Native Push] ⚠️ Error sending FCM token to server:', err);
+          });
         }
       });
 
@@ -91,7 +99,7 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
         console.warn('[Native Push] Registration error:', error);
       });
 
-      // 6. Listen for incoming push notification while app is active
+      // Listen for incoming push notification while app is active
       PushNotifications.addListener('pushNotificationReceived', (notification) => {
         console.log('[Native Push] Notification received in foreground:', notification);
         
@@ -135,6 +143,25 @@ export async function initNativeNotifications(onNotificationClick?: (data: any) 
       });
     } catch (regErr) {
       console.warn('[Native Push] Listener registration error:', regErr);
+    }
+
+    // 5. Check Push Permissions & Register with Firebase Cloud Messaging (FCM)
+    try {
+      const pushPerm = await PushNotifications.checkPermissions();
+      if (pushPerm.receive !== 'granted') {
+        const req = await PushNotifications.requestPermissions();
+        console.log('[Native Push] Permission request result:', req.receive);
+      }
+      await PushNotifications.register();
+      console.log('[Native Push] PushNotifications.register() invoked successfully.');
+    } catch (pushErr) {
+      console.warn('[Native Push] Push register warning:', pushErr);
+    }
+
+    // 6. Proactively sync any previously saved token to the backend
+    const cachedToken = localStorage.getItem('agricovet_fcm_token');
+    if (cachedToken) {
+      api.sendFcmToken(cachedToken).catch(() => {});
     }
 
     // 7. Listen to Local Notification Action Clicks
