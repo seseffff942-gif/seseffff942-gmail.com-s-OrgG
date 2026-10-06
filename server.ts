@@ -2234,49 +2234,71 @@ async function fetchPaymentsFromLocalDb(invoiceId: string): Promise<any[]> {
 // CLIENTS
 export function isClientOfSeller(
   client: any,
-  user: { id?: string; email?: string; name?: string; sellerCode?: string; role?: string } | null | undefined
+  user: { id?: string; email?: string; name?: string; sellerCode?: string; role?: string } | null | undefined,
+  options?: { ignoreAdmin?: boolean }
 ): boolean {
   if (!client || !user) return false;
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin' && !options?.ignoreAdmin) return true;
 
   const uId = String(user.id || '').trim().toLowerCase();
   const uEmail = String(user.email || '').trim().toLowerCase();
   const uName = String(user.name || '').trim().toLowerCase();
   const uCode = String(user.sellerCode || '').trim().toLowerCase();
+  const uCodeDigits = uCode.replace(/\D/g, '');
 
-  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || '').trim().toLowerCase();
-  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || '').trim().toLowerCase();
-  const cSellerEmail = String(client.sellerEmail || client.seller_email || '').trim().toLowerCase();
+  const cleanVal = (val: any) => String(val || '')
+    .replace(/\s*\(t[uú]\)/gi, '')
+    .trim()
+    .toLowerCase();
+
+  const cSellerId = cleanVal(client.sellerId || client.seller_id || client.sellerid);
+  const cSellerName = cleanVal(client.sellerName || client.seller_name);
+  const cGeotaggedBy = cleanVal(client.geotaggedBy || client.geotagged_by);
+  const cSellerEmail = cleanVal(client.sellerEmail || client.seller_email);
+  const cCreatedBy = cleanVal(client.createdBy || client.created_by);
+
+  const clientSellerFields = [cSellerId, cSellerName, cGeotaggedBy, cSellerEmail, cCreatedBy].filter(Boolean);
 
   // 1. Coincidencia directa por ID, Email o Código de vendedor
-  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
-  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
-  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+  if (uId && clientSellerFields.some(f => f === uId || f.includes(uId))) return true;
+  if (uEmail && clientSellerFields.some(f => f === uEmail || f.includes(uEmail))) return true;
+  if (uCode && clientSellerFields.some(f => f === uCode || f.includes(uCode))) return true;
+  if (uCodeDigits && uCodeDigits.length >= 3 && clientSellerFields.some(f => f === uCodeDigits || f.includes(uCodeDigits))) return true;
 
   // 2. Coincidencia por Nombre de Asesor (con normalización de tildes y nombres compuestos)
   if (uName) {
-    if (cSellerId === uName || cGeotaggedBy === uName) return true;
-    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
-
     const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
-
     const firstName = normUName.split(' ')[0];
-    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+
+    for (const field of clientSellerFields) {
+      if (field === uName || field.includes(uName)) return true;
+      const normField = field.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (normField.includes(normUName)) return true;
+      if (firstName.length >= 4 && normField.includes(firstName)) return true;
+    }
+  }
+
+  // 3. Reglas específicas para asesores clave por email / alias
+  const isHerbertUser = uName.includes('herbert') || uEmail.includes('gruasytransportesali') || uCode.includes('1521');
+  if (isHerbertUser) {
+    if (clientSellerFields.some(f => f.includes('herbert') || f.includes('1521') || f.includes('gruasytransportesali'))) {
+      return true;
+    }
+  }
+
+  const isErickUser = uName.includes('erick') || uEmail.includes('jerickottoniel') || uCode.includes('8363');
+  if (isErickUser) {
+    if (clientSellerFields.some(f => f.includes('erick') || f.includes('jerick') || f.includes('8363'))) {
+      return true;
+    }
   }
 
   return false;
 }
 
 app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const userRole = req.user?.role;
   const cached = getCachedData("clients");
   if (cached) {
-    if (userRole === 'seller') {
-      return res.json(cached.filter((c: any) => isClientOfSeller(c, req.user)));
-    }
     return res.json(cached);
   }
 
@@ -2465,9 +2487,6 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
   saveLocalClients(finalClients);
 
   setCachedData("clients", finalClients);
-  if (userRole === 'seller') {
-    return res.json(finalClients.filter((c: any) => isClientOfSeller(c, req.user)));
-  }
   res.json(finalClients);
 }));
 
