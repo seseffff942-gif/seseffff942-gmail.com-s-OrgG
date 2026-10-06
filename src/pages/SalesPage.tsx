@@ -165,8 +165,18 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
          setProducts(newProducts.map(item => ({ ...item, stock: Number(item.stock) || 0, price: Number(item.price) || 0 })));
       });
       api.getClients().then(updatedClients => {
-         const filtered = user.role === 'seller' ? (updatedClients || []).filter((cl: any) => isClientOfSeller(cl, user)) : updatedClients;
-         setClients(filtered);
+         const uniqueClients = (updatedClients || []).reduce((acc: any[], client: any) => {
+           const alreadyExists = acc.find(curr => 
+             (curr.id && client.id && curr.id === client.id) ||
+             ((curr.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase() && 
+              (curr.companyName || '').trim().toLowerCase() === (client.companyName || '').trim().toLowerCase())
+           );
+           if (!alreadyExists) {
+             acc.push(client);
+           }
+           return acc;
+         }, []);
+         setClients(uniqueClients);
       }).catch(() => {});
     }
   };
@@ -297,16 +307,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           return acc;
         }, []);
         
-        const allowedClients = user.role === 'seller'
-          ? uniqueClients.filter((cl: any) => isClientOfSeller(cl, user))
-          : uniqueClients;
-
-        setClients(allowedClients);
+        // Mantener todos los clientes en clients (249) para permitir búsquedas en "Todos" a todos los roles
+        setClients(uniqueClients);
         setUsersList(u);
         setPrintTemplate(tempRes.template || DEFAULT_PRINT_TEMPLATE);
         
         localStorage.setItem('offline_products', JSON.stringify(mappedProducts));
-        localStorage.setItem('offline_clients', JSON.stringify(allowedClients));
+        localStorage.setItem('offline_clients', JSON.stringify(uniqueClients));
 
         setLoading(false);
       } catch (err) {
@@ -968,8 +975,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            }
            return acc;
          }, []);
-          const allowed = user.role === 'seller' ? uniqueClients.filter((cl: any) => isClientOfSeller(cl, user)) : uniqueClients;
-          setClients(allowed);
+         setClients(uniqueClients);
       }).catch(() => {});
       
       return; 
@@ -2566,7 +2572,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                             : "bg-slate-200 hover:bg-slate-300 text-slate-700"
                         )}
                       >
-                        Mis Asignados
+                        Mis Asignados ({clients.filter(c => isClientOfSeller(c, user, { ignoreAdmin: true })).length})
                       </button>
                       <button
                         type="button"
@@ -2628,7 +2634,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                   {(() => {
                     const queryLower = clientSearchQuery.toLowerCase().trim();
                     const filtered = clients.filter(c => {
-                      if (clientSearchFilter === 'mine' && c.sellerId !== user.email) {
+                      if (clientSearchFilter === 'mine' && !isClientOfSeller(c, user, { ignoreAdmin: true })) {
                         return false;
                       }
 
@@ -2702,7 +2708,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {filtered.map(c => {
-                              const isAssignedToMe = c.sellerId === user.email;
+                              const isAssignedToMe = isClientOfSeller(c, user, { ignoreAdmin: true });
                               return (
                                 <div
                                   key={c.id}
@@ -2748,7 +2754,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                         </span>
                                       ) : (
                                         <span className="text-[9px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                                          Vendedor
+                                          Otro Asesor
                                         </span>
                                       )}
                                     </div>
@@ -2759,9 +2765,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                      <p>NIT: {c.nit}</p>
                                   </div>
 
-                                  {(user.role === 'admin' || !isAssignedToMe) && c.sellerId && (
+                                  {(user.role === 'admin' || !isAssignedToMe) && (c.sellerId || c.sellerName || c.sellerEmail) && (
                                     <div className="text-[9px] text-slate-400 font-bold flex items-center gap-1 border-t border-slate-50 pt-1">
-                                      👤 Asignado: <span className="text-slate-600 truncate max-w-[150px]">{getSellerDisplayName(c.sellerId)}</span>
+                                      👤 Asignado: <span className="text-slate-600 truncate max-w-[150px]">{getSellerDisplayName(c.sellerId || c.sellerName || c.sellerEmail)}</span>
                                     </div>
                                   )}
                                 </div>

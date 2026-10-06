@@ -23,6 +23,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'sales' | 'invoices'>('name');
   const [portfolioFilter, setPortfolioFilter] = useState<'all' | 'regular' | 'prospect'>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<'mine' | 'all'>(user.role === 'admin' ? 'all' : 'mine');
   
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -119,11 +120,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
         return acc;
       }, []);
 
-      const allowedClients = user.role === 'admin'
-        ? uniqueClients
-        : uniqueClients.filter(c => isClientOfSeller(c, user));
-
-      setClients(allowedClients);
+      setClients(uniqueClients);
       setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
       setUsers(fetchedUsers.filter(u => u.role === 'admin' || u.role === 'seller'));
     } catch (error) {
@@ -321,9 +318,10 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     };
   };
 
-  const allowedClients = user.role === 'admin'
-    ? clients
-    : clients.filter(c => isClientOfSeller(c, user));
+  const allowedClients = useMemo(() => {
+    if (assignmentFilter === 'all') return clients;
+    return clients.filter(c => isClientOfSeller(c, user, { ignoreAdmin: true }));
+  }, [clients, assignmentFilter, user]);
 
   // Grouped stats for entire portfolio (of processed / filtered data)
   const totalPortfolioClients = allowedClients.length;
@@ -333,15 +331,18 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
 
   const getClientSellerName = (sellerId?: string) => {
     if (!sellerId) return 'No asignado';
-    const sLower = sellerId.toLowerCase();
-    if (sLower.includes('jerickottoniel')) return 'Erick Juárez';
+    const sClean = sellerId.replace(/\s*\(t[uú]\)/gi, '').trim();
+    const sLower = sClean.toLowerCase();
+    if (sLower.includes('jerickottoniel') || sLower.includes('erick')) return 'Erick Juárez';
+    if (sLower.includes('gruasytransportesali') || sLower.includes('herbert')) return 'Herbert Argueta';
     const s = users.find(u => 
       (u.email && u.email.toLowerCase() === sLower) || 
       u.id === sellerId || 
-      (u.sellerCode && u.sellerCode.toLowerCase() === sLower)
+      (u.sellerCode && u.sellerCode.toLowerCase() === sLower) ||
+      (u.name && u.name.toLowerCase() === sLower)
     );
     if (s && s.name) return s.name;
-    return sellerId.includes('@') ? sellerId.split('@')[0] : sellerId;
+    return sClean.includes('@') ? sClean.split('@')[0] : sClean;
   };
 
   const getClientInitials = (name: string) => {
@@ -528,7 +529,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       {/* FILTER & OPTION CONTROLS */}
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col gap-4">
         
-        {/* Row 1: Segment Tabs (Cartera Regular vs Prospectos vs Todos) */}
+        {/* Row 1: Segment Tabs (Cartera Regular vs Prospectos vs Todos) y Selector Mis Asignados vs Todos */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
             <button
@@ -581,12 +582,53 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
                   : "text-slate-600 hover:text-slate-900"
               )}
             >
-              <span>Todos</span>
+              <span>Ver Todos</span>
               <span className={cn(
                 "text-[10px] px-1.5 py-0.2 rounded-full font-black",
                 portfolioFilter === 'all' ? "bg-slate-200 text-slate-800" : "bg-slate-200 text-slate-600"
               )}>
                 {allowedClients.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Filtro de Asignación: Mis Asignados vs Toda la Empresa */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
+            <button
+              type="button"
+              onClick={() => setAssignmentFilter('mine')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer",
+                assignmentFilter === 'mine'
+                  ? "bg-teal-700 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <span>Mis Asignados</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-black",
+                assignmentFilter === 'mine' ? "bg-teal-800 text-white" : "bg-slate-200 text-slate-600"
+              )}>
+                {clients.filter(c => isClientOfSeller(c, user, { ignoreAdmin: true })).length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAssignmentFilter('all')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer",
+                assignmentFilter === 'all'
+                  ? "bg-teal-700 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <span>Todos</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-black",
+                assignmentFilter === 'all' ? "bg-teal-800 text-white" : "bg-slate-200 text-slate-600"
+              )}>
+                {clients.length}
               </span>
             </button>
           </div>
