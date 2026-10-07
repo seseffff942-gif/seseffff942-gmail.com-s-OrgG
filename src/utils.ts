@@ -2665,7 +2665,23 @@ export function blobToBase64(blob: Blob): Promise<string> {
 
 /** Dispara la descarga de un Blob con compatibilidad total en APK Android, iOS y navegadores web. */
 export async function descargarBlob(blob: Blob, filename: string) {
-  // 1. Bridge nativo de Android (en nuestra APK MainActivity: guarda en Descargas y abre selector)
+  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|wv|WebView/i.test(navigator.userAgent);
+  const isCapacitor = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform());
+
+  // 1. Si es COMPUTADORA / DESKTOP (Windows, Mac, Linux): Descarga directa limpia al navegador
+  if (!isMobile && !isCapacitor) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return;
+  }
+
+  // 2. Bridge nativo de Android (en nuestra APK MainActivity: guarda en Descargas y abre selector)
   if (typeof window !== 'undefined' && (window as any).AndroidDownloader?.downloadBase64) {
     try {
       const base64 = await blobToBase64(blob);
@@ -2676,8 +2692,8 @@ export async function descargarBlob(blob: Blob, filename: string) {
     }
   }
 
-  // 2. Web Share API con archivos (soportado nativamente por Android WebView y navegadores móviles)
-  if (typeof navigator !== 'undefined' && typeof File !== 'undefined' && navigator.share && navigator.canShare) {
+  // 3. Web Share API con archivos (SOLO para teléfonos móviles Android / iOS donde sea útil)
+  if (isMobile && typeof navigator !== 'undefined' && typeof File !== 'undefined' && navigator.share && navigator.canShare) {
     try {
       const file = new File([blob], filename, { type: blob.type || 'application/pdf' });
       if (navigator.canShare({ files: [file] })) {
@@ -2696,13 +2712,8 @@ export async function descargarBlob(blob: Blob, filename: string) {
     }
   }
 
-  // 3. Fallback en WebView/APK que bloquea Blob URLs: Enrutamiento seguro por endpoint temporal del servidor
-  const isAndroidOrCapacitor = typeof window !== 'undefined' && (
-    Boolean((window as any).Capacitor?.isNativePlatform()) ||
-    /Android|wv|WebView/i.test(navigator.userAgent)
-  );
-
-  if (isAndroidOrCapacitor) {
+  // 4. Fallback en WebView/APK que bloquea Blob URLs: Enrutamiento seguro por endpoint temporal del servidor
+  if (isMobile || isCapacitor) {
     try {
       const base64 = await blobToBase64(blob);
       const resp = await fetch('/api/download-temp', {
@@ -2727,7 +2738,7 @@ export async function descargarBlob(blob: Blob, filename: string) {
     }
   }
 
-  // 4. Descarga estándar de navegador Web (Desktop / Chrome normal)
+  // 5. Descarga estándar de navegador Web (Desktop / Chrome normal)
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
