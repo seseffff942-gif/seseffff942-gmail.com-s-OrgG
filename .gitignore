@@ -30,6 +30,8 @@ android/app/build/
 android/build/
 *.bak
 *.apk
+!agricovet-live.apk
+!agricovet.apk
 *.tar.gz
 storage/
 _git_push.cjs
