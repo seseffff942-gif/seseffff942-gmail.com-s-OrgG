@@ -223,6 +223,9 @@ export default function App() {
   const [isStandalone, setIsStandalone] = useState(false);
   const [showIOSInstallHelper, setShowIOSInstallHelper] = useState(false);
   const [showGeneralInstallHelper, setShowGeneralInstallHelper] = useState(false);
+  const [isInstallDismissed, setIsInstallDismissed] = useState<boolean>(() => {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('agricovet_install_dismissed') === 'true';
+  });
 
   React.useEffect(() => {
     // Detect iOS
@@ -450,26 +453,53 @@ export default function App() {
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
         
         {/* Floating Download Button (Android & Desktop Chrome support) */}
-        {deferredPrompt && (
-          <button 
-            onClick={handleInstallClick} 
-            className="fixed top-4 right-4 z-50 bg-[#00696a] text-white px-4 py-2 rounded-full shadow-lg hover:bg-[#004f50] flex items-center space-x-2 transition-all cursor-pointer hover:scale-105 active:scale-95"
-          >
-            <Download size={18} />
-            <span className="font-bold text-sm font-manrope">Descargar App</span>
-          </button>
+        {deferredPrompt && !isInstallDismissed && (
+          <div className="fixed bottom-6 right-6 z-40 flex items-center bg-[#00696a] text-white pl-3.5 pr-1.5 py-1.5 rounded-full shadow-2xl hover:bg-[#004f50] transition-all border border-teal-400/30 animate-in fade-in slide-in-from-bottom-2">
+            <button 
+              onClick={handleInstallClick} 
+              className="flex items-center space-x-2 cursor-pointer mr-1.5 active:scale-95"
+              title="Instalar aplicación en tu dispositivo"
+            >
+              <Download size={16} />
+              <span className="font-bold text-xs font-manrope">Descargar App</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsInstallDismissed(true);
+                localStorage.setItem('agricovet_install_dismissed', 'true');
+              }}
+              className="p-1 hover:bg-black/20 rounded-full text-white/80 hover:text-white transition-colors cursor-pointer"
+              title="Esconder y no mostrar de nuevo"
+            >
+              <X size={14} />
+            </button>
+          </div>
         )}
 
         {/* Floating Download Button (iOS Safari support) */}
-        {isIOS && !isStandalone && (
-          <button 
-            onClick={() => setShowIOSInstallHelper(true)} 
-            className="fixed bottom-20 md:top-4 right-4 z-40 bg-[#00696a] text-white px-4 py-2.5 rounded-full shadow-lg hover:bg-[#004f50] flex items-center space-x-2 transition-all cursor-pointer hover:scale-105 active:scale-95 animate-bounce"
-            style={{ animationDuration: '3s' }}
-          >
-            <Download size={18} />
-            <span className="font-bold text-sm font-manrope">Instalar App (iOS)</span>
-          </button>
+        {isIOS && !isStandalone && !isInstallDismissed && (
+          <div className="fixed bottom-20 md:bottom-6 right-6 z-40 flex items-center bg-[#00696a] text-white pl-3.5 pr-1.5 py-1.5 rounded-full shadow-2xl hover:bg-[#004f50] transition-all border border-teal-400/30 animate-in fade-in">
+            <button 
+              onClick={() => setShowIOSInstallHelper(true)} 
+              className="flex items-center space-x-2 cursor-pointer mr-1.5 active:scale-95"
+              title="Ver instrucciones para instalar en iPhone/iPad"
+            >
+              <Download size={16} />
+              <span className="font-bold text-xs font-manrope">Instalar App (iOS)</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsInstallDismissed(true);
+                localStorage.setItem('agricovet_install_dismissed', 'true');
+              }}
+              className="p-1 hover:bg-black/20 rounded-full text-white/80 hover:text-white transition-colors cursor-pointer"
+              title="Esconder y no mostrar de nuevo"
+            >
+              <X size={14} />
+            </button>
+          </div>
         )}
 
         {/* MODAL DE INSTALACIÓN PARA iOS */}
