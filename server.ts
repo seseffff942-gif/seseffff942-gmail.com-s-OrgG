@@ -11432,6 +11432,44 @@ app.use((err: any, req: any, res: any, next: any) => {
   });
 });
 
+// ======== RUTA DEDICADA PARA DESCARGAR APK ANDROID (.apk) ========
+app.get(['/agricovet-live.apk', '/agricovet.apk', '/*.apk'], (req, res) => {
+  const reqFilename = path.basename(req.path) || 'agricovet-live.apk';
+  const candidatePaths = [
+    path.join(process.cwd(), reqFilename),
+    path.join(process.cwd(), 'dist', reqFilename),
+    path.join(process.cwd(), 'public', reqFilename),
+    path.join(process.cwd(), 'agricovet-live.apk'),
+    path.join(process.cwd(), 'agricovet.apk'),
+    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
+    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release-unsigned.apk'),
+    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      try {
+        const stat = fs.statSync(candidate);
+        if (stat.isFile() && stat.size > 100000) {
+          console.log(`[APK Download] Sirviendo APK real desde: ${candidate} (${stat.size} bytes)`);
+          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+          res.setHeader('Content-Disposition', `attachment; filename="${reqFilename}"`);
+          res.setHeader('Content-Length', stat.size.toString());
+          return res.sendFile(path.resolve(candidate));
+        }
+      } catch (err) {
+        console.error('[APK Download] Error leyendo archivo APK:', candidate, err);
+      }
+    }
+  }
+
+  console.warn(`[APK Download] No se encontró archivo APK físico para: ${reqFilename}`);
+  return res.status(404).json({
+    error: 'Archivo APK no encontrado en el servidor VPS',
+    message: `No se encontró el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la raíz del proyecto para descargarlo.`
+  });
+});
+
 export default app;
 
 async function startServer() {

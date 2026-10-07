@@ -10796,6 +10796,44 @@ app.use((err, req, res, next) => {
     error: err.message || "Error interno del servidor"
   });
 });
+// ======== RUTA DEDICADA PARA DESCARGAR APK ANDROID (.apk) ========
+app.get(['/agricovet-live.apk', '/agricovet.apk', '/*.apk'], (req, res) => {
+  const reqFilename = path2.basename(req.path) || 'agricovet-live.apk';
+  const candidatePaths = [
+    path2.join(process.cwd(), reqFilename),
+    path2.join(process.cwd(), 'dist', reqFilename),
+    path2.join(process.cwd(), 'public', reqFilename),
+    path2.join(process.cwd(), 'agricovet-live.apk'),
+    path2.join(process.cwd(), 'agricovet.apk'),
+    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
+    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release-unsigned.apk'),
+    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs2.existsSync(candidate)) {
+      try {
+        const stat = fs2.statSync(candidate);
+        if (stat.isFile() && stat.size > 100000) {
+          console.log(`[APK Download] Sirviendo APK real desde: ${candidate} (${stat.size} bytes)`);
+          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+          res.setHeader('Content-Disposition', `attachment; filename="${reqFilename}"`);
+          res.setHeader('Content-Length', stat.size.toString());
+          return res.sendFile(path2.resolve(candidate));
+        }
+      } catch (err) {
+        console.error('[APK Download] Error leyendo archivo APK:', candidate, err);
+      }
+    }
+  }
+
+  console.warn(`[APK Download] No se encontró archivo APK físico para: ${reqFilename}`);
+  return res.status(404).json({
+    error: 'Archivo APK no encontrado en el servidor VPS',
+    message: `No se encontró el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la raíz del proyecto para descargarlo.`
+  });
+});
+
 var server_default = app;
 async function startServer() {
   console.log("Starting server script...");
