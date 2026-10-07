@@ -264,8 +264,43 @@ export default function App() {
       setDeferredPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
+
+    // Integración con botón Atrás físico de Android
+    (window as any).__handleAndroidBackButton = () => {
+      if (showGeneralInstallHelper) {
+        setShowGeneralInstallHelper(false);
+        return true;
+      }
+      if (showIOSInstallHelper) {
+        setShowIOSInstallHelper(false);
+        return true;
+      }
+      // Emitir evento Escape para cerrar modales activos en cualquier página
+      const escEvent = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(escEvent);
+
+      const closeButtons = document.querySelectorAll<HTMLElement>(
+        '.fixed.inset-0 button[aria-label="Cerrar"], .fixed.inset-0 button[aria-label="close"], [data-modal-close]'
+      );
+      if (closeButtons && closeButtons.length > 0) {
+        closeButtons[closeButtons.length - 1].click();
+        return true;
+      }
+      return false;
+    };
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      delete (window as any).__handleAndroidBackButton;
+    };
+  }, [showGeneralInstallHelper, showIOSInstallHelper]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;

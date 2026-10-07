@@ -11415,6 +11415,56 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
   res.json(data);
 }));
 
+// ======== DESCARGA TEMPORAL PARA APK / WEBVIEW Y COMPATIBILIDAD MÓVIL ========
+const tempDownloadStore = new Map<string, { buffer: Buffer; filename: string; mimeType: string; expires: number }>();
+
+// Limpieza periódica de archivos temporales cada 3 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, item] of tempDownloadStore.entries()) {
+    if (item.expires < now) {
+      tempDownloadStore.delete(id);
+    }
+  }
+}, 180000);
+
+app.post('/api/download-temp', express.json({ limit: '50mb' }), (req: any, res: any) => {
+  try {
+    const { filename, mimeType, base64 } = req.body;
+    if (!filename || !base64) {
+      return res.status(400).json({ error: 'filename y base64 son requeridos' });
+    }
+    const token = crypto.randomBytes(16).toString('hex');
+    const rawBase64 = base64.includes(',') ? base64.substring(base64.indexOf(',') + 1) : base64;
+    const buffer = Buffer.from(rawBase64, 'base64');
+    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
+    tempDownloadStore.set(token, {
+      buffer,
+      filename: safeFilename,
+      mimeType: mimeType || 'application/pdf',
+      expires: Date.now() + 180000 // 3 minutos de vigencia
+    });
+    return res.json({ url: `/api/download-temp/${token}/${encodeURIComponent(safeFilename)}` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error guardando descarga temporal' });
+  }
+});
+
+app.get('/api/download-temp/:token/:filename?', (req: any, res: any) => {
+  const { token } = req.params;
+  const item = tempDownloadStore.get(token);
+  if (!item || item.expires < Date.now()) {
+    if (item) tempDownloadStore.delete(token);
+    return res.status(404).send('Enlace de descarga expirado. Por favor, vuelve a presionar Descargar en la aplicación.');
+  }
+
+  res.setHeader('Content-Type', item.mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
+  res.setHeader('Content-Length', item.buffer.length.toString());
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.end(item.buffer);
+});
+
 // Global Error Handler for API routes
 app.use((err: any, req: any, res: any, next: any) => {
   const isProduction = process.env.NODE_ENV === "production";

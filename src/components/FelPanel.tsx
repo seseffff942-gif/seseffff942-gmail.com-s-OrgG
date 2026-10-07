@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FileCheck2, Clock, AlertTriangle, XCircle, Ban, RefreshCw, X, Copy, Check, Download, FileDown } from 'lucide-react';
 import { api } from '../api';
 import type { EstadoFacturaFEL, EstadoFEL, Invoice, User } from '../types';
-import { cn } from '../utils';
+import { cn, descargarBlob } from '../utils';
 
 /** Apariencia de cada estado FEL. El color codifica la urgencia, no la marca. */
 const ESTILOS: Record<EstadoFEL, { texto: string; clase: string; Icono: any }> = {
@@ -142,12 +142,7 @@ export function FelPanel({ invoice, user, onClose, onDescargarPdf }: FelPanelPro
   const descargarXml = async (tipo: 'enviado' | 'certificado') => {
     try {
       const blob = await api.descargarFelXml(invoice.id, tipo);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `DTE-${tipo}-${datos?.documento?.numero_autorizacion || invoice.id}.xml`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await descargarBlob(blob, `DTE-${tipo}-${datos?.documento?.numero_autorizacion || invoice.id}.xml`);
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo descargar el XML');
     }

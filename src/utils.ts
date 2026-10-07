@@ -2315,6 +2315,33 @@ export function compileQuotationTemplate(quote: any, sellerName?: string): strin
 
 
 export async function printHtml(html: string) {
+  // 1. Si estamos en APK con bridge nativo de impresión Android
+  if (typeof window !== 'undefined' && (window as any).AndroidDownloader?.printHtml) {
+    try {
+      (window as any).AndroidDownloader.printHtml(html, 'Impresion_Agricovet');
+      return;
+    } catch (e) {
+      console.warn('[printHtml] Error con AndroidDownloader.printHtml:', e);
+    }
+  }
+
+  // 2. Si estamos en Android WebView / Capacitor donde iframe.print() no funciona
+  const isAndroidOrCapacitor = typeof window !== 'undefined' && (
+    Boolean((window as any).Capacitor?.isNativePlatform()) ||
+    /Android|wv|WebView/i.test(navigator.userAgent)
+  );
+
+  if (isAndroidOrCapacitor) {
+    try {
+      const blob = await generarPdfBlob(html);
+      await descargarBlob(blob, 'comprobante_impresion.pdf');
+      return;
+    } catch (err) {
+      console.warn('[printHtml] Fallback PDF para móvil falló:', err);
+    }
+  }
+
+  // 3. Impresión estándar para navegador Web Desktop
   // Remove any existing print iframe
   const oldIframe = document.getElementById('print-receipt-iframe');
   if (oldIframe && document.body.contains(oldIframe)) {
@@ -2622,8 +2649,85 @@ export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): 
   }
 }
 
-/** Dispara la descarga de un Blob con el nombre indicado. */
-export function descargarBlob(blob: Blob, filename: string) {
+/** Helper para convertir Blob a string Base64 */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = (reader.result as string) || '';
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Dispara la descarga de un Blob con compatibilidad total en APK Android, iOS y navegadores web. */
+export async function descargarBlob(blob: Blob, filename: string) {
+  // 1. Bridge nativo de Android (en nuestra APK MainActivity: guarda en Descargas y abre selector)
+  if (typeof window !== 'undefined' && (window as any).AndroidDownloader?.downloadBase64) {
+    try {
+      const base64 = await blobToBase64(blob);
+      (window as any).AndroidDownloader.downloadBase64(base64, filename, blob.type || 'application/pdf');
+      return;
+    } catch (e) {
+      console.warn('[descargarBlob] Error en AndroidDownloader.downloadBase64, usando fallbacks:', e);
+    }
+  }
+
+  // 2. Web Share API con archivos (soportado nativamente por Android WebView y navegadores móviles)
+  if (typeof navigator !== 'undefined' && typeof File !== 'undefined' && navigator.share && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: blob.type || 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename,
+          text: `Comprobante ${filename}`
+        });
+        return;
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') {
+        return; // El usuario cerró el menú deliberadamente
+      }
+      console.warn('[descargarBlob] navigator.share error, continuando a fallbacks:', shareErr);
+    }
+  }
+
+  // 3. Fallback en WebView/APK que bloquea Blob URLs: Enrutamiento seguro por endpoint temporal del servidor
+  const isAndroidOrCapacitor = typeof window !== 'undefined' && (
+    Boolean((window as any).Capacitor?.isNativePlatform()) ||
+    /Android|wv|WebView/i.test(navigator.userAgent)
+  );
+
+  if (isAndroidOrCapacitor) {
+    try {
+      const base64 = await blobToBase64(blob);
+      const resp = await fetch('/api/download-temp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename,
+          mimeType: blob.type || 'application/pdf',
+          base64
+        })
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data?.url) {
+          window.location.href = data.url;
+          return;
+        }
+      }
+    } catch (servErr) {
+      console.warn('[descargarBlob] Error en /api/download-temp fallback:', servErr);
+    }
+  }
+
+  // 4. Descarga estándar de navegador Web (Desktop / Chrome normal)
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -2631,7 +2735,26 @@ export function descargarBlob(blob: Blob, filename: string) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+/** Descarga un libro de Excel (Workbook XLSX) con compatibilidad total en APK */
+export async function descargarExcel(workbook: any, filename: string) {
+  try {
+    const XLSX = await import('xlsx');
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const safeName = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+    await descargarBlob(blob, safeName);
+  } catch (err) {
+    console.error('Error al exportar Excel:', err);
+    try {
+      const XLSX = await import('xlsx');
+      XLSX.writeFile(workbook, filename);
+    } catch (e) {
+      alert('No se pudo descargar el archivo Excel.');
+    }
+  }
 }
 
 const activePdfDownloads = new Set<string>();
@@ -2655,20 +2778,21 @@ export async function downloadHtmlAsPdf(html: string, filename: string = 'factur
     // Yield to main UI thread so browser repaints immediately on click
     await new Promise((resolve) => setTimeout(resolve, 30));
 
+    // Aumentado a 25 segundos para dar tiempo a renderizar en procesadores móviles
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('PDF generation timeout')), 3500)
+      setTimeout(() => reject(new Error('PDF generation timeout')), 25000)
     );
 
     const blob = await Promise.race([generarPdfBlob(html), timeoutPromise]);
     if (!blob || blob.size === 0) throw new Error('El PDF se genero vacio');
-    descargarBlob(blob, filename);
+    await descargarBlob(blob, filename);
   } catch (err) {
-    console.error('Error o timeout al generar PDF, usando vista de impresión rápida:', err);
+    console.error('Error o timeout al generar PDF, usando vista de impresión o descarga rápida:', err);
     await printHtml(html);
   } finally {
     setTimeout(() => {
       activePdfDownloads.delete(lockKey);
-    }, 1200);
+    }, 1500);
   }
 }
 

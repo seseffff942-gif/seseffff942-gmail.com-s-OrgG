@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
 import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet } from 'lucide-react';
-import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText } from '../utils';
+import { cn, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -1020,7 +1020,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     const workbook = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
                     
-                    XLSX.writeFile(workbook, `inventario_${new Date().toLocaleDateString('es-GT').replace(/\//g, '-')}.xlsx`);
+                    await descargarExcel(workbook, `inventario_${new Date().toLocaleDateString('es-GT').replace(/\//g, '-')}.xlsx`);
                   } catch (err) {
                     console.error("Error al generar Excel:", err);
                     alert("No se pudo generar el archivo Excel.");
@@ -3832,7 +3832,7 @@ const aVal = (a.stock || 0) * aCost;
                       const ws = XLSX.utils.json_to_sheet(rows);
                       const wb = XLSX.utils.book_new();
                       XLSX.utils.book_append_sheet(wb, ws, "Productos_Sin_Rotacion");
-                      XLSX.writeFile(wb, `productos_sin_rotacion_${new Date().toISOString().split('T')[0]}.xlsx`);
+                      await descargarExcel(wb, `productos_sin_rotacion_${new Date().toISOString().split('T')[0]}.xlsx`);
                     } catch (e) {
                       alert("Error al exportar a Excel");
                     }

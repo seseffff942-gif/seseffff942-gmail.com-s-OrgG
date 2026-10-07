@@ -1,6 +1,6 @@
 {
-  "version": "1.0.4",
-  "buildTime": 1759381830000,
-  "message": "Diseño renovado y notificaciones modernas",
+  "version": "1.0.5",
+  "buildTime": 1791396647629,
+  "message": "Corrección de descargas de ventas, tickets y reportes en la APK",
   "critical": true
 }

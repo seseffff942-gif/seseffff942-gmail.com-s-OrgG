@@ -1150,10 +1150,16 @@ if (pgPool) {
       token TEXT PRIMARY KEY,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+      id TEXT PRIMARY KEY,
+      endpoint TEXT UNIQUE NOT NULL,
+      keys JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `).then(() => {
-    console.log("[DB] \u2705 Tabla public.fcm_tokens verificada en PostgreSQL");
+    console.log("[DB] \u2705 Tablas public.fcm_tokens y public.push_subscriptions verificadas en PostgreSQL");
   }).catch((err) => {
-    console.warn("[DB] Aviso al verificar public.fcm_tokens:", err.message);
+    console.warn("[DB] Aviso al verificar tablas de notificaciones:", err.message);
   });
 }
 var PANIC_STATE_FILE = import_path2.default.join(process.cwd(), "panic_state.json");
@@ -2165,6 +2171,7 @@ var VAPID_FILE = import_path2.default.join(process.cwd(), "vapid_keys.json");
 var SUBSCRIPTIONS_FILE = import_path2.default.join(process.cwd(), "push_subscriptions.json");
 var FCM_TOKENS_FILE = import_path2.default.join(process.cwd(), "fcm_tokens.json");
 var FIREBASE_SERVICE_ACCOUNT_FILE = import_path2.default.join(process.cwd(), "firebase-service-account.json");
+var FIREBASE_SERVICE_ACCOUNT_STORAGE = import_path2.default.join(process.cwd(), "storage", "firebase-service-account.json");
 var firebaseAdminApp = null;
 try {
   let serviceAccount = null;
@@ -2172,6 +2179,12 @@ try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   } else if (import_fs2.default.existsSync(FIREBASE_SERVICE_ACCOUNT_FILE)) {
     serviceAccount = JSON.parse(import_fs2.default.readFileSync(FIREBASE_SERVICE_ACCOUNT_FILE, "utf8"));
+  } else if (import_fs2.default.existsSync(FIREBASE_SERVICE_ACCOUNT_STORAGE)) {
+    serviceAccount = JSON.parse(import_fs2.default.readFileSync(FIREBASE_SERVICE_ACCOUNT_STORAGE, "utf8"));
+  } else if (import_fs2.default.existsSync("/app/storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(import_fs2.default.readFileSync("/app/storage/firebase-service-account.json", "utf8"));
+  } else if (import_fs2.default.existsSync("/data/agricovet_storage/firebase-service-account.json")) {
+    serviceAccount = JSON.parse(import_fs2.default.readFileSync("/data/agricovet_storage/firebase-service-account.json", "utf8"));
   }
   if (serviceAccount && serviceAccount.private_key) {
     firebaseAdminApp = import_firebase_admin.default.initializeApp({
@@ -2990,38 +3003,52 @@ async function fetchPaymentsFromLocalDb(invoiceId) {
   }
   return [];
 }
-function isClientOfSeller(client, user) {
+function isClientOfSeller(client, user, options) {
   if (!client || !user) return false;
-  if (user.role === "admin") return true;
+  if (user.role === "admin" && !options?.ignoreAdmin) return true;
   const uId = String(user.id || "").trim().toLowerCase();
   const uEmail = String(user.email || "").trim().toLowerCase();
   const uName = String(user.name || "").trim().toLowerCase();
   const uCode = String(user.sellerCode || "").trim().toLowerCase();
-  const cSellerId = String(client.sellerId || client.seller_id || client.sellerid || "").trim().toLowerCase();
-  const cGeotaggedBy = String(client.geotaggedBy || client.geotagged_by || "").trim().toLowerCase();
-  const cSellerEmail = String(client.sellerEmail || client.seller_email || "").trim().toLowerCase();
-  if (uId && (cSellerId === uId || cSellerId.includes(uId))) return true;
-  if (uEmail && (cSellerId === uEmail || cSellerEmail === uEmail || cGeotaggedBy === uEmail || cSellerId.includes(uEmail))) return true;
-  if (uCode && (cSellerId === uCode || cSellerId.includes(uCode))) return true;
+  const uCodeDigits = uCode.replace(/\D/g, "");
+  const cleanVal = (val) => String(val || "").replace(/\s*\(t[uú]\)/gi, "").trim().toLowerCase();
+  const cSellerId = cleanVal(client.sellerId || client.seller_id || client.sellerid);
+  const cSellerName = cleanVal(client.sellerName || client.seller_name);
+  const cGeotaggedBy = cleanVal(client.geotaggedBy || client.geotagged_by);
+  const cSellerEmail = cleanVal(client.sellerEmail || client.seller_email);
+  const cCreatedBy = cleanVal(client.createdBy || client.created_by);
+  const clientSellerFields = [cSellerId, cSellerName, cGeotaggedBy, cSellerEmail, cCreatedBy].filter(Boolean);
+  if (uId && clientSellerFields.some((f) => f === uId || f.includes(uId))) return true;
+  if (uEmail && clientSellerFields.some((f) => f === uEmail || f.includes(uEmail))) return true;
+  if (uCode && clientSellerFields.some((f) => f === uCode || f.includes(uCode))) return true;
+  if (uCodeDigits && uCodeDigits.length >= 3 && clientSellerFields.some((f) => f === uCodeDigits || f.includes(uCodeDigits))) return true;
   if (uName) {
-    if (cSellerId === uName || cGeotaggedBy === uName) return true;
-    if (cSellerId.includes(uName) || cGeotaggedBy.includes(uName)) return true;
     const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const normCSeller = cSellerId.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const normCGeo = cGeotaggedBy.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (normCSeller.includes(normUName) || normCGeo.includes(normUName)) return true;
     const firstName = normUName.split(" ")[0];
-    if (firstName.length >= 4 && (normCSeller.includes(firstName) || normCGeo.includes(firstName))) return true;
+    for (const field of clientSellerFields) {
+      if (field === uName || field.includes(uName)) return true;
+      const normField = field.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (normField.includes(normUName)) return true;
+      if (firstName.length >= 4 && normField.includes(firstName)) return true;
+    }
+  }
+  const isHerbertUser = uName.includes("herbert") || uEmail.includes("gruasytransportesali") || uCode.includes("1521");
+  if (isHerbertUser) {
+    if (clientSellerFields.some((f) => f.includes("herbert") || f.includes("1521") || f.includes("gruasytransportesali"))) {
+      return true;
+    }
+  }
+  const isErickUser = uName.includes("erick") || uEmail.includes("jerickottoniel") || uCode.includes("8363");
+  if (isErickUser) {
+    if (clientSellerFields.some((f) => f.includes("erick") || f.includes("jerick") || f.includes("8363"))) {
+      return true;
+    }
   }
   return false;
 }
 app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
-  const userRole = req.user?.role;
   const cached = getCachedData("clients");
   if (cached) {
-    if (userRole === "seller") {
-      return res.json(cached.filter((c) => isClientOfSeller(c, req.user)));
-    }
     return res.json(cached);
   }
   const deletedKeys = getDeletedClientKeys();
@@ -3180,9 +3207,6 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   const finalClients = deduplicateClients(mergedList.filter((c) => !isClientDeleted(c, deletedKeys)));
   saveLocalClients(finalClients);
   setCachedData("clients", finalClients);
-  if (userRole === "seller") {
-    return res.json(finalClients.filter((c) => isClientOfSeller(c, req.user)));
-  }
   res.json(finalClients);
 }));
 app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
@@ -10804,6 +10828,50 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
   }
   res.json(data);
 }));
+var tempDownloadStore = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, item] of tempDownloadStore.entries()) {
+    if (item.expires < now) {
+      tempDownloadStore.delete(id);
+    }
+  }
+}, 18e4);
+app.post("/api/download-temp", import_express.default.json({ limit: "50mb" }), (req, res) => {
+  try {
+    const { filename, mimeType, base64 } = req.body;
+    if (!filename || !base64) {
+      return res.status(400).json({ error: "filename y base64 son requeridos" });
+    }
+    const token = import_crypto.default.randomBytes(16).toString("hex");
+    const rawBase64 = base64.includes(",") ? base64.substring(base64.indexOf(",") + 1) : base64;
+    const buffer = Buffer.from(rawBase64, "base64");
+    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, "_");
+    tempDownloadStore.set(token, {
+      buffer,
+      filename: safeFilename,
+      mimeType: mimeType || "application/pdf",
+      expires: Date.now() + 18e4
+      // 3 minutos de vigencia
+    });
+    return res.json({ url: `/api/download-temp/${token}/${encodeURIComponent(safeFilename)}` });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Error guardando descarga temporal" });
+  }
+});
+app.get("/api/download-temp/:token/:filename?", (req, res) => {
+  const { token } = req.params;
+  const item = tempDownloadStore.get(token);
+  if (!item || item.expires < Date.now()) {
+    if (item) tempDownloadStore.delete(token);
+    return res.status(404).send("Enlace de descarga expirado. Por favor, vuelve a presionar Descargar en la aplicaci\xF3n.");
+  }
+  res.setHeader("Content-Type", item.mimeType);
+  res.setHeader("Content-Disposition", `attachment; filename="${item.filename}"`);
+  res.setHeader("Content-Length", item.buffer.length.toString());
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  return res.end(item.buffer);
+});
 app.use((err, req, res, next) => {
   const isProduction = process.env.NODE_ENV === "production";
   if (!isProduction) {
@@ -10813,6 +10881,40 @@ app.use((err, req, res, next) => {
   }
   res.status(500).json({
     error: err.message || "Error interno del servidor"
+  });
+});
+app.get(["/agricovet-live.apk", "/agricovet.apk", "/*.apk"], (req, res) => {
+  const reqFilename = import_path2.default.basename(req.path) || "agricovet-live.apk";
+  const candidatePaths = [
+    import_path2.default.join(process.cwd(), reqFilename),
+    import_path2.default.join(process.cwd(), "dist", reqFilename),
+    import_path2.default.join(process.cwd(), "public", reqFilename),
+    import_path2.default.join(process.cwd(), "agricovet-live.apk"),
+    import_path2.default.join(process.cwd(), "agricovet.apk"),
+    import_path2.default.join(process.cwd(), "android", "app", "build", "outputs", "apk", "release", "app-release.apk"),
+    import_path2.default.join(process.cwd(), "android", "app", "build", "outputs", "apk", "release", "app-release-unsigned.apk"),
+    import_path2.default.join(process.cwd(), "android", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+  ];
+  for (const candidate of candidatePaths) {
+    if (import_fs2.default.existsSync(candidate)) {
+      try {
+        const stat = import_fs2.default.statSync(candidate);
+        if (stat.isFile() && stat.size > 1e5) {
+          console.log(`[APK Download] Sirviendo APK real desde: ${candidate} (${stat.size} bytes)`);
+          res.setHeader("Content-Type", "application/vnd.android.package-archive");
+          res.setHeader("Content-Disposition", `attachment; filename="${reqFilename}"`);
+          res.setHeader("Content-Length", stat.size.toString());
+          return res.sendFile(import_path2.default.resolve(candidate));
+        }
+      } catch (err) {
+        console.error("[APK Download] Error leyendo archivo APK:", candidate, err);
+      }
+    }
+  }
+  console.warn(`[APK Download] No se encontr\xF3 archivo APK f\xEDsico para: ${reqFilename}`);
+  return res.status(404).json({
+    error: "Archivo APK no encontrado en el servidor VPS",
+    message: `No se encontr\xF3 el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la ra\xEDz del proyecto para descargarlo.`
   });
 });
 var server_default = app;

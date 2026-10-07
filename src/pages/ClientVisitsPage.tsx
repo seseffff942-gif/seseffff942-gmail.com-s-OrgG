@@ -16,7 +16,7 @@ import {
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
   BarChart3, X, WifiOff
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller, getDiffCalendarDaysGT } from '../utils';
+import { cn, fechaDDMMYYYY, normalizeSearchText, isTodayGuatemala, getGuatemalaTodayIso, diaGuatemala, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, isClientOfSeller, getDiffCalendarDaysGT, descargarExcel } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -1372,7 +1372,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   }, [visits, scopedVisits, distinctSellerRoutes, routeSellerId, selectedSellerFilter, activeTab, routeDate, user]);
 
   // Export to Excel handler
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Registro de Visitas
@@ -1415,7 +1415,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
     // Download File
     const todayStr = getGuatemalaTodayIso();
-    XLSX.writeFile(wb, `Reporte_Visitas_Y_Cartera_Agricovet_${todayStr}.xlsx`);
+    await descargarExcel(wb, `Reporte_Visitas_Y_Cartera_Agricovet_${todayStr}.xlsx`);
   };
 
   const renderVisitBadge = (type: string) => {

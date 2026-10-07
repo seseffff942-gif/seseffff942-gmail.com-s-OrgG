@@ -10785,6 +10785,50 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
   }
   res.json(data);
 }));
+var tempDownloadStore = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, item] of tempDownloadStore.entries()) {
+    if (item.expires < now) {
+      tempDownloadStore.delete(id);
+    }
+  }
+}, 18e4);
+app.post("/api/download-temp", express.json({ limit: "50mb" }), (req, res) => {
+  try {
+    const { filename, mimeType, base64 } = req.body;
+    if (!filename || !base64) {
+      return res.status(400).json({ error: "filename y base64 son requeridos" });
+    }
+    const token = crypto.randomBytes(16).toString("hex");
+    const rawBase64 = base64.includes(",") ? base64.substring(base64.indexOf(",") + 1) : base64;
+    const buffer = Buffer.from(rawBase64, "base64");
+    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, "_");
+    tempDownloadStore.set(token, {
+      buffer,
+      filename: safeFilename,
+      mimeType: mimeType || "application/pdf",
+      expires: Date.now() + 18e4
+      // 3 minutos de vigencia
+    });
+    return res.json({ url: `/api/download-temp/${token}/${encodeURIComponent(safeFilename)}` });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Error guardando descarga temporal" });
+  }
+});
+app.get("/api/download-temp/:token/:filename?", (req, res) => {
+  const { token } = req.params;
+  const item = tempDownloadStore.get(token);
+  if (!item || item.expires < Date.now()) {
+    if (item) tempDownloadStore.delete(token);
+    return res.status(404).send("Enlace de descarga expirado. Por favor, vuelve a presionar Descargar en la aplicaci\xF3n.");
+  }
+  res.setHeader("Content-Type", item.mimeType);
+  res.setHeader("Content-Disposition", `attachment; filename="${item.filename}"`);
+  res.setHeader("Content-Length", item.buffer.length.toString());
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  return res.end(item.buffer);
+});
 app.use((err, req, res, next) => {
   const isProduction = process.env.NODE_ENV === "production";
   if (!isProduction) {
@@ -10796,44 +10840,40 @@ app.use((err, req, res, next) => {
     error: err.message || "Error interno del servidor"
   });
 });
-// ======== RUTA DEDICADA PARA DESCARGAR APK ANDROID (.apk) ========
-app.get(['/agricovet-live.apk', '/agricovet.apk', '/*.apk'], (req, res) => {
-  const reqFilename = path2.basename(req.path) || 'agricovet-live.apk';
+app.get(["/agricovet-live.apk", "/agricovet.apk", "/*.apk"], (req, res) => {
+  const reqFilename = path2.basename(req.path) || "agricovet-live.apk";
   const candidatePaths = [
     path2.join(process.cwd(), reqFilename),
-    path2.join(process.cwd(), 'dist', reqFilename),
-    path2.join(process.cwd(), 'public', reqFilename),
-    path2.join(process.cwd(), 'agricovet-live.apk'),
-    path2.join(process.cwd(), 'agricovet.apk'),
-    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
-    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release-unsigned.apk'),
-    path2.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+    path2.join(process.cwd(), "dist", reqFilename),
+    path2.join(process.cwd(), "public", reqFilename),
+    path2.join(process.cwd(), "agricovet-live.apk"),
+    path2.join(process.cwd(), "agricovet.apk"),
+    path2.join(process.cwd(), "android", "app", "build", "outputs", "apk", "release", "app-release.apk"),
+    path2.join(process.cwd(), "android", "app", "build", "outputs", "apk", "release", "app-release-unsigned.apk"),
+    path2.join(process.cwd(), "android", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
   ];
-
   for (const candidate of candidatePaths) {
     if (fs2.existsSync(candidate)) {
       try {
         const stat = fs2.statSync(candidate);
-        if (stat.isFile() && stat.size > 100000) {
+        if (stat.isFile() && stat.size > 1e5) {
           console.log(`[APK Download] Sirviendo APK real desde: ${candidate} (${stat.size} bytes)`);
-          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-          res.setHeader('Content-Disposition', `attachment; filename="${reqFilename}"`);
-          res.setHeader('Content-Length', stat.size.toString());
+          res.setHeader("Content-Type", "application/vnd.android.package-archive");
+          res.setHeader("Content-Disposition", `attachment; filename="${reqFilename}"`);
+          res.setHeader("Content-Length", stat.size.toString());
           return res.sendFile(path2.resolve(candidate));
         }
       } catch (err) {
-        console.error('[APK Download] Error leyendo archivo APK:', candidate, err);
+        console.error("[APK Download] Error leyendo archivo APK:", candidate, err);
       }
     }
   }
-
-  console.warn(`[APK Download] No se encontró archivo APK físico para: ${reqFilename}`);
+  console.warn(`[APK Download] No se encontr\xF3 archivo APK f\xEDsico para: ${reqFilename}`);
   return res.status(404).json({
-    error: 'Archivo APK no encontrado en el servidor VPS',
-    message: `No se encontró el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la raíz del proyecto para descargarlo.`
+    error: "Archivo APK no encontrado en el servidor VPS",
+    message: `No se encontr\xF3 el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la ra\xEDz del proyecto para descargarlo.`
   });
 });
-
 var server_default = app;
 async function startServer() {
   console.log("Starting server script...");
