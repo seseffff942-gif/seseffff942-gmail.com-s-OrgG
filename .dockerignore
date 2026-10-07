@@ -6,7 +6,6 @@ dist
 .agents
 android
 .gradle
-*.apk
 *.aab
 *.log
 .env.local

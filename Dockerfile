@@ -42,6 +42,8 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/index.html ./index.html
+COPY --from=builder /app/agricovet-live.apk ./agricovet-live.apk
+COPY --from=builder /app/agricovet.apk ./agricovet.apk
 
 # Copiar archivos JSON locales de respaldo / configuración
 COPY --from=builder /app/clients_local.json ./clients_local.json
