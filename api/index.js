@@ -1891,6 +1891,14 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       WHERE role = 'seller' OR role = 'admin'
       ORDER BY name
     `);
+    const GENERIC_WORDS = new Set([
+      'agro', 'agroveterinaria', 'veterinaria', 'agropecuaria', 'agroservicios', 
+      'agroservicio', 'servicios', 'servicio', 'distribuidora', 'distribuciones',
+      'comercial', 'comercializadora', 'sociedad', 'anonima', 'copropiedad', 
+      'tienda', 'finca', 'granja', 'insumos', 'productos', 'importadora',
+      'de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'para', 'con', 'sa'
+    ]);
+
     const clientData = clientRows.map((c) => {
       let lat = c.latitude !== null && c.latitude !== void 0 && !isNaN(Number(c.latitude)) ? parseFloat(c.latitude) : null;
       let lng = c.longitude !== null && c.longitude !== void 0 && !isNaN(Number(c.longitude)) ? parseFloat(c.longitude) : null;
@@ -1916,6 +1924,20 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
           }
         }
       }
+      const normName = normalizeText(c.name);
+      const normCompany = normalizeText(c.companyName);
+
+      const nameWords = normName.split(/\s+/).filter((w) => w.length >= 3);
+      const distinctiveNameWords = nameWords.filter((w) => !GENERIC_WORDS.has(w));
+
+      const companyWords = normCompany.split(/\s+/).filter((w) => w.length >= 3);
+      const distinctiveCompanyWords = companyWords.filter((w) => !GENERIC_WORDS.has(w));
+
+      const rawSegments = [
+        ...(c.name ? c.name.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : []),
+        ...(c.companyName ? c.companyName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : [])
+      ];
+
       return {
         ...c,
         latitude: lat,
@@ -1923,15 +1945,21 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         geotaggedAt,
         geotaggedBy,
         locationAddress,
-        normName: normalizeText(c.name),
-        normCompany: normalizeText(c.companyName),
-        nameWords: normalizeText(c.name).split(" ").filter((w) => w.length > 2)
+        normName,
+        normCompany,
+        distinctiveNameWords,
+        distinctiveCompanyWords,
+        segments: Array.from(new Set(rawSegments))
       };
     });
     const salesByClientId = /* @__PURE__ */ new Map();
     for (const inv of invoiceRows) {
-      const invNorm = normalizeText(inv.clientName);
+      const rawInvName = inv.clientName || '';
+      const invNorm = normalizeText(rawInvName);
       if (!invNorm) continue;
+      const invWordSet = new Set(invNorm.split(/\s+/));
+      const invSegments = rawInvName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3);
+
       const saleObj = {
         id: inv.id,
         folio: inv.folio,
@@ -1947,26 +1975,46 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       for (const c of clientData) {
         let score = 0;
         if (c.normName && invNorm === c.normName) {
-          score = 100;
-        } else if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) {
-          score = 80;
-        } else if (c.nameWords.length > 0) {
-          const matchedWords = c.nameWords.filter((w) => invNorm.includes(w));
-          if (matchedWords.length >= 2) {
-            score = 70 + matchedWords.length * 2;
-          } else if (matchedWords.length === 1 && c.nameWords.length === 1) {
-            score = 50;
+          score = 200;
+        } else if (c.normCompany && invNorm === c.normCompany) {
+          score = 190;
+        }
+
+        if (score < 180) {
+          for (const invSeg of invSegments) {
+            if (!invSeg) continue;
+            if (c.normCompany && invSeg === c.normCompany) {
+              score = Math.max(score, 160);
+            } else if (c.normName && invSeg === c.normName) {
+              score = Math.max(score, 160);
+            } else {
+              for (const cSeg of c.segments) {
+                if (invSeg === cSeg) {
+                  score = Math.max(score, 140);
+                } else if (invSeg.length >= 6 && (invSeg.includes(cSeg) || cSeg.includes(invSeg))) {
+                  score = Math.max(score, 110);
+                }
+              }
+            }
           }
         }
-        if (c.normCompany && invNorm.includes(c.normCompany)) {
-          score += score > 0 ? 25 : 15;
+
+        const matchedDistName = c.distinctiveNameWords.filter((w) => invWordSet.has(w));
+        const matchedDistCompany = c.distinctiveCompanyWords.filter((w) => invWordSet.has(w));
+        const totalDist = Array.from(new Set([...matchedDistName, ...matchedDistCompany]));
+
+        if (totalDist.length >= 2) {
+          score = Math.max(score, 90 + totalDist.length * 10);
+        } else if (totalDist.length === 1 && (c.distinctiveNameWords.length === 1 || c.distinctiveCompanyWords.length === 1)) {
+          score = Math.max(score, 75);
         }
+
         if (score > bestScore) {
           bestScore = score;
           bestClient = c;
         }
       }
-      if (bestClient && bestScore >= 40) {
+      if (bestClient && bestScore >= 70) {
         if (!salesByClientId.has(bestClient.id)) {
           salesByClientId.set(bestClient.id, []);
         }
