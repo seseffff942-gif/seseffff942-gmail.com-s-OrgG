@@ -7,7 +7,6 @@ import {
   Activity, 
   Search, 
   RefreshCw, 
-  Download, 
   Printer, 
   Package, 
   Users, 
@@ -16,10 +15,10 @@ import {
   ChevronDown, 
   ChevronUp, 
   Clock, 
-  Database, 
   Eye, 
-  Lock, 
-  X
+  X,
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '../utils';
 
@@ -58,7 +57,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         limit: 300
       });
 
-      if (res && res.logs) {
+      if (res && res.logs && res.logs.length > 0) {
         setLogs(res.logs);
       }
       if (res && res.stats) {
@@ -76,7 +75,6 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
     fetchAuditData();
   }, [selectedCategory]);
 
-  // Debounced search
   useEffect(() => {
     const handler = setTimeout(() => {
       fetchAuditData(true);
@@ -84,7 +82,6 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
     return () => clearTimeout(handler);
   }, [searchTerm]);
 
-  // Auto-refresh interval
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
@@ -93,11 +90,10 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
     return () => clearInterval(interval);
   }, [autoRefresh, selectedCategory, searchTerm]);
 
-  // Client-side date filter
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
       if (dateFilter === 'all') return true;
-      const logDate = new Date(log.createdAt);
+      const logDate = new Date(log.createdAt || (log as any).created_at);
       const now = new Date();
       if (dateFilter === 'today') {
         return logDate.toDateString() === now.toDateString();
@@ -115,37 +111,37 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
       case 'stock':
         return {
           label: 'Inventario / Stock',
-          bg: 'bg-amber-50 text-amber-800 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
+          bg: 'bg-amber-50 text-amber-800 border-amber-200',
           icon: Package
         };
       case 'clientes':
         return {
           label: 'Clientes',
-          bg: 'bg-teal-50 text-[#00696a] border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
+          bg: 'bg-teal-50 text-teal-800 border-teal-200',
           icon: Users
         };
       case 'ventas':
         return {
           label: 'Ventas & Facturas',
-          bg: 'bg-teal-50 text-teal-800 border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
+          bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
           icon: ShoppingCart
         };
       case 'rutas':
         return {
           label: 'Rutas & GPS',
-          bg: 'bg-teal-50/70 text-teal-900 border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
+          bg: 'bg-teal-50 text-teal-900 border-teal-200',
           icon: MapPin
         };
       case 'seguridad':
         return {
-          label: 'Seguridad & Alertas',
-          bg: 'bg-rose-50 text-rose-800 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
+          label: 'Seguridad / Forense',
+          bg: 'bg-rose-50 text-rose-800 border-rose-200',
           icon: ShieldAlert
         };
       default:
         return {
           label: 'Sistema',
-          bg: 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+          bg: 'bg-slate-100 text-slate-800 border-slate-200',
           icon: Activity
         };
     }
@@ -153,15 +149,15 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
 
   const getActionBadgeColor = (action: string) => {
     if (action.includes('CREATED') || action.includes('PINNED')) {
-      return 'bg-teal-100 text-[#00696a] dark:bg-teal-950/60 dark:text-teal-300 font-bold';
+      return 'bg-teal-100 text-teal-900 border border-teal-200 font-bold';
     }
     if (action.includes('DELETED') || action.includes('CLEANUP') || action.includes('UNPINNED')) {
-      return 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold';
+      return 'bg-rose-100 text-rose-900 border border-rose-200 font-bold';
     }
     if (action.includes('STOCK')) {
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-bold';
+      return 'bg-amber-100 text-amber-900 border border-amber-200 font-bold';
     }
-    return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold';
+    return 'bg-slate-100 text-slate-800 border border-slate-200 font-bold';
   };
 
   const formatRelativeTime = (isoString: string) => {
@@ -188,14 +184,14 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
     if (filteredLogs.length === 0) return;
     const headers = ['Fecha/Hora', 'Categoría', 'Acción', 'Entidad', 'Usuario', 'Email', 'Descripción', 'IP'];
     const rows = filteredLogs.map(l => [
-      `"${new Date(l.createdAt).toLocaleString('es-GT')}"`,
+      `"${new Date(l.createdAt || (l as any).created_at).toLocaleString('es-GT')}"`,
       `"${l.category}"`,
       `"${l.action}"`,
-      `"${(l.entityName || '').replace(/"/g, '""')}"`,
-      `"${(l.userName || '').replace(/"/g, '""')}"`,
-      `"${l.userEmail || ''}"`,
+      `"${(l.entityName || (l as any).entity_name || '').replace(/"/g, '""')}"`,
+      `"${(l.userName || (l as any).user_name || '').replace(/"/g, '""')}"`,
+      `"${l.userEmail || (l as any).user_email || ''}"`,
       `"${(l.description || '').replace(/"/g, '""')}"`,
-      `"${l.ipAddress || ''}"`
+      `"${l.ipAddress || (l as any).ip_address || ''}"`
     ]);
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -213,170 +209,188 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 dark:bg-slate-950 p-3 sm:p-6 lg:p-8 space-y-6">
-      {/* Header Bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 sm:p-7 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-50 text-[#00696a] dark:bg-teal-950/60 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-                <Shield className="w-3.5 h-3.5" />
-                Control Maestro & Seguridad Exclusivo
+    <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col space-y-6 bg-slate-50/70 min-h-screen pb-24 font-sans">
+      
+      {/* 1. HEADER SECTION (Matches ClientVisitsPage) */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-teal-100 text-teal-800 text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+              Módulo de Auditoría & Control
+            </span>
+            <span className="text-xs font-semibold text-slate-400">Guatemala</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight font-manrope">
+            Bitácora de Auditoría & Trazabilidad
+          </h1>
+          <p className="text-sm text-slate-500 font-medium">
+            Registro inmutable de cada movimiento en tiempo real: clientes, ajustes de stock (±1 unidad), ventas emitidas, fijaciones GPS y control forense.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button 
+            type="button"
+            onClick={exportToCSV}
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 active:scale-95 px-3.5 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
+            title="Exportar reporte de movimientos a Excel"
+          >
+            <FileSpreadsheet size={16} className="text-emerald-600" />
+            <span>Excel</span>
+          </button>
+
+          <button 
+            type="button"
+            onClick={handlePrintReport}
+            className="flex items-center gap-2 bg-[#00696a] hover:bg-[#004f50] active:scale-95 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-md shadow-teal-600/10 text-xs cursor-pointer"
+          >
+            <Printer size={16} />
+            <span>Imprimir Informe</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fetchAuditData()}
+            disabled={refreshing}
+            className="p-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer shadow-xs active:scale-95"
+            title="Actualizar datos"
+          >
+            <RefreshCw size={16} className={cn(refreshing && "animate-spin text-teal-600")} />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. LIVE STATUS BAR (Matches GPS Live Status Bar) */}
+      <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center space-x-3">
+          <div className="relative flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full bg-emerald-500" />
+            <div className="absolute w-6 h-6 rounded-full bg-emerald-500/20 animate-ping" />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-slate-800">
+              Trazabilidad Inmutable:
+            </span>
+            <span className="font-mono text-[11px] bg-slate-50 px-2.5 py-0.5 rounded-lg border border-slate-200 text-slate-700">
+              PostgreSQL + Copia Espejo Local
+            </span>
+            {isOwner && (
+              <span className="px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-lg text-[10px] font-bold">
+                🔒 Dueño / CEO ({user.email})
               </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                <Database className="w-3 h-3 text-[#00696a]" />
-                PostgreSQL + Copia Espejo
+            )}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setAutoRefresh(!autoRefresh)}
+          className={cn(
+            "px-3 py-1.5 rounded-xl font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95",
+            autoRefresh 
+              ? "bg-[#00696a] text-white" 
+              : "bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700"
+          )}
+        >
+          <RefreshCw size={13} className={cn(autoRefresh && "animate-spin text-white")} />
+          <span>{autoRefresh ? "En Vivo Activo (10s)" : "Activar En Vivo"}</span>
+        </button>
+      </div>
+
+      {/* 3. ACTIVE SUPERVISION BANNER (Matches Green Route Card in Image 2) */}
+      <div className="bg-gradient-to-r from-emerald-800 to-teal-900 border border-emerald-500/30 text-white px-4 py-3 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+            <Shield size={18} className="text-white animate-pulse" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
+                🟢 Escudo Activo
               </span>
-              {isOwner && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                  <Lock className="w-3 h-3" />
-                  Dueño / CEO ({user.email})
-                </span>
-              )}
+              <span className="text-xs font-black text-white truncate">
+                Supervisión y Auditoría Forense en Tiempo Real
+              </span>
+              <span className="text-[11px] text-emerald-200 font-medium">
+                · Incidente GT-1013 Resuelto & Facturas Desvinculadas
+              </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              Bitácora de Auditoría & Trazabilidad
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
-              Registro inmutable de cada movimiento en tiempo real: creación de clientes (manuales o de prueba), ajustes de stock (±1 unidad), ventas emitidas, fijaciones GPS y auditoría de seguridad forense.
+            <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
+              📍 Cada alta de cliente, cambio de stock (±1 unidad) o venta queda registrada de forma permanente
             </p>
           </div>
+        </div>
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0">
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border shadow-xs cursor-pointer",
-                autoRefresh 
-                  ? "bg-[#00696a] text-white border-[#00696a] hover:bg-[#004f50]" 
-                  : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 hover:text-[#00696a]"
-              )}
-              title="Actualización automática cada 10 segundos"
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", autoRefresh && "animate-spin")} />
-              {autoRefresh ? 'En Vivo (10s)' : 'Activar En Vivo'}
-            </button>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <span className="text-xs font-bold bg-white/15 px-3 py-1.5 rounded-lg text-white">
+            Total Auditado: {stats.totalLogs} movimientos
+          </span>
+        </div>
+      </div>
 
-            <button
-              onClick={() => fetchAuditData()}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200 transition-all shadow-xs cursor-pointer"
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", refreshing && "animate-spin text-[#00696a]")} />
-              Actualizar
-            </button>
+      {/* 4. METRICS ROW (Matches Image 2 bottom cards exactly) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">
+        {/* Card 1: Total Movimientos */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Total Movimientos</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Activity size={16} />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <h4 className="text-3xl font-black text-slate-950">{stats.totalLogs}</h4>
+              <span className="text-xs font-bold text-slate-500">registros auditados</span>
+            </div>
+            <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
+              <Sparkles size={12} /> +{stats.logs24h} en las últimas 24 horas
+            </p>
+          </div>
+        </div>
 
-            <button
-              onClick={exportToCSV}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200 transition-all shadow-xs cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-[#00696a]" />
-              Exportar CSV
-            </button>
+        {/* Card 2: Stock */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Ajustes de Stock</span>
+            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
+              <Package size={16} />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <h4 className="text-3xl font-black text-slate-950">{stats.totalStock}</h4>
+              <span className="text-xs font-bold text-slate-500">modificaciones</span>
+            </div>
+            <p className="text-xs text-teal-600 mt-1 font-semibold">
+              Deducciones por venta y ajustes ±1
+            </p>
+          </div>
+        </div>
 
-            <button
-              onClick={handlePrintReport}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#00696a] hover:bg-[#004f50] text-white transition-all shadow-xs cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Imprimir Informe
-            </button>
+        {/* Card 3: Seguridad / GT-1013 */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Seguridad & Clientes</span>
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+              <ShieldAlert size={16} />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <h4 className="text-3xl font-black text-rose-600">{stats.totalSeguridad + stats.totalClientes}</h4>
+              <span className="text-xs font-bold text-slate-500">eventos críticos</span>
+            </div>
+            <p className="text-xs text-rose-500 mt-1 font-semibold">
+              Auditoría preventiva GT-1013 y cartera
+            </p>
           </div>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        {/* Total Logs */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Total Movimientos</span>
-            <Activity className="w-4 h-4 text-[#00696a]" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalLogs.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-            <span className="text-[#00696a] font-semibold">+{stats.logs24h}</span> últimas 24h
-          </div>
-        </div>
-
-        {/* Stock */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Ajustes de Stock</span>
-            <Package className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalStock.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            ±1 unidad y ventas
-          </div>
-        </div>
-
-        {/* Clients */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Clientes & Pruebas</span>
-            <Users className="w-4 h-4 text-[#00696a]" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalClientes.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Altas, bajas y tests
-          </div>
-        </div>
-
-        {/* Sales */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Ventas / Folios</span>
-            <ShoppingCart className="w-4 h-4 text-[#00696a]" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalVentas.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Emisiones y crédito
-          </div>
-        </div>
-
-        {/* GPS / Routes */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Rutas & Pines GPS</span>
-            <MapPin className="w-4 h-4 text-teal-700" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalRutas.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Checkpoints & fijación
-          </div>
-        </div>
-
-        {/* Security & Forensic */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
-            <span>Seguridad & Auditoría</span>
-            <ShieldAlert className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white">
-            {stats.totalSeguridad.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Previsión GT-1013
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-4">
+      {/* 5. FILTER & SEARCH BAR */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Search Input */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -384,7 +398,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por cliente, producto, usuario (ej. ventas1, admin), acción o palabra clave..."
-              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00696a]/20 focus:border-[#00696a] transition-all"
+              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#00696a] focus:bg-white transition-all"
             />
             {searchTerm && (
               <button 
@@ -396,15 +410,14 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             )}
           </div>
 
-          {/* Date Quick Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-medium">
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-medium">
             <button
               onClick={() => setDateFilter('all')}
               className={cn(
                 "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'all' 
-                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  ? "bg-white text-[#00696a] shadow-xs font-bold" 
+                  : "text-slate-600 hover:text-slate-900"
               )}
             >
               Histórico
@@ -414,8 +427,8 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               className={cn(
                 "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'today' 
-                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  ? "bg-white text-[#00696a] shadow-xs font-bold" 
+                  : "text-slate-600 hover:text-slate-900"
               )}
             >
               Hoy
@@ -425,8 +438,8 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               className={cn(
                 "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'week' 
-                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  ? "bg-white text-[#00696a] shadow-xs font-bold" 
+                  : "text-slate-600 hover:text-slate-900"
               )}
             >
               Últimos 7 días
@@ -434,7 +447,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
           </div>
         </div>
 
-        {/* Category Filter Chips */}
+        {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
           {[
             { id: 'all', label: 'Todos los Movimientos', count: stats.totalLogs },
@@ -448,10 +461,10 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               key={tab.id}
               onClick={() => setSelectedCategory(tab.id)}
               className={cn(
-                "whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 border cursor-pointer",
+                "whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer",
                 selectedCategory === tab.id
                   ? "bg-[#00696a] text-white border-[#00696a] shadow-xs"
-                  : "bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-teal-50 hover:text-[#00696a] hover:border-teal-200"
               )}
             >
               <span>{tab.label}</span>
@@ -459,7 +472,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                 "px-1.5 py-0.5 rounded-full text-[10px]",
                 selectedCategory === tab.id
                   ? "bg-[#004f50] text-teal-50"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                  : "bg-slate-200 text-slate-600"
               )}>
                 {tab.count}
               </span>
@@ -468,17 +481,17 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         </div>
       </div>
 
-      {/* Main Events List */}
+      {/* 6. TIMELINE EVENTS LIST (Clean white cards) */}
       <div className="space-y-3">
         {loading ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
-            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#00696a] mb-3" />
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Cargando bitácora de auditoría inmutable...</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
+            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-teal-600 mb-3" />
+            <p className="text-sm font-semibold text-slate-600">Cargando bitácora inmutable...</p>
           </div>
         ) : filteredLogs.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
-            <Shield className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
-            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200">No se encontraron movimientos</h3>
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
+            <Shield className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+            <h3 className="text-base font-bold text-slate-800">No se encontraron movimientos</h3>
             <p className="text-sm text-slate-500 mt-1">Prueba cambiando los filtros o la búsqueda.</p>
           </div>
         ) : (
@@ -486,149 +499,145 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             const catBadge = getCategoryBadge(log.category);
             const CatIcon = catBadge.icon;
             const isExpanded = expandedLogId === log.id;
-            const hasDiff = Boolean(log.previousData || log.newData);
+            const previousData = log.previousData || (log as any).previous_data;
+            const newData = log.newData || (log as any).new_data;
+            const hasDiff = Boolean(previousData || newData);
+            const entityName = log.entityName || (log as any).entity_name;
+            const userName = log.userName || (log as any).user_name;
+            const userEmail = log.userEmail || (log as any).user_email;
+            const userRole = log.userRole || (log as any).user_role;
+            const ipAddress = log.ipAddress || (log as any).ip_address;
+            const createdAt = log.createdAt || (log as any).created_at;
 
             return (
               <div 
                 key={log.id}
                 className={cn(
-                  "bg-white dark:bg-slate-900 border rounded-2xl transition-all shadow-xs hover:border-teal-200 dark:hover:border-slate-700 overflow-hidden",
-                  log.category === 'seguridad' ? "border-rose-200 dark:border-rose-900/50" : "border-slate-200/90 dark:border-slate-800"
+                  "bg-white rounded-2xl border p-4 sm:p-5 shadow-xs transition-all hover:border-teal-200",
+                  log.category === 'seguridad' ? "border-rose-200" : "border-slate-200/90"
                 )}
               >
-                <div className="p-4 sm:p-5">
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    {/* Left details */}
-                    <div className="flex items-start gap-3.5 flex-1 min-w-0">
-                      {/* Category Icon */}
-                      <div className={cn(
-                        "p-2.5 rounded-xl border flex-shrink-0 mt-0.5",
-                        catBadge.bg
-                      )}>
-                        <CatIcon className="w-5 h-5" />
-                      </div>
-
-                      {/* Content */}
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {/* Action Badge */}
-                          <span className={cn(
-                            "px-2.5 py-0.5 rounded-md text-[11px] font-bold tracking-wide uppercase",
-                            getActionBadgeColor(log.action)
-                          )}>
-                            {log.action}
-                          </span>
-
-                          {/* Category Tag */}
-                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                            • {catBadge.label}
-                          </span>
-
-                          {/* Entity Name */}
-                          {log.entityName && (
-                            <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-xs sm:max-w-md">
-                              [{log.entityName}]
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Description */}
-                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
-                          {log.description}
-                        </p>
-
-                        {/* Metadata row: User, IP, Timestamp */}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-1">
-                          <span className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                            <span className="w-2 h-2 rounded-full bg-[#00696a] inline-block" />
-                            {log.userName || log.userEmail || 'Sistema'}
-                            {log.userRole && (
-                              <span className="text-[10px] text-slate-400">({log.userRole})</span>
-                            )}
-                          </span>
-
-                          {log.userEmail && log.userEmail !== log.userName && (
-                            <span>{log.userEmail}</span>
-                          )}
-
-                          {log.ipAddress && (
-                            <span className="text-slate-400">IP: {log.ipAddress}</span>
-                          )}
-
-                          <span className="inline-flex items-center gap-1 text-slate-400 ml-auto sm:ml-0">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span title={new Date(log.createdAt).toLocaleString('es-GT')}>
-                              {formatRelativeTime(log.createdAt)}
-                            </span>
-                          </span>
-                        </div>
-                      </div>
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                    <div className={cn(
+                      "p-2.5 rounded-xl border flex-shrink-0 mt-0.5",
+                      catBadge.bg
+                    )}>
+                      <CatIcon className="w-5 h-5" />
                     </div>
 
-                    {/* Right side expand/detail button */}
-                    {hasDiff && (
-                      <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 pt-2 sm:pt-0">
-                        <button
-                          onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-teal-50 hover:text-[#00696a] dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-[#00696a]" />
-                          <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Detalle'}</span>
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          "px-2.5 py-0.5 rounded-md text-[11px] tracking-wide uppercase",
+                          getActionBadgeColor(log.action)
+                        )}>
+                          {log.action}
+                        </span>
+
+                        <span className="text-xs font-semibold text-slate-500">
+                          • {catBadge.label}
+                        </span>
+
+                        {entityName && (
+                          <span className="text-xs font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+                            [{entityName}]
+                          </span>
+                        )}
                       </div>
-                    )}
+
+                      <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                        {log.description}
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-1">
+                        <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                          {userName || userEmail || 'Sistema'}
+                          {userRole && (
+                            <span className="text-[10px] text-slate-400 font-normal">({userRole})</span>
+                          )}
+                        </span>
+
+                        {userEmail && userEmail !== userName && (
+                          <span>{userEmail}</span>
+                        )}
+
+                        {ipAddress && (
+                          <span className="text-slate-400">IP: {ipAddress}</span>
+                        )}
+
+                        <span className="inline-flex items-center gap-1 text-slate-400 ml-auto sm:ml-0 font-medium">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span title={new Date(createdAt).toLocaleString('es-GT')}>
+                            {formatRelativeTime(createdAt)}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Expandable Technical Diff */}
-                  {isExpanded && hasDiff && (
-                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                        {/* Previous State */}
-                        <div className="bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/60 rounded-xl p-3.5">
-                          <div className="text-rose-700 dark:text-rose-400 font-bold mb-1.5 flex items-center justify-between">
-                            <span>Estado Anterior</span>
-                            <span className="text-[10px] bg-rose-200/60 dark:bg-rose-900 px-1.5 py-0.5 rounded">Antes</span>
-                          </div>
-                          {log.previousData ? (
-                            <pre className="text-[11px] font-mono text-slate-700 dark:text-slate-300 overflow-x-auto p-2 bg-white/70 dark:bg-slate-900/80 rounded-lg max-h-48 scrollbar-thin">
-                              {JSON.stringify(log.previousData, null, 2)}
-                            </pre>
-                          ) : (
-                            <span className="text-slate-400 italic">No existía registro previo (Creación inicial)</span>
-                          )}
-                        </div>
-
-                        {/* New State */}
-                        <div className="bg-teal-50/50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/60 rounded-xl p-3.5">
-                          <div className="text-[#00696a] dark:text-teal-400 font-bold mb-1.5 flex items-center justify-between">
-                            <span>Nuevo Estado</span>
-                            <span className="text-[10px] bg-teal-200/60 dark:bg-teal-900 px-1.5 py-0.5 rounded">Después</span>
-                          </div>
-                          {log.newData ? (
-                            <pre className="text-[11px] font-mono text-slate-700 dark:text-slate-300 overflow-x-auto p-2 bg-white/70 dark:bg-slate-900/80 rounded-lg max-h-48 scrollbar-thin">
-                              {JSON.stringify(log.newData, null, 2)}
-                            </pre>
-                          ) : (
-                            <span className="text-slate-400 italic">Registro eliminado definitivamente</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                        <span>ID Forense: <code className="font-mono text-slate-600 dark:text-slate-300">{log.id}</code></span>
-                        <span>Registrado: {new Date(log.createdAt).toISOString()}</span>
-                      </div>
+                  {hasDiff && (
+                    <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 pt-2 sm:pt-0">
+                      <button
+                        onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-teal-50 hover:text-teal-900 text-slate-700 transition-all cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-teal-600" />
+                        <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Detalle'}</span>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
                     </div>
                   )}
                 </div>
+
+                {isExpanded && hasDiff && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      {/* Estado Anterior */}
+                      <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3.5">
+                        <div className="text-rose-800 font-bold mb-1.5 flex items-center justify-between">
+                          <span>Estado Anterior</span>
+                          <span className="text-[10px] bg-rose-200/80 text-rose-900 px-1.5 py-0.5 rounded font-black">Antes</span>
+                        </div>
+                        {previousData ? (
+                          <pre className="text-[11px] font-mono text-slate-700 overflow-x-auto p-2 bg-white/90 rounded-lg max-h-48 scrollbar-thin border border-rose-100">
+                            {JSON.stringify(previousData, null, 2)}
+                          </pre>
+                        ) : (
+                          <span className="text-slate-400 italic">No existía registro previo (Creación inicial)</span>
+                        )}
+                      </div>
+
+                      {/* Nuevo Estado */}
+                      <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-3.5">
+                        <div className="text-teal-900 font-bold mb-1.5 flex items-center justify-between">
+                          <span>Nuevo Estado</span>
+                          <span className="text-[10px] bg-teal-200/80 text-teal-950 px-1.5 py-0.5 rounded font-black">Después</span>
+                        </div>
+                        {newData ? (
+                          <pre className="text-[11px] font-mono text-slate-700 overflow-x-auto p-2 bg-white/90 rounded-lg max-h-48 scrollbar-thin border border-teal-100">
+                            {JSON.stringify(newData, null, 2)}
+                          </pre>
+                        ) : (
+                          <span className="text-slate-400 italic">Registro eliminado definitivamente</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                      <span>ID Forense: <code className="font-mono text-slate-600">{log.id}</code></span>
+                      <span>Registrado: {new Date(createdAt).toISOString()}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </div>
 
-      {/* Printable Report Footer (only visible when printing) */}
+      {/* 7. PRINTABLE REPORT FOOTER */}
       <div className="hidden print:block text-xs text-slate-500 pt-8 border-t border-slate-300 mt-8">
         <div className="flex justify-between items-center">
           <div>

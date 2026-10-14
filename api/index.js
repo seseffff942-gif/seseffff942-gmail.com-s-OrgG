@@ -1113,10 +1113,29 @@ if (pgPool) {
       keys JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS public.audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      category TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      entity_name TEXT,
+      description TEXT NOT NULL,
+      previous_data JSONB,
+      new_data JSONB,
+      user_id TEXT,
+      user_email TEXT,
+      user_name TEXT,
+      user_role TEXT,
+      ip_address TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON public.audit_logs (category);
   `).then(() => {
-    console.log("[DB] \u2705 Tablas public.fcm_tokens y public.push_subscriptions verificadas en PostgreSQL");
+    console.log("[DB] \u2705 Tablas public.fcm_tokens, public.push_subscriptions y public.audit_logs verificadas en PostgreSQL");
   }).catch((err) => {
-    console.warn("[DB] Aviso al verificar tablas de notificaciones:", err.message);
+    console.warn("[DB] Aviso al verificar tablas de notificaciones/auditor\xEDa:", err.message);
   });
 }
 var PANIC_STATE_FILE = path2.join(process.cwd(), "panic_state.json");
@@ -1979,22 +1998,41 @@ app.get("/api/admin/audit-logs", requireAuth, asyncHandler(async (req, res) => {
     } catch (e) {
     }
   }
+  if (stats.totalLogs === 0) {
+    try {
+      const localAuditPath = path2.join(process.cwd(), "audit_logs_local.json");
+      if (fs2.existsSync(localAuditPath)) {
+        const all = JSON.parse(fs2.readFileSync(localAuditPath, "utf8"));
+        const now = Date.now();
+        stats = {
+          totalLogs: all.length,
+          logs24h: all.filter((l) => now - new Date(l.created_at || l.createdAt).getTime() < 864e5).length,
+          totalStock: all.filter((l) => l.category === "stock").length,
+          totalClientes: all.filter((l) => l.category === "clientes").length,
+          totalVentas: all.filter((l) => l.category === "ventas").length,
+          totalRutas: all.filter((l) => l.category === "rutas").length,
+          totalSeguridad: all.filter((l) => l.category === "seguridad").length
+        };
+      }
+    } catch (e) {
+    }
+  }
   const mappedLogs = logs.map((l) => ({
     id: l.id,
     action: l.action,
     category: l.category,
-    entityType: l.entity_type,
-    entityId: l.entity_id,
-    entityName: l.entity_name,
+    entityType: l.entity_type || l.entityType,
+    entityId: l.entity_id || l.entityId,
+    entityName: l.entity_name || l.entityName,
     description: l.description,
-    previousData: typeof l.previous_data === "string" ? JSON.parse(l.previous_data) : l.previous_data,
-    newData: typeof l.new_data === "string" ? JSON.parse(l.new_data) : l.new_data,
-    userId: l.user_id,
-    userEmail: l.user_email,
-    userName: l.user_name,
-    userRole: l.user_role,
-    ipAddress: l.ip_address,
-    createdAt: l.created_at
+    previousData: typeof l.previous_data === "string" ? JSON.parse(l.previous_data) : l.previous_data || l.previousData,
+    newData: typeof l.new_data === "string" ? JSON.parse(l.new_data) : l.new_data || l.newData,
+    userId: l.user_id || l.userId,
+    userEmail: l.user_email || l.userEmail,
+    userName: l.user_name || l.userName,
+    userRole: l.user_role || l.userRole,
+    ipAddress: l.ip_address || l.ipAddress,
+    createdAt: l.created_at || l.createdAt
   }));
   res.json({ logs: mappedLogs, stats });
 }));
