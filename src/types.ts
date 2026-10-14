@@ -365,3 +365,31 @@ export interface VisitStats {
   recentVisits: ClientVisit[];
 }
 
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  category: 'clientes' | 'stock' | 'ventas' | 'rutas' | 'seguridad' | 'sistema';
+  entityType: string;
+  entityId?: string | null;
+  entityName?: string | null;
+  description: string;
+  previousData?: any;
+  newData?: any;
+  userId?: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+export interface AuditStats {
+  totalLogs: number;
+  logs24h: number;
+  totalStock: number;
+  totalClientes: number;
+  totalVentas: number;
+  totalRutas: number;
+  totalSeguridad: number;
+}
+

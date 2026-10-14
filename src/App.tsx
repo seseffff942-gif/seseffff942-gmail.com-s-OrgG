@@ -21,6 +21,7 @@ import { ReciboConformePage } from './pages/ReciboConformePage';
 import { QuotationsPage } from './pages/QuotationsPage';
 import { ClientVisitsPage } from './pages/ClientVisitsPage';
 import { ClientSalesTrackingPage } from './pages/ClientSalesTrackingPage';
+import { MasterAuditPage } from './pages/MasterAuditPage';
 import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
 import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
@@ -215,6 +216,9 @@ export default function App() {
       setCurrentTab('home');
     }
     if (currentTab === 'client-tracking' && user?.role !== 'admin' && user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
+      setCurrentTab('home');
+    }
+    if (currentTab === 'master-audit' && user?.role !== 'admin' && user?.email?.toLowerCase() !== 'seseffff942@gmail.com') {
       setCurrentTab('home');
     }
   }, [user, currentTab]);
@@ -483,6 +487,7 @@ export default function App() {
         {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="my_portfolio" />}
         {currentTab === 'client-tracking' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="control" />}
+        {currentTab === 'master-audit' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <MasterAuditPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
         {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
         {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}

@@ -2551,6 +2551,36 @@ export const api = {
     return safeJson(res);
   },
 
+  getAuditLogs: async (params?: { category?: string; search?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.category && params.category !== 'all') query.append('category', params.category);
+    if (params?.search) query.append('search', params.search);
+    if (params?.dateFrom) query.append('dateFrom', params.dateFrom);
+    if (params?.dateTo) query.append('dateTo', params.dateTo);
+    if (params?.limit) query.append('limit', String(params.limit));
+    if (params?.offset) query.append('offset', String(params.offset));
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetchWithAuth(`/api/admin/audit-logs${queryString}`);
+    if (!res.ok) {
+      const err = await safeJson(res).catch(() => ({}));
+      throw new Error(err.error || `Error al obtener auditoría: ${res.status}`);
+    }
+    return safeJson(res);
+  },
+
+  recordAuditLog: async (log: any) => {
+    const res = await fetchWithAuth('/api/admin/audit-logs/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(log)
+    });
+    if (!res.ok) {
+      const err = await safeJson(res).catch(() => ({}));
+      throw new Error(err.error || 'Error al registrar auditoría');
+    }
+    return safeJson(res);
+  },
+
   getMaintenanceMode: async (): Promise<{ maintenance: boolean }> => {
     try {
       const res = await fetch(getApiUrl('/api/system/maintenance'));

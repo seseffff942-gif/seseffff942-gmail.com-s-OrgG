@@ -976,10 +976,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     { id: 'clients', label: 'Clientes', icon: Users, roles: ['admin', 'seller'] },
     { id: 'visits', label: 'Visitas', icon: MapPin, roles: ['admin', 'seller'] },
     { id: 'client-tracking', label: 'Control Clientes', icon: MapControlIcon, roles: ['admin'] },
+    { id: 'master-audit', label: 'Auditoría & Control', icon: Shield, roles: ['admin'] },
     { id: 'team', label: 'Equipo', icon: Users, roles: ['admin', 'seller'] },
   ];
 
   const userNavItems = navItems.filter(item => {
+    if (item.id === 'master-audit') {
+      return activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com' || (activeUser?.role === 'admin' && activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com');
+    }
     if (item.id === 'team' && activeUser?.email === 'limalopez22@gmail.com') {
       return false;
     }

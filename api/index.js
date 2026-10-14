@@ -1803,6 +1803,220 @@ async function restaurarStockDeFactura(invoice) {
   }
 }
 var asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+async function recordAuditLog(entry) {
+  const id = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const logItem = {
+    id,
+    action: entry.action,
+    category: entry.category,
+    entity_type: entry.entity_type,
+    entity_id: entry.entity_id || null,
+    entity_name: entry.entity_name || null,
+    description: entry.description,
+    previous_data: entry.previous_data ?? null,
+    new_data: entry.new_data ?? null,
+    user_id: entry.user_id || "system",
+    user_email: entry.user_email || "sistema@agricovet.com",
+    user_name: entry.user_name || "Sistema",
+    user_role: entry.user_role || "system",
+    ip_address: entry.ip_address || "",
+    created_at: now
+  };
+  if (pgPool) {
+    try {
+      await pgPool.query(
+        `INSERT INTO public.audit_logs 
+        (id, action, category, entity_type, entity_id, entity_name, description, previous_data, new_data, user_id, user_email, user_name, user_role, ip_address, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          logItem.id,
+          logItem.action,
+          logItem.category,
+          logItem.entity_type,
+          logItem.entity_id,
+          logItem.entity_name,
+          logItem.description,
+          logItem.previous_data ? JSON.stringify(logItem.previous_data) : null,
+          logItem.new_data ? JSON.stringify(logItem.new_data) : null,
+          logItem.user_id,
+          logItem.user_email,
+          logItem.user_name,
+          logItem.user_role,
+          logItem.ip_address,
+          logItem.created_at
+        ]
+      );
+    } catch (dbErr) {
+      console.warn("[AUDIT] Error guardando en PostgreSQL public.audit_logs:", dbErr.message);
+    }
+  }
+  try {
+    const localAuditPath = path2.join(process.cwd(), "audit_logs_local.json");
+    let localLogs = [];
+    if (fs2.existsSync(localAuditPath)) {
+      try {
+        localLogs = JSON.parse(fs2.readFileSync(localAuditPath, "utf8"));
+      } catch (e) {
+        localLogs = [];
+      }
+    }
+    localLogs.unshift(logItem);
+    if (localLogs.length > 5e3) localLogs = localLogs.slice(0, 5e3);
+    fs2.writeFileSync(localAuditPath, JSON.stringify(localLogs, null, 2), "utf8");
+  } catch (fsErr) {
+    console.warn("[AUDIT] Error guardando en audit_logs_local.json:", fsErr.message);
+  }
+  return logItem;
+}
+app.get("/api/admin/audit-logs", requireAuth, asyncHandler(async (req, res) => {
+  const email = (req.user?.email || "").toLowerCase().trim();
+  const role = (req.user?.role || "").toLowerCase().trim();
+  const isOwner = email === "seseffff942@gmail.com";
+  const isAdmin = role === "admin";
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ error: "Acceso exclusivo para el Due\xF1o / Administrador Maestro" });
+  }
+  const { category, search, dateFrom, dateTo, limit = "200", offset = "0" } = req.query;
+  const parsedLimit = Math.min(Math.max(parseInt(limit) || 200, 1), 1e3);
+  const parsedOffset = Math.max(parseInt(offset) || 0, 0);
+  let logs = [];
+  let total = 0;
+  if (pgPool) {
+    try {
+      const whereClauses = [];
+      const params = [];
+      if (category && category !== "all" && category !== "todos") {
+        params.push(category);
+        whereClauses.push(`category = $${params.length}`);
+      }
+      if (search && search.trim()) {
+        params.push(`%${search.trim()}%`);
+        const pIndex = params.length;
+        whereClauses.push(`(
+          entity_name ILIKE $${pIndex} OR 
+          description ILIKE $${pIndex} OR 
+          user_name ILIKE $${pIndex} OR 
+          user_email ILIKE $${pIndex} OR 
+          action ILIKE $${pIndex}
+        )`);
+      }
+      if (dateFrom) {
+        params.push(dateFrom);
+        whereClauses.push(`created_at >= $${params.length}`);
+      }
+      if (dateTo) {
+        params.push(dateTo);
+        whereClauses.push(`created_at <= $${params.length}`);
+      }
+      const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(" AND ") : "";
+      const countRes = await pgPool.query(`SELECT COUNT(*) as cnt FROM public.audit_logs${whereSql}`, params);
+      total = parseInt(countRes.rows[0]?.cnt || "0");
+      const selectParams = [...params, parsedLimit, parsedOffset];
+      const rowsRes = await pgPool.query(
+        `SELECT * FROM public.audit_logs${whereSql} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        selectParams
+      );
+      logs = rowsRes.rows;
+    } catch (e) {
+      console.warn("[AUDIT] Error consultando PostgreSQL:", e.message);
+    }
+  }
+  if (logs.length === 0) {
+    try {
+      const localAuditPath = path2.join(process.cwd(), "audit_logs_local.json");
+      if (fs2.existsSync(localAuditPath)) {
+        let allLocal = JSON.parse(fs2.readFileSync(localAuditPath, "utf8"));
+        if (category && category !== "all" && category !== "todos") {
+          allLocal = allLocal.filter((l) => l.category === category);
+        }
+        if (search && search.trim()) {
+          const s = search.toLowerCase().trim();
+          allLocal = allLocal.filter(
+            (l) => (l.entity_name || "").toLowerCase().includes(s) || (l.description || "").toLowerCase().includes(s) || (l.user_name || "").toLowerCase().includes(s) || (l.user_email || "").toLowerCase().includes(s) || (l.action || "").toLowerCase().includes(s)
+          );
+        }
+        total = allLocal.length;
+        logs = allLocal.slice(parsedOffset, parsedOffset + parsedLimit);
+      }
+    } catch (e) {
+    }
+  }
+  let stats = {
+    totalLogs: total,
+    logs24h: 0,
+    totalStock: 0,
+    totalClientes: 0,
+    totalVentas: 0,
+    totalRutas: 0,
+    totalSeguridad: 0
+  };
+  if (pgPool) {
+    try {
+      const statRes = await pgPool.query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as logs_24h,
+          COUNT(*) FILTER (WHERE category = 'stock') as total_stock,
+          COUNT(*) FILTER (WHERE category = 'clientes') as total_clientes,
+          COUNT(*) FILTER (WHERE category = 'ventas') as total_ventas,
+          COUNT(*) FILTER (WHERE category = 'rutas') as total_rutas,
+          COUNT(*) FILTER (WHERE category = 'seguridad') as total_seguridad
+        FROM public.audit_logs
+      `);
+      if (statRes.rows[0]) {
+        const r = statRes.rows[0];
+        stats = {
+          totalLogs: parseInt(r.total || "0"),
+          logs24h: parseInt(r.logs_24h || "0"),
+          totalStock: parseInt(r.total_stock || "0"),
+          totalClientes: parseInt(r.total_clientes || "0"),
+          totalVentas: parseInt(r.total_ventas || "0"),
+          totalRutas: parseInt(r.total_rutas || "0"),
+          totalSeguridad: parseInt(r.total_seguridad || "0")
+        };
+      }
+    } catch (e) {
+    }
+  }
+  const mappedLogs = logs.map((l) => ({
+    id: l.id,
+    action: l.action,
+    category: l.category,
+    entityType: l.entity_type,
+    entityId: l.entity_id,
+    entityName: l.entity_name,
+    description: l.description,
+    previousData: typeof l.previous_data === "string" ? JSON.parse(l.previous_data) : l.previous_data,
+    newData: typeof l.new_data === "string" ? JSON.parse(l.new_data) : l.new_data,
+    userId: l.user_id,
+    userEmail: l.user_email,
+    userName: l.user_name,
+    userRole: l.user_role,
+    ipAddress: l.ip_address,
+    createdAt: l.created_at
+  }));
+  res.json({ logs: mappedLogs, stats });
+}));
+app.post("/api/admin/audit-logs/record", requireAuth, asyncHandler(async (req, res) => {
+  const { action, category, entity_type, entity_id, entity_name, description, previous_data, new_data } = req.body;
+  const logItem = await recordAuditLog({
+    action: action || "CUSTOM_ACTION",
+    category: category || "sistema",
+    entity_type: entity_type || "system",
+    entity_id: entity_id || null,
+    entity_name: entity_name || null,
+    description: description || "Acci\xF3n registrada por el sistema",
+    previous_data,
+    new_data,
+    user_id: req.user?.id || "unknown",
+    user_email: req.user?.email || "unknown",
+    user_name: req.user?.name || req.user?.email || "Usuario",
+    user_role: req.user?.role || "user",
+    ip_address: req.ip || req.headers["x-forwarded-for"] || ""
+  });
+  res.json({ success: true, log: logItem });
+}));
 app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { force } = req.body;
   await seedDatabase(!!force);
@@ -1891,14 +2105,40 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       WHERE role = 'seller' OR role = 'admin'
       ORDER BY name
     `);
-    const GENERIC_WORDS = new Set([
-      'agro', 'agroveterinaria', 'veterinaria', 'agropecuaria', 'agroservicios', 
-      'agroservicio', 'servicios', 'servicio', 'distribuidora', 'distribuciones',
-      'comercial', 'comercializadora', 'sociedad', 'anonima', 'copropiedad', 
-      'tienda', 'finca', 'granja', 'insumos', 'productos', 'importadora',
-      'de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'para', 'con', 'sa'
+    const GENERIC_WORDS = /* @__PURE__ */ new Set([
+      "agro",
+      "agroveterinaria",
+      "veterinaria",
+      "agropecuaria",
+      "agroservicios",
+      "agroservicio",
+      "servicios",
+      "servicio",
+      "distribuidora",
+      "distribuciones",
+      "comercial",
+      "comercializadora",
+      "sociedad",
+      "anonima",
+      "copropiedad",
+      "tienda",
+      "finca",
+      "granja",
+      "insumos",
+      "productos",
+      "importadora",
+      "de",
+      "del",
+      "la",
+      "el",
+      "los",
+      "las",
+      "y",
+      "en",
+      "para",
+      "con",
+      "sa"
     ]);
-
     const clientData = clientRows.map((c) => {
       let lat = c.latitude !== null && c.latitude !== void 0 && !isNaN(Number(c.latitude)) ? parseFloat(c.latitude) : null;
       let lng = c.longitude !== null && c.longitude !== void 0 && !isNaN(Number(c.longitude)) ? parseFloat(c.longitude) : null;
@@ -1926,18 +2166,14 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       }
       const normName = normalizeText(c.name);
       const normCompany = normalizeText(c.companyName);
-
       const nameWords = normName.split(/\s+/).filter((w) => w.length >= 3);
       const distinctiveNameWords = nameWords.filter((w) => !GENERIC_WORDS.has(w));
-
       const companyWords = normCompany.split(/\s+/).filter((w) => w.length >= 3);
       const distinctiveCompanyWords = companyWords.filter((w) => !GENERIC_WORDS.has(w));
-
       const rawSegments = [
-        ...(c.name ? c.name.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : []),
-        ...(c.companyName ? c.companyName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : [])
+        ...c.name ? c.name.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : [],
+        ...c.companyName ? c.companyName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : []
       ];
-
       return {
         ...c,
         latitude: lat,
@@ -1954,12 +2190,11 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
     });
     const salesByClientId = /* @__PURE__ */ new Map();
     for (const inv of invoiceRows) {
-      const rawInvName = inv.clientName || '';
+      const rawInvName = inv.clientName || "";
       const invNorm = normalizeText(rawInvName);
       if (!invNorm) continue;
       const invWordSet = new Set(invNorm.split(/\s+/));
       const invSegments = rawInvName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3);
-
       const saleObj = {
         id: inv.id,
         folio: inv.folio,
@@ -1979,7 +2214,6 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         } else if (c.normCompany && invNorm === c.normCompany) {
           score = 190;
         }
-
         if (score < 180) {
           for (const invSeg of invSegments) {
             if (!invSeg) continue;
@@ -1998,17 +2232,14 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
             }
           }
         }
-
         const matchedDistName = c.distinctiveNameWords.filter((w) => invWordSet.has(w));
         const matchedDistCompany = c.distinctiveCompanyWords.filter((w) => invWordSet.has(w));
-        const totalDist = Array.from(new Set([...matchedDistName, ...matchedDistCompany]));
-
+        const totalDist = Array.from(/* @__PURE__ */ new Set([...matchedDistName, ...matchedDistCompany]));
         if (totalDist.length >= 2) {
           score = Math.max(score, 90 + totalDist.length * 10);
         } else if (totalDist.length === 1 && (c.distinctiveNameWords.length === 1 || c.distinctiveCompanyWords.length === 1)) {
           score = Math.max(score, 75);
         }
-
         if (score > bestScore) {
           bestScore = score;
           bestClient = c;
@@ -3382,6 +3613,21 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
     console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
+  recordAuditLog({
+    action: clientData.clientCode?.startsWith("GT-") || clientData.name.toLowerCase().includes("prueba") ? "CLIENT_CREATED_TEST" : "CLIENT_CREATED",
+    category: "clientes",
+    entity_type: "client",
+    entity_id: clientData.id,
+    entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ""}`,
+    description: `Cliente "${clientData.name}" creado con c\xF3digo ${clientData.clientCode || "N/A"}${clientData.latitude ? " y coordenadas GPS fijadas" : ""}`,
+    new_data: clientData,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true, client: clientData });
 }));
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
@@ -3474,6 +3720,22 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
         }
       }
     }
+    recordAuditLog({
+      action: "CLIENT_UPDATED",
+      category: "clientes",
+      entity_type: "client",
+      entity_id: String(id),
+      entity_name: updates.name || oldName || `Cliente ${id}`,
+      description: `Cliente "${updates.name || oldName || id}" actualizado (${Object.keys(updates).join(", ")})`,
+      previous_data: { oldName, oldClientCode, oldNit },
+      new_data: updates,
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   } catch (e) {
@@ -3595,6 +3857,21 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
         console.warn("[Delete Client Neon Warning]:", neonErr.message);
       }
     }
+    recordAuditLog({
+      action: "CLIENT_DELETED",
+      category: "clientes",
+      entity_type: "client",
+      entity_id: idStr,
+      entity_name: targetName || idStr,
+      description: `Cliente "${targetName || idStr}" (${targetCode || "Sin c\xF3digo"}) eliminado permanentemente`,
+      previous_data: { id: idStr, name: targetName, clientCode: targetCode, companyName: targetCompany, nit: targetNit },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
@@ -3762,6 +4039,22 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
   } catch (e) {
     console.warn("Could not update local client location:", e);
   }
+  recordAuditLog({
+    action: "CLIENT_GPS_PINNED",
+    category: "rutas",
+    entity_type: "client",
+    entity_id: String(id),
+    entity_name: existingClient?.name || `Cliente ${id}`,
+    description: `Fijaci\xF3n GPS guardada para "${existingClient?.name || id}": [${latNum}, ${lngNum}]${locationAddress ? ` (${locationAddress})` : ""}`,
+    previous_data: { latitude: existingClient?.latitude, longitude: existingClient?.longitude },
+    new_data: locationUpdates,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   invalidateCache("clients");
   res.json({ success: true, client: { id, ...locationUpdates, sellerId: effectiveSellerId || currentSeller } });
 }));
@@ -3838,6 +4131,20 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, re
   } catch (e) {
     console.warn("Could not clear local client location:", e);
   }
+  recordAuditLog({
+    action: "CLIENT_GPS_UNPINNED",
+    category: "rutas",
+    entity_type: "client",
+    entity_id: String(id),
+    entity_name: targetName || `Cliente ${id}`,
+    description: `Fijaci\xF3n GPS removida para "${targetName || id}"`,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   invalidateCache("clients");
   res.json({ success: true, message: "Ubicaci\xF3n GPS eliminada con \xE9xito.", client: { id, ...locationUpdates } });
 }));
@@ -4424,6 +4731,28 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   } catch (err) {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
+  recordAuditLog({
+    action: "VISIT_RECORDED",
+    category: "rutas",
+    entity_type: "visit",
+    entity_id: newVisit.id,
+    entity_name: newVisit.clientName || `Cliente ${newVisit.clientId}`,
+    description: `Visita registrada por ${newVisit.sellerName || sellerNameStr} en "${newVisit.clientName}" (${String(newVisit.visitType).toUpperCase()})`,
+    new_data: {
+      visitId: newVisit.id,
+      clientName: newVisit.clientName,
+      visitType: newVisit.visitType,
+      latitude: newVisit.latitude,
+      longitude: newVisit.longitude,
+      sellerName: newVisit.sellerName
+    },
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true, visit: newVisit, activeRoute });
   if (isNewAutoRoute) {
     console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
@@ -4456,6 +4785,20 @@ app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req, res) => {
     saveLocalVisits(filtered);
   } catch (e) {
   }
+  recordAuditLog({
+    action: "VISIT_DELETED",
+    category: "rutas",
+    entity_type: "visit",
+    entity_id: id,
+    entity_name: `Visita ${id}`,
+    description: `Visita checkpoint eliminada por ${req.user?.name || req.user?.email}`,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
 var SELLER_ROUTES_FILE = path2.join(process.cwd(), "seller_routes_local.json");
@@ -6945,6 +7288,43 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
   if (originalProduct && price !== void 0 && originalProduct.price !== price) {
     await createNotification("price_changed", "\u{1F3F7}\uFE0F Precio Actualizado", `${originalProduct.name}: Q${originalProduct.price} \u2794 Q${price}`, { productId: id });
   }
+  if (originalProduct && stock !== void 0 && originalProduct.stock !== stock) {
+    const diff = stock - originalProduct.stock;
+    const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+    recordAuditLog({
+      action: "STOCK_ADJUSTED",
+      category: "stock",
+      entity_type: "product",
+      entity_id: String(id),
+      entity_name: originalProduct.name || `Producto ${id}`,
+      description: `Ajuste manual de stock para "${originalProduct.name}": de ${originalProduct.stock} a ${stock} (${diffStr} uds)`,
+      previous_data: { stock: originalProduct.stock, price: originalProduct.price },
+      new_data: { stock, price: price ?? originalProduct.price, diff },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
+  } else if (hasUpdates) {
+    recordAuditLog({
+      action: "PRODUCT_UPDATED",
+      category: "stock",
+      entity_type: "product",
+      entity_id: String(id),
+      entity_name: originalProduct.name || `Producto ${id}`,
+      description: `Producto "${originalProduct.name}" editado: ${Object.keys(updates).join(", ")}`,
+      previous_data: originalProduct,
+      new_data: updates,
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
+  }
   res.json(updatedProduct);
 }));
 app.get("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
@@ -7760,6 +8140,22 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         }
         if (!isExemptFromStock) {
           deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
+          recordAuditLog({
+            action: "STOCK_DEDUCTED_SALE",
+            category: "stock",
+            entity_type: "product",
+            entity_id: product.id,
+            entity_name: product.name,
+            description: `Descuento de inventario por venta a "${client}": -${item.quantity} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
+            previous_data: { stock: currentStock },
+            new_data: { stock: newStock, quantitySold: item.quantity, client },
+            user_id: req.user?.id,
+            user_email: req.user?.email,
+            user_name: req.user?.name || req.user?.email,
+            user_role: req.user?.role,
+            ip_address: req.ip
+          }).catch(() => {
+          });
         }
       }
       if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
@@ -7977,6 +8373,29 @@ AgricoVet - Sistema de Notificaciones`;
   }
   invalidateCache("invoices");
   const folioMap = await getFolioMap();
+  const invoiceTotal = (items || []).reduce((acc, it) => acc + parseFloat(it.price || 0) * parseFloat(it.quantity || 0), 0);
+  recordAuditLog({
+    action: "SALE_CREATED",
+    category: "ventas",
+    entity_type: "invoice",
+    entity_id: returnInvoice.id,
+    entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
+    description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
+    new_data: {
+      invoiceId: returnInvoice.id,
+      folio: folioMap[returnInvoice.id] || 1,
+      client,
+      total: invoiceTotal,
+      itemsCount: (items || []).length,
+      seller: req.user?.email
+    },
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({
     ...returnInvoice,
     isOwed: true,
@@ -8407,6 +8826,21 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
   invalidateCache("folio_map");
   invalidateCache("products");
   invalidateCache("invoices");
+  recordAuditLog({
+    action: "SALE_DELETED",
+    category: "ventas",
+    entity_type: "invoice",
+    entity_id: id,
+    entity_name: `Venta #${id} - ${invoice.client || "Cliente"}`,
+    description: `Factura/Venta #${id} eliminada por ${req.user?.name || req.user?.email} (Stock de productos restaurado)`,
+    previous_data: { id, client: invoice.client, total: invoice.total, items: invoice.items },
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true });
 }));
 app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
@@ -11054,6 +11488,7 @@ export {
   pgPool,
   queryDb,
   queryNeon,
+  recordAuditLog,
   setGlobalDbMode,
   setGlobalMaintenanceMode
 };

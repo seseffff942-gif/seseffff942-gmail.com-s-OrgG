@@ -1,0 +1,25 @@
+[
+  {
+    "id": "audit_init_gt1013",
+    "action": "SECURITY_CLEANUP",
+    "category": "seguridad",
+    "entityType": "client",
+    "entityId": "cli_gt_reu_13",
+    "entityName": "AGROVETERINARIA REU AGRO (GT-1013)",
+    "description": "Eliminación y purga definitiva del cliente de prueba GT-1013 y desvinculación de folios robados por algoritmo difuso.",
+    "previousData": {
+      "clientCode": "GT-1013",
+      "name": "AGROVETERINARIA REU AGRO",
+      "hijackedFolios": [887, 809, 812, 894, 811, 966, 969, 959, 955, 945, 900, 910, 871]
+    },
+    "newData": {
+      "status": "PURGED",
+      "foliosRestored": true
+    },
+    "userId": "u1b",
+    "userEmail": "seseffff942@gmail.com",
+    "userName": "Emanuel Lima",
+    "userRole": "admin",
+    "createdAt": "2026-10-14T15:00:00.000Z"
+  }
+]
