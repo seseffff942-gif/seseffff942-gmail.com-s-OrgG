@@ -13,19 +13,12 @@ import {
   Users, 
   ShoppingCart, 
   MapPin, 
-  AlertTriangle, 
-  CheckCircle2, 
   ChevronDown, 
   ChevronUp, 
   Clock, 
   Database, 
   Eye, 
   Lock, 
-  Sparkles,
-  ArrowRight,
-  TrendingUp,
-  FileText,
-  Calendar,
   X
 } from 'lucide-react';
 import { cn } from '../utils';
@@ -53,7 +46,6 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week'>('all');
-  const [selectedLogForDetail, setSelectedLogForDetail] = useState<AuditLogEntry | null>(null);
 
   const isOwner = user?.email?.toLowerCase().trim() === 'seseffff942@gmail.com';
 
@@ -123,37 +115,37 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
       case 'stock':
         return {
           label: 'Inventario / Stock',
-          bg: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
+          bg: 'bg-amber-50 text-amber-800 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
           icon: Package
         };
       case 'clientes':
         return {
           label: 'Clientes',
-          bg: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800',
+          bg: 'bg-teal-50 text-[#00696a] border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
           icon: Users
         };
       case 'ventas':
         return {
           label: 'Ventas & Facturas',
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
+          bg: 'bg-teal-50 text-teal-800 border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
           icon: ShoppingCart
         };
       case 'rutas':
         return {
           label: 'Rutas & GPS',
-          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800',
+          bg: 'bg-teal-50/70 text-teal-900 border-teal-200/80 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
           icon: MapPin
         };
       case 'seguridad':
         return {
           label: 'Seguridad & Alertas',
-          bg: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
+          bg: 'bg-rose-50 text-rose-800 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
           icon: ShieldAlert
         };
       default:
         return {
           label: 'Sistema',
-          bg: 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/60 dark:text-slate-300 dark:border-slate-800',
+          bg: 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
           icon: Activity
         };
     }
@@ -161,15 +153,15 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
 
   const getActionBadgeColor = (action: string) => {
     if (action.includes('CREATED') || action.includes('PINNED')) {
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300';
+      return 'bg-teal-100 text-[#00696a] dark:bg-teal-950/60 dark:text-teal-300 font-bold';
     }
     if (action.includes('DELETED') || action.includes('CLEANUP') || action.includes('UNPINNED')) {
-      return 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300';
+      return 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold';
     }
     if (action.includes('STOCK')) {
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300';
+      return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-bold';
     }
-    return 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300';
+    return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold';
   };
 
   const formatRelativeTime = (isoString: string) => {
@@ -227,16 +219,16 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-50 text-[#00696a] dark:bg-teal-950/60 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
                 <Shield className="w-3.5 h-3.5" />
                 Control Maestro & Seguridad Exclusivo
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                <Database className="w-3 h-3 text-emerald-600" />
+                <Database className="w-3 h-3 text-[#00696a]" />
                 PostgreSQL + Copia Espejo
               </span>
               {isOwner && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
                   <Lock className="w-3 h-3" />
                   Dueño / CEO ({user.email})
                 </span>
@@ -255,10 +247,10 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={cn(
-                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border shadow-xs",
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border shadow-xs cursor-pointer",
                 autoRefresh 
-                  ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700" 
-                  : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50"
+                  ? "bg-[#00696a] text-white border-[#00696a] hover:bg-[#004f50]" 
+                  : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 hover:text-[#00696a]"
               )}
               title="Actualización automática cada 10 segundos"
             >
@@ -269,23 +261,23 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             <button
               onClick={() => fetchAuditData()}
               disabled={refreshing}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200 transition-all shadow-xs cursor-pointer"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5", refreshing && "animate-spin text-emerald-600")} />
+              <RefreshCw className={cn("w-3.5 h-3.5", refreshing && "animate-spin text-[#00696a]")} />
               Actualizar
             </button>
 
             <button
               onClick={exportToCSV}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200 transition-all shadow-xs cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 text-blue-600" />
+              <Download className="w-3.5 h-3.5 text-[#00696a]" />
               Exportar CSV
             </button>
 
             <button
               onClick={handlePrintReport}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#00696a] hover:bg-[#004f50] text-white transition-all shadow-xs cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               Imprimir Informe
@@ -300,13 +292,13 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
             <span>Total Movimientos</span>
-            <Activity className="w-4 h-4 text-emerald-600" />
+            <Activity className="w-4 h-4 text-[#00696a]" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
             {stats.totalLogs.toLocaleString()}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-            <span className="text-emerald-600 font-semibold">+{stats.logs24h}</span> últimas 24h
+            <span className="text-[#00696a] font-semibold">+{stats.logs24h}</span> últimas 24h
           </div>
         </div>
 
@@ -328,7 +320,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
             <span>Clientes & Pruebas</span>
-            <Users className="w-4 h-4 text-blue-600" />
+            <Users className="w-4 h-4 text-[#00696a]" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
             {stats.totalClientes.toLocaleString()}
@@ -342,7 +334,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
             <span>Ventas / Folios</span>
-            <ShoppingCart className="w-4 h-4 text-emerald-600" />
+            <ShoppingCart className="w-4 h-4 text-[#00696a]" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
             {stats.totalVentas.toLocaleString()}
@@ -356,7 +348,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-1.5">
             <span>Rutas & Pines GPS</span>
-            <MapPin className="w-4 h-4 text-indigo-600" />
+            <MapPin className="w-4 h-4 text-teal-700" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
             {stats.totalRutas.toLocaleString()}
@@ -392,12 +384,12 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por cliente, producto, usuario (ej. ventas1, admin), acción o palabra clave..."
-              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00696a]/20 focus:border-[#00696a] transition-all"
             />
             {searchTerm && (
               <button 
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -409,9 +401,9 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             <button
               onClick={() => setDateFilter('all')}
               className={cn(
-                "px-3 py-1.5 rounded-lg transition-all",
+                "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'all' 
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-semibold" 
+                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
               )}
             >
@@ -420,9 +412,9 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             <button
               onClick={() => setDateFilter('today')}
               className={cn(
-                "px-3 py-1.5 rounded-lg transition-all",
+                "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'today' 
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-semibold" 
+                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
               )}
             >
@@ -431,9 +423,9 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
             <button
               onClick={() => setDateFilter('week')}
               className={cn(
-                "px-3 py-1.5 rounded-lg transition-all",
+                "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
                 dateFilter === 'week' 
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-semibold" 
+                  ? "bg-white dark:bg-slate-900 text-[#00696a] dark:text-white shadow-xs font-bold" 
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
               )}
             >
@@ -456,17 +448,17 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               key={tab.id}
               onClick={() => setSelectedCategory(tab.id)}
               className={cn(
-                "whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 border",
+                "whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 border cursor-pointer",
                 selectedCategory === tab.id
-                  ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                  : "bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100"
+                  ? "bg-[#00696a] text-white border-[#00696a] shadow-xs"
+                  : "bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-teal-50/50 hover:text-[#00696a] hover:border-teal-200"
               )}
             >
               <span>{tab.label}</span>
               <span className={cn(
                 "px-1.5 py-0.5 rounded-full text-[10px]",
                 selectedCategory === tab.id
-                  ? "bg-emerald-700 text-white"
+                  ? "bg-[#004f50] text-teal-50"
                   : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
               )}>
                 {tab.count}
@@ -480,7 +472,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
       <div className="space-y-3">
         {loading ? (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
-            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-emerald-600 mb-3" />
+            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#00696a] mb-3" />
             <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Cargando bitácora de auditoría inmutable...</p>
           </div>
         ) : filteredLogs.length === 0 ? (
@@ -500,7 +492,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
               <div 
                 key={log.id}
                 className={cn(
-                  "bg-white dark:bg-slate-900 border rounded-2xl transition-all shadow-xs hover:border-slate-300 dark:hover:border-slate-700 overflow-hidden",
+                  "bg-white dark:bg-slate-900 border rounded-2xl transition-all shadow-xs hover:border-teal-200 dark:hover:border-slate-700 overflow-hidden",
                   log.category === 'seguridad' ? "border-rose-200 dark:border-rose-900/50" : "border-slate-200/90 dark:border-slate-800"
                 )}
               >
@@ -548,7 +540,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                         {/* Metadata row: User, IP, Timestamp */}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-1">
                           <span className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                            <span className="w-2 h-2 rounded-full bg-[#00696a] inline-block" />
                             {log.userName || log.userEmail || 'Sistema'}
                             {log.userRole && (
                               <span className="text-[10px] text-slate-400">({log.userRole})</span>
@@ -578,9 +570,9 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                       <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 pt-2 sm:pt-0">
                         <button
                           onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-teal-50 hover:text-[#00696a] dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
                         >
-                          <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                          <Eye className="w-3.5 h-3.5 text-[#00696a]" />
                           <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Detalle'}</span>
                           {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
@@ -608,10 +600,10 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                         </div>
 
                         {/* New State */}
-                        <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-3.5">
-                          <div className="text-emerald-700 dark:text-emerald-400 font-bold mb-1.5 flex items-center justify-between">
+                        <div className="bg-teal-50/50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/60 rounded-xl p-3.5">
+                          <div className="text-[#00696a] dark:text-teal-400 font-bold mb-1.5 flex items-center justify-between">
                             <span>Nuevo Estado</span>
-                            <span className="text-[10px] bg-emerald-200/60 dark:bg-emerald-900 px-1.5 py-0.5 rounded">Después</span>
+                            <span className="text-[10px] bg-teal-200/60 dark:bg-teal-900 px-1.5 py-0.5 rounded">Después</span>
                           </div>
                           {log.newData ? (
                             <pre className="text-[11px] font-mono text-slate-700 dark:text-slate-300 overflow-x-auto p-2 bg-white/70 dark:bg-slate-900/80 rounded-lg max-h-48 scrollbar-thin">
