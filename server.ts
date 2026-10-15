@@ -68,14 +68,31 @@ if (pgPool) {
   pgPool.query(`
     CREATE TABLE IF NOT EXISTS public.fcm_tokens (
       token TEXT PRIMARY KEY,
+      user_id TEXT,
+      role TEXT,
+      email TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS user_id TEXT;
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS role TEXT;
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS email TEXT;
+
     CREATE TABLE IF NOT EXISTS public.push_subscriptions (
       id TEXT PRIMARY KEY,
       endpoint TEXT UNIQUE NOT NULL,
       keys JSONB,
+      user_id TEXT,
+      role TEXT,
+      email TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS user_id TEXT;
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS role TEXT;
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS email TEXT;
+
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerId" TEXT;
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS seller_id TEXT;
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerName" TEXT;
     CREATE TABLE IF NOT EXISTS public.audit_logs (
       id TEXT PRIMARY KEY,
       action TEXT NOT NULL,
@@ -788,6 +805,45 @@ const requireAdmin = (req: any, res: any, next: any) => {
   }
   next();
 };
+
+const optionalAuth = async (req: any, res: any, next: any) => {
+  let token = null;
+  const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'] || req.headers['x-access-token'];
+  if (authHeader && typeof authHeader === 'string') {
+    token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (!token) return next();
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as any;
+    let user = null;
+    if (isNeonActive() && neonPool) {
+      try {
+        const rows = await queryNeon('SELECT * FROM public.users WHERE id = $1', [payload.id]);
+        if (rows && rows.length > 0) user = rows[0];
+      } catch (neErr) { }
+    }
+
+    if (!user) {
+      try {
+        const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
+        if (users && users.length > 0) user = users[0];
+      } catch (dbErr) { }
+    }
+
+    if (!user) {
+      user = initialDb.users.find(u => u.id === payload.id);
+    }
+
+    if (user) {
+      req.user = user;
+    }
+  } catch (e) { }
+  next();
+};
+
 
 const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
   if (!product) return false;
@@ -1713,10 +1769,15 @@ async function getPushSubscriptions(): Promise<any[]> {
   return Array.from(map.values());
 }
 
-async function savePushSubscription(subscription: any) {
+async function savePushSubscription(subscription: any, user?: any) {
   const current = readPushSubscriptions();
   const filtered = current.filter(sub => sub.endpoint !== subscription.endpoint);
-  filtered.push(subscription);
+  filtered.push({
+    ...subscription,
+    user_id: user?.id || null,
+    role: user?.role || null,
+    email: user?.email || null
+  });
   savePushSubscriptions(filtered);
 
   try {
@@ -1725,6 +1786,9 @@ async function savePushSubscription(subscription: any) {
       id: subId,
       endpoint: subscription.endpoint,
       subscription: subscription,
+      user_id: user?.id || null,
+      role: user?.role || null,
+      email: user?.email || null,
       updated_at: new Date().toISOString()
     }], { onConflict: 'id' });
   } catch (err) {
@@ -1772,7 +1836,7 @@ async function getFcmTokens(): Promise<string[]> {
   return Array.from(tokenSet);
 }
 
-async function registerFcmToken(token: string) {
+async function registerFcmToken(token: string, user?: any) {
   if (!token || typeof token !== "string") return;
   const cleanToken = token.trim();
   if (!cleanToken) return;
@@ -1785,28 +1849,76 @@ async function registerFcmToken(token: string) {
   if (pgPool) {
     try {
       await pgPool.query(
-        "INSERT INTO public.fcm_tokens (token, updated_at) VALUES ($1, NOW()) ON CONFLICT (token) DO UPDATE SET updated_at = NOW();",
-        [cleanToken]
+        `INSERT INTO public.fcm_tokens (token, user_id, role, email, updated_at) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         ON CONFLICT (token) DO UPDATE 
+         SET user_id = COALESCE($2, public.fcm_tokens.user_id), 
+             role = COALESCE($3, public.fcm_tokens.role), 
+             email = COALESCE($4, public.fcm_tokens.email), 
+             updated_at = NOW();`,
+        [cleanToken, user?.id || null, user?.role || null, user?.email || null]
       );
-      console.log(`[FCM] 📲 Token registrado exitosamente en DB: ${cleanToken.substring(0, 16)}...`);
+      console.log(`[FCM] 📲 Token registrado exitosamente en DB (${user?.role || 'anónimo'}): ${cleanToken.substring(0, 16)}...`);
     } catch (e: any) {
       console.warn("[FCM] Error saving token to pgPool:", e.message);
     }
   }
 }
 
-async function broadcastPushNotification(title: string, message: string, url: string = "/") {
+async function broadcastPushNotification(
+  title: string, 
+  message: string, 
+  url: string = "/",
+  meta?: { type?: string; sellerId?: string }
+) {
   const config = readWarehouseConfig();
   if (config.isSilentModeActive) {
     console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
     return;
   }
-  const subs = await getPushSubscriptions();
-  const payload = JSON.stringify({ title, message, url });
 
-  // 1. Web Push (Navegadores / PWA)
-  if (subs.length > 0) {
-    const promises = subs.map(async (sub) => {
+  const notifType = String(meta?.type || '').toLowerCase();
+  const notifSellerId = meta?.sellerId ? String(meta.sellerId).toLowerCase().trim() : null;
+
+  // Clasificación de destinatarios para Push:
+  // - Inventario (agotados, reabastecimiento, precio, stock crítico): Llega a TODOS
+  // - Visitas: Exclusivas para ADMINISTRADORES
+  // - Ventas/Pedidos/Pagos: A ADMINISTRADORES y al VENDEDOR dueño de esa venta
+  const isInventory = 
+    notifType === 'restock' || 
+    notifType === 'out_of_stock' || 
+    notifType === 'low_stock' || 
+    notifType === 'price_changed' ||
+    notifType.includes('stock') || 
+    notifType.includes('inventory') ||
+    title.toLowerCase().includes('stock') ||
+    title.toLowerCase().includes('agotado') ||
+    title.toLowerCase().includes('precio');
+
+  const isVisit = notifType.includes('visit') || title.toLowerCase().includes('visita');
+
+  // 1. Filtrar Push Subscriptions Web (Navegadores / PWA)
+  const allSubs = await getPushSubscriptions();
+  let targetSubs = allSubs;
+  if (!isInventory) {
+    if (isVisit) {
+      targetSubs = allSubs.filter((s: any) => !s.role || s.role === 'admin');
+    } else {
+      targetSubs = allSubs.filter((s: any) => {
+        if (!s.role || s.role === 'admin') return true;
+        if (s.role === 'seller' && notifSellerId) {
+          const uId = String(s.user_id || '').toLowerCase();
+          const uEmail = String(s.email || '').toLowerCase();
+          return notifSellerId === uId || notifSellerId === uEmail;
+        }
+        return false;
+      });
+    }
+  }
+
+  const payload = JSON.stringify({ title, message, url });
+  if (targetSubs.length > 0) {
+    const promises = targetSubs.map(async (sub) => {
       try {
         await webpush.sendNotification(sub, payload, {
           headers: {
@@ -1823,16 +1935,50 @@ async function broadcastPushNotification(title: string, message: string, url: st
       }
     });
     await Promise.allSettled(promises);
-    console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
+    console.log(`[Push Notification] Web push broadcasted to ${targetSubs.length} devices: "${title}"`);
   }
 
-  // 2. Multicast a todos los teléfonos Android con FCM Nativo (24/7 en segundo plano)
-  const fcmTokens = await getFcmTokens();
-  if (fcmTokens.length > 0 && firebaseAdminApp) {
+  // 2. Multicast a todos los teléfonos Android con FCM Nativo
+  let targetFcmTokens: string[] = [];
+  if (pgPool) {
+    try {
+      const res = await pgPool.query("SELECT token, user_id, role, email FROM public.fcm_tokens;");
+      if (res && Array.isArray(res.rows)) {
+        if (isInventory) {
+          targetFcmTokens = res.rows.map((r: any) => r.token);
+        } else if (isVisit) {
+          targetFcmTokens = res.rows
+            .filter((r: any) => !r.role || r.role === 'admin')
+            .map((r: any) => r.token);
+        } else {
+          targetFcmTokens = res.rows
+            .filter((r: any) => {
+              if (!r.role || r.role === 'admin') return true;
+              if (r.role === 'seller' && notifSellerId) {
+                const uId = String(r.user_id || '').toLowerCase();
+                const uEmail = String(r.email || '').toLowerCase();
+                return notifSellerId === uId || notifSellerId === uEmail;
+              }
+              return false;
+            })
+            .map((r: any) => r.token);
+        }
+      }
+    } catch (e) { }
+  }
+
+  if (targetFcmTokens.length === 0) {
+    // Si no hay clasificación por base de datos, recurrir a los tokens locales
+    if (isInventory || isVisit) {
+      targetFcmTokens = await getFcmTokens();
+    }
+  }
+
+  if (targetFcmTokens.length > 0 && firebaseAdminApp) {
     try {
       const messaging = admin.messaging(firebaseAdminApp);
       const fcmResponse = await messaging.sendEachForMulticast({
-        tokens: fcmTokens,
+        tokens: targetFcmTokens,
         notification: {
           title: title || "Agricovet",
           body: message || "",
@@ -1855,13 +2001,13 @@ async function broadcastPushNotification(title: string, message: string, url: st
           url: String(url || "/")
         }
       });
-      console.log(`[FCM Android Push] 📲 Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
+      console.log(`[FCM Android Push] 📲 Enviado a ${targetFcmTokens.length} dispositivos nativos filtrados. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
 
       if (fcmResponse.failureCount > 0) {
         const failedTokens: string[] = [];
         fcmResponse.responses.forEach((resp, idx) => {
           if (!resp.success && (resp.error?.code === 'messaging/invalid-registration-token' || resp.error?.code === 'messaging/registration-token-not-registered')) {
-            failedTokens.push(fcmTokens[idx]);
+            failedTokens.push(targetFcmTokens[idx]);
           }
         });
         if (failedTokens.length > 0) {
@@ -1877,9 +2023,9 @@ async function broadcastPushNotification(title: string, message: string, url: st
     } catch (fcmErr: any) {
       console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
     }
-  } else if (!firebaseAdminApp && fcmTokens.length > 0) {
-    console.warn(`[FCM Android Push] ⚠️ Se tienen ${fcmTokens.length} tokens pero Firebase Admin no está conectado.`);
-  } else if (fcmTokens.length === 0) {
+  } else if (!firebaseAdminApp && targetFcmTokens.length > 0) {
+    console.warn(`[FCM Android Push] ⚠️ Se tienen ${targetFcmTokens.length} tokens pero Firebase Admin no está conectado.`);
+  } else if (targetFcmTokens.length === 0) {
     console.log(`[FCM Android Push] ℹ️ No hay tokens nativos registrados para enviar multicast.`);
   }
 }
@@ -1917,6 +2063,10 @@ async function createNotification(type: string, title: string, message: string, 
     product_id: extra.productId || extra.product_id || null,
     invoiceId: extra.invoiceId || extra.invoice_id || null,
     invoice_id: extra.invoiceId || extra.invoice_id || null,
+    sellerId: extra.sellerId || extra.seller_id || null,
+    seller_id: extra.sellerId || extra.seller_id || null,
+    sellerName: extra.sellerName || extra.seller_name || null,
+    seller_name: extra.sellerName || extra.seller_name || null,
     ...extra
   };
 
@@ -1942,21 +2092,27 @@ async function createNotification(type: string, title: string, message: string, 
       productId: ntf.productId,
       product_id: ntf.product_id,
       invoiceId: ntf.invoiceId,
-      invoice_id: ntf.invoice_id
+      invoice_id: ntf.invoice_id,
+      sellerId: ntf.sellerId,
+      seller_id: ntf.seller_id,
+      sellerName: ntf.sellerName
     };
     await localDb.from("notifications").insert([payload]);
   } catch (err) {
     console.warn("Error inserting notification into PostgreSQL Local:", err);
   }
 
-  // 3. Emitir Push Notification a todos los teléfonos y navegadores suscritos
+  // 3. Emitir Push Notification segmentada a teléfonos y navegadores correspondientes
   try {
-    await broadcastPushNotification(title, message, "/");
+    await broadcastPushNotification(title, message, "/", {
+      type,
+      sellerId: ntf.sellerId
+    });
   } catch (pushErr) {
     console.warn("Error broadcasting push notification:", pushErr);
   }
 
-  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
+  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}", Seller: ${ntf.sellerId || 'Global'}`);
   return ntf;
 }
 
@@ -2019,7 +2175,7 @@ function findMatchingClient(list: any[], name: string, companyName?: string, nit
     const cNit = normNit(c.nit);
 
     if (targetCode && cCode && targetCode === cCode) return true;
-    if (targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit) return true;
+    if (targetNit && targetNit !== 'CF' && targetNit !== 'CONSUMIDORFINAL' && cNit === targetNit && cName === normName) return true;
     if (cName && normName && cName === normName) return true;
 
     return false;
@@ -2864,11 +3020,11 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   const esConsumidorFinal = nitNuevo === '' || nitNuevo === 'CF' || nitNuevo === 'CONSUMIDORFINAL';
   if (!esConsumidorFinal) {
     const yaExiste = [...existingList, ...localList].find(
-      (c: any) => c && normalizarNit(c.nit) === nitNuevo
+      (c: any) => c && normalizarNit(c.nit) === nitNuevo && c.name?.trim().toLowerCase() === nameToSave.toLowerCase()
     );
     if (yaExiste) {
       return res.status(409).json({
-        error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
+        error: `Ya existe un cliente registrado con el NIT ${nit} y el mismo nombre: "${yaExiste.name}". No se puede duplicar.`,
         clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
       });
     }
@@ -7297,6 +7453,75 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
   res.json(updatedProduct);
 }));
 
+// HELPER: FILTRADO DE NOTIFICACIONES SEGÚN EL ROL DEL USUARIO
+function notificationBelongsToSeller(notification: any, user: any, invoiceSellerMap?: Map<string, string>): boolean {
+  if (!user) return false;
+  const role = (user.role || '').toLowerCase().trim();
+  if (role === 'admin' || role === 'dueño' || role === 'dueno' || role === 'ceo' || role === 'owner') {
+    return true;
+  }
+
+  const type = String(notification.type || '').toLowerCase();
+  const title = String(notification.title || '').toLowerCase();
+
+  // 1. Inventario: 100% visible para vendedores (Agotados, Restock, Precios, Stock crítico)
+  const isInventory = 
+    type === 'restock' || 
+    type === 'out_of_stock' || 
+    type === 'low_stock' || 
+    type === 'price_changed' ||
+    type.includes('stock') || 
+    type.includes('inventory') ||
+    title.includes('stock') || 
+    title.includes('agotado') || 
+    title.includes('precio') ||
+    title.includes('reabastecimiento');
+
+  if (isInventory) return true;
+
+  // 2. Visitas: Exclusivas para monitoreo gerencial / administradores (no le caen a vendedores)
+  const isVisit = type.includes('visit') || title.includes('visita');
+  if (isVisit) return false;
+
+  // 3. Ventas, pedidos, abonos y autorizaciones: SOLO si pertenecen a este vendedor
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+  const uCode = String(user.sellerCode || '').trim().toLowerCase();
+  const uCodeDigits = uCode.replace(/\D/g, '');
+
+  const notifSellerId = String(notification.sellerId || notification.seller_id || '').trim().toLowerCase();
+  const notifSellerEmail = String(notification.sellerEmail || notification.seller_email || '').trim().toLowerCase();
+  const notifSellerName = String(notification.sellerName || notification.seller_name || '').trim().toLowerCase();
+
+  const candidateFields = [notifSellerId, notifSellerEmail, notifSellerName].filter(Boolean);
+
+  // Si no trae sellerId explícito pero tiene invoiceId, consultar el mapa de facturas
+  if (candidateFields.length === 0 && notification.invoiceId && invoiceSellerMap) {
+    const mapped = invoiceSellerMap.get(String(notification.invoiceId));
+    if (mapped) candidateFields.push(String(mapped).trim().toLowerCase());
+  }
+
+  if (candidateFields.length > 0) {
+    if (uId && candidateFields.some(f => f === uId || f.includes(uId))) return true;
+    if (uEmail && candidateFields.some(f => f === uEmail || f.includes(uEmail))) return true;
+    if (uCode && candidateFields.some(f => f === uCode || f.includes(uCode))) return true;
+    if (uCodeDigits && uCodeDigits.length >= 3 && candidateFields.some(f => f === uCodeDigits || f.includes(uCodeDigits))) return true;
+    if (uName) {
+      const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const firstName = normUName.split(' ')[0];
+      for (const field of candidateFields) {
+        if (field === uName || field.includes(uName)) return true;
+        const normField = field.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (normField.includes(normUName)) return true;
+        if (firstName.length >= 4 && normField.includes(firstName)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 // NOTIFICATIONS API
 app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
   let dbNotifs: any[] = [];
@@ -7310,7 +7535,7 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: an
   const localPoints = readLocalNotifications();
   const mergedMap = new Map<string, any>();
 
-  // Load local ones first so they acts as base
+  // Load local ones first so they act as base
   localPoints.forEach(n => {
     if (n && n.id) {
       mergedMap.set(n.id, n);
@@ -7327,13 +7552,47 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: an
         message: n.message,
         createdAt: n.createdAt || n.created_at || new Date().toISOString(),
         productId: n.productId || n.product_id || null,
-        invoiceId: n.invoiceId || n.invoice_id || null
+        invoiceId: n.invoiceId || n.invoice_id || null,
+        sellerId: n.sellerId || n.seller_id || null,
+        sellerName: n.sellerName || n.seller_name || null
       });
     }
   });
 
-  const finalNotifs = Array.from(mergedMap.values());
+  let finalNotifs = Array.from(mergedMap.values());
   finalNotifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // FILTRADO PERSONALIZADO SEGÚN EL ROL
+  const isSeller = (req.user?.role || '').toLowerCase().trim() === 'seller';
+  if (isSeller) {
+    // Si faltan sellerId en algunas notificaciones con invoiceId, obtener mapeo rápido de facturas
+    const invoiceIdsToLookup = finalNotifs
+      .filter(n => n.invoiceId && !n.sellerId)
+      .map(n => n.invoiceId);
+    
+    const invoiceSellerMap = new Map<string, string>();
+    if (invoiceIdsToLookup.length > 0) {
+      try {
+        const { data: invRows } = await localDb.from("invoices")
+          .select("id, sellerId, notes")
+          .in("id", invoiceIdsToLookup);
+        if (invRows && Array.isArray(invRows)) {
+          invRows.forEach((inv: any) => {
+            let sId = inv.sellerId || '';
+            if (!sId && inv.notes) {
+              const match = inv.notes.match(/\|\|\|SELLER:([^|]+)/i);
+              if (match) sId = match[1].trim();
+            }
+            if (sId) invoiceSellerMap.set(String(inv.id), sId);
+          });
+        }
+      } catch (errInv) {
+        console.warn("Error resolviendo sellerId de facturas para notificaciones:", errInv);
+      }
+    }
+
+    finalNotifs = finalNotifs.filter(n => notificationBelongsToSeller(n, req.user, invoiceSellerMap));
+  }
 
   res.json(finalNotifs.slice(0, 100));
 }));
@@ -7349,6 +7608,9 @@ app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req: any, 
 }));
 
 app.delete("/api/notifications", requireAuth, asyncHandler(async (req: any, res: any) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: "Solo los administradores pueden vaciar el registro general de notificaciones" });
+  }
   try {
     await localDb.from("notifications").delete().neq('id', 'clear-trigger');
   } catch (e) { }
@@ -7362,13 +7624,13 @@ app.get("/api/push/public-key", asyncHandler(async (req: any, res: any) => {
 }));
 
 // PUSH NOTIFICATION SUBSCRIBE
-app.post("/api/push/subscribe", asyncHandler(async (req: any, res: any) => {
+app.post("/api/push/subscribe", optionalAuth, asyncHandler(async (req: any, res: any) => {
   const subscription = req.body;
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: "Suscripción inválida" });
   }
 
-  await savePushSubscription(subscription);
+  await savePushSubscription(subscription, req.user);
 
   res.json({ success: true, message: "Suscripción guardada con éxito" });
 }));
@@ -7383,12 +7645,12 @@ app.post("/api/push/test", asyncHandler(async (req: any, res: any) => {
 }));
 
 // FCM TOKEN REGISTER (ANDROID NATIVE 24/7 PUSH)
-app.post("/api/fcm/register", asyncHandler(async (req: any, res: any) => {
+app.post("/api/fcm/register", optionalAuth, asyncHandler(async (req: any, res: any) => {
   const { token } = req.body;
   if (!token) {
     return res.status(400).json({ error: "FCM token requerido" });
   }
-  await registerFcmToken(token);
+  await registerFcmToken(token, req.user);
   res.json({ success: true, message: "FCM token registrado correctamente" });
 }));
 
@@ -8476,7 +8738,16 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
   }
 
   // CREATE UI NOTIFICATION
-  await createNotification('new_order', '🛒 ¡Nuevo Pedido!', `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
+  await createNotification(
+    'new_order', 
+    '🛒 ¡Nuevo Pedido!', 
+    `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, 
+    { 
+      invoiceId: id,
+      sellerId: saleOwner,
+      sellerName: req.user?.name || ''
+    }
+  );
 
   let returnInvoice = { ...invoice };
   const rawNotes = returnInvoice.notes || "";
@@ -9528,9 +9799,9 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
       }
 
       if (status === 'rejected') {
-        await createNotification('sale_rejected', 'Venta Rechazada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido rechazada por el administrador.`, { invoiceId: id });
+        await createNotification('sale_rejected', 'Venta Rechazada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido rechazada por el administrador.`, { invoiceId: id, sellerId: data.sellerId });
       } else if (status === 'authorized') {
-        await createNotification('sale_authorized', 'Venta Autorizada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido autorizada por el administrador.`, { invoiceId: id });
+        await createNotification('sale_authorized', 'Venta Autorizada', `La venta al cliente ${data.clientName || 'desconocido'} ha sido autorizada por el administrador.`, { invoiceId: id, sellerId: data.sellerId });
       }
 
       // Enviar notificación a vendedor
@@ -9669,7 +9940,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   addLocalPayment(payment);
 
   const clientNamePay = invoice.clientName || invoice.client || "Cliente";
-  await createNotification('payment_received', 'Pago Recibido', `Se registró un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId });
+  await createNotification('payment_received', 'Pago Recibido', `Se registró un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId, sellerId: invoice.sellerId, clientName: clientNamePay });
 
   try {
     await safeInsertPayment(payment);

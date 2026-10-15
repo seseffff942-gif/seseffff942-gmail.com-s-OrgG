@@ -41,6 +41,8 @@ export interface AppNotification {
   message: string;
   productId?: string;
   invoiceId?: string;
+  sellerId?: string;
+  sellerName?: string;
   read?: boolean;
   createdAt: string;
 }

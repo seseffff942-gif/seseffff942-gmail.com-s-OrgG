@@ -1,6 +1,6 @@
 {
-  "version": "1.0.5",
-  "buildTime": 1791396647629,
-  "message": "Corrección de descargas de ventas, tickets y reportes en la APK",
+  "version": "1.0.7",
+  "buildTime": 1792070450000,
+  "message": "Permitir registro de sucursales con el mismo NIT y mejoras de notificaciones",
   "critical": true
 }

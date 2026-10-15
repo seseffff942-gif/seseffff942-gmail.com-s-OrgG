@@ -2934,13 +2934,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       if (!newClientSellerId) {
                         return alert('Por favor asigna un vendedor para el cliente.');
                       }
-                      // No duplicar por NIT (CF puede repetirse)
+                      // No duplicar por NIT (CF puede repetirse y sucursales permitidas con confirmacion)
                       const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
                       const nitN = normNit(newClientNit);
                       if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
                         const dup = clients.find((c: any) => normNit(c.nit) === nitN);
                         if (dup) {
-                          return alert(`Ya existe un cliente con el NIT ${newClientNit.trim()}: "${dup.name}". No se puede duplicar.`);
+                          const permitir = confirm(`Ya existe un cliente con el NIT ${newClientNit.trim()}: "${dup.name}".\n\n¿Deseas registrar otra agroveterinaria / sucursal con el mismo NIT?`);
+                          if (!permitir) return;
                         }
                       }
 

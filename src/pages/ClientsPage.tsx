@@ -183,14 +183,14 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       if (!confirmBlocked) return;
     }
 
-    // Validacion instantanea: no duplicar por NIT (CF puede repetirse).
+    // Validacion por NIT con confirmacion para sucursales o agroveterinarias adicionales
     const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
     const nitN = normNit(newClient.nit);
     if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
       const dup = clients.find(c => normNit(c.nit) === nitN);
       if (dup) {
-        alert(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}". No se puede duplicar.`);
-        return;
+        const permitir = confirm(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}".\n\n¿Deseas registrar otra agroveterinaria / sucursal con el mismo NIT?`);
+        if (!permitir) return;
       }
     }
     setAdding(true);

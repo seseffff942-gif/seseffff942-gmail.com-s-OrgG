@@ -257,8 +257,11 @@ export function MarkClientModal({
     if (cleanNit && cleanNit !== 'CF' && cleanNit !== 'CONSUMIDORFINAL') {
       const dup = clients.find(c => normNit(c.nit) === cleanNit);
       if (dup) {
-        setErrorMsg(`Ya existe un cliente con el NIT ${newClientNit}: "${dup.name}". No se puede duplicar.`);
-        return;
+        const permitir = confirm(`Ya existe un cliente con el NIT ${newClientNit}: "${dup.name}".\n\n¿Deseas registrar otra agroveterinaria / sucursal con el mismo NIT?`);
+        if (!permitir) {
+          setErrorMsg(`Ya existe un cliente con el NIT ${newClientNit}: "${dup.name}".`);
+          return;
+        }
       }
     }
 

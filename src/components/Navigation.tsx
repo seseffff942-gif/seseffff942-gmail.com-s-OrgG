@@ -222,7 +222,7 @@ function NotificationsPopover({
                   <Volume2 size={15} />
                 </button>
 
-                {notifications.length > 0 && !showConfirmClear && (
+                {user.role === 'admin' && notifications.length > 0 && !showConfirmClear && (
                   <button
                     onClick={() => setShowConfirmClear(true)}
                     title="Limpiar todas las alertas"
@@ -248,7 +248,7 @@ function NotificationsPopover({
                 <Search size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="text"
-                  placeholder="Buscar por vendedor, cliente o folios..."
+                  placeholder={user.role === 'seller' ? "Buscar productos o pedidos..." : "Buscar por vendedor, cliente o folios..."}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-10 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
@@ -267,8 +267,8 @@ function NotificationsPopover({
               <div className="flex gap-1.5 overflow-x-auto scrollbar-none py-0.5">
                 {[
                   { id: 'all', label: 'Todas', count: notifications.length },
-                  { id: 'visits', label: 'Visitas', count: visitCount },
-                  { id: 'sales', label: 'Ventas', count: salesCount },
+                  ...(user.role !== 'seller' ? [{ id: 'visits', label: 'Visitas', count: visitCount }] : []),
+                  { id: 'sales', label: user.role === 'seller' ? 'Mis Pedidos' : 'Ventas', count: salesCount },
                   { id: 'inventory', label: 'Inventario', count: invCount },
                 ].map(tab => {
                   const isActive = categoryFilter === tab.id;
@@ -816,6 +816,34 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   const dispatchNotificationAlert = (n: AppNotification) => {
+    // Si el usuario es vendedor, verificar que sea alerta de inventario o de su propia venta
+    if (user.role === 'seller') {
+      const type = String(n.type || '').toLowerCase();
+      const title = String(n.title || '').toLowerCase();
+      const isInventory = 
+        ['restock', 'out_of_stock', 'low_stock', 'price_changed'].includes(type) ||
+        type.includes('stock') ||
+        type.includes('inventory') ||
+        title.includes('stock') ||
+        title.includes('agotado') ||
+        title.includes('precio') ||
+        title.includes('reabastecimiento');
+
+      if (!isInventory) {
+        const uId = String(user.id || '').toLowerCase().trim();
+        const uEmail = String(user.email || '').toLowerCase().trim();
+        const uCode = String((user as any).sellerCode || '').toLowerCase().trim();
+        const notifSeller = String((n as any).sellerId || (n as any).seller_id || '').toLowerCase().trim();
+        const notifEmail = String((n as any).sellerEmail || (n as any).seller_email || '').toLowerCase().trim();
+        
+        const isOwn = (notifSeller && (notifSeller === uId || notifSeller === uEmail || notifSeller === uCode)) ||
+                      (notifEmail && (notifEmail === uId || notifEmail === uEmail));
+        if (!isOwn) {
+          return; // Alerta ajena para el vendedor: suprimir completamente
+        }
+      }
+    }
+
     // Si la app está en modo silencioso (solo administradores pueden silenciar)
     if (user.role !== 'seller') {
       if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
