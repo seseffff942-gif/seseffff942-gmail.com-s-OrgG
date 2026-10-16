@@ -1,6 +1,6 @@
 {
-  "version": "1.0.7",
-  "buildTime": 1792070450000,
-  "message": "Permitir registro de sucursales con el mismo NIT y mejoras de notificaciones",
+  "version": "1.0.8",
+  "buildTime": 1792120000000,
+  "message": "Soporte completo para sucursales y agroveterinarias con mismo NIT en actualización y listado",
   "critical": true
 }

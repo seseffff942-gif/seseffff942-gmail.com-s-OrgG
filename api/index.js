@@ -2970,7 +2970,7 @@ function deduplicateClients(clientsList) {
       const eNit = normNit(existing.nit);
       if (cId && eId && cId.toLowerCase() === eId.toLowerCase()) return true;
       if (cCode && eCode && cCode === eCode) return true;
-      if (cNit && eNit && cNit !== "CF" && cNit !== "CONSUMIDORFINAL" && cNit === eNit) return true;
+      if (cNit && eNit && cNit !== "CF" && cNit !== "CONSUMIDORFINAL" && cNit === eNit && cName === eName) return true;
       if (cName && eName && cName === eName) return true;
       return false;
     });
@@ -3018,7 +3018,7 @@ function updateLocalClient(id, updates, oldData) {
     const cNit = normNit(c.nit);
     const idMatch = targetId && cId && targetId.toLowerCase() === cId.toLowerCase();
     const codeMatch = newCode && cCode && newCode === cCode || oldCode && cCode && oldCode === cCode;
-    const nitMatch = targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit;
+    const nitMatch = targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit && (cName === newName || normCName === newName || cName === oldName || normCName === oldName);
     const nameMatch = newName && (cName === newName || normCName === newName) || oldName && (cName === oldName || normCName === oldName);
     if (idMatch || codeMatch || nitMatch || nameMatch) {
       updated = true;
