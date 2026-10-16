@@ -373,7 +373,8 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
       (c.name || '').toLowerCase().includes(term) || 
       (c.companyName && c.companyName.toLowerCase().includes(term)) ||
       (c.nit && c.nit.toLowerCase().includes(term)) ||
-      (c.clientCode && c.clientCode.toLowerCase().includes(term))
+      (c.clientCode && c.clientCode.toLowerCase().includes(term)) ||
+      (c.id && c.id.toLowerCase().includes(term))
     );
   });
 
