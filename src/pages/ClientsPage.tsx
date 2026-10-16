@@ -102,7 +102,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
 
           if (c.id && client.id && c.id === client.id) return true;
           if (cCode && clientCode && cCode === clientCode) return true;
-          if (cNit && clientNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === clientNit) return true;
+          if (cNit && clientNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === clientNit && cName === clientName) return true;
           if (cName && clientName && cName === clientName) return true;
 
           return false;
