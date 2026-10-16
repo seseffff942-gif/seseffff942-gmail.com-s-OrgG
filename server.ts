@@ -1347,9 +1347,9 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
     `);
 
     const GENERIC_WORDS = new Set([
-      'agro', 'agroveterinaria', 'veterinaria', 'agropecuaria', 'agroservicios', 
+      'agro', 'agroveterinaria', 'veterinaria', 'agropecuaria', 'agroservicios',
       'agroservicio', 'servicios', 'servicio', 'distribuidora', 'distribuciones',
-      'comercial', 'comercializadora', 'sociedad', 'anonima', 'copropiedad', 
+      'comercial', 'comercializadora', 'sociedad', 'anonima', 'copropiedad',
       'tienda', 'finca', 'granja', 'insumos', 'productos', 'importadora',
       'de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'para', 'con', 'sa'
     ]);
@@ -1866,8 +1866,8 @@ async function registerFcmToken(token: string, user?: any) {
 }
 
 async function broadcastPushNotification(
-  title: string, 
-  message: string, 
+  title: string,
+  message: string,
   url: string = "/",
   meta?: { type?: string; sellerId?: string }
 ) {
@@ -1884,12 +1884,12 @@ async function broadcastPushNotification(
   // - Inventario (agotados, reabastecimiento, precio, stock crítico): Llega a TODOS
   // - Visitas: Exclusivas para ADMINISTRADORES
   // - Ventas/Pedidos/Pagos: A ADMINISTRADORES y al VENDEDOR dueño de esa venta
-  const isInventory = 
-    notifType === 'restock' || 
-    notifType === 'out_of_stock' || 
-    notifType === 'low_stock' || 
+  const isInventory =
+    notifType === 'restock' ||
+    notifType === 'out_of_stock' ||
+    notifType === 'low_stock' ||
     notifType === 'price_changed' ||
-    notifType.includes('stock') || 
+    notifType.includes('stock') ||
     notifType.includes('inventory') ||
     title.toLowerCase().includes('stock') ||
     title.toLowerCase().includes('agotado') ||
@@ -2016,7 +2016,7 @@ async function broadcastPushNotification(
           if (pgPool) {
             try {
               await pgPool.query("DELETE FROM public.fcm_tokens WHERE token = ANY($1::text[])", [failedTokens]);
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       }
@@ -3038,134 +3038,134 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   const effectiveGeotaggedBy = req.user?.name || req.user?.email || '';
 
   if (matchedClient) {
-    console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
+  console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
 
-    const updates: any = {};
-    if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-    if (!matchedClient.phone && phone) updates.phone = phone;
-    if (!matchedClient.address && address) updates.address = address;
-    if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+  const updates: any = {};
+  if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+  if (!matchedClient.phone && phone) updates.phone = phone;
+  if (!matchedClient.address && address) updates.address = address;
+  if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
 
-    if (latitude !== undefined && longitude !== undefined) {
-      updates.latitude = Number(latitude);
-      updates.longitude = Number(longitude);
-      updates.locationAddress = locationAddress || address || '';
-      updates.geotaggedAt = geotaggedAt || new Date().toISOString();
-      updates.geotaggedBy = effectiveGeotaggedBy;
-    }
-
-    const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-    if (!currentSeller) updates.sellerId = effectiveSellerId;
-
-    if (Object.keys(updates).length > 0) {
-      updateLocalClient(matchedClient.id, updates);
-      try {
-        await localDb.from("clients").update(updates).eq("id", matchedClient.id);
-      } catch (e) { }
-    }
-
-    return res.json({
-      success: true,
-      client: {
-        ...matchedClient,
-        nit: matchedClient.nit || nit || '',
-        phone: matchedClient.phone || phone || '',
-        address: matchedClient.address || address || '',
-        sellerId: currentSeller || effectiveSellerId,
-        ...(latitude !== undefined && longitude !== undefined ? {
-          latitude: Number(latitude),
-          longitude: Number(longitude),
-          locationAddress: locationAddress || address || '',
-          geotaggedAt: updates.geotaggedAt,
-          geotaggedBy: effectiveGeotaggedBy
-        } : {})
-      }
-    });
+  if (latitude !== undefined && longitude !== undefined) {
+    updates.latitude = Number(latitude);
+    updates.longitude = Number(longitude);
+    updates.locationAddress = locationAddress || address || '';
+    updates.geotaggedAt = geotaggedAt || new Date().toISOString();
+    updates.geotaggedBy = effectiveGeotaggedBy;
   }
 
-  // Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
-  const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
-  if (deletedMatch) {
-    console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
-    removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+  const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+  if (!currentSeller) updates.sellerId = effectiveSellerId;
 
-    const reactivatedPayload = {
+  if (Object.keys(updates).length > 0) {
+    updateLocalClient(matchedClient.id, updates);
+    try {
+      await localDb.from("clients").update(updates).eq("id", matchedClient.id);
+    } catch (e) { }
+  }
+
+  return res.json({
+    success: true,
+    client: {
+      ...matchedClient,
+      nit: matchedClient.nit || nit || '',
+      phone: matchedClient.phone || phone || '',
+      address: matchedClient.address || address || '',
+      sellerId: currentSeller || effectiveSellerId,
+      ...(latitude !== undefined && longitude !== undefined ? {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        locationAddress: locationAddress || address || '',
+        geotaggedAt: updates.geotaggedAt,
+        geotaggedBy: effectiveGeotaggedBy
+      } : {})
+    }
+  });
+}
+
+// Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
+const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
+if (deletedMatch) {
+  console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
+  removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+
+  const reactivatedPayload = {
+    name: nameToSave,
+    companyName: companyToSave || deletedMatch.companyName || '',
+    nit: nit || deletedMatch.nit || '',
+    phone: phone || deletedMatch.phone || '',
+    address: address || deletedMatch.address || '',
+    sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
+    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
+    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
+    locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
+    geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
+    geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
+    isDeleted: false,
+    is_deleted: false,
+    isBlocked: false,
+    is_blocked: false
+  };
+
+  updateLocalClient(deletedMatch.id, reactivatedPayload);
+
+  try {
+    await localDb.from("clients").update({
       name: nameToSave,
-      companyName: companyToSave || deletedMatch.companyName || '',
+      company_name: companyToSave || deletedMatch.companyName || '',
       nit: nit || deletedMatch.nit || '',
       phone: phone || deletedMatch.phone || '',
       address: address || deletedMatch.address || '',
-      sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
-      latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
-      longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
-      locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
-      geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
-      geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
-      isDeleted: false,
-      is_deleted: false,
-      isBlocked: false,
-      is_blocked: false
-    };
+      seller_id: reactivatedPayload.sellerId,
+      latitude: reactivatedPayload.latitude,
+      longitude: reactivatedPayload.longitude,
+      location_address: reactivatedPayload.locationAddress,
+      geotagged_at: reactivatedPayload.geotaggedAt,
+      geotagged_by: reactivatedPayload.geotaggedBy
+    }).eq("id", deletedMatch.id);
+  } catch (e) { }
 
-    updateLocalClient(deletedMatch.id, reactivatedPayload);
+  invalidateCache("clients");
+  return res.json({
+    success: true,
+    client: {
+      ...deletedMatch,
+      ...reactivatedPayload,
+      id: deletedMatch.id
+    }
+  });
+}
 
+const clientData = {
+  id: id || `CLI-${Date.now()}`,
+  sellerId: effectiveSellerId,
+  geotaggedBy: effectiveGeotaggedBy,
+  name: nameToSave,
+  companyName: companyToSave,
+  nit: nit || '',
+  phone: phone || '',
+  address: address || '',
+  clientCode: clientCode ? String(clientCode).trim() : undefined,
+  latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
+  longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
+  locationAddress: locationAddress || address || undefined,
+  geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
+  isProspect: isProspect === true || clientType === 'prospect',
+  clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
+  createdAt: new Date().toISOString()
+};
+
+// Remove from blacklist if explicitly adding new client
+removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
+
+// Save locally
+addLocalClient(clientData);
+
+try {
+  await safeInsertClient(clientData);
+  if (clientData.latitude && clientData.longitude) {
     try {
-      await localDb.from("clients").update({
-        name: nameToSave,
-        company_name: companyToSave || deletedMatch.companyName || '',
-        nit: nit || deletedMatch.nit || '',
-        phone: phone || deletedMatch.phone || '',
-        address: address || deletedMatch.address || '',
-        seller_id: reactivatedPayload.sellerId,
-        latitude: reactivatedPayload.latitude,
-        longitude: reactivatedPayload.longitude,
-        location_address: reactivatedPayload.locationAddress,
-        geotagged_at: reactivatedPayload.geotaggedAt,
-        geotagged_by: reactivatedPayload.geotaggedBy
-      }).eq("id", deletedMatch.id);
-    } catch (e) { }
-
-    invalidateCache("clients");
-    return res.json({
-      success: true,
-      client: {
-        ...deletedMatch,
-        ...reactivatedPayload,
-        id: deletedMatch.id
-      }
-    });
-  }
-
-  const clientData = {
-    id: id || `CLI-${Date.now()}`,
-    sellerId: effectiveSellerId,
-    geotaggedBy: effectiveGeotaggedBy,
-    name: nameToSave,
-    companyName: companyToSave,
-    nit: nit || '',
-    phone: phone || '',
-    address: address || '',
-    clientCode: clientCode ? String(clientCode).trim() : undefined,
-    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
-    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
-    locationAddress: locationAddress || address || undefined,
-    geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
-    isProspect: isProspect === true || clientType === 'prospect',
-    clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
-    createdAt: new Date().toISOString()
-  };
-
-  // Remove from blacklist if explicitly adding new client
-  removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
-
-  // Save locally
-  addLocalClient(clientData);
-
-  try {
-    await safeInsertClient(clientData);
-    if (clientData.latitude && clientData.longitude) {
-      try {
-        await queryNeon(`
+      await queryNeon(`
           UPDATE public.clients
           SET latitude = $1,
               longitude = $2,
@@ -3174,30 +3174,30 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
               "geotaggedBy" = $5
           WHERE id = $6
         `, [clientData.latitude, clientData.longitude, clientData.locationAddress || null, clientData.geotaggedAt || new Date().toISOString(), clientData.geotaggedBy || effectiveGeotaggedBy, clientData.id]);
-      } catch (neonErr: any) {
-        console.warn('[Insert Client Location Neon Warning]', neonErr.message);
-      }
+    } catch (neonErr: any) {
+      console.warn('[Insert Client Location Neon Warning]', neonErr.message);
     }
-  } catch (e) {
-    console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
+} catch (e) {
+  console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
+}
 
-  recordAuditLog({
-    action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
-    category: 'clientes',
-    entity_type: 'client',
-    entity_id: clientData.id,
-    entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
-    description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
-    new_data: clientData,
-    user_id: req.user?.id,
-    user_email: req.user?.email,
-    user_name: req.user?.name || req.user?.email,
-    user_role: req.user?.role,
-    ip_address: req.ip
-  }).catch(() => {});
+recordAuditLog({
+  action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
+  category: 'clientes',
+  entity_type: 'client',
+  entity_id: clientData.id,
+  entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
+  description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
+  new_data: clientData,
+  user_id: req.user?.id,
+  user_email: req.user?.email,
+  user_name: req.user?.name || req.user?.email,
+  user_role: req.user?.role,
+  ip_address: req.ip
+}).catch(() => { });
 
-  res.json({ success: true, client: clientData });
+res.json({ success: true, client: clientData });
 }));
 
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -3313,7 +3313,7 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
       user_name: req.user?.name || req.user?.email,
       user_role: req.user?.role,
       ip_address: req.ip
-    }).catch(() => {});
+    }).catch(() => { });
 
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
@@ -3465,7 +3465,7 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: a
       user_name: req.user?.name || req.user?.email,
       user_role: req.user?.role,
       ip_address: req.ip
-    }).catch(() => {});
+    }).catch(() => { });
 
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
@@ -3684,7 +3684,7 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req: any, 
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   invalidateCache("clients");
   res.json({ success: true, client: { id, ...locationUpdates, sellerId: effectiveSellerId || currentSeller } });
@@ -3785,7 +3785,7 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req: an
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   invalidateCache("clients");
   res.json({ success: true, message: "Ubicación GPS eliminada con éxito.", client: { id, ...locationUpdates } });
@@ -4450,7 +4450,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   res.json({ success: true, visit: newVisit, activeRoute });
 
@@ -4506,7 +4506,7 @@ app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req: any, res: an
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
@@ -7431,7 +7431,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
       user_name: req.user?.name || req.user?.email,
       user_role: req.user?.role,
       ip_address: req.ip
-    }).catch(() => {});
+    }).catch(() => { });
   } else if (hasUpdates) {
     recordAuditLog({
       action: 'PRODUCT_UPDATED',
@@ -7447,7 +7447,7 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req: any, res: any
       user_name: req.user?.name || req.user?.email,
       user_role: req.user?.role,
       ip_address: req.ip
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   res.json(updatedProduct);
@@ -7465,15 +7465,15 @@ function notificationBelongsToSeller(notification: any, user: any, invoiceSeller
   const title = String(notification.title || '').toLowerCase();
 
   // 1. Inventario: 100% visible para vendedores (Agotados, Restock, Precios, Stock crítico)
-  const isInventory = 
-    type === 'restock' || 
-    type === 'out_of_stock' || 
-    type === 'low_stock' || 
+  const isInventory =
+    type === 'restock' ||
+    type === 'out_of_stock' ||
+    type === 'low_stock' ||
     type === 'price_changed' ||
-    type.includes('stock') || 
+    type.includes('stock') ||
     type.includes('inventory') ||
-    title.includes('stock') || 
-    title.includes('agotado') || 
+    title.includes('stock') ||
+    title.includes('agotado') ||
     title.includes('precio') ||
     title.includes('reabastecimiento');
 
@@ -7569,7 +7569,7 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req: any, res: an
     const invoiceIdsToLookup = finalNotifs
       .filter(n => n.invoiceId && !n.sellerId)
       .map(n => n.invoiceId);
-    
+
     const invoiceSellerMap = new Map<string, string>();
     if (invoiceIdsToLookup.length > 0) {
       try {
@@ -8543,7 +8543,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
             user_name: req.user?.name || req.user?.email,
             user_role: req.user?.role,
             ip_address: req.ip
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
 
@@ -8739,10 +8739,10 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
   // CREATE UI NOTIFICATION
   await createNotification(
-    'new_order', 
-    '🛒 ¡Nuevo Pedido!', 
-    `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`, 
-    { 
+    'new_order',
+    '🛒 ¡Nuevo Pedido!',
+    `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`,
+    {
       invoiceId: id,
       sellerId: saleOwner,
       sellerName: req.user?.name || ''
@@ -8824,7 +8824,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   res.json({
     ...returnInvoice,
@@ -9349,7 +9349,7 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: 
     user_name: req.user?.name || req.user?.email,
     user_role: req.user?.role,
     ip_address: req.ip
-  }).catch(() => {});
+  }).catch(() => { });
 
   res.json({ success: true });
 }));
