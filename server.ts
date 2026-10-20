@@ -8638,7 +8638,18 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
       const itemTotal = item.quantity * itemPrice;
       total += itemTotal;
-      processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
+      const prevStockVal = !product.is_external ? currentStock : 999999;
+      const newStockVal = !product.is_external ? newStock : 999999;
+      processedItems.push({ 
+        ...item, 
+        price: itemPrice, 
+        total: itemTotal, 
+        productName: variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name), 
+        originalPrice: product.price,
+        previousStock: prevStockVal,
+        newStock: newStockVal,
+        isExempt: isExemptFromStock
+      });
     }
 
     const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -8902,7 +8913,17 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       client,
       total: invoiceTotal,
       itemsCount: (items || []).length,
-      seller: req.user?.email
+      seller: req.user?.email,
+      itemsStockSummary: (processedItems || []).map((it: any) => ({
+        productId: it.productId,
+        productName: it.productName,
+        previousStock: it.previousStock,
+        quantitySold: parseFloat(it.quantity) || 0,
+        newStock: it.newStock,
+        unitPrice: it.price,
+        subtotal: it.total,
+        isExempt: it.isExempt
+      }))
     },
     user_id: req.user?.id,
     user_email: req.user?.email,

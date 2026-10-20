@@ -1862,9 +1862,9 @@ var getCriticalStockThreshold = (product) => {
   }
   return 5;
 };
-var isCriticalStock = (product, currentStock) => {
+var isCriticalStock = (product, currentStock2) => {
   if (!product) return false;
-  const stock = currentStock !== void 0 ? currentStock : product.stock || 0;
+  const stock = currentStock2 !== void 0 ? currentStock2 : product.stock || 0;
   const threshold = getCriticalStockThreshold(product);
   return stock <= threshold;
 };
@@ -1905,16 +1905,16 @@ async function restaurarStockDeFactura(invoice) {
     const product = prods?.[0];
     if (product && !product.is_external) {
       let variantsToUpdate = product.variants ? [...product.variants] : [];
-      let variantObj = null;
+      let variantObj2 = null;
       if (item.variantId) {
         const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
         if (varIndex !== -1) {
-          variantObj = variantsToUpdate[varIndex];
+          variantObj2 = variantsToUpdate[varIndex];
         }
       }
-      if (variantObj && variantObj.stock !== void 0) {
+      if (variantObj2 && variantObj2.stock !== void 0) {
         const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+        variantsToUpdate[varIndex] = { ...variantObj2, stock: parseFloat(variantObj2.stock || 0) + parseFloat(item.quantity) };
         const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
         if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
       } else {
@@ -8399,29 +8399,29 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         const isExemptFromStock = isExemptFromStockBlock(product, item);
         const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== void 0 || item.tecunToOrder !== void 0;
         if (!product.is_external) {
-          let currentStock = parseFloat(product.stock || 0);
-          let variantObj = null;
+          let currentStock2 = parseFloat(product.stock || 0);
+          let variantObj2 = null;
           let variantsToUpdate = product.variants ? [...product.variants] : [];
           if (item.variantId) {
             const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
             if (varIndex !== -1) {
-              variantObj = variantsToUpdate[varIndex];
-              if (variantObj.stock !== void 0) {
-                currentStock = parseFloat(variantObj.stock || 0);
+              variantObj2 = variantsToUpdate[varIndex];
+              if (variantObj2.stock !== void 0) {
+                currentStock2 = parseFloat(variantObj2.stock || 0);
               }
             }
           }
-          if (currentStock < item.quantity && !isExemptFromStock) {
+          if (currentStock2 < item.quantity && !isExemptFromStock) {
             requiresAuth = true;
             item.isStockAlert = true;
           }
           let deductQty = parseFloat(item.quantity);
           if (isSpecialSupplier) {
-            deductQty = Math.max(0, Math.min(currentStock, deductQty));
+            deductQty = Math.max(0, Math.min(currentStock2, deductQty));
           }
-          const newStock = Math.max(0, currentStock - deductQty);
-          if (newStock <= 0 && !isExemptFromStock) {
-            const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
+          const newStock2 = Math.max(0, currentStock2 - deductQty);
+          if (newStock2 <= 0 && !isExemptFromStock) {
+            const productNameStr = variantObj2 ? `${product.name} (${variantObj2.color} - ${variantObj2.size})` : product.name;
             const stockMessage = `\u26A0\uFE0F *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
             const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
@@ -8437,42 +8437,42 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
             }
           } else if (!isExemptFromStock) {
             const threshold = getCriticalStockThreshold(product);
-            if (currentStock > threshold && newStock <= threshold && newStock > 0) {
-              const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-              const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+            if (currentStock2 > threshold && newStock2 <= threshold && newStock2 > 0) {
+              const productNameStr = variantObj2 ? `${product.name} (${variantObj2.color} - ${variantObj2.size})` : product.name;
+              const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock2}).`;
               const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
               if (admins) {
                 for (const admin2 of admins) {
                   if (admin2.phone) {
                     internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_critico", "es_MX", [
                       { name: "w_producto", value: productNameStr.substring(0, 50) },
-                      { name: "w_stock", value: String(newStock) }
+                      { name: "w_stock", value: String(newStock2) }
                     ]).catch((err) => console.warn(`Error enviando alerta cr\xEDtica a ${admin2.name}:`, err.message));
                   }
                 }
               }
             }
           }
-          if (variantObj && variantObj.stock !== void 0) {
+          if (variantObj2 && variantObj2.stock !== void 0) {
             const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock2 };
             const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", product.id);
             if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
           } else {
-            const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq("id", product.id);
+            const { error: sErr } = await localDb.from("products").update({ stock: newStock2 }).eq("id", product.id);
             if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
           }
           if (!isExemptFromStock) {
-            deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
+            deductedStockRecords.push({ productId: product.id, variantId: variantObj2?.id, qty: parseFloat(item.quantity) });
             recordAuditLog({
               action: "STOCK_DEDUCTED_SALE",
               category: "stock",
               entity_type: "product",
               entity_id: product.id,
               entity_name: product.name,
-              description: `Descuento de inventario por venta a "${client}": -${item.quantity} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
-              previous_data: { stock: currentStock },
-              new_data: { stock: newStock, quantitySold: item.quantity, client },
+              description: `Descuento de inventario por venta a "${client}": -${item.quantity} uds de "${product.name}" (Stock previo: ${currentStock2}, nuevo: ${newStock2})`,
+              previous_data: { stock: currentStock2 },
+              new_data: { stock: newStock2, quantitySold: item.quantity, client },
               user_id: req.user?.id,
               user_email: req.user?.email,
               user_name: req.user?.name || req.user?.email,
@@ -8487,7 +8487,18 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         }
         const itemTotal = item.quantity * itemPrice;
         total += itemTotal;
-        processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
+        const prevStockVal = !product.is_external ? currentStock : 999999;
+        const newStockVal = !product.is_external ? newStock : 999999;
+        processedItems.push({
+          ...item,
+          price: itemPrice,
+          total: itemTotal,
+          productName: variantObj ? `${product.name} (${variantObj.color || ""} ${variantObj.size || ""})`.trim() : item.productName || product.name,
+          originalPrice: product.price,
+          previousStock: prevStockVal,
+          newStock: newStockVal,
+          isExempt: isExemptFromStock
+        });
       }
       const id2 = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
       invalidateCache("folio_map");
@@ -8720,7 +8731,17 @@ AgricoVet - Sistema de Notificaciones`;
         client,
         total: invoiceTotal,
         itemsCount: (items || []).length,
-        seller: req.user?.email
+        seller: req.user?.email,
+        itemsStockSummary: (processedItems || []).map((it) => ({
+          productId: it.productId,
+          productName: it.productName,
+          previousStock: it.previousStock,
+          quantitySold: parseFloat(it.quantity) || 0,
+          newStock: it.newStock,
+          unitPrice: it.price,
+          subtotal: it.total,
+          isExempt: it.isExempt
+        }))
       },
       user_id: req.user?.id,
       user_email: req.user?.email,
@@ -8774,18 +8795,18 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
     let variantsToUpdate = prod.variants ? [...prod.variants] : [];
-    let variantObj = null;
-    let currentStock = parseFloat(prod.stock || 0);
+    let variantObj2 = null;
+    let currentStock2 = parseFloat(prod.stock || 0);
     if (item.variantId) {
       const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
       if (varIndex !== -1) {
-        variantObj = variantsToUpdate[varIndex];
-        if (variantObj.stock !== void 0) {
-          currentStock = parseFloat(variantObj.stock || 0);
+        variantObj2 = variantsToUpdate[varIndex];
+        if (variantObj2.stock !== void 0) {
+          currentStock2 = parseFloat(variantObj2.stock || 0);
         }
       }
     }
-    let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
+    let isStockAlert = !prod.is_external && currentStock2 < item.quantity && !doesNotNeedStock(prod);
     if (!item.isAuthorized && (item.price < prod.price || isStockAlert)) needsAuth = true;
     total += item.price * item.quantity;
     formattedItems.push({
@@ -9137,16 +9158,16 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
       const product = prods?.[0];
       if (product && !product.is_external) {
         let variantsToUpdate = product.variants ? [...product.variants] : [];
-        let variantObj = null;
+        let variantObj2 = null;
         if (item.variantId) {
           const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
           if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
+            variantObj2 = variantsToUpdate[varIndex];
           }
         }
-        if (variantObj && variantObj.stock !== void 0) {
+        if (variantObj2 && variantObj2.stock !== void 0) {
           const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+          variantsToUpdate[varIndex] = { ...variantObj2, stock: parseFloat(variantObj2.stock || 0) + parseFloat(item.quantity) };
           const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
           if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
         } else {

@@ -9,6 +9,7 @@ import {
   RefreshCw, 
   Printer, 
   Package, 
+  PackageCheck,
   Users, 
   ShoppingCart, 
   MapPin, 
@@ -26,7 +27,44 @@ import {
 } from 'lucide-react';
 import { cn } from '../utils';
 
-function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
+function extractStockInfo(entry: AuditLogEntry) {
+  const previousData = entry.previousData || (entry as any).previous_data;
+  const newData = entry.newData || (entry as any).new_data;
+
+  let prevStock: number | null = (previousData?.stock !== undefined && previousData?.stock !== null && previousData?.stock !== '') 
+    ? Number(previousData.stock) 
+    : null;
+  let newStock: number | null = (newData?.stock !== undefined && newData?.stock !== null && newData?.stock !== '') 
+    ? Number(newData.stock) 
+    : null;
+  let qtySold: number | null = (newData?.quantitySold !== undefined && newData?.quantitySold !== null)
+    ? Number(newData.quantitySold)
+    : (newData?.diff !== undefined && newData?.diff !== null ? Math.abs(Number(newData.diff)) : null);
+
+  const desc = entry.description || '';
+  if (prevStock === null && desc) {
+    const m = desc.match(/(?:Stock previo|previo|de)\s*:\s*(-?\d+(?:\.\d+)?)/i)
+      || desc.match(/de\s+(-?\d+(?:\.\d+)?)\s+a\s+(-?\d+(?:\.\d+)?)/i);
+    if (m) prevStock = Number(m[1]);
+  }
+  if (newStock === null && desc) {
+    const m = desc.match(/(?:nuevo|a)\s*:\s*(-?\d+(?:\.\d+)?)/i)
+      || desc.match(/a\s+(-?\d+(?:\.\d+)?)\s*(?:\(|$)/i);
+    if (m) newStock = Number(m[1]);
+  }
+  if (qtySold === null && desc) {
+    const m = desc.match(/-\s*(\d+(?:\.\d+)?)\s*uds/i)
+      || desc.match(/([+-]?\d+(?:\.\d+)?)\s*uds/i);
+    if (m) qtySold = Math.abs(Number(m[1]));
+  }
+  if (qtySold === null && prevStock !== null && newStock !== null) {
+    qtySold = Math.abs(prevStock - newStock);
+  }
+
+  return { prevStock, newStock, qtySold };
+}
+
+function HumanAuditDetail({ log, allLogs }: { log: AuditLogEntry; allLogs?: AuditLogEntry[] }) {
   const [showRawJson, setShowRawJson] = useState(false);
   const previousData = log.previousData || (log as any).previous_data;
   const newData = log.newData || (log as any).new_data;
@@ -57,11 +95,7 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
 
   // Si es movimiento de stock
   if (isStockAction) {
-    const prevStock = previousData?.stock !== undefined ? Number(previousData.stock) : null;
-    const newStock = newData?.stock !== undefined ? Number(newData.stock) : null;
-    const qtySold = newData?.quantitySold !== undefined 
-      ? Number(newData.quantitySold) 
-      : (newData?.diff !== undefined ? Math.abs(Number(newData.diff)) : (prevStock !== null && newStock !== null ? Math.abs(prevStock - newStock) : null));
+    const { prevStock, newStock, qtySold } = extractStockInfo(log);
     const client = newData?.client || (log.description?.match(/venta a "([^"]+)"/)?.[1] ?? null);
     const isCritical = newStock !== null && newStock <= 0;
 
@@ -85,12 +119,12 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
           <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
             <div className="flex items-center justify-between text-amber-800 text-xs font-bold uppercase tracking-wider mb-1">
               <span>Descuento / Salida</span>
-              <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-black">Venta</span>
+              <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-black">Salida</span>
             </div>
             <div className="text-2xl font-black text-amber-700 tracking-tight">
               {qtySold !== null ? `-${qtySold} uds` : '—'}
             </div>
-            <span className="text-[11px] text-amber-700/80 mt-1 font-medium">Unidades facturadas y despachadas</span>
+            <span className="text-[11px] text-amber-700/80 mt-1 font-medium">Unidades descontadas del inventario</span>
           </div>
 
           {/* 3. Quedó */}
@@ -106,14 +140,14 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
                 "text-[10px] px-2 py-0.5 rounded font-black",
                 isCritical ? "bg-rose-200 text-rose-950 animate-pulse" : "bg-emerald-200 text-emerald-900"
               )}>
-                {isCritical ? "🚨 ¡DÉFICIT / AGOTADO!" : "✅ Disponible"}
+                {newStock !== null && newStock < 0 ? "🚨 DÉFICIT NEGATIVO" : isCritical ? "⚠️ STOCK AGOTADO (0)" : "✅ Disponible"}
               </span>
             </div>
             <div className={cn("text-2xl font-black tracking-tight", isCritical ? "text-rose-700" : "text-emerald-700")}>
               {newStock !== null ? `${newStock} uds` : '—'}
             </div>
             <span className={cn("text-[11px] mt-1 font-medium", isCritical ? "text-rose-600 font-bold" : "text-emerald-700/80")}>
-              {isCritical ? "Sin existencias para más despachos" : "Existencias físicas actualizadas en DB"}
+              {newStock !== null && newStock < 0 ? "Inventario en negativo (urgente conciliar)" : isCritical ? "Sin existencias para más despachos" : "Existencias físicas actualizadas en DB"}
             </span>
           </div>
         </div>
@@ -128,7 +162,7 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
 
           <div>
             <span className="text-slate-400 font-semibold block mb-0.5">🏢 Cliente / Comprador</span>
-            <span className="font-bold text-slate-800 text-sm block truncate">{client || 'Venta Registrada'}</span>
+            <span className="font-bold text-slate-800 text-sm block truncate">{client || 'Movimiento de Almacén'}</span>
           </div>
 
           <div>
@@ -168,11 +202,63 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
   if (isSaleAction) {
     const folio = newData?.folio || (log.description?.match(/Folio: #?(\d+)/)?.[1] ?? '—');
     const total = newData?.total !== undefined ? Number(newData.total).toLocaleString('es-GT', { minimumFractionDigits: 2 }) : (log.description?.match(/Q([\d\.]+)/)?.[1] ?? '—');
-    const client = newData?.client || log.entityName || 'Cliente';
+    const client = newData?.client || (log.description?.match(/para "([^"]+)"/)?.[1]) || log.entityName || 'Cliente';
     const itemsCount = newData?.itemsCount || '—';
+
+    // Obtener desglose de productos y stock de esta venta
+    let itemsList: Array<{
+      productName: string;
+      previousStock: number | null;
+      quantitySold: number | null;
+      newStock: number | null;
+      unitPrice?: number | null;
+    }> = [];
+
+    if (Array.isArray(newData?.itemsStockSummary) && newData.itemsStockSummary.length > 0) {
+      itemsList = newData.itemsStockSummary.map((it: any) => ({
+        productName: it.productName || 'Producto',
+        previousStock: it.previousStock !== undefined && it.previousStock !== null ? Number(it.previousStock) : null,
+        quantitySold: it.quantitySold !== undefined && it.quantitySold !== null ? Number(it.quantitySold) : (it.quantity ? Number(it.quantity) : null),
+        newStock: it.newStock !== undefined && it.newStock !== null ? Number(it.newStock) : null,
+        unitPrice: it.unitPrice || it.price || null
+      }));
+    } else if (allLogs && allLogs.length > 0) {
+      // Correlación inteligente para ventas anteriores (como #1284 y #1285)
+      const saleTime = new Date(createdAt).getTime();
+      const matchedStockLogs = allLogs.filter(l => {
+        if (l.id === log.id) return false;
+        const isStock = l.category === 'stock' || l.action.includes('STOCK');
+        if (!isStock) return false;
+        
+        const lClient = (l.newData as any)?.client || (l.description?.match(/venta a "([^"]+)"/)?.[1]);
+        const matchesClient = Boolean(client && lClient && (
+          lClient.toLowerCase().includes(client.toLowerCase().slice(0, 12)) || 
+          client.toLowerCase().includes(lClient.toLowerCase().slice(0, 12))
+        ));
+        const matchesInvoice = Boolean(newData?.invoiceId && ((l.newData as any)?.invoiceId === newData.invoiceId || (l as any).entityId === newData.invoiceId));
+        
+        if (!matchesClient && !matchesInvoice) return false;
+        
+        const diff = Math.abs(new Date(l.createdAt || (l as any).created_at).getTime() - saleTime);
+        return diff <= 15000;
+      });
+
+      if (matchedStockLogs.length > 0) {
+        itemsList = matchedStockLogs.map(sl => {
+          const { prevStock, newStock, qtySold } = extractStockInfo(sl);
+          return {
+            productName: sl.entityName || (sl.description?.match(/de "([^"]+)"/)?.[1]) || 'Producto',
+            previousStock: prevStock,
+            quantitySold: qtySold,
+            newStock: newStock
+          };
+        });
+      }
+    }
 
     return (
       <div className="space-y-4 pt-4 border-t border-slate-100">
+        {/* Ficha general de la venta */}
         <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
           <div>
             <span className="text-emerald-800/70 font-semibold block mb-0.5">📑 Folio de Venta</span>
@@ -185,13 +271,114 @@ function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
           <div>
             <span className="text-emerald-800/70 font-semibold block mb-0.5">🏢 Cliente Facturado</span>
             <span className="font-bold text-slate-800 text-sm truncate block">{client}</span>
-            <span className="text-[11px] text-slate-500">{itemsCount} producto(s) en orden</span>
+            <span className="text-[11px] text-slate-500">{itemsList.length > 0 ? itemsList.length : itemsCount} producto(s) en orden</span>
           </div>
           <div>
             <span className="text-emerald-800/70 font-semibold block mb-0.5">⏱️ Hora Exacta (Guatemala)</span>
             <span className="font-mono font-bold text-teal-900 text-xs block">{exactGuatDate}</span>
             <span className="text-[10px] text-slate-500">Operado por {log.userName || log.userEmail}</span>
           </div>
+        </div>
+
+        {/* TABLA / TARJETAS DETALLADAS DE STOCK QUE HABÍA Y QUE QUEDÓ */}
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-teal-50 border border-teal-200 text-[#00696a] rounded-lg">
+                <PackageCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Balance de Inventario: Stock que Había y que Quedó
+                </h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Trazabilidad forense de existencias por producto despachado en esta venta
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+              {itemsList.length} producto(s) auditado(s)
+            </span>
+          </div>
+
+          {itemsList.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-wider bg-slate-50/70">
+                    <th className="py-2.5 px-3 font-bold rounded-l-lg">Producto Despachado</th>
+                    <th className="py-2.5 px-3 font-bold text-center">📦 Stock que Había</th>
+                    <th className="py-2.5 px-3 font-bold text-center">🔻 Cantidad Vendida</th>
+                    <th className="py-2.5 px-3 font-bold text-center">🏁 Stock que Quedó</th>
+                    <th className="py-2.5 px-3 font-bold text-right rounded-r-lg">Estado de Existencia</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {itemsList.map((item, idx) => {
+                    const isNegative = item.newStock !== null && item.newStock < 0;
+                    const isZero = item.newStock !== null && item.newStock === 0;
+                    const isLow = item.newStock !== null && item.newStock > 0 && item.newStock <= 5;
+                    
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3 px-3">
+                          <span className="font-bold text-slate-900 block">{item.productName}</span>
+                          {item.unitPrice && (
+                            <span className="text-[10px] text-slate-400">Precio Unitario: Q{Number(item.unitPrice).toFixed(2)}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="inline-block px-3 py-1 rounded-lg bg-slate-100 text-slate-800 font-bold font-mono text-xs border border-slate-200/80">
+                            {item.previousStock !== null && item.previousStock !== undefined ? `${item.previousStock} uds` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="inline-block px-3 py-1 rounded-lg bg-amber-50 text-amber-800 font-bold font-mono text-xs border border-amber-200">
+                            -{item.quantitySold || 0} uds
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className={cn(
+                            "inline-block px-3 py-1 rounded-lg font-bold font-mono text-xs border",
+                            isNegative 
+                              ? "bg-rose-100 text-rose-900 border-rose-300 font-black animate-pulse" 
+                              : isZero 
+                                ? "bg-amber-100 text-amber-900 border-amber-300 font-black"
+                                : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          )}>
+                            {item.newStock !== null && item.newStock !== undefined ? `${item.newStock} uds` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {isNegative ? (
+                            <span className="text-[11px] font-black text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200 inline-block">
+                              🚨 Déficit Negativo ({item.newStock})
+                            </span>
+                          ) : isZero ? (
+                            <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 inline-block">
+                              ⚠️ Agotado / Cero (0)
+                            </span>
+                          ) : isLow ? (
+                            <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 inline-block">
+                              🟡 Stock Bajo ({item.newStock})
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 inline-block">
+                              ✅ Disponible ({item.newStock})
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-50 rounded-xl text-center text-slate-500 text-xs">
+              ℹ️ Los productos de esta orden no requirieron deducción de bodega local o son de entrega directa por proveedor.
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
@@ -828,6 +1015,58 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                         {log.description}
                       </p>
 
+                      {/* Resumen visual de stock (Había -> Salida -> Quedó) si aplica */}
+                      {(() => {
+                        const isStock = log.category === 'stock' || log.action.includes('STOCK');
+                        const isSale = log.category === 'ventas' || log.action.includes('SALE');
+                        
+                        if (isStock) {
+                          const stockInfo = extractStockInfo(log);
+                          if (stockInfo.prevStock !== null || stockInfo.newStock !== null) {
+                            return (
+                              <div className="flex items-center gap-1.5 pt-1 flex-wrap text-xs">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold border border-slate-200 text-[11px]">
+                                  📦 Había: <span className="font-mono">{stockInfo.prevStock !== null ? `${stockInfo.prevStock} uds` : '—'}</span>
+                                </span>
+                                <span className="text-slate-400 font-bold text-xs">➔</span>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-50 text-amber-800 font-bold border border-amber-200 text-[11px]">
+                                  🔻 Salida: <span className="font-mono">{stockInfo.qtySold !== null ? `-${stockInfo.qtySold} uds` : '—'}</span>
+                                </span>
+                                <span className="text-slate-400 font-bold text-xs">➔</span>
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-bold border text-[11px]",
+                                  stockInfo.newStock !== null && stockInfo.newStock <= 0 
+                                    ? "bg-rose-50 text-rose-800 border-rose-300 font-black animate-pulse" 
+                                    : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                )}>
+                                  🏁 Quedó: <span className="font-mono">{stockInfo.newStock !== null ? `${stockInfo.newStock} uds` : '—'}</span>
+                                  {stockInfo.newStock !== null && stockInfo.newStock <= 0 ? " 🚨" : " ✅"}
+                                </span>
+                              </div>
+                            );
+                          }
+                        } else if (isSale) {
+                          const folioNum = newData?.folio || (log.description?.match(/Folio: #?(\d+)/)?.[1] ?? '—');
+                          const totalVal = newData?.total !== undefined 
+                            ? Number(newData.total).toLocaleString('es-GT', { minimumFractionDigits: 2 }) 
+                            : (log.description?.match(/Q([\d\.]+)/)?.[1] ?? '—');
+                          return (
+                            <div className="flex items-center gap-2 pt-1 flex-wrap text-xs">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-900 font-bold border border-emerald-200 text-[11px]">
+                                📑 Folio #{folioNum}
+                              </span>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-800 font-bold font-mono border border-slate-200 text-[11px]">
+                                Q {totalVal}
+                              </span>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-teal-50 text-teal-800 font-semibold border border-teal-200 text-[11px]">
+                                📦 Ver desglose de stock de productos vendidos
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-1">
                         <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
@@ -868,7 +1107,7 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                 </div>
 
                 {isExpanded && (
-                  <HumanAuditDetail log={log} />
+                  <HumanAuditDetail log={log} allLogs={logs} />
                 )}
               </div>
             );
