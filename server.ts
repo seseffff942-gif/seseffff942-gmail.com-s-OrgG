@@ -859,6 +859,36 @@ const doesNotNeedStock = (product: { name?: string; category?: string } | null |
   return keywords.some(keyword => nameLower.includes(keyword) || categoryLower.includes(keyword));
 };
 
+const isTecunProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
+  if (!product) return false;
+  const nameL = (product.name || '').toLowerCase().trim();
+  const catL = (product.category || '').toLowerCase().trim();
+  if (catL.includes('tecun') || catL.includes('tecún') || nameL.includes('tecun') || nameL.includes('tecún')) {
+    return true;
+  }
+  const tecunKeywords = [
+    'paraquat', 'yerbatron', '2,4d', '2.4d', '2 4d', '24d', 'killer 36', 'nocaut',
+    'poter 90', 'glufosin', 'cpf 48', 'cpf 2dp', 'titan 80', 'semevin', 'vereta',
+    'certero', 'cipermetrina 25', 'vayego', 'blindage'
+  ];
+  return tecunKeywords.some(keyword => nameL.includes(keyword));
+};
+
+const isFiatProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
+  if (!product) return false;
+  const nameL = (product.name || '').toLowerCase().trim();
+  const catL = (product.category || '').toLowerCase().trim();
+  return catL === 'fiat' || catL.includes('fiat') || nameL.includes('fiat');
+};
+
+const isExemptFromStockBlock = (product: { name?: string; category?: string } | null | undefined, item?: any): boolean => {
+  if (!product) return false;
+  if (doesNotNeedStock(product)) return true;
+  if (isFiatProduct(product) || isTecunProduct(product)) return true;
+  if (item && (item.fiatToOrder !== undefined || item.tecunToOrder !== undefined)) return true;
+  return false;
+};
+
 const is100gProduct = (product: { name?: string; category?: string } | null | undefined): boolean => {
   if (!product) return false;
   const nameL = (product.name || '').toLowerCase();
@@ -899,6 +929,15 @@ const isCriticalStock = (product: { name?: string; category?: string } | null | 
   const threshold = getCriticalStockThreshold(product);
   return stock <= threshold;
 };
+
+// Fila / Cola FIFO estricta para procesamiento de ventas y protección de inventario
+let salesProcessingQueue: Promise<any> = Promise.resolve();
+
+export function enqueueSaleTask<T>(task: () => Promise<T>): Promise<T> {
+  const next = salesProcessingQueue.then(task, task);
+  salesProcessingQueue = next.catch(() => {});
+  return next;
+}
 
 // Mutex de concurrencia para operaciones de stock en memoria
 const stockLockMap = new Map<string, Promise<void>>();
@@ -8359,85 +8398,124 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
   const saleOwner = sellerId || req.user.email; // Support overriding sellerId if selected in modal
 
-  // Auto-register client if not exists
-  if (client) {
-    let nameToSave = client.trim();
-    let companyToSave = '';
-    if (client.includes(' - ')) {
-      const parts = client.split(' - ');
-      nameToSave = parts[0].trim();
-      companyToSave = parts[1].trim();
-    }
-
-    const normName = nameToSave.toLowerCase();
-    const normCompany = companyToSave.toLowerCase();
-
-    let existingList: any[] = [];
-    try {
-      const { data } = await localDb.from("clients").select("*");
-      if (data) existingList = data;
-    } catch (e) { }
-
-    const localList = readLocalClients();
-    const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
-
-    if (matchedClient) {
-      console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
-
-      const updates: any = {};
-      if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-      if (!matchedClient.phone && phone) updates.phone = phone;
-      if (!matchedClient.address && address) updates.address = address;
-      if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
-
-      if (matchedClient.isProspect || matchedClient.clientType === 'prospect') {
-        updates.isProspect = false;
-        updates.clientType = 'regular';
+  return enqueueSaleTask(async () => {
+    // Auto-register client if not exists
+    if (client) {
+      let nameToSave = client.trim();
+      let companyToSave = '';
+      if (client.includes(' - ')) {
+        const parts = client.split(' - ');
+        nameToSave = parts[0].trim();
+        companyToSave = parts[1].trim();
       }
 
-      const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-      if (!currentSeller && (sellerId || saleOwner)) {
-        updates.sellerId = sellerId || saleOwner;
-      }
+      const normName = nameToSave.toLowerCase();
+      const normCompany = companyToSave.toLowerCase();
 
-      if (Object.keys(updates).length > 0) {
-        updateLocalClient(matchedClient.id, updates);
-        try {
-          await localDb.from("clients").update(updates).eq("id", matchedClient.id);
-        } catch (e) { }
-      }
-    } else {
-      const clientData = {
-        id: `CLI-${Date.now()}`,
-        sellerId: sellerId || saleOwner,
-        name: nameToSave,
-        companyName: companyToSave,
-        nit: nit || '',
-        phone: phone || '',
-        address: address || '',
-        createdAt: new Date().toISOString()
-      };
-
-      addLocalClient(clientData);
+      let existingList: any[] = [];
       try {
-        await safeInsertClient(clientData);
-      } catch (e) {
-        console.error("Auto-register client insert failed:", e);
+        const { data } = await localDb.from("clients").select("*");
+        if (data) existingList = data;
+      } catch (e) { }
+
+      const localList = readLocalClients();
+      const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
+
+      if (matchedClient) {
+        console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
+
+        const updates: any = {};
+        if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+        if (!matchedClient.phone && phone) updates.phone = phone;
+        if (!matchedClient.address && address) updates.address = address;
+        if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+
+        if (matchedClient.isProspect || matchedClient.clientType === 'prospect') {
+          updates.isProspect = false;
+          updates.clientType = 'regular';
+        }
+
+        const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+        if (!currentSeller && (sellerId || saleOwner)) {
+          updates.sellerId = sellerId || saleOwner;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          updateLocalClient(matchedClient.id, updates);
+          try {
+            await localDb.from("clients").update(updates).eq("id", matchedClient.id);
+          } catch (e) { }
+        }
+      } else {
+        const clientData = {
+          id: `CLI-${Date.now()}`,
+          sellerId: sellerId || saleOwner,
+          name: nameToSave,
+          companyName: companyToSave,
+          nit: nit || '',
+          phone: phone || '',
+          address: address || '',
+          createdAt: new Date().toISOString()
+        };
+
+        addLocalClient(clientData);
+        try {
+          await safeInsertClient(clientData);
+        } catch (e) {
+          console.error("Auto-register client insert failed:", e);
+        }
       }
     }
-  }
 
-  let total = 0;
-  const processedItems: any[] = [];
-  // Bandera para omitir limitación por facturas vencidas (fácil de reactivar cambiando a false)
-  const OMITIR_LIMITACION_DEUDA_SERVER = true;
-  let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && (debtAlert === true);
-  const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  let invoice: any = null;
+    // FASE 1: Verificación estricta previa de stock en fila (Cola FIFO).
+    // Si CUALQUIER producto no tiene stock suficiente, se detiene la venta de inmediato y no se descuenta nada.
+    // Excepciones soportadas: FIAT, TECÚN, incubadoras, bebederos/comederos y productos externos.
+    for (const item of items) {
+      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+        continue;
+      }
+      const { data: prodsCheck, error: pCheckErr } = await localDb.from("products").select("*").eq('id', item.productId);
+      if (pCheckErr || !prodsCheck || prodsCheck.length === 0) {
+        return res.status(400).json({ error: `Producto no encontrado en inventario (ID: ${item.productId})` });
+      }
+      const prodCheck = prodsCheck[0];
+      const isExempt = isExemptFromStockBlock(prodCheck, item);
+      if (!prodCheck.is_external && !isExempt) {
+        let availableStock = parseFloat(prodCheck.stock || 0);
+        let variantLabel = '';
+        if (item.variantId && prodCheck.variants) {
+          const vObj = prodCheck.variants.find((v: any) => v.id === item.variantId);
+          if (vObj && vObj.stock !== undefined) {
+            availableStock = parseFloat(vObj.stock || 0);
+            variantLabel = ` (${vObj.color || ''} ${vObj.size || ''})`.trim();
+          }
+        }
+        const requested = parseFloat(item.quantity || 0);
+        if (availableStock < requested || availableStock <= 0) {
+          const fullLabel = `${prodCheck.name}${variantLabel}`;
+          return res.status(400).json({
+            error: `VENTA DETENIDA EN FILA: Stock insuficiente para "${fullLabel}". En bodega quedan ${availableStock} unidades y solicitaste ${requested} unidades. Otra venta procesada hace momentos consumió el inventario disponible. Operación cancelada para proteger el inventario.`,
+            insufficientStock: true,
+            productId: prodCheck.id,
+            productName: fullLabel,
+            availableStock,
+            requestedQuantity: requested
+          });
+        }
+      }
+    }
 
-  // Mutex de concurrencia: bloquea los productos de esta venta para evitar condiciones de carrera
-  const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
-  const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
+    let total = 0;
+    const processedItems: any[] = [];
+    // Bandera para omitir limitación por facturas vencidas (fácil de reactivar cambiando a false)
+    const OMITIR_LIMITACION_DEUDA_SERVER = true;
+    let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && (debtAlert === true);
+    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    let invoice: any = null;
+
+    // Mutex de concurrencia: bloquea los productos de esta venta para evitar condiciones de carrera
+    const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
+    const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
 
   try {
     for (const item of items) {
@@ -8460,7 +8538,9 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
 
       const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
 
-      const isExemptFromStock = doesNotNeedStock(product);
+      const isExemptFromStock = isExemptFromStockBlock(product, item);
+      const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
+
       if (!product.is_external) {
         let currentStock = parseFloat(product.stock || 0);
         let variantObj = null;
@@ -8481,7 +8561,12 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           item.isStockAlert = true;
         }
 
-        const newStock = currentStock - parseFloat(item.quantity);
+        let deductQty = parseFloat(item.quantity);
+        if (isSpecialSupplier) {
+          // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
+          deductQty = Math.max(0, Math.min(currentStock, deductQty));
+        }
+        const newStock = Math.max(0, currentStock - deductQty);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
@@ -8826,14 +8911,15 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     ip_address: req.ip
   }).catch(() => { });
 
-  res.json({
-    ...returnInvoice,
-    isOwed: true,
-    folio: folioMap[returnInvoice.id] || 1,
-    client: returnInvoice.client || returnInvoice.clientName || client,
-    nit: returnInvoice.nit || '',
-    phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
-    address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
+    res.json({
+      ...returnInvoice,
+      isOwed: true,
+      folio: folioMap[returnInvoice.id] || 1,
+      client: returnInvoice.client || returnInvoice.clientName || client,
+      nit: returnInvoice.nit || '',
+      phone: returnInvoice.phone || returnInvoice.customerPhone || phone || '',
+      address: returnInvoice.address || returnInvoice.deliveryAddress || address || ''
+    });
   });
 }));
 

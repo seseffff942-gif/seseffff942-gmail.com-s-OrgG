@@ -18,9 +18,287 @@ import {
   Eye, 
   X,
   FileSpreadsheet,
-  Sparkles
+  Sparkles,
+  AlertTriangle,
+  CheckCircle2,
+  ArrowDownRight,
+  TrendingDown
 } from 'lucide-react';
 import { cn } from '../utils';
+
+function HumanAuditDetail({ log }: { log: AuditLogEntry }) {
+  const [showRawJson, setShowRawJson] = useState(false);
+  const previousData = log.previousData || (log as any).previous_data;
+  const newData = log.newData || (log as any).new_data;
+  const createdAt = log.createdAt || (log as any).created_at;
+
+  const exactGuatDate = (() => {
+    try {
+      const d = new Date(createdAt);
+      return d.toLocaleString('es-GT', {
+        timeZone: 'America/Guatemala',
+        hour12: true,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3
+      });
+    } catch (e) {
+      return createdAt;
+    }
+  })();
+
+  const isStockAction = log.category === 'stock' || log.action.includes('STOCK');
+  const isSaleAction = log.category === 'ventas' || log.action.includes('SALE');
+  const isClientAction = log.category === 'clientes' || log.action.includes('CLIENT');
+
+  // Si es movimiento de stock
+  if (isStockAction) {
+    const prevStock = previousData?.stock !== undefined ? Number(previousData.stock) : null;
+    const newStock = newData?.stock !== undefined ? Number(newData.stock) : null;
+    const qtySold = newData?.quantitySold !== undefined 
+      ? Number(newData.quantitySold) 
+      : (newData?.diff !== undefined ? Math.abs(Number(newData.diff)) : (prevStock !== null && newStock !== null ? Math.abs(prevStock - newStock) : null));
+    const client = newData?.client || (log.description?.match(/venta a "([^"]+)"/)?.[1] ?? null);
+    const isCritical = newStock !== null && newStock <= 0;
+
+    return (
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        {/* Banner balance de stock */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* 1. Había */}
+          <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+            <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">
+              <span>Stock Previo</span>
+              <span className="text-[10px] bg-slate-200/80 px-2 py-0.5 rounded font-black text-slate-700">Había</span>
+            </div>
+            <div className="text-2xl font-black text-slate-800 tracking-tight">
+              {prevStock !== null ? `${prevStock} uds` : '—'}
+            </div>
+            <span className="text-[11px] text-slate-400 mt-1 font-medium">Inventario disponible antes de operar</span>
+          </div>
+
+          {/* 2. Descontado */}
+          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+            <div className="flex items-center justify-between text-amber-800 text-xs font-bold uppercase tracking-wider mb-1">
+              <span>Descuento / Salida</span>
+              <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-black">Venta</span>
+            </div>
+            <div className="text-2xl font-black text-amber-700 tracking-tight">
+              {qtySold !== null ? `-${qtySold} uds` : '—'}
+            </div>
+            <span className="text-[11px] text-amber-700/80 mt-1 font-medium">Unidades facturadas y despachadas</span>
+          </div>
+
+          {/* 3. Quedó */}
+          <div className={cn(
+            "border rounded-2xl p-4 flex flex-col justify-between shadow-xs transition-all",
+            isCritical 
+              ? "bg-rose-50 border-rose-300 ring-2 ring-rose-400/20" 
+              : "bg-emerald-50/80 border-emerald-200"
+          )}>
+            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider mb-1">
+              <span className={isCritical ? "text-rose-900 font-black" : "text-emerald-800"}>Stock Resultante</span>
+              <span className={cn(
+                "text-[10px] px-2 py-0.5 rounded font-black",
+                isCritical ? "bg-rose-200 text-rose-950 animate-pulse" : "bg-emerald-200 text-emerald-900"
+              )}>
+                {isCritical ? "🚨 ¡DÉFICIT / AGOTADO!" : "✅ Disponible"}
+              </span>
+            </div>
+            <div className={cn("text-2xl font-black tracking-tight", isCritical ? "text-rose-700" : "text-emerald-700")}>
+              {newStock !== null ? `${newStock} uds` : '—'}
+            </div>
+            <span className={cn("text-[11px] mt-1 font-medium", isCritical ? "text-rose-600 font-bold" : "text-emerald-700/80")}>
+              {isCritical ? "Sin existencias para más despachos" : "Existencias físicas actualizadas en DB"}
+            </span>
+          </div>
+        </div>
+
+        {/* Ficha técnica del movimiento */}
+        <div className="bg-slate-50/50 border border-slate-200/80 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-slate-400 font-semibold block mb-0.5">📦 Producto Afectado</span>
+            <span className="font-bold text-slate-800 text-sm block truncate">{log.entityName || 'Producto General'}</span>
+            <span className="text-[11px] text-slate-400 font-mono block">ID: {log.entityId || 'N/A'}</span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 font-semibold block mb-0.5">🏢 Cliente / Comprador</span>
+            <span className="font-bold text-slate-800 text-sm block truncate">{client || 'Venta Registrada'}</span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 font-semibold block mb-0.5">👤 Asesor / Vendedor</span>
+            <span className="font-bold text-slate-800 text-sm block">{log.userName || log.userEmail || 'Sistema'}</span>
+            <span className="text-[11px] text-slate-400 block capitalize">{log.userRole || 'Operador'}</span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 font-semibold block mb-0.5">⏱️ Hora Exacta (Guatemala)</span>
+            <span className="font-mono font-bold text-teal-900 text-xs block">{exactGuatDate}</span>
+            <span className="text-[10px] text-slate-400 block">Hora, minuto, seg. y ms</span>
+          </div>
+        </div>
+
+        {/* Botón discreto para desarrollador */}
+        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+          <span>ID de Transacción: <code className="font-mono text-slate-600">{log.id}</code></span>
+          <button 
+            type="button" 
+            onClick={() => setShowRawJson(!showRawJson)} 
+            className="text-slate-400 hover:text-slate-600 underline cursor-pointer"
+          >
+            {showRawJson ? 'Ocultar JSON técnico' : 'Ver datos técnicos JSON'}
+          </button>
+        </div>
+        {showRawJson && (
+          <pre className="text-[10px] font-mono bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto max-h-36">
+            {JSON.stringify({ previousData, newData }, null, 2)}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  // Si es Venta / Factura
+  if (isSaleAction) {
+    const folio = newData?.folio || (log.description?.match(/Folio: #?(\d+)/)?.[1] ?? '—');
+    const total = newData?.total !== undefined ? Number(newData.total).toLocaleString('es-GT', { minimumFractionDigits: 2 }) : (log.description?.match(/Q([\d\.]+)/)?.[1] ?? '—');
+    const client = newData?.client || log.entityName || 'Cliente';
+    const itemsCount = newData?.itemsCount || '—';
+
+    return (
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-emerald-800/70 font-semibold block mb-0.5">📑 Folio de Venta</span>
+            <span className="font-black text-emerald-950 text-xl font-mono">#{folio}</span>
+          </div>
+          <div>
+            <span className="text-emerald-800/70 font-semibold block mb-0.5">💰 Monto Total Facturado</span>
+            <span className="font-black text-emerald-800 text-xl">Q {total}</span>
+          </div>
+          <div>
+            <span className="text-emerald-800/70 font-semibold block mb-0.5">🏢 Cliente Facturado</span>
+            <span className="font-bold text-slate-800 text-sm truncate block">{client}</span>
+            <span className="text-[11px] text-slate-500">{itemsCount} producto(s) en orden</span>
+          </div>
+          <div>
+            <span className="text-emerald-800/70 font-semibold block mb-0.5">⏱️ Hora Exacta (Guatemala)</span>
+            <span className="font-mono font-bold text-teal-900 text-xs block">{exactGuatDate}</span>
+            <span className="text-[10px] text-slate-500">Operado por {log.userName || log.userEmail}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+          <span>ID Factura: <code className="font-mono text-slate-600">{log.entityId || log.id}</code></span>
+          <button 
+            type="button" 
+            onClick={() => setShowRawJson(!showRawJson)} 
+            className="text-slate-400 hover:text-slate-600 underline cursor-pointer"
+          >
+            {showRawJson ? 'Ocultar JSON técnico' : 'Ver datos técnicos JSON'}
+          </button>
+        </div>
+        {showRawJson && (
+          <pre className="text-[10px] font-mono bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto max-h-36">
+            {JSON.stringify({ previousData, newData }, null, 2)}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  // Si es Cliente
+  if (isClientAction) {
+    const data = newData || previousData || {};
+    return (
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div className="bg-teal-50/70 border border-teal-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-teal-900 font-semibold block mb-0.5">👤 Nombre / Razón Social</span>
+            <span className="font-bold text-slate-900 text-sm block truncate">{data.name || log.entityName || '—'}</span>
+            {data.clientCode && <span className="text-[11px] font-mono text-teal-800 block">Código: {data.clientCode}</span>}
+          </div>
+          <div>
+            <span className="text-teal-900 font-semibold block mb-0.5">📄 NIT & Teléfono</span>
+            <span className="font-bold text-slate-800 block">NIT: {data.nit || 'CF'}</span>
+            <span className="text-[11px] text-slate-500 block">Tel: {data.phone || 'No registrado'}</span>
+          </div>
+          <div>
+            <span className="text-teal-900 font-semibold block mb-0.5">📍 Ubicación Registrada</span>
+            <span className="text-slate-700 block truncate">{data.address || 'Sin dirección'}</span>
+            <span className="text-[10px] text-emerald-700 font-bold block">{data.geotagged ? '📍 Coordenadas GPS fijadas' : 'Sin GPS'}</span>
+          </div>
+          <div>
+            <span className="text-teal-900 font-semibold block mb-0.5">⏱️ Hora Exacta (Guatemala)</span>
+            <span className="font-mono font-bold text-teal-900 text-xs block">{exactGuatDate}</span>
+            <span className="text-[10px] text-slate-500">Registrado por {log.userName || log.userEmail}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+          <span>ID Cliente: <code className="font-mono text-slate-600">{log.entityId || log.id}</code></span>
+          <button 
+            type="button" 
+            onClick={() => setShowRawJson(!showRawJson)} 
+            className="text-slate-400 hover:text-slate-600 underline cursor-pointer"
+          >
+            {showRawJson ? 'Ocultar JSON técnico' : 'Ver datos técnicos JSON'}
+          </button>
+        </div>
+        {showRawJson && (
+          <pre className="text-[10px] font-mono bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto max-h-36">
+            {JSON.stringify({ previousData, newData }, null, 2)}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  // Vista General limpia para otros eventos
+  return (
+    <div className="space-y-4 pt-4 border-t border-slate-100">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+        <div>
+          <span className="text-slate-400 font-semibold block mb-0.5">🎯 Entidad Afectada</span>
+          <span className="font-bold text-slate-800 text-sm block truncate">{log.entityName || log.entityType || 'Sistema'}</span>
+          <span className="text-[11px] text-slate-400 block font-mono">ID: {log.entityId || 'N/A'}</span>
+        </div>
+        <div>
+          <span className="text-slate-400 font-semibold block mb-0.5">👤 Operado por</span>
+          <span className="font-bold text-slate-800 text-sm block">{log.userName || log.userEmail || 'Sistema'}</span>
+          <span className="text-[11px] text-slate-400 block capitalize">{log.userRole || 'Automático'} • IP: {log.ipAddress || '127.0.0.1'}</span>
+        </div>
+        <div>
+          <span className="text-slate-400 font-semibold block mb-0.5">⏱️ Hora Exacta (Guatemala)</span>
+          <span className="font-mono font-bold text-teal-800 text-xs block">{exactGuatDate}</span>
+          <span className="text-[10px] text-slate-400 block">{log.action}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+        <span>ID Registro: <code className="font-mono text-slate-600">{log.id}</code></span>
+        <button 
+          type="button" 
+          onClick={() => setShowRawJson(!showRawJson)} 
+          className="text-slate-400 hover:text-slate-600 underline cursor-pointer"
+        >
+          {showRawJson ? 'Ocultar JSON técnico' : 'Ver datos técnicos JSON'}
+        </button>
+      </div>
+      {showRawJson && (
+        <pre className="text-[10px] font-mono bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto max-h-36">
+          {JSON.stringify({ previousData, newData }, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 interface MasterAuditPageProps {
   user: User;
@@ -577,59 +855,20 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
                     </div>
                   </div>
 
-                  {hasDiff && (
-                    <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 pt-2 sm:pt-0">
-                      <button
-                        onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-teal-50 hover:text-teal-900 text-slate-700 transition-all cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-teal-600" />
-                        <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Detalle'}</span>
-                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 pt-2 sm:pt-0">
+                    <button
+                      onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-teal-50 hover:text-teal-900 text-slate-700 transition-all cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-teal-600" />
+                      <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Detalle'}</span>
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
 
-                {isExpanded && hasDiff && (
-                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                      {/* Estado Anterior */}
-                      <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3.5">
-                        <div className="text-rose-800 font-bold mb-1.5 flex items-center justify-between">
-                          <span>Estado Anterior</span>
-                          <span className="text-[10px] bg-rose-200/80 text-rose-900 px-1.5 py-0.5 rounded font-black">Antes</span>
-                        </div>
-                        {previousData ? (
-                          <pre className="text-[11px] font-mono text-slate-700 overflow-x-auto p-2 bg-white/90 rounded-lg max-h-48 scrollbar-thin border border-rose-100">
-                            {JSON.stringify(previousData, null, 2)}
-                          </pre>
-                        ) : (
-                          <span className="text-slate-400 italic">No existía registro previo (Creación inicial)</span>
-                        )}
-                      </div>
-
-                      {/* Nuevo Estado */}
-                      <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-3.5">
-                        <div className="text-teal-900 font-bold mb-1.5 flex items-center justify-between">
-                          <span>Nuevo Estado</span>
-                          <span className="text-[10px] bg-teal-200/80 text-teal-950 px-1.5 py-0.5 rounded font-black">Después</span>
-                        </div>
-                        {newData ? (
-                          <pre className="text-[11px] font-mono text-slate-700 overflow-x-auto p-2 bg-white/90 rounded-lg max-h-48 scrollbar-thin border border-teal-100">
-                            {JSON.stringify(newData, null, 2)}
-                          </pre>
-                        ) : (
-                          <span className="text-slate-400 italic">Registro eliminado definitivamente</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                      <span>ID Forense: <code className="font-mono text-slate-600">{log.id}</code></span>
-                      <span>Registrado: {new Date(createdAt).toISOString()}</span>
-                    </div>
-                  </div>
+                {isExpanded && (
+                  <HumanAuditDetail log={log} />
                 )}
               </div>
             );
