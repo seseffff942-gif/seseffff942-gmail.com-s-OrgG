@@ -81,6 +81,7 @@ export interface InvoiceItem {
   originalPrice?: number;
   suggestedPrice?: number;
   isOfferApplied?: boolean;
+  isBonus?: boolean;
   total: number;
   variantId?: string;
   color?: string;

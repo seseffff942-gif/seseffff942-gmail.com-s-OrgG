@@ -8642,11 +8642,13 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       total += itemTotal;
       const prevStockVal = !product.is_external ? currentStock : 999999;
       const newStockVal = !product.is_external ? newStock : 999999;
+      const baseName = variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name);
+      const finalProductName = item.isBonus && !baseName.includes('Bonificación') ? `${baseName} (Bonificación / Gratis)` : baseName;
       processedItems.push({ 
         ...item, 
         price: itemPrice, 
         total: itemTotal, 
-        productName: variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name), 
+        productName: finalProductName, 
         originalPrice: product.price,
         previousStock: prevStockVal,
         newStock: newStockVal,
@@ -9001,7 +9003,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
     }
 
     let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
-    if (!item.isAuthorized && (item.price < prod.price || isStockAlert)) needsAuth = true;
+    if (!item.isAuthorized && !item.isOfferApplied && (item.price < prod.price || isStockAlert)) needsAuth = true;
 
     total += item.price * item.quantity;
     formattedItems.push({

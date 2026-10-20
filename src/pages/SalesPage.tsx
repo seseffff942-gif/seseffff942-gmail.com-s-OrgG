@@ -43,6 +43,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [customOfferBuy, setCustomOfferBuy] = useState<string>('');
   const [customOfferFree, setCustomOfferFree] = useState<string>('');
   const [customOfferUnitPrice, setCustomOfferUnitPrice] = useState<string>('');
+  const [customOfferSplitBonus, setCustomOfferSplitBonus] = useState<boolean>(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<string>('');
@@ -193,7 +194,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     quantity: number; 
     overridePrice?: number; 
     suggestedPrice?: number; 
-    appliedCustomOffer?: { buyQty: number, freeQty: number }; 
+    appliedCustomOffer?: { buyQty: number, freeQty: number, splitBonus?: boolean }; 
     variant?: { id: string; color: string; size: string };
     requiresAuth?: boolean;
     isAuthorized?: boolean;
@@ -458,7 +459,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     }
   }, [cart]);
 
-  const addToCart = (product: Product, quantityToAdd?: number, priceOverride?: number, customOffer?: { buyQty: number, freeQty: number }, variant?: { id: string; color: string; size: string }) => {
+  const addToCart = (product: Product, quantityToAdd?: number, priceOverride?: number, customOffer?: { buyQty: number, freeQty: number, splitBonus?: boolean }, variant?: { id: string; color: string; size: string }) => {
     if (product.hiddenFromSales && user.role !== 'admin' && user.email !== 'limalopez22@gmail.com') {
       setErrorMsg(`El producto "${product.name}" está oculto en la pantalla de ventas y sólo los Administradores pueden venderlo.`);
       setTimeout(() => setErrorMsg(''), 5000);
@@ -578,6 +579,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     setCustomOfferBuy('');
     setCustomOfferFree('');
     setCustomOfferUnitPrice(product.price.toString());
+    setCustomOfferSplitBonus(false);
     setSelectedColor('');
     setSelectedSize('');
     setSelectedVariantId(null);
@@ -810,17 +812,66 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     isOwed = true; // Forzar crédito siempre (las ventas solo se pueden ir a crédito)
     setIsSubmitting(true);
     try {
-      const items = cart.map(i => {
+      const items = cart.flatMap(i => {
         let price = i.overridePrice ?? i.product.price;
+        const supplierBreakdown = calculateSupplierStockBreakdown(i.product, i.quantity);
+
+        if (i.appliedCustomOffer?.splitBonus) {
+           const packageSize = (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
+           const packages = Math.floor(i.quantity / packageSize);
+           const remainder = i.quantity % packageSize;
+           const paidQty = (packages * i.appliedCustomOffer.buyQty) + remainder;
+           const freeQty = packages * i.appliedCustomOffer.freeQty;
+
+           const resItems: any[] = [];
+           if (paidQty > 0) {
+              resItems.push({
+                productId: i.product.id,
+                productName: i.product.name,
+                quantity: paidQty,
+                price: price,
+                suggestedPrice: i.suggestedPrice,
+                isOfferApplied: true,
+                isPriceAlert: price < i.product.price,
+                variantId: i.variant?.id || (i as any).variantId,
+                color: i.variant?.color || (i as any).color,
+                size: i.variant?.size || (i as any).size,
+                requiresAuth: i.requiresAuth || supplierBreakdown.hasShortage,
+                tecunWarehouseStock: supplierBreakdown.isTecun ? supplierBreakdown.fromWarehouse : undefined,
+                tecunToOrder: supplierBreakdown.isTecun ? supplierBreakdown.toOrderFromCompany : undefined,
+                fiatWarehouseStock: supplierBreakdown.isFiat ? supplierBreakdown.fromWarehouse : undefined,
+                fiatToOrder: supplierBreakdown.isFiat ? supplierBreakdown.toOrderFromCompany : undefined
+              });
+           }
+           if (freeQty > 0) {
+              resItems.push({
+                productId: i.product.id,
+                productName: `${i.product.name} (Bonificación / Gratis)`,
+                quantity: freeQty,
+                price: 0,
+                suggestedPrice: 0,
+                isOfferApplied: true,
+                isBonus: true,
+                isPriceAlert: false,
+                variantId: i.variant?.id || (i as any).variantId,
+                color: i.variant?.color || (i as any).color,
+                size: i.variant?.size || (i as any).size,
+                requiresAuth: false,
+                tecunWarehouseStock: undefined,
+                tecunToOrder: undefined,
+                fiatWarehouseStock: undefined,
+                fiatToOrder: undefined
+              });
+           }
+           return resItems;
+        }
+
         let effectivePrice = price;
-        
         if (i.appliedCustomOffer) {
            effectivePrice = (price * i.appliedCustomOffer.buyQty) / (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
         }
 
-        const supplierBreakdown = calculateSupplierStockBreakdown(i.product, i.quantity);
-
-        return {
+        return [{
           productId: i.product.id,
           productName: i.product.name,
           quantity: i.quantity,
@@ -836,7 +887,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           tecunToOrder: supplierBreakdown.isTecun ? supplierBreakdown.toOrderFromCompany : undefined,
           fiatWarehouseStock: supplierBreakdown.isFiat ? supplierBreakdown.fromWarehouse : undefined,
           fiatToOrder: supplierBreakdown.isFiat ? supplierBreakdown.toOrderFromCompany : undefined
-        };
+        }];
       });
 
       let newInvoice: any;
@@ -1867,10 +1918,36 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                           )}
 
                           {item.appliedCustomOffer && (
-                            <div className="mt-1 flex items-center">
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="text-[9px] font-black uppercase bg-amber-500 text-white px-2 py-0.5 rounded-lg border border-amber-400 shadow-sm leading-none tracking-wider">
                                 Oferta: {item.appliedCustomOffer.buyQty}+{item.appliedCustomOffer.freeQty}
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCart(prev => prev.map((it, i) => {
+                                    if (i === idx && it.appliedCustomOffer) {
+                                      return {
+                                        ...it,
+                                        appliedCustomOffer: {
+                                          ...it.appliedCustomOffer,
+                                          splitBonus: !it.appliedCustomOffer.splitBonus
+                                        }
+                                      };
+                                    }
+                                    return it;
+                                  }));
+                                }}
+                                className={cn(
+                                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border transition-all cursor-pointer shadow-xs",
+                                  item.appliedCustomOffer.splitBonus
+                                    ? "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200"
+                                    : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
+                                )}
+                                title="Clic para alternar entre desglosar a Q0 o prorratear precio"
+                              >
+                                {item.appliedCustomOffer.splitBonus ? "✓ Desglosado a Q0" : "Prorrateado"}
+                              </button>
                             </div>
                           )}
 
@@ -2358,6 +2435,35 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         className="w-full border border-emerald-200/60 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0b4d2c] focus:border-[#0b4d2c] bg-white font-extrabold transition-all text-[#07361e]" 
                      />
                   </div>
+
+                  {/* Opción activable para desglosar unidades gratis a Q0.00 */}
+                  <div 
+                    onClick={() => setCustomOfferSplitBonus(!customOfferSplitBonus)}
+                    className={cn(
+                      "p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer select-none transition-all",
+                      customOfferSplitBonus 
+                        ? "bg-emerald-50/90 border-emerald-300 ring-1 ring-emerald-500/30" 
+                        : "bg-slate-50 border-slate-200 hover:bg-slate-100/70"
+                    )}
+                  >
+                    <input 
+                      type="checkbox"
+                      id="splitBonusCheckbox"
+                      checked={customOfferSplitBonus}
+                      onChange={e => setCustomOfferSplitBonus(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 text-[#0b4d2c] rounded border-slate-300 focus:ring-[#0b4d2c] accent-[#0b4d2c] cursor-pointer"
+                    />
+                    <div className="text-left flex-1">
+                      <label htmlFor="splitBonusCheckbox" className="text-xs font-black text-[#0b4d2c] block cursor-pointer">
+                        Desglosar gratis a Q0.00 en factura
+                      </label>
+                      <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">
+                        {customOfferSplitBonus 
+                          ? `En factura: ${customOfferBuy || 0} al precio normal (${formatMoney(parseFloat(customOfferUnitPrice) || selectedProduct?.price || 0)}) + ${customOfferFree || 0} a Q0.00 (Gratis)` 
+                          : `En factura: Las ${(parseInt(customOfferBuy)||0) + (parseInt(customOfferFree)||0)} unidades salen a precio unitario promedio prorrateado`}
+                      </p>
+                    </div>
+                  </div>
                   
                   <button 
                     onClick={() => {
@@ -2392,7 +2498,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
 
                       const displayUnitPrice = parseFloat(customOfferUnitPrice) || (selectedProduct?.price || 0);
                       
-                      addToCart(selectedProduct, totalQty, displayUnitPrice, { buyQty, freeQty }, variantData);
+                      addToCart(selectedProduct, totalQty, displayUnitPrice, { buyQty, freeQty, splitBonus: customOfferSplitBonus }, variantData);
                       setSelectedProduct(null);
                     }}
                     className="w-full mt-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold py-2.5 rounded-xl transition-all shadow-md shadow-orange-500/20"
