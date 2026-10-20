@@ -8541,9 +8541,11 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       const isExemptFromStock = isExemptFromStockBlock(product, item);
       const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
 
+      let currentStock = parseFloat(product.stock || 0);
+      let variantObj: any = null;
+      let newStock = currentStock;
+
       if (!product.is_external) {
-        let currentStock = parseFloat(product.stock || 0);
-        let variantObj = null;
         let variantsToUpdate = product.variants ? [...product.variants] : [];
 
         if (item.variantId) {
@@ -8566,7 +8568,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
           deductQty = Math.max(0, Math.min(currentStock, deductQty));
         }
-        const newStock = Math.max(0, currentStock - deductQty);
+        newStock = Math.max(0, currentStock - deductQty);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
