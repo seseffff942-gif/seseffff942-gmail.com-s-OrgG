@@ -202,7 +202,7 @@ function NotificationsPopover({
                   <button
                     onClick={onToggleSilentMode}
                     disabled={isUpdatingSilentMode}
-                    title={isSilentModeActive ? "Activar sonidos" : "Silenciar notificaciones"}
+                    title={isSilentModeActive ? "Desactivar modo silencioso" : "Activar modo silencioso (sin sonido ni alertas emergentes)"}
                     className={cn(
                       "p-2 rounded-xl transition-all cursor-pointer border text-xs active:scale-95",
                       isSilentModeActive
@@ -298,6 +298,19 @@ function NotificationsPopover({
 
             {/* List of Notification Cards */}
             <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3 bg-slate-50">
+              {/* Silent Mode Active Banner */}
+              {isSilentModeActive && (
+                <div className="mb-3 bg-slate-100 border border-slate-200/90 p-3 rounded-2xl flex items-start gap-2.5 shadow-xs">
+                  <BellOff className="text-slate-500 shrink-0 mt-0.5" size={16} />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold text-slate-800">Modo Silencioso Activo</h4>
+                    <p className="text-[11px] text-slate-600 leading-relaxed mt-0.5">
+                      Las notificaciones se guardan silenciosamente en este historial sin emitir sonidos, vibraciones ni alertas emergentes en pantalla.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Confirm Clear Banner */}
               <AnimatePresence>
                 {showConfirmClear && (
@@ -718,6 +731,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       const nextSilentState = !isSilentModeActive;
       setIsSilentModeActive(nextSilentState);
       localStorage.setItem('agricovet_app_silenced', String(nextSilentState));
+      if (nextSilentState) {
+        setHasUnread(false);
+      }
       try {
         await api.updateWarehouseConfig({ isSilentModeActive: nextSilentState });
       } catch (e) {}
@@ -847,8 +863,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     // Si la app está en modo silencioso (solo administradores pueden silenciar)
     if (user.role !== 'seller') {
       if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
-        console.log('[Agricovet Alertas] Modo silencioso activo: Alerta sonora y emergente suprimida.');
-        setHasUnread(true);
+        console.log('[Agricovet Alertas] Modo silencioso activo: Alerta suprimida en su totalidad.');
         return;
       }
     }
@@ -915,6 +930,12 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
 
   const checkNotifications = async () => {
     try {
+      if (user.role !== 'seller') {
+        if (isSilentModeActive || (typeof window !== 'undefined' && localStorage.getItem('agricovet_app_silenced') === 'true')) {
+          setHasUnread(false);
+          return;
+        }
+      }
       const data = await api.getNotifications();
       if (data && data.length > 0) {
         const lastSeenStr = localStorage.getItem(`lastSeenNotification_${user.id}`);
