@@ -132,9 +132,18 @@ function NotificationsPopover({
   const invCount = notifications.filter(n => ['out_of_stock', 'low_stock', 'restock', 'price_changed'].includes(n.type) || n.title?.toLowerCase().includes('stock') || n.title?.toLowerCase().includes('agotado')).length;
 
   const filteredNotifications = notifications.filter(n => {
-    const matchesSearch = 
-      n.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      n.message.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+    const searchTarget = [
+      n.title || '',
+      n.message || '',
+      (n as any).sellerName || (n as any).seller_name || '',
+      (n as any).sellerId || (n as any).seller_id || '',
+      (n as any).clientName || (n as any).client || '',
+      (n as any).invoiceId || (n as any).invoice_id || ''
+    ].join(' ').toLowerCase();
+
+    const matchesSearch = searchTarget.includes(term);
     
     if (!matchesSearch) return false;
     if (categoryFilter === 'all') return true;
