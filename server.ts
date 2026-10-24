@@ -1,6 +1,8 @@
 // AI Studio Deployment Heartbeat: 2026-06-18 V2
 import "dotenv/config";
+import http from "http";
 import express from "express";
+import { Server as SocketIOServer } from "socket.io";
 import compression from "compression";
 import path from "path";
 import multer from "multer";
@@ -93,6 +95,10 @@ if (pgPool) {
     ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerId" TEXT;
     ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS seller_id TEXT;
     ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerName" TEXT;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "isProspect" BOOLEAN DEFAULT false;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS is_prospect BOOLEAN DEFAULT false;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "clientType" TEXT DEFAULT 'regular';
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS client_type TEXT DEFAULT 'regular';
     CREATE TABLE IF NOT EXISTS public.audit_logs (
       id TEXT PRIMARY KEY,
       action TEXT NOT NULL,
@@ -202,6 +208,11 @@ export async function setGlobalMaintenanceMode(enabled: boolean): Promise<boolea
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
     `, [enabled ? 'true' : 'false']);
     console.log(`[GLOBAL MAINTENANCE] Estado actualizado en base de datos: ${enabled ? 'ACTIVADO' : 'DESACTIVADO'}`);
+    try {
+      if (typeof emitRealtimeSync === 'function') {
+        emitRealtimeSync("maintenance", { maintenance: enabled });
+      }
+    } catch (errSync) {}
   } catch (e: any) {
     console.error("Error guardando maintenance_mode en base de datos:", e.message);
   }
@@ -435,6 +446,30 @@ const imageFilter = (req: any, file: any, cb: any) => {
 const upload = multer({ storage, fileFilter: imageFilter, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB limit
 
 export const app = express();
+export const httpServer = http.createServer(app);
+export const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+  },
+  pingTimeout: 30000,
+  pingInterval: 15000,
+  transports: ["websocket", "polling"]
+});
+
+export function emitRealtimeSync(entity: string, data?: any) {
+  try {
+    if (io) {
+      io.emit("sync", { entity, data, timestamp: Date.now() });
+    }
+  } catch (err) {
+    console.warn("[Socket.IO] Error al emitir realtime sync:", err);
+  }
+}
+
+io.on("connection", (socket) => {
+  socket.on("disconnect", () => {});
+});
 app.set("trust proxy", 1);
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
@@ -461,6 +496,49 @@ app.use((req: any, res: any, next: any) => {
     req.url = req.url.replace('/api/api/', '/api/');
   }
   next();
+});
+
+// Middleware de Modo Mantenimiento Global (Bloquea todo el acceso excepto a seseffff942@gmail.com)
+app.use(async (req: any, res: any, next: any) => {
+  const reqPath = (req.path || '').toLowerCase();
+  // Permitir endpoints públicos del sistema y login
+  if (
+    !reqPath.startsWith('/api') ||
+    reqPath === '/api/login' ||
+    reqPath === '/api/system/maintenance' ||
+    reqPath.startsWith('/api/admin/maintenance') ||
+    reqPath === '/api/app-logo' ||
+    reqPath === '/api/health' ||
+    reqPath === '/api/webhooks'
+  ) {
+    return next();
+  }
+
+  try {
+    const isMaint = await getGlobalMaintenanceMode();
+    if (!isMaint) return next();
+
+    // Si el mantenimiento está activo, verificar si el usuario es el SuperAdmin (seseffff942@gmail.com)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (decoded?.email?.toLowerCase() === 'seseffff942@gmail.com') {
+          return next();
+        }
+      } catch (e) {}
+    }
+
+    // Bloquear a cualquier otro usuario con 503 Service Unavailable
+    return res.status(503).json({
+      error: "Sistema en mantenimiento programado",
+      maintenance: true,
+      message: "El sistema se encuentra temporalmente restringido por labores de mantenimiento técnico. Solo el administrador principal tiene acceso."
+    });
+  } catch (errMaint) {
+    return next();
+  }
 });
 
 // Webhook endpoint
@@ -595,6 +673,7 @@ const invalidateCache = (key: string): void => {
   Object.keys(memoryCache).forEach(k => {
     if (k === key || k.startsWith(key)) delete memoryCache[k];
   });
+  emitRealtimeSync(key);
 };
 
 async function getFolioMap(forceRefresh: boolean = false) {
@@ -1083,6 +1162,12 @@ export async function recordAuditLog(entry: {
   } catch (fsErr: any) {
     console.warn("[AUDIT] Error guardando en audit_logs_local.json:", fsErr.message);
   }
+
+  try {
+    if (typeof emitRealtimeSync === 'function') {
+      emitRealtimeSync("audit_logs", logItem);
+    }
+  } catch (e) {}
 
   return logItem;
 }
@@ -2151,6 +2236,16 @@ async function createNotification(type: string, title: string, message: string, 
     console.warn("Error broadcasting push notification:", pushErr);
   }
 
+  // 4. Emitir instantáneamente por WebSocket a todos los usuarios conectados
+  try {
+    if (io) {
+      io.emit("notification", ntf);
+      emitRealtimeSync("notifications", ntf);
+    }
+  } catch (sockErr) {
+    console.warn("[Socket.IO] Error emitiendo notification:", sockErr);
+  }
+
   console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}", Seller: ${ntf.sellerId || 'Global'}`);
   return ntf;
 }
@@ -2937,6 +3032,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
     const id = c.id;
 
     const hasExplicitNullGps = c.latitude === null || c.longitude === null;
+    const isProspectVal = c.isProspect === true || c.is_prospect === true || c.clientType === 'prospect' || c.client_type === 'prospect';
+    const clientTypeVal = isProspectVal ? 'prospect' : (c.clientType || c.client_type || 'regular');
     const dbFormatted: any = {
       id: id,
       sellerId: c.sellerId || c.seller_id || c.sellerid || '',
@@ -2946,6 +3043,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
       phone: c.phone || '',
       address: c.address || '',
       clientCode: code,
+      isProspect: isProspectVal,
+      clientType: clientTypeVal,
       hasExplicitNullGps,
       latitude: (!hasExplicitNullGps && c.latitude !== undefined && c.latitude !== null && !isNaN(Number(c.latitude))) ? Number(c.latitude) : ((!hasExplicitNullGps && c.lat !== undefined && c.lat !== null && !isNaN(Number(c.lat))) ? Number(c.lat) : undefined),
       longitude: (!hasExplicitNullGps && c.longitude !== undefined && c.longitude !== null && !isNaN(Number(c.longitude))) ? Number(c.longitude) : ((!hasExplicitNullGps && c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((!hasExplicitNullGps && c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined)),
@@ -2984,6 +3083,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) => 
         nit: dbObj.nit || c.nit,
         sellerId: dbObj.sellerId || c.sellerId,
         clientCode: dbObj.clientCode || c.clientCode,
+        isProspect: dbObj.isProspect !== undefined ? dbObj.isProspect : (c.isProspect !== undefined ? c.isProspect : false),
+        clientType: dbObj.clientType || c.clientType || 'regular',
         latitude: isClearedGps ? undefined : (dbObj.latitude !== undefined ? dbObj.latitude : (c.latitude !== undefined && c.latitude !== null ? Number(c.latitude) : undefined)),
         longitude: isClearedGps ? undefined : (dbObj.longitude !== undefined ? dbObj.longitude : (c.longitude !== undefined && c.longitude !== null ? Number(c.longitude) : undefined)),
         locationAddress: isClearedGps ? '' : (dbObj.locationAddress || c.locationAddress || ''),
@@ -3242,7 +3343,7 @@ res.json({ success: true, client: clientData });
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
   invalidateCache("clients");
   const { id } = req.params;
-  const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, oldName, oldClientCode, oldNit } = req.body;
+  const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, isProspect, clientType, oldName, oldClientCode, oldNit } = req.body;
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -3253,6 +3354,8 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
   if (sellerId !== undefined && req.user?.role !== 'seller') updates.sellerId = sellerId;
   if (clientCode !== undefined) updates.clientCode = clientCode;
   if (isBlocked !== undefined) updates.isBlocked = isBlocked;
+  if (isProspect !== undefined) updates.isProspect = isProspect;
+  if (clientType !== undefined) updates.clientType = clientType;
 
   // Update local file first with full oldData context
   updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
@@ -3268,6 +3371,14 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any)
     if (updates.sellerId !== undefined) snakeUpdates.seller_id = updates.sellerId;
     if (updates.clientCode !== undefined) snakeUpdates.client_code = updates.clientCode;
     if (updates.isBlocked !== undefined) snakeUpdates.is_blocked = updates.isBlocked;
+    if (updates.isProspect !== undefined) {
+      snakeUpdates.is_prospect = updates.isProspect;
+      snakeUpdates.isProspect = updates.isProspect;
+    }
+    if (updates.clientType !== undefined) {
+      snakeUpdates.client_type = updates.clientType;
+      snakeUpdates.clientType = updates.clientType;
+    }
 
     let updatedInDb = false;
 
@@ -4491,6 +4602,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
     ip_address: req.ip
   }).catch(() => { });
 
+  emitRealtimeSync("client_visits", newVisit);
   res.json({ success: true, visit: newVisit, activeRoute });
 
   // Si esta primera visita dio inicio automático a la jornada de hoy, notificar inmediatamente a los administradores
@@ -4547,6 +4659,7 @@ app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req: any, res: an
     ip_address: req.ip
   }).catch(() => { });
 
+  emitRealtimeSync("client_visits", { deletedId: id });
   res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
 
@@ -8759,6 +8872,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
 
     invalidateCache("products");
+    invalidateCache("invoices");
     invalidateCache("folio_map");
   } catch (err: any) {
     // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
@@ -10350,6 +10464,7 @@ app.post("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req: a
   const newSupplier = { ...req.body, id: `sup_${Date.now()}` };
   s.push(newSupplier);
   await writeSuppliers(s);
+  invalidateCache("suppliers");
   res.json(newSupplier);
 }));
 
@@ -10359,6 +10474,7 @@ app.put("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req
   if (idx !== -1) {
     s[idx] = { ...s[idx], ...req.body };
     await writeSuppliers(s);
+    invalidateCache("suppliers");
     res.json(s[idx]);
   } else {
     res.status(404).json({ error: "Proveedor no encontrado" });
@@ -10369,6 +10485,7 @@ app.delete("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (
   const s = await readSuppliers();
   const filtered = s.filter((x: any) => x.id !== req.params.id);
   await writeSuppliers(filtered);
+  invalidateCache("suppliers");
   res.json({ success: true });
 }));
 
@@ -10400,6 +10517,7 @@ app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (r
   };
   d.push(newDebt);
   await writeDebts(d);
+  invalidateCache("business_debts");
   res.json(newDebt);
 }));
 
@@ -10409,6 +10527,7 @@ app.put("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async
   if (idx !== -1) {
     d[idx] = { ...d[idx], ...req.body };
     await writeDebts(d);
+    invalidateCache("business_debts");
     res.json(d[idx]);
   } else {
     res.status(404).json({ error: "Deuda del negocio no encontrada" });
@@ -10419,6 +10538,7 @@ app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(as
   const d = await readDebts();
   const filtered = d.filter((x: any) => x.id !== req.params.id);
   await writeDebts(filtered);
+  invalidateCache("business_debts");
   res.json({ success: true });
 }));
 
@@ -12148,6 +12268,7 @@ app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: an
 
     if (!error && data && data[0]) {
       saveLocalReciboCaja(data[0]);
+      invalidateCache("recibos_caja");
       return res.status(201).json(data[0]);
     }
   } catch (e) {
@@ -12155,6 +12276,7 @@ app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: an
   }
 
   saveLocalReciboCaja(newRecibo);
+  invalidateCache("recibos_caja");
   res.status(201).json(newRecibo);
 }));
 
@@ -12183,6 +12305,7 @@ app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(asyn
   }
 
   console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
+  invalidateCache("recibos_caja");
   res.json({ success: true, message: 'Recibo eliminado correctamente' });
 }));
 
@@ -12255,6 +12378,7 @@ app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any)
   if (error) {
     throw new Error(error.message);
   }
+  invalidateCache("quotations");
   res.status(201).json(data || newQuote);
 }));
 
@@ -12263,6 +12387,7 @@ app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: a
   const updates = req.body;
   const { data, error } = await localDb.from('quotations').update(updates).eq('id', id).select().single();
   if (error) throw new Error(error.message);
+  invalidateCache("quotations");
   res.json(data);
 }));
 
@@ -12270,6 +12395,7 @@ app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res
   const { id } = req.params;
   const { error } = await localDb.from('quotations').delete().eq('id', id);
   if (error) throw new Error(error.message);
+  invalidateCache("quotations");
   res.json({ success: true });
 }));
 
@@ -12283,6 +12409,7 @@ app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async 
     updated_at: new Date().toISOString()
   }).eq('id', id);
 
+  invalidateCache("quotations");
   res.json({ success: true, quotation: quote });
 }));
 
@@ -12316,6 +12443,7 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
     return res.status(400).json({ error: 'invoice_id es requerido' });
   }
   const payload = {
+    id: `RC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
     invoice_id: String(invoice_id),
     folio: String(folio || ''),
     receiver_name: receiver_name || null,
@@ -12335,6 +12463,7 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
   if (error) {
     return res.status(500).json({ error: error.message || 'Error al guardar Recibo Conforme' });
   }
+  invalidateCache("recibos_conformes");
   res.json(data);
 }));
 
@@ -12475,8 +12604,8 @@ async function startServer() {
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT as number, "0.0.0.0", async () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+    httpServer.listen(PORT as number, "0.0.0.0", async () => {
+      console.log(`Server running on http://localhost:${PORT} (WebSockets & Realtime active)`);
 
       // One-time migration to ensure all clients have a code
       try {

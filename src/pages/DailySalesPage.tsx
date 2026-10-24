@@ -154,7 +154,23 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
       if (document.hidden) return; // No recargar si nadie esta mirando
       loadData();
     }, 120000);
-    return () => clearInterval(interval);
+
+    const alVolver = () => { if (!document.hidden) loadData(); };
+    document.addEventListener('visibilitychange', alVolver);
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'folio_map' || key === 'products') {
+        loadData();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', alVolver);
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, [filterDate]);
 
   const loadData = async () => {

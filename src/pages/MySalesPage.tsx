@@ -63,7 +63,19 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       console.error(err);
       setPrintTemplate(DEFAULT_PRINT_TEMPLATE);
     });
-  }, [salesViewMode]);
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'folio_map' || key === 'sales') {
+        loadInvoices();
+        api.getDailyStats(filterDate).then(setDailyStats).catch(() => {});
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
+  }, [salesViewMode, filterDate]);
 
   useEffect(() => {
     api.getDailyStats(filterDate).then(setDailyStats).catch(console.error);

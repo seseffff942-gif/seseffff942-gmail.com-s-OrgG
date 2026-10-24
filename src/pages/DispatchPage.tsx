@@ -166,6 +166,17 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       }
     };
     fetchInvoices();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'folio_map') {
+        fetchInvoices();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, []);
 
   const [logoData, setLogoData] = useState<string>('');

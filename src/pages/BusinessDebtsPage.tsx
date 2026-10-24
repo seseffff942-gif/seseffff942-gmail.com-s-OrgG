@@ -148,6 +148,17 @@ export function BusinessDebtsPage({ user }: BusinessDebtsPageProps) {
   // EFFECTS
   useEffect(() => {
     loadData();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'business_debts' || key === 'suppliers') {
+        loadData();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, []);
 
   useEffect(() => {

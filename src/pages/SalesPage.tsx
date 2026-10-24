@@ -426,9 +426,18 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     const alVolver = () => { if (!document.hidden) sincronizar(); };
     document.addEventListener('visibilitychange', alVolver);
 
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'folio_map' || key === 'products' || key === 'clients' || key === 'offers') {
+        sincronizar();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', alVolver);
+      window.removeEventListener('agricovet-mutate', handleMutate);
     };
   }, []);
 

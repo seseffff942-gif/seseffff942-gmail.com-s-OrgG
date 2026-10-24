@@ -82,6 +82,17 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
 
   useEffect(() => {
     loadData();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'recibos_conformes') {
+        loadData();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, [user]);
 
   // When selected invoice changes, recipient fields start blank

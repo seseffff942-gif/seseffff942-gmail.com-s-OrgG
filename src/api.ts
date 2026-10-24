@@ -364,15 +364,24 @@ const setCachedApi = (key: string, data: any): void => {
 export const clearApiCache = (keyPrefix?: string): void => {
   if (!keyPrefix) {
     Object.keys(apiMemoryCache).forEach(k => delete apiMemoryCache[k]);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('cached_invoices');
+    }
   } else {
     Object.keys(apiMemoryCache).forEach(k => {
       if (k.startsWith(keyPrefix)) delete apiMemoryCache[k];
     });
+    if (keyPrefix === 'invoices' && typeof localStorage !== 'undefined') {
+      localStorage.removeItem('cached_invoices');
+    }
   }
 };
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('agricovet-mutate', () => clearApiCache());
+  window.addEventListener('agricovet-mutate', (e: any) => {
+    const key = e?.detail?.key;
+    clearApiCache(key);
+  });
 }
 
 export const normalizeClient = (c: any): Client => {

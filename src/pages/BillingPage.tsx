@@ -102,6 +102,20 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     }
   }, []);
 
+  useEffect(() => {
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'folio_map') {
+        loadInvoices();
+        api.getDailyStats().then(setDailyStats).catch(() => {});
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
+  }, []);
+
   const handleReviewSignature = async (sig: string) => {
     if (!pendingReviewInvoiceId) return;
     try {

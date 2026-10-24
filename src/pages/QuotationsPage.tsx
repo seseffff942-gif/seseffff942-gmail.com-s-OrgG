@@ -221,6 +221,20 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
   useEffect(() => {
     loadData();
     loadQuotations();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'quotations') {
+        loadQuotations();
+      }
+      if (!key || key === 'all' || key === 'products' || key === 'clients') {
+        loadData();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, []);
 
   useEffect(() => {

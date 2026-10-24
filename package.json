@@ -65,6 +65,8 @@
     "react-qr-code": "^2.2.0",
     "react-signature-canvas": "^1.1.0-alpha.2",
     "recharts": "^3.8.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

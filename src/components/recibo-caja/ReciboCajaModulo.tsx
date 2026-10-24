@@ -207,6 +207,17 @@ export const ReciboCajaModulo: React.FC<ReciboCajaModuloProps> = ({ user, isMobi
 
   useEffect(() => {
     cargarDatos();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'recibos_caja' || key === 'clients' || key === 'invoices') {
+        cargarDatos();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, []);
 
   // IMPLEMENTACIÓN DE DEBOUNCE PARA LA BÚSQUEDA DE CLIENTES

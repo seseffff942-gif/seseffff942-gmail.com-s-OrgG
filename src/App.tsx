@@ -26,6 +26,7 @@ import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
 import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
 import { api, clearApiCache } from './api';
+import { initRealtime } from './realtime';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle, Database, RefreshCw } from 'lucide-react';
 
 // ... (in App component) ...
@@ -116,15 +117,27 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'maintenance') {
+        syncMaintenance();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('agricovet-mutate', handleMutate);
     };
   }, []);
 
 
   React.useEffect(() => {
+    // Inicializar conexión WebSocket en tiempo real para sincronización instantánea
+    initRealtime();
+
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
 

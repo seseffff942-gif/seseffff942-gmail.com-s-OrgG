@@ -33,6 +33,17 @@ export function SellerDebtsPage({ user, isMobile }: SellerDebtsPageProps) {
   useEffect(() => {
     loadInvoices();
     api.getUsers().then(setUsers).catch(console.error);
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'invoices' || key === 'payments') {
+        loadInvoices();
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, []);
 
   useEffect(() => {

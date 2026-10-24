@@ -983,6 +983,19 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
     };
     window.addEventListener('agricovet-mutate', handleMutation);
 
+    const handleDirectNotification = (e: any) => {
+      const ntf = e?.detail;
+      if (ntf) {
+        setHasUnread(true);
+        if (ntf.id && !knownNotificationIdsRef.current.has(ntf.id)) {
+          knownNotificationIdsRef.current.add(ntf.id);
+          dispatchNotificationAlert(ntf);
+        }
+      }
+      checkNotifications();
+    };
+    window.addEventListener('agricovet-notification', handleDirectNotification);
+
     const interval = setInterval(() => {
       checkNotifications();
     }, 15000);
@@ -994,6 +1007,7 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       clearInterval(interval);
       document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('agricovet-mutate', handleMutation);
+      window.removeEventListener('agricovet-notification', handleDirectNotification);
     };
   }, [soundsEnabled]);
 
@@ -1097,12 +1111,6 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                 {isOnline ? "Local" : "Offline"}
               </span>
             </button>
-            {isMaintenanceMode && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-black uppercase tracking-wider shrink-0" title="Mantenimiento Activo">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-                <span>Mantenimiento</span>
-              </span>
-            )}
             {user.role === 'admin' && (
               <div className="hidden xs:block">
                 <PanicButton variant="compact" />
@@ -1175,6 +1183,26 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
           </button>
         </div>
       </header>
+
+      {/* Mobile Dedicated Maintenance Alert Bar */}
+      {isMaintenanceMode && (
+        <div className="md:hidden sticky top-[calc(4rem+env(safe-area-inset-top,0px))] z-40 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-3.5 py-1.5 flex items-center justify-between shadow-xs border-b border-amber-600">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+            <span className="text-[10px] sm:text-[11px] font-black tracking-wide truncate">
+              MANTENIMIENTO ACTIVO (SOLO TÚ ENTRAS)
+            </span>
+          </div>
+          {(isSuperAdmin || user?.email === 'seseffff942@gmail.com') && onToggleMaintenanceMode && (
+            <button
+              onClick={onToggleMaintenanceMode}
+              className="px-2.5 py-0.5 rounded-md bg-black/25 hover:bg-black/40 active:scale-95 text-white font-black text-[9px] uppercase tracking-wider shrink-0 border border-white/25 transition-all cursor-pointer shadow-xs ml-2"
+            >
+              Desactivar
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-between items-center px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-white border-t border-slate-100 shadow-[0_-8px_30px_rgba(0,0,0,0.04)] select-none">

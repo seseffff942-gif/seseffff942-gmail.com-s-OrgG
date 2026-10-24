@@ -538,6 +538,17 @@ export function MasterAuditPage({ user, isMobile }: MasterAuditPageProps) {
 
   useEffect(() => {
     fetchAuditData();
+
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'audit_logs' || key === 'invoices' || key === 'products' || key === 'clients') {
+        fetchAuditData(true);
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+    return () => {
+      window.removeEventListener('agricovet-mutate', handleMutate);
+    };
   }, [selectedCategory]);
 
   useEffect(() => {

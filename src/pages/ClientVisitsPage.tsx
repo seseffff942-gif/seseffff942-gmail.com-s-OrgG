@@ -326,10 +326,19 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       );
     }
 
+    const handleMutate = (e: any) => {
+      const key = e?.detail?.key;
+      if (!key || key === 'all' || key === 'client_visits' || key === 'clients') {
+        loadData(true);
+      }
+    };
+    window.addEventListener('agricovet-mutate', handleMutate);
+
     return () => {
       clearInterval(syncInterval);
       clearInterval(offlineCheckInterval);
       window.removeEventListener('online', handleSyncOfflineVisits);
+      window.removeEventListener('agricovet-mutate', handleMutate);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, []);
