@@ -1,6 +1,6 @@
 {
-  "version": "1.0.9",
-  "buildTime": 1792125000000,
-  "message": "Permitir visualización de todas las sucursales con mismo NIT en el Directorio de Clientes",
+  "version": "1.1.0",
+  "buildTime": 1792999000000,
+  "message": "Corrección y visualización activa de Clientes Prospectos y sincronización",
   "critical": true
 }

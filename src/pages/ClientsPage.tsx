@@ -17,9 +17,43 @@ interface ClientsPageProps {
 }
 
 export function ClientsPage({ user, isMobile }: ClientsPageProps) {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Carga instantánea desde caché local para renderizar en 0 milisegundos
+  const [clients, setClients] = useState<Client[]>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('offline_clients');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+  const [invoices, setInvoices] = useState<Invoice[]>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('cached_invoices') || localStorage.getItem('offline_invoices');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('offline_clients');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return false;
+        }
+      } catch (e) {}
+    }
+    return true;
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'sales' | 'invoices'>('name');
   const [portfolioFilter, setPortfolioFilter] = useState<'all' | 'regular' | 'prospect'>('all');
@@ -79,7 +113,7 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     const handleMutate = (e: any) => {
       const key = e?.detail?.key;
       if (!key || key === 'all' || key === 'clients' || key === 'invoices') {
-        loadData();
+        loadData(key === 'clients');
       }
     };
     window.addEventListener('agricovet-mutate', handleMutate);
@@ -88,55 +122,70 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     };
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (forceClients: boolean = true) => {
     try {
-      const [fetchedClients, fetchedInvoices, fetchedUsers] = await Promise.all([
-        api.getClients(true),
-        api.getInvoices(user.role === 'admin' ? undefined : user.email).catch(() => []),
-        api.getUsers()
-      ]);
-      // Robust unified deduplication matching backend logic
-      const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
-      const uniqueClients = fetchedClients.reduce((acc: Client[], client: Client) => {
-        if (!client || !client.name) return acc;
-        let clientName = client.name.trim().toLowerCase();
-        if (clientName.includes(' - ')) clientName = clientName.split(' - ')[0].trim();
-        const clientNit = normNit(client.nit);
-        const clientCode = (client.clientCode || '').trim();
+      // 1. Cargar clientes sin bloquear por facturas ni usuarios
+      api.getClients(forceClients).then(fetchedClients => {
+        if (Array.isArray(fetchedClients) && fetchedClients.length > 0) {
+          const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+          const uniqueClients = fetchedClients.reduce((acc: Client[], client: Client) => {
+            if (!client || !client.name) return acc;
+            let clientName = client.name.trim().toLowerCase();
+            if (clientName.includes(' - ')) clientName = clientName.split(' - ')[0].trim();
+            const clientNit = normNit(client.nit);
+            const clientCode = (client.clientCode || '').trim();
 
-        const existingIdx = acc.findIndex(c => {
-          if (!c || !c.name) return false;
-          let cName = c.name.trim().toLowerCase();
-          if (cName.includes(' - ')) cName = cName.split(' - ')[0].trim();
-          const cNit = normNit(c.nit);
-          const cCode = (c.clientCode || '').trim();
+            const existingIdx = acc.findIndex(c => {
+              if (!c || !c.name) return false;
+              let cName = c.name.trim().toLowerCase();
+              if (cName.includes(' - ')) cName = cName.split(' - ')[0].trim();
+              const cNit = normNit(c.nit);
+              const cCode = (c.clientCode || '').trim();
 
-          if (c.id && client.id && c.id === client.id) return true;
-          if (cCode && clientCode && cCode === clientCode) return true;
-          if (cNit && clientNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === clientNit && cName === clientName) return true;
-          if (cName && clientName && cName === clientName) return true;
+              if (c.id && client.id && c.id === client.id) return true;
+              if (cCode && clientCode && cCode === clientCode) return true;
+              if (cNit && clientNit && cNit !== 'CF' && cNit !== 'CONSUMIDORFINAL' && cNit === clientNit && cName === clientName) return true;
+              if (cName && clientName && cName === clientName) return true;
 
-          return false;
-        });
+              return false;
+            });
 
-        if (existingIdx === -1) {
-          acc.push(client);
-        } else {
-          acc[existingIdx] = {
-            ...acc[existingIdx],
-            ...client,
-            companyName: client.companyName || acc[existingIdx].companyName,
-          };
+            if (existingIdx === -1) {
+              acc.push(client);
+            } else {
+              acc[existingIdx] = {
+                ...acc[existingIdx],
+                ...client,
+                companyName: client.companyName || acc[existingIdx].companyName,
+                isProspect: client.isProspect !== undefined ? client.isProspect : acc[existingIdx].isProspect,
+                clientType: client.clientType || acc[existingIdx].clientType,
+              };
+            }
+            return acc;
+          }, []);
+
+          setClients(uniqueClients);
         }
-        return acc;
-      }, []);
+        setLoading(false);
+      }).catch(err => {
+        console.error('Error fetching clients:', err);
+        setLoading(false);
+      });
 
-      setClients(uniqueClients);
-      setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
-      setUsers(fetchedUsers.filter(u => u.role === 'admin' || u.role === 'seller'));
+      // 2. Cargar usuarios y facturas en segundo plano (SWR) sin congelar la interfaz
+      api.getUsers().then(fetchedUsers => {
+        if (Array.isArray(fetchedUsers)) {
+          setUsers(fetchedUsers.filter(u => u.role === 'admin' || u.role === 'seller'));
+        }
+      }).catch(() => {});
+
+      api.getInvoices(user.role === 'admin' ? undefined : user.email).then(fetchedInvoices => {
+        if (Array.isArray(fetchedInvoices)) {
+          setInvoices(fetchedInvoices);
+        }
+      }).catch(() => {});
     } catch (error) {
       console.error('Error loading clients data', error);
-    } finally {
       setLoading(false);
     }
   };

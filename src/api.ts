@@ -347,7 +347,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1
 
 // In-memory cache for ultra-fast tab switching and navigation
 const apiMemoryCache: Record<string, { timestamp: number; data: any }> = {};
-const CLIENT_CACHE_TTL_MS = 2000; // 2 seconds TTL for real-time responsiveness
+const CLIENT_CACHE_TTL_MS = 60000; // 60 seconds TTL for fast tab switching (invalidated on mutation / realtime sync)
 
 const getCachedApi = (key: string): any | null => {
   const item = apiMemoryCache[key];
@@ -393,6 +393,9 @@ export const normalizeClient = (c: any): Client => {
     ? Number(c.longitude)
     : ((c.lng !== undefined && c.lng !== null && !isNaN(Number(c.lng))) ? Number(c.lng) : ((c.long !== undefined && c.long !== null && !isNaN(Number(c.long))) ? Number(c.long) : undefined));
 
+  const isProspectVal = c.isProspect === true || c.is_prospect === true || c.clientType === 'prospect' || c.client_type === 'prospect';
+  const clientTypeVal = isProspectVal ? 'prospect' : (c.clientType || c.client_type || 'regular');
+
   return {
     id: String(c.id || ''),
     name: c.name || '',
@@ -402,6 +405,8 @@ export const normalizeClient = (c: any): Client => {
     address: c.address || '',
     sellerId: c.sellerId || c.seller_id || c.sellerid || '',
     clientCode: c.clientCode || c.client_code || c.clientcode || '',
+    isProspect: isProspectVal,
+    clientType: clientTypeVal,
     latitude: latVal,
     longitude: lngVal,
     locationAddress: c.locationAddress || c.location_address || '',
@@ -417,6 +422,25 @@ export const api = {
     if (!force) {
       const cached = getCachedApi('clients');
       if (cached && Array.isArray(cached) && cached.length > 0) return cached.map(normalizeClient);
+
+      // Instant local storage fallback (0ms latency)
+      if (typeof localStorage !== 'undefined') {
+        const local = localStorage.getItem('offline_clients');
+        if (local) {
+          try {
+            const parsed = JSON.parse(local);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const mapped = parsed.map(normalizeClient);
+              setCachedApi('clients', mapped);
+              // Trigger background refresh silently
+              setTimeout(() => {
+                api.getClients(true).catch(() => {});
+              }, 50);
+              return mapped;
+            }
+          } catch (e) {}
+        }
+      }
     }
     try {
       const res = await fetchWithAuth('/api/clients');

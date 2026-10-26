@@ -67,6 +67,11 @@ export function UpdateNotificationBanner() {
     if (updateInfo) {
       localStorage.setItem('agricovet_dismissed_version', updateInfo.version);
     }
+    try {
+      localStorage.removeItem('offline_clients');
+      localStorage.removeItem('offline_clients_map');
+      localStorage.removeItem('cached_invoices');
+    } catch (e) {}
     setTimeout(() => {
       // Forzar recarga sin caché
       window.location.reload();

@@ -1227,8 +1227,8 @@ async function getGlobalMaintenanceMode() {
 async function setGlobalMaintenanceMode(enabled) {
   globalMaintenanceCache = { enabled, timestamp: Date.now() };
   try {
+    await queryNeon(`CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());`);
     await queryNeon(`
-      CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());
       INSERT INTO public.system_config (key, value, updated_at) 
       VALUES ('maintenance_mode', $1, NOW()) 
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
@@ -1521,7 +1521,7 @@ app.use(async (req, res, next) => {
       const token = authHeader.substring(7);
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded?.email?.toLowerCase() === "seseffff942@gmail.com") {
+        if (decoded?.email?.toLowerCase() === "seseffff942@gmail.com" || decoded?.role === "admin") {
           return next();
         }
       } catch (e) {
