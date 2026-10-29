@@ -2071,12 +2071,19 @@ async function broadcastPushNotification(
     title.toLowerCase().includes('precio');
 
   const isVisit = notifType.includes('visit') || title.toLowerCase().includes('visita');
+  const isStrictTargetOnly = notifType === 'route_reminder';
 
   // 1. Filtrar Push Subscriptions Web (Navegadores / PWA)
   const allSubs = await getPushSubscriptions();
   let targetSubs = allSubs;
   if (!isInventory) {
-    if (isVisit) {
+    if (isStrictTargetOnly && notifSellerId) {
+      targetSubs = allSubs.filter((s: any) => {
+        const uId = String(s.user_id || '').toLowerCase();
+        const uEmail = String(s.email || '').toLowerCase();
+        return notifSellerId === uId || notifSellerId === uEmail;
+      });
+    } else if (isVisit) {
       targetSubs = allSubs.filter((s: any) => !s.role || s.role === 'admin');
     } else {
       targetSubs = allSubs.filter((s: any) => {
@@ -2121,6 +2128,14 @@ async function broadcastPushNotification(
       if (res && Array.isArray(res.rows)) {
         if (isInventory) {
           targetFcmTokens = res.rows.map((r: any) => r.token);
+        } else if (isStrictTargetOnly && notifSellerId) {
+          targetFcmTokens = res.rows
+            .filter((r: any) => {
+              const uId = String(r.user_id || '').toLowerCase();
+              const uEmail = String(r.email || '').toLowerCase();
+              return notifSellerId === uId || notifSellerId === uEmail;
+            })
+            .map((r: any) => r.token);
         } else if (isVisit) {
           targetFcmTokens = res.rows
             .filter((r: any) => !r.role || r.role === 'admin')
@@ -4404,18 +4419,14 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   if (activeRoute) {
     const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
     if (routeGuatemala !== todayGuatemala) {
-      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala}`);
-      activeRoute.status = 'completed';
-      activeRoute.finishedAt = nowIso;
-      if (neonPool && activeRoute.id) {
-        try {
-          await neonPool.query(`
-            UPDATE public.seller_routes
-            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
-                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente al cambiar de día)'
-            WHERE id = $2;
-          `, [nowIso, activeRoute.id]);
-        } catch (e) { }
+      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala} y enviando resumen de cierre automático`);
+      try {
+        await closeActiveRouteAndNotify(activeRoute, {
+          isAutoClosed: true,
+          finishedAtIso: getGuatemala10PmIsoForDate(routeGuatemala)
+        });
+      } catch (closeErr: any) {
+        console.warn('[Auto-Close Stale Route Warning]:', closeErr?.message || closeErr);
       }
       activeRoute = null; // Forzar inicio de nueva jornada de hoy
     }
@@ -4449,8 +4460,8 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
         await neonPool.query(`
           UPDATE public.seller_routes
           SET status = 'completed',
-              finished_at = $1,
-              "finishedAt" = $1,
+              finished_at = $1::timestamptz,
+              "finishedAt" = $1::text,
               notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente)'
           WHERE status = 'active'
             AND (
@@ -4468,9 +4479,9 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
             notes, created_at, "createdAt"
           ) VALUES (
             $1, $2, $2, $3, $3, $4, $4,
-            $5, $6, $6, $7, $7, $8, $8,
+            $5, $6::timestamptz, $6::text, $7, $7, $8, $8,
             1, 1, 0, 0, 0, 0,
-            $9, $6, $6
+            $9, $6::timestamptz, $6::text
           ) ON CONFLICT (id) DO UPDATE SET
             total_stops = EXCLUDED.total_stops,
             "totalStops" = EXCLUDED."totalStops";
@@ -5021,7 +5032,8 @@ async function sendWhatsAppEvolutionMessage(phone: string, text: string): Promis
 }
 
 async function dispatchRouteToN8nWebhook(payload: {
-  action: 'start_route' | 'finish_route';
+  action: 'start_route' | 'finish_route' | 'auto_finish_route' | 'route_reminder';
+  isAutoClosed?: boolean;
   sellerName: string;
   sellerCode?: string;
   startedAt: string;
@@ -5030,6 +5042,7 @@ async function dispatchRouteToN8nWebhook(payload: {
   longitude?: number | null;
   phone?: string;
   visits?: any[];
+  visitsCount?: number;
   customMessage?: string;
 }): Promise<boolean> {
   const endpoints = [
@@ -5196,12 +5209,30 @@ async function sendStartRouteNotification({
   }
 }
 
-function buildFinishRouteWhatsAppMessage(sellerName: string, sellerCode: string, startedAt: string, finishedAt: string, visits: any[]): string {
+function buildRouteReminderWhatsAppMessage(
+  sellerName: string,
+  sellerCode: string,
+  startedAt: string,
+  visitsCount: number
+): string {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  return `⏰ *RECORDATORIO DE RUTA ACTIVA - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Hola *${sellerName}*! 👋\n\nNotamos que tu ruta del día *${fechaStr}* iniciada a las *${horaInicio}* aún permanece *ACTIVA* en el sistema (${visitsCount} ${visitsCount === 1 ? 'visita registrada' : 'visitas registradas'} hoy).\n\n❓ *¿No te has olvidado de cerrar tu ruta?*\nPor favor ingresa a la app en la sección *Rutas y Visitas* y presiona el botón *"🏁 Finalizar Ruta"* para registrar tu cierre de jornada.\n\n⚠️ *Importante:* Si no la cierras manualmente, el sistema la cerrará de forma automática a las *10:00 PM* y enviará el resumen aclarando que fue terminada automáticamente.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
+}
+
+function buildFinishRouteWhatsAppMessage(
+  sellerName: string,
+  sellerCode: string,
+  startedAt: string,
+  finishedAt: string,
+  visits: any[],
+  isAutoClosed: boolean = false
+): string {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
   const horaFin = formatTimeGuatemala(finishedAt);
 
-  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffMs = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
   const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
   const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
@@ -5224,7 +5255,19 @@ function buildFinishRouteWhatsAppMessage(sellerName: string, sellerCode: string,
     }).join('\n\n');
   }
 
-  return `🏁 *RESUMEN DE JORNADA & VISITAS - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n¡Muchas gracias por tu entrega, esfuerzo y dedicación en la ruta de hoy!\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Inicio de Ruta:* ${horaInicio}\n🏁 *Hora Final de Ruta:* ${horaFin}\n⏱️ *Tiempo Total de Ruta:* ${duracionTexto}\n📍 *Total Clientes Visitados:* ${visits.length} visitas realizadas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 *¡Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. ¡A descansar y feliz retorno a casa!* 🚜💨\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
+  const headerTitle = isAutoClosed
+    ? '🏁 *RESUMEN DE JORNADA (CERRADA AUTOMÁTICAMENTE 10:00 PM) - AGRICOVET* 🇬🇹'
+    : '🏁 *RESUMEN DE JORNADA & VISITAS - AGRICOVET* 🇬🇹';
+
+  const introBlock = isAutoClosed
+    ? '⚠️ *AVISO:* Tu ruta permanecía abierta a las 10:00 PM sin cierre manual, por lo que el sistema la finalizó automáticamente con las visitas registradas del día.'
+    : '¡Muchas gracias por tu entrega, esfuerzo y dedicación en la ruta de hoy!';
+
+  const estadoCierre = isAutoClosed
+    ? '\n🤖 *Tipo de Cierre:* Terminada automáticamente por el sistema (10:00 PM)'
+    : '';
+
+  return `${headerTitle}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${introBlock}\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Inicio de Ruta:* ${horaInicio}\n🏁 *Hora Final de Ruta:* ${horaFin}${estadoCierre}\n⏱️ *Tiempo Total de Ruta:* ${duracionTexto}\n📍 *Total Clientes Visitados:* ${visits.length} visitas realizadas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 *¡Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. ¡A descansar y feliz retorno a casa!* 🚜💨\n📌 _Sistema de Gestión & Rutas Comerciales Agricovet_`;
 }
 
 function buildAdminFinishRouteWhatsAppMessage(
@@ -5237,13 +5280,14 @@ function buildAdminFinishRouteWhatsAppMessage(
   endLat?: number | null,
   endLng?: number | null,
   visits: any[] = [],
-  closureNotes?: string
+  closureNotes?: string,
+  isAutoClosed: boolean = false
 ): string {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
   const horaFin = formatTimeGuatemala(finishedAt);
 
-  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffMs = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
   const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
   const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
@@ -5256,8 +5300,9 @@ function buildAdminFinishRouteWhatsAppMessage(
 
   const eLat = endLat != null ? parseFloat(String(endLat)) : null;
   const eLng = endLng != null ? parseFloat(String(endLng)) : null;
+  const endGpsLabel = isAutoClosed ? '🛑 *Último Punto GPS Registrado:*' : '🛑 *Punto de Cierre:*';
   const endGps = (eLat && eLng && !isNaN(eLat) && !isNaN(eLng))
-    ? `\n🛑 *Punto de Cierre:* https://maps.google.com/?q=${eLat},${eLng}\n   _Coords: (${eLat.toFixed(5)}, ${eLng.toFixed(5)})_`
+    ? `\n${endGpsLabel} https://maps.google.com/?q=${eLat},${eLng}\n   _Coords: (${eLat.toFixed(5)}, ${eLng.toFixed(5)})_`
     : '';
 
   let visitsList = '';
@@ -5284,9 +5329,18 @@ function buildAdminFinishRouteWhatsAppMessage(
     }).join('\n\n');
   }
 
-  const notasCierre = closureNotes ? `\n\n📝 *Notas de Cierre del Asesor:*\n"${closureNotes}"` : '';
+  const notasCierre = closureNotes ? `\n\n📝 *Notas de Cierre:*\n"${closureNotes}"` : '';
+  const headerTitle = isAutoClosed
+    ? '📊 *AUDITORÍA DE CIERRE DE RUTA (CIERRE AUTOMÁTICO 10:00 PM) - AGRICOVET* 🇬🇹'
+    : '📊 *AUDITORÍA DE CIERRE DE RUTA - AGRICOVET* 🇬🇹';
+  const introLine = isAutoClosed
+    ? `⚠️ *AVISO AUTOMÁTICO:* El asesor *${sellerName}* no cerró manualmente su ruta, por lo que fue *terminada automáticamente a las 10:00 PM* por el sistema:`
+    : `El asesor *${sellerName}* ha finalizado su jornada comercial:`;
+  const modoCierreLine = isAutoClosed
+    ? '\n🤖 *Estado de Cierre:* Terminada automáticamente (10:00 PM - Sin cierre manual)'
+    : '\n✅ *Estado de Cierre:* Cerrada manualmente por el asesor';
 
-  return `📊 *AUDITORÍA DE CIERRE DE RUTA - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEl asesor *${sellerName}* ha finalizado su jornada comercial:\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Salida:* ${horaInicio}${startGps}\n🏁 *Hora de Cierre:* ${horaFin}${endGps}\n⏱️ *Tiempo Total de Jornada:* ${duracionTexto}\n📍 *Total Visitas Realizadas:* ${visits ? visits.length : 0} visitas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS & GPS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}${notasCierre}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Control y Gestión de Rutas Comerciales Agricovet_`;
+  return `${headerTitle}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${introLine}\n\n👤 *Asesor:* *${sellerName}*\n💼 *Código Asesor:* #${sellerCode || 'S/C'}\n📅 *Fecha:* ${fechaStr}\n\n⏰ *Hora de Salida:* ${horaInicio}${startGps}\n🏁 *Hora de Cierre:* ${horaFin}${modoCierreLine}${endGps}\n⏱️ *Tiempo Total de Jornada:* ${duracionTexto}\n📍 *Total Visitas Realizadas:* ${visits ? visits.length : 0} visitas\n\n📋 *DETALLE CRONOLÓGICO DE VISITAS & GPS:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${visitsList}${notasCierre}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Control y Gestión de Rutas Comerciales Agricovet_`;
 }
 
 // Start a new route session (enforce only 1 active route)
@@ -5318,19 +5372,12 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
     const existingDate = getGuatemalaDateString(existingActive.startedAt || existingActive.createdAt);
     const todayDate = getGuatemalaDateString();
     if (existingDate !== todayDate) {
-      existingActive.status = 'completed';
-      existingActive.finishedAt = new Date().toISOString();
-      saveLocalRoutes(routes);
-      if (neonPool) {
-        try {
-          await neonPool.query(`
-            UPDATE public.seller_routes 
-            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
-                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente al iniciar nueva ruta)'
-            WHERE id = $2;
-          `, [existingActive.finishedAt, existingActive.id]);
-        } catch (e) { }
-      }
+      try {
+        await closeActiveRouteAndNotify(existingActive, {
+          isAutoClosed: true,
+          finishedAtIso: getGuatemala10PmIsoForDate(existingDate)
+        });
+      } catch (e) { }
     } else {
       if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
         existingActive.startLatitude = parseFloat(startLatitude);
@@ -5393,8 +5440,8 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
       await neonPool.query(`
         UPDATE public.seller_routes
         SET status = 'completed',
-            finished_at = $1,
-            "finishedAt" = $1,
+            finished_at = $1::timestamptz,
+            "finishedAt" = $1::text,
             notes = COALESCE(notes, '') || ' (Jornada anterior cerrada automáticamente)'
         WHERE status = 'active'
           AND (
@@ -5412,9 +5459,9 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
           notes, created_at, "createdAt"
         ) VALUES (
           $1, $2, $2, $3, $3, $4, $4,
-          $5, $6, $6, $7, $7, $8, $8,
+          $5, $6::timestamptz, $6::text, $7, $7, $8, $8,
           0, 0, 0, 0, 0, 0,
-          $9, $6, $6
+          $9, $6::timestamptz, $6::text
         ) ON CONFLICT (id) DO UPDATE SET
           start_latitude = EXCLUDED.start_latitude,
           "startLatitude" = EXCLUDED."startLatitude",
@@ -6098,6 +6145,530 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
     preview: msg
   });
 }));
+
+// ============================================================================
+// RECORDATORIO DE RUTA ABIERTA Y CIERRE AUTOMÁTICO A LAS 10:00 PM (GUATEMALA)
+// ============================================================================
+const dispatchedRouteReminderKeys = new Set<string>();
+const dispatchedAutoClosedRouteIds = new Set<string>();
+
+function getGuatemala10PmIsoForDate(gtDateStr: string): string {
+  try {
+    if (gtDateStr && /^\d{4}-\d{2}-\d{2}$/.test(gtDateStr)) {
+      return new Date(`${gtDateStr}T22:00:00.000-06:00`).toISOString();
+    }
+  } catch (e) { }
+  return new Date().toISOString();
+}
+
+async function resolveRouteVisitsAndSellerContact(routeObj: any) {
+  const nowIso = new Date().toISOString();
+  const routeId = String(routeObj.id || '').trim();
+  const sellerId = String(routeObj.sellerId || routeObj.seller_id || '').trim();
+  const sellerName = String(routeObj.sellerName || routeObj.seller_name || 'Asesor').trim();
+  const sellerEmail = String(routeObj.sellerEmail || routeObj.seller_email || '').trim().toLowerCase();
+  const startedAtRaw = routeObj.startedAt || routeObj.started_at || routeObj.createdAt || routeObj.created_at || nowIso;
+  const startedAtIso = startedAtRaw instanceof Date ? startedAtRaw.toISOString() : String(startedAtRaw);
+  const routeDateStr = getGuatemalaDateString(startedAtIso);
+
+  let routeVisits: any[] = [];
+  if (neonPool) {
+    try {
+      const sellerNamePattern = sellerName ? `%${sellerName}%` : '';
+      const vDb = await neonPool.query(`
+        SELECT 
+          id,
+          COALESCE("clientName", client_name) AS "clientName",
+          COALESCE("companyName", company_name) AS "companyName",
+          COALESCE("sellerName", seller_name) AS "sellerName",
+          COALESCE("visitType", visit_type) AS "visitType",
+          notes,
+          latitude,
+          longitude,
+          COALESCE("createdAt", created_at::text) AS "createdAt"
+        FROM public.client_visits
+        WHERE (
+          ($1 <> '' AND (route_id = $1 OR "routeId" = $1))
+          OR (
+            (
+              (created_at IS NOT NULL AND created_at >= ($2 || 'T00:00:00-06:00')::timestamptz AND created_at <= ($2 || 'T23:59:59.999-06:00')::timestamptz)
+              OR ("createdAt" IS NOT NULL AND "createdAt" >= $2 AND "createdAt" <= ($2 || 'T23:59:59'))
+            )
+            AND (
+              ($3 <> '' AND (seller_id = $3 OR "sellerId" = $3)) OR
+              ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+            )
+          )
+        )
+        ORDER BY COALESCE(created_at, NOW()) ASC;
+      `, [routeId, routeDateStr, sellerId, sellerNamePattern]);
+
+      const seenVisits = new Set<string>();
+      routeVisits = (vDb.rows || []).filter((v: any) => {
+        const key = v.id || `${v.clientName}_${v.createdAt}`;
+        if (seenVisits.has(key)) return false;
+        seenVisits.add(key);
+        return true;
+      });
+    } catch (err: any) {
+      console.warn('[resolveRouteVisitsAndSellerContact SQL Warning]:', err?.message || err);
+    }
+  }
+
+  if (routeVisits.length === 0) {
+    const localVisits = readLocalVisits();
+    routeVisits = localVisits.filter((v: any) => {
+      if (routeId && v.routeId === routeId) return true;
+      const vDateStr = getGuatemalaDateString(v.createdAt || v.created_at);
+      if (vDateStr !== routeDateStr) return false;
+      return (
+        (sellerId && v.sellerId === sellerId) ||
+        (sellerEmail && String(v.sellerEmail || '').toLowerCase() === sellerEmail) ||
+        (sellerName && String(v.sellerName || '').toLowerCase() === sellerName.toLowerCase())
+      );
+    }).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  let sCode = '';
+  let sPhone = '';
+  try {
+    const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+    const foundUser = (allUsers || []).find((u: any) =>
+      (sellerId && String(u.id) === String(sellerId)) ||
+      (sellerEmail && String(u.email || '').toLowerCase() === sellerEmail) ||
+      (sellerName && String(u.name || '').toLowerCase() === sellerName.toLowerCase()) ||
+      (sellerName && (String(u.name || '').toLowerCase().includes(sellerName.toLowerCase()) || sellerName.toLowerCase().includes(String(u.name || '').toLowerCase())))
+    );
+    if (foundUser) {
+      sCode = foundUser.sellerCode || '';
+      sPhone = foundUser.phone || '';
+    }
+  } catch (e) { }
+
+  if (!sCode) {
+    if (sellerName.toLowerCase().includes('herbert')) sCode = '1521';
+    else if (sellerName.toLowerCase().includes('erick')) sCode = '8363';
+  }
+  if (!sPhone) {
+    if (sellerName.toLowerCase().includes('herbert') || sCode === '1521') {
+      sPhone = '50241323037';
+    } else if (sellerName.toLowerCase().includes('erick') || sCode === '8363') {
+      sPhone = '50254743595';
+    }
+  }
+
+  const isErickIphone =
+    sellerName.toLowerCase().includes('erick') ||
+    sCode === '8363' ||
+    sellerEmail === 'jerickottoniel@gmail.com' ||
+    sellerId === 'u_1780897737916';
+
+  return {
+    routeId,
+    sellerId,
+    sellerName,
+    sellerEmail,
+    startedAtIso,
+    routeDateStr,
+    routeVisits,
+    sellerCode: sCode,
+    sellerPhone: sPhone,
+    isErickIphone
+  };
+}
+
+async function sendRouteClosureReminderToSeller(routeObj: any, options?: { isTest?: boolean }) {
+  try {
+    const info = await resolveRouteVisitsAndSellerContact(routeObj);
+    const horaInicio = formatTimeGuatemala(info.startedAtIso);
+    const visitsCount = info.routeVisits.length;
+
+    // 1. Notificación en la App + Push FCM al vendedor (Se omite para Erick Juárez porque usa iPhone; con él es solo WhatsApp)
+    if (!info.isErickIphone) {
+      await createNotification(
+        'route_reminder',
+        '⏰ ¿No te has olvidado de cerrar tu ruta?',
+        `Hola ${info.sellerName}, tu ruta iniciada hoy a las ${horaInicio} sigue abierta (${visitsCount} ${visitsCount === 1 ? 'visita' : 'visitas'}). Por favor ciérrala en la app; si no la cierras, se cerrará automáticamente a las 10:00 PM.`,
+        { sellerId: info.sellerId, sellerEmail: info.sellerEmail, sellerName: info.sellerName }
+      );
+    } else {
+      console.log(`[Route Reminder] Omitiendo notificación Push Android para ${info.sellerName} (iPhone) -> Enviando únicamente por WhatsApp.`);
+    }
+
+    // 2. Mensaje de recordatorio por WhatsApp al vendedor (o teléfono de prueba si isTest)
+    const reminderMsg = buildRouteReminderWhatsAppMessage(
+      info.sellerName,
+      info.sellerCode,
+      info.startedAtIso,
+      visitsCount
+    );
+
+    let cleanSellerPhone = String(info.sellerPhone || '').replace(/\D/g, '');
+    if (cleanSellerPhone.length === 8) cleanSellerPhone = '502' + cleanSellerPhone;
+
+    const targetPhone = options?.isTest ? ROUTE_WHATSAPP_TEST_PHONE : cleanSellerPhone;
+    if (targetPhone) {
+      console.log(`[Route Reminder] Enviando recordatorio de cierre de ruta a ${info.sellerName} (${targetPhone})`);
+      const okN8n = await dispatchRouteToN8nWebhook({
+        action: 'route_reminder',
+        sellerName: info.sellerName,
+        sellerCode: info.sellerCode,
+        startedAt: info.startedAtIso,
+        visitsCount,
+        phone: targetPhone,
+        customMessage: reminderMsg
+      });
+      if (!okN8n) {
+        await sendWhatsAppEvolutionMessage(targetPhone, reminderMsg);
+      }
+    }
+    return { success: true, targetPhone, reminderMsg };
+  } catch (err: any) {
+    console.warn('[Route Reminder Error]:', err?.message || err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+async function closeActiveRouteAndNotify(
+  routeInput: any,
+  options?: {
+    isAutoClosed?: boolean;
+    finishedAtIso?: string;
+    endLat?: number | null;
+    endLng?: number | null;
+    notes?: string;
+    isTest?: boolean;
+  }
+) {
+  const isAutoClosed = Boolean(options?.isAutoClosed);
+  const info = await resolveRouteVisitsAndSellerContact(routeInput);
+  if (info.routeId && dispatchedAutoClosedRouteIds.has(info.routeId) && !options?.isTest) {
+    return { alreadyClosed: true };
+  }
+  if (info.routeId && !options?.isTest) {
+    dispatchedAutoClosedRouteIds.add(info.routeId);
+  }
+
+  const finishedAtIso = options?.finishedAtIso || new Date().toISOString();
+  const startLat = routeInput.startLatitude ?? routeInput.start_latitude ?? (info.routeVisits[0]?.latitude ?? null);
+  const startLng = routeInput.startLongitude ?? routeInput.start_longitude ?? (info.routeVisits[0]?.longitude ?? null);
+
+  const lastVisitWithGps = [...info.routeVisits].reverse().find(v => v.latitude != null && v.longitude != null);
+  const endLat = options?.endLat ?? routeInput.endLatitude ?? routeInput.end_latitude ?? (lastVisitWithGps?.latitude ?? startLat ?? null);
+  const endLng = options?.endLng ?? routeInput.endLongitude ?? routeInput.end_longitude ?? (lastVisitWithGps?.longitude ?? startLng ?? null);
+
+  const startMs = new Date(info.startedAtIso).getTime();
+  const endMs = new Date(finishedAtIso).getTime();
+  const totalDurationMins = Math.max(1, Math.round(Math.max(0, endMs - startMs) / (1000 * 60)));
+  const totalStops = Math.max(info.routeVisits.length, Number(routeInput.totalStops || routeInput.total_stops || 0));
+
+  const autoNoteText = 'Ruta cerrada automáticamente a las 10:00 PM por el sistema (sin cierre manual del asesor).';
+  const finalNotes = options?.notes || (isAutoClosed
+    ? (routeInput.notes ? `${routeInput.notes} | ${autoNoteText}` : autoNoteText)
+    : (routeInput.notes || 'Jornada finalizada.'));
+
+  // 1. Actualizar en PostgreSQL (Neon / Evolution Postgres)
+  if (neonPool && info.routeId) {
+    try {
+      await neonPool.query(`
+        UPDATE public.seller_routes
+        SET status = 'completed',
+            finished_at = $1::timestamptz,
+            "finishedAt" = $1::text,
+            end_latitude = COALESCE($2, end_latitude),
+            "endLatitude" = COALESCE($2, "endLatitude"),
+            end_longitude = COALESCE($3, end_longitude),
+            "endLongitude" = COALESCE($3, "endLongitude"),
+            total_stops = $4,
+            "totalStops" = $4,
+            total_duration_mins = $5,
+            "totalDurationMins" = $5,
+            notes = $6
+        WHERE id = $7 OR id::text = $7;
+      `, [finishedAtIso, endLat, endLng, totalStops, totalDurationMins, finalNotes, info.routeId]);
+    } catch (dbErr: any) {
+      console.warn('[closeActiveRouteAndNotify DB Update Warning]:', dbErr?.message || dbErr);
+    }
+  }
+
+  // 2. Actualizar en archivo local seller_routes_local.json
+  try {
+    const localRoutes = readLocalRoutes();
+    let updated = false;
+    for (let i = 0; i < localRoutes.length; i++) {
+      if (localRoutes[i].id === info.routeId) {
+        localRoutes[i] = {
+          ...localRoutes[i],
+          status: 'completed',
+          finishedAt: finishedAtIso,
+          endLatitude: endLat,
+          endLongitude: endLng,
+          totalStops,
+          totalDurationMins,
+          notes: finalNotes
+        };
+        updated = true;
+      }
+    }
+    if (updated) saveLocalRoutes(localRoutes);
+  } catch (e) { }
+
+  // 3. Actualizar en LocalDb
+  try {
+    if (info.routeId) {
+      await localDb.from("seller_routes").upsert([{
+        id: info.routeId,
+        seller_id: info.sellerId,
+        seller_name: info.sellerName,
+        seller_email: info.sellerEmail,
+        status: 'completed',
+        started_at: info.startedAtIso,
+        finished_at: finishedAtIso,
+        start_latitude: startLat,
+        start_longitude: startLng,
+        end_latitude: endLat,
+        end_longitude: endLng,
+        total_stops: totalStops,
+        total_duration_mins: totalDurationMins,
+        notes: finalNotes
+      }]);
+    }
+  } catch (e) { }
+
+  // 4. Notificación en la app si fue cerrada automáticamente (Se omite para Erick Juárez que usa iPhone)
+  if (isAutoClosed && !options?.isTest && !info.isErickIphone) {
+    try {
+      await createNotification(
+        'route_auto_closed',
+        '🏁 Ruta cerrada automáticamente (10:00 PM)',
+        `La ruta de ${info.sellerName} del ${info.routeDateStr} fue finalizada automáticamente a las 10:00 PM (${info.routeVisits.length} visitas registradas).`,
+        { sellerId: info.sellerId, sellerEmail: info.sellerEmail, sellerName: info.sellerName }
+      );
+    } catch (e) { }
+  }
+
+  // 5. Construir mensajes de WhatsApp aclarando si fue cerrada automáticamente
+  const adminSummaryMsg = buildAdminFinishRouteWhatsAppMessage(
+    info.sellerName,
+    info.sellerCode,
+    info.startedAtIso,
+    finishedAtIso,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    info.routeVisits,
+    finalNotes,
+    isAutoClosed
+  );
+
+  const sellerSummaryMsg = buildFinishRouteWhatsAppMessage(
+    info.sellerName,
+    info.sellerCode,
+    info.startedAtIso,
+    finishedAtIso,
+    info.routeVisits,
+    isAutoClosed
+  );
+
+  const actionType = isAutoClosed ? 'auto_finish_route' : 'finish_route';
+
+  if (options?.isTest) {
+    const okTest = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_TEST_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okTest) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+    }
+    return { success: true, adminSummaryMsg, sellerSummaryMsg };
+  }
+
+  if (ROUTE_WHATSAPP_AUTO_ENABLED) {
+    // 1. Enviar a Emanuel (48234048)
+    console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+    const okEmanuel = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_TEST_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okEmanuel) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+    }
+
+    // 2. Enviar a Sergio Lima (50007840)
+    console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+    const okSergio = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okSergio) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminSummaryMsg);
+    }
+
+    // 3. Enviar al Asesor
+    let cleanSellerPhone = String(info.sellerPhone || '').replace(/\D/g, '');
+    if (cleanSellerPhone.length === 8) cleanSellerPhone = '502' + cleanSellerPhone;
+    if (
+      cleanSellerPhone &&
+      cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE &&
+      cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE
+    ) {
+      console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) al asesor ${info.sellerName} (${cleanSellerPhone})`);
+      const okSeller = await dispatchRouteToN8nWebhook({
+        action: actionType,
+        isAutoClosed,
+        sellerName: info.sellerName,
+        sellerCode: info.sellerCode,
+        startedAt: info.startedAtIso,
+        finishedAt: finishedAtIso,
+        phone: cleanSellerPhone,
+        visits: info.routeVisits,
+        customMessage: sellerSummaryMsg
+      });
+      if (!okSeller) {
+        await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerSummaryMsg);
+      }
+    }
+  }
+
+  return { success: true, adminSummaryMsg, sellerSummaryMsg };
+}
+
+async function checkActiveRoutesForRemindersAndAutoClosure() {
+  try {
+    const now = new Date();
+    const gtOffset = -6 * 60; // UTC-6 Guatemala
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const gtNow = new Date(utcMs + (gtOffset * 60000));
+
+    const year = gtNow.getFullYear();
+    const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+    const day = String(gtNow.getDate()).padStart(2, "0");
+    const hour = gtNow.getHours();
+    const minute = gtNow.getMinutes();
+    const todayDateStr = `${year}-${month}-${day}`;
+
+    const activeMap = new Map<string, any>();
+
+    // 1. Cargar rutas activas desde PostgreSQL
+    if (neonPool) {
+      try {
+        const dbRes = await neonPool.query(`
+          SELECT * FROM public.seller_routes
+          WHERE status = 'active'
+          ORDER BY COALESCE(started_at, created_at) DESC;
+        `);
+        for (const row of (dbRes.rows || [])) {
+          if (row && row.id) {
+            activeMap.set(String(row.id), {
+              id: row.id,
+              sellerId: row.seller_id || row.sellerId,
+              sellerName: row.seller_name || row.sellerName,
+              sellerEmail: row.seller_email || row.sellerEmail,
+              status: row.status,
+              startedAt: row.started_at ? (row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at)) : row.startedAt,
+              startLatitude: row.start_latitude ?? row.startLatitude,
+              startLongitude: row.start_longitude ?? row.startLongitude,
+              totalStops: row.total_stops ?? row.totalStops ?? 0,
+              notes: row.notes || '',
+              createdAt: row.created_at ? (row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)) : row.createdAt
+            });
+          }
+        }
+      } catch (e) { }
+    }
+
+    // 2. Cargar rutas activas desde caché local
+    const localRoutes = readLocalRoutes();
+    for (const r of localRoutes) {
+      if (r && r.status === 'active' && r.id && !activeMap.has(String(r.id))) {
+        activeMap.set(String(r.id), r);
+      }
+    }
+
+    if (activeMap.size === 0) return;
+
+    for (const route of activeMap.values()) {
+      const routeDateStr = getGuatemalaDateString(route.startedAt || route.createdAt);
+
+      // CASO A: Ruta de un día anterior que quedó abierta -> Cerrar automáticamente con fecha 10:00 PM de ese día y notificar
+      if (routeDateStr < todayDateStr) {
+        if (!dispatchedAutoClosedRouteIds.has(String(route.id))) {
+          console.log(`[AUTO-ROUTE-CRON] 🏁 Cerrando automáticamente ruta rezagada de ${route.sellerName} (${route.id}) de fecha ${routeDateStr}`);
+          await closeActiveRouteAndNotify(route, {
+            isAutoClosed: true,
+            finishedAtIso: getGuatemala10PmIsoForDate(routeDateStr)
+          });
+        }
+        continue;
+      }
+
+      // CASO B: Ruta activa de HOY
+      if (routeDateStr === todayDateStr) {
+        // Recordatorio 1 a las 7:00 PM (19:00 a 19:14)
+        if (hour === 19 && minute >= 0 && minute <= 14) {
+          const remKey = `${route.id}_${todayDateStr}_19:00`;
+          if (!dispatchedRouteReminderKeys.has(remKey)) {
+            dispatchedRouteReminderKeys.add(remKey);
+            console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 7:00 PM a ${route.sellerName} (${route.id})`);
+            await sendRouteClosureReminderToSeller(route);
+          }
+        }
+
+        // Recordatorio 2 a las 8:30 PM (20:30 a 20:44)
+        if (hour === 20 && minute >= 30 && minute <= 44) {
+          const remKey = `${route.id}_${todayDateStr}_20:30`;
+          if (!dispatchedRouteReminderKeys.has(remKey)) {
+            dispatchedRouteReminderKeys.add(remKey);
+            console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 8:30 PM a ${route.sellerName} (${route.id})`);
+            await sendRouteClosureReminderToSeller(route);
+          }
+        }
+
+        // CIERRE AUTOMÁTICO A LAS 10:00 PM (hour >= 22)
+        if (hour >= 22) {
+          if (!dispatchedAutoClosedRouteIds.has(String(route.id))) {
+            console.log(`[AUTO-ROUTE-CRON] 🕙 10:00 PM alcanzado. Cerrando automáticamente la ruta activa de ${route.sellerName} (${route.id}) y enviando resumen.`);
+            await closeActiveRouteAndNotify(route, {
+              isAutoClosed: true,
+              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr)
+            });
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('[AUTO-ROUTE-CRON] Error en revisión de rutas activas:', err?.message || err);
+  }
+}
+
+function initAutoRouteClosureCron() {
+  console.log('[AUTO-ROUTE-CRON] ⏰ Programador activo: Recordatorios de cierre (7:00 PM / 8:30 PM) y Cierre Automático de Ruta a las 10:00 PM (Guatemala).');
+  setInterval(() => {
+    checkActiveRoutesForRemindersAndAutoClosure().catch(() => {});
+  }, 45000);
+}
 
 // Visit frequency & stats endpoint (Strict multi-role security)
 app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -7215,6 +7786,7 @@ function initAutoDailySalesCron() {
 }
 
 initAutoDailySalesCron();
+initAutoRouteClosureCron();
 
 app.post("/api/admin/check-daily-sales", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;

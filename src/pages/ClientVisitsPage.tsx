@@ -162,8 +162,41 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Solicitar permiso de ubicación y capturar coordenadas GPS satelitales en vivo para cierre de ruta
   const requestClosingGps = () => {
+    const applyFallbackIfAvailable = (fallbackMsg: string) => {
+      if (currentLocation?.latitude && currentLocation?.longitude) {
+        setClosingGps(currentLocation);
+        setClosingGpsError(null);
+        setIsAcquiringClosingGps(false);
+        return;
+      }
+      const target = routeToFinish || activeRoute;
+      const lastVisitWithGps = [...visits]
+        .reverse()
+        .find(v => v.latitude && v.longitude && (target ? (v.routeId === target.id || v.sellerId === target.sellerId) : true));
+      if (lastVisitWithGps?.latitude && lastVisitWithGps?.longitude) {
+        setClosingGps({
+          latitude: Number(lastVisitWithGps.latitude),
+          longitude: Number(lastVisitWithGps.longitude)
+        });
+        setClosingGpsError(null);
+        setIsAcquiringClosingGps(false);
+        return;
+      }
+      if (target?.startLatitude && target?.startLongitude) {
+        setClosingGps({
+          latitude: Number(target.startLatitude),
+          longitude: Number(target.startLongitude)
+        });
+        setClosingGpsError(null);
+        setIsAcquiringClosingGps(false);
+        return;
+      }
+      setClosingGpsError(fallbackMsg);
+      setIsAcquiringClosingGps(false);
+    };
+
     if (!navigator.geolocation) {
-      setClosingGpsError('Este dispositivo o navegador no soporta geolocalización GPS.');
+      applyFallbackIfAvailable('Este dispositivo o navegador no soporta geolocalización GPS.');
       return;
     }
 
@@ -182,22 +215,40 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         setIsAcquiringClosingGps(false);
       },
       (err) => {
-        console.warn('Closing GPS acquisition error:', err);
-        let msg = 'No se pudo obtener la ubicación GPS en tiempo real.';
-        if (err.code === 1) { // PERMISSION_DENIED
-          msg = 'Permiso de ubicación denegado. Para cerrar tu jornada debes habilitar la ubicación en tu navegador.';
-        } else if (err.code === 2) { // POSITION_UNAVAILABLE
-          msg = 'Señal GPS no disponible. Asegúrate de tener el GPS activado en tu teléfono.';
-        } else if (err.code === 3) { // TIMEOUT
-          msg = 'Tiempo de espera agotado buscando señal GPS. Intenta en un lugar despejado.';
-        }
-        setClosingGpsError(msg);
-        setIsAcquiringClosingGps(false);
+        console.warn('Closing GPS high-accuracy acquisition error, trying network fallback:', err);
+        navigator.geolocation.getCurrentPosition(
+          (pos2) => {
+            const fresh2 = {
+              latitude: pos2.coords.latitude,
+              longitude: pos2.coords.longitude,
+              accuracy: pos2.coords.accuracy
+            };
+            setClosingGps(fresh2);
+            setCurrentLocation(fresh2);
+            setIsAcquiringClosingGps(false);
+          },
+          (err2) => {
+            let msg = 'No se pudo obtener la ubicación GPS en tiempo real.';
+            if (err2.code === 1) { // PERMISSION_DENIED
+              msg = 'Permiso de ubicación denegado. Para cerrar tu jornada debes habilitar la ubicación en tu navegador.';
+            } else if (err2.code === 2) { // POSITION_UNAVAILABLE
+              msg = 'Señal GPS no disponible. Asegúrate de tener el GPS activado en tu teléfono.';
+            } else if (err2.code === 3) { // TIMEOUT
+              msg = 'Tiempo de espera agotado buscando señal GPS. Intenta en un lugar despejado.';
+            }
+            applyFallbackIfAvailable(msg);
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 60000
+          }
+        );
       },
       {
         enableHighAccuracy: true,
-        timeout: 25000,
-        maximumAge: 0 // FORZAR lectura fresca en vivo sin caché, solicitando permiso si no está activo
+        timeout: 15000,
+        maximumAge: 0
       }
     );
   };
@@ -1648,6 +1699,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                   </div>
                   <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
                     📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt) && (v.routeId === myActiveRoute.id || v.sellerId === myActiveRoute.sellerId || (myActiveRoute.sellerName && v.sellerName?.toLowerCase() === myActiveRoute.sellerName.toLowerCase()))).length} clientes visitados hoy en esta ruta
+                  </p>
+                  <p className="text-[10px] text-amber-200 font-semibold mt-0.5 flex items-center gap-1">
+                    <span>⏰ Recuerda presionar &quot;🏁 Finalizar Ruta&quot; al terminar tu jornada (cierre automático a las 10:00 PM).</span>
                   </p>
                 </div>
               </div>
