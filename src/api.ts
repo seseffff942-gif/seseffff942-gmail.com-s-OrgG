@@ -475,7 +475,13 @@ export const api = {
         body: JSON.stringify(clientData)
       });
       const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || 'Failed to add client');
+      if (!res.ok) {
+        if (data?.clienteExistente) {
+          clearApiCache('clients');
+          return data.clienteExistente;
+        }
+        throw new Error(data.error || 'Failed to add client');
+      }
       clearApiCache('clients');
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('offline_clients');

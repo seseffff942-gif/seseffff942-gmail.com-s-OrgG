@@ -9,13 +9,12 @@ export interface LocalDbOptions {
 
 function cleanCol(col: string): string {
   const trimmed = col.trim();
-  if (trimmed === '*' || trimmed.includes('(') || trimmed.includes(' AS ') || trimmed.includes(' as ')) {
-    return trimmed;
+  if (trimmed === '*') {
+    return '*';
   }
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed;
-  }
-  return `"${trimmed.replace(/"/g, '')}"`;
+  const raw = trimmed.replace(/"/g, '').trim();
+  const safe = raw.replace(/[^a-zA-Z0-9_]/g, '');
+  return safe ? `"${safe}"` : '*';
 }
 
 function parseColumns(cols: string | undefined): string {
@@ -136,14 +135,14 @@ export class LocalQueryBuilder<T = any> implements PromiseLike<{ data: any; erro
   }
 
   is(column: string, value: any): this {
-    if (value === null) {
+    if (value === null || (typeof value === 'string' && value.toLowerCase() === 'null')) {
       this.conditions.push({ sql: `${cleanCol(column)} IS NULL` });
     } else if (value === false) {
       this.conditions.push({ sql: `(${cleanCol(column)} IS FALSE OR ${cleanCol(column)} IS NULL)` });
     } else if (value === true) {
       this.conditions.push({ sql: `${cleanCol(column)} IS TRUE` });
     } else {
-      this.conditions.push({ sql: `${cleanCol(column)} IS ${value}` });
+      this.conditions.push({ sql: `${cleanCol(column)} = $PARAM`, val: value });
     }
     return this;
   }
@@ -152,33 +151,25 @@ export class LocalQueryBuilder<T = any> implements PromiseLike<{ data: any; erro
     if (!filterString || typeof filterString !== 'string') return this;
     const parts = filterString.split(',').map(p => p.trim()).filter(Boolean);
     const orSqlParts: string[] = [];
+    const vals: any[] = [];
+    const opMap: Record<string, string> = {
+      eq: '=',
+      ilike: 'ILIKE',
+      like: 'LIKE',
+      neq: '!=',
+    };
     for (const part of parts) {
-      if (part.includes('.eq.')) {
-        const [c, val] = part.split('.eq.');
-        this.conditions.push({ sql: `_OR_DUMMY_`, val: val }); // placeholder for param
-        orSqlParts.push(`${cleanCol(c)} = $PARAM`);
-      } else if (part.includes('.ilike.')) {
-        const [c, val] = part.split('.ilike.');
-        this.conditions.push({ sql: `_OR_DUMMY_`, val: val });
-        orSqlParts.push(`${cleanCol(c)} ILIKE $PARAM`);
-      } else if (part.includes('.like.')) {
-        const [c, val] = part.split('.like.');
-        this.conditions.push({ sql: `_OR_DUMMY_`, val: val });
-        orSqlParts.push(`${cleanCol(c)} LIKE $PARAM`);
-      } else if (part.includes('.neq.')) {
-        const [c, val] = part.split('.neq.');
-        this.conditions.push({ sql: `_OR_DUMMY_`, val: val });
-        orSqlParts.push(`${cleanCol(c)} != $PARAM`);
+      const m = part.match(/^([a-zA-Z0-9_"]+)\.(eq|ilike|like|neq)\.(.+)$/);
+      if (m) {
+        const [, c, op, val] = m;
+        const sqlOp = opMap[op];
+        if (sqlOp) {
+          orSqlParts.push(`${cleanCol(c)} ${sqlOp} $PARAM`);
+          vals.push(val);
+        }
       }
     }
-    // Pull the last orSqlParts.length items out and combine into one OR condition
     if (orSqlParts.length > 0) {
-      const vals: any[] = [];
-      for (let i = 0; i < orSqlParts.length; i++) {
-        const dummy = this.conditions.pop();
-        if (dummy?.val !== undefined) vals.unshift(dummy.val);
-      }
-      // Re-add as single compound condition
       this.conditions.push({
         sql: `(${orSqlParts.join(' OR ')})`,
         val: vals // array of vals to unpack in buildWhere
@@ -200,13 +191,15 @@ export class LocalQueryBuilder<T = any> implements PromiseLike<{ data: any; erro
   }
 
   limit(count: number): this {
-    this.limitCount = count;
+    this.limitCount = Math.max(0, Math.floor(Number(count) || 0));
     return this;
   }
 
   range(from: number, to: number): this {
-    this.offsetCount = Math.max(0, from);
-    this.limitCount = Math.max(0, to - from + 1);
+    const safeFrom = Math.max(0, Math.floor(Number(from) || 0));
+    const safeTo = Math.max(0, Math.floor(Number(to) || 0));
+    this.offsetCount = safeFrom;
+    this.limitCount = Math.max(0, Math.floor(Number(safeTo - safeFrom + 1) || 0));
     return this;
   }
 
@@ -260,10 +253,10 @@ export class LocalQueryBuilder<T = any> implements PromiseLike<{ data: any; erro
         }
         let limitOffset = '';
         if (this.limitCount !== undefined) {
-          limitOffset += ` LIMIT ${this.limitCount}`;
+          limitOffset += ` LIMIT ${Math.max(0, Math.floor(Number(this.limitCount) || 0))}`;
         }
         if (this.offsetCount !== undefined) {
-          limitOffset += ` OFFSET ${this.offsetCount}`;
+          limitOffset += ` OFFSET ${Math.max(0, Math.floor(Number(this.offsetCount) || 0))}`;
         }
         queryText = `SELECT ${this.selectCols} FROM public."${this.table}"${where}${order}${limitOffset};`;
       } else if (this.op === 'insert') {
@@ -376,7 +369,7 @@ export class LocalStorageBucket {
 
   constructor(baseDir: string, bucketName: string) {
     this.baseDir = baseDir;
-    this.bucketName = bucketName;
+    this.bucketName = bucketName.replace(/[^a-zA-Z0-9_-]/g, '') || 'default';
   }
 
   private getBucketPath(): string {
@@ -387,11 +380,23 @@ export class LocalStorageBucket {
     return dir;
   }
 
+  private resolveSafeFilePath(fileName: string): { filePath: string; cleanFileName: string } {
+    const cleanFileName = String(fileName || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const segments = cleanFileName.split('/');
+    if (!cleanFileName || segments.some(seg => seg === '..' || seg === '.' || seg === '')) {
+      throw new Error('Ruta de archivo inválida (Path Traversal bloqueado)');
+    }
+    const bucketDir = path.resolve(this.getBucketPath());
+    const filePath = path.resolve(bucketDir, cleanFileName);
+    if (!filePath.startsWith(bucketDir + path.sep)) {
+      throw new Error('Ruta de archivo inválida (Path Traversal bloqueado)');
+    }
+    return { filePath, cleanFileName };
+  }
+
   async upload(fileName: string, buffer: Buffer, options?: { contentType?: string; upsert?: boolean }) {
     try {
-      const bucketDir = this.getBucketPath();
-      const cleanFileName = fileName.replace(/^[\/\\]+/, '');
-      const filePath = path.join(bucketDir, cleanFileName);
+      const { filePath, cleanFileName } = this.resolveSafeFilePath(fileName);
       const fileDir = path.dirname(filePath);
       if (!fs.existsSync(fileDir)) {
         fs.mkdirSync(fileDir, { recursive: true });
@@ -405,16 +410,19 @@ export class LocalStorageBucket {
   }
 
   getPublicUrl(fileName: string) {
-    const cleanFileName = fileName.replace(/^[\/\\]+/, '');
+    const cleanFileName = String(fileName || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .split('/')
+      .filter(seg => seg && seg !== '.' && seg !== '..')
+      .join('/');
     const publicUrl = `/storage/v1/object/public/${this.bucketName}/${cleanFileName}`;
     return { data: { publicUrl } };
   }
 
   async download(fileName: string) {
     try {
-      const bucketDir = this.getBucketPath();
-      const cleanFileName = fileName.replace(/^[\/\\]+/, '');
-      const filePath = path.join(bucketDir, cleanFileName);
+      const { filePath } = this.resolveSafeFilePath(fileName);
       if (!fs.existsSync(filePath)) {
         return { data: null, error: new Error('File not found') };
       }
@@ -449,11 +457,12 @@ export class LocalStorage {
 
   async createBucket(name: string, _options?: any) {
     try {
-      const bucketDir = path.join(this.baseDir, name);
+      const bucketName = name.replace(/[^a-zA-Z0-9_-]/g, '') || 'default';
+      const bucketDir = path.join(this.baseDir, bucketName);
       if (!fs.existsSync(bucketDir)) {
         fs.mkdirSync(bucketDir, { recursive: true });
       }
-      return { data: { name }, error: null };
+      return { data: { name: bucketName }, error: null };
     } catch (err: any) {
       return { data: null, error: err };
     }

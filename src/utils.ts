@@ -2718,7 +2718,7 @@ export async function descargarBlob(blob: Blob, filename: string) {
       const base64 = await blobToBase64(blob);
       const resp = await fetch('/api/download-temp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: (() => { const token = typeof localStorage !== 'undefined' ? localStorage.getItem('app_token') : null; return token ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } : { 'Content-Type': 'application/json' }; })(),
         body: JSON.stringify({
           filename,
           mimeType: blob.type || 'application/pdf',

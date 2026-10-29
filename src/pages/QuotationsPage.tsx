@@ -284,6 +284,27 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       alert("Por favor ingresa al menos el nombre del cliente");
       return;
     }
+    const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
+    const nitN = normNit(newClientNit);
+    const nameN = newClientName.trim().toLowerCase();
+    const exactMatch = clients.find((c: any) => {
+      const cNit = normNit(c.nit);
+      const cName = (c.name || '').trim().toLowerCase();
+      if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL' && cNit === nitN && cName === nameN) return true;
+      if (cName === nameN) return true;
+      return false;
+    });
+
+    if (exactMatch) {
+      handleSelectClient(exactMatch);
+      setNewClientName('');
+      setNewClientCompanyName('');
+      setNewClientNit('');
+      setNewClientPhone('');
+      setNewClientAddress('');
+      setNitResultado(null);
+      return;
+    }
     try {
       const created = await api.addClient({
         name: newClientName.trim(),

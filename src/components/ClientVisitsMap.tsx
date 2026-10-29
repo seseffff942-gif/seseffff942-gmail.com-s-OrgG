@@ -48,6 +48,15 @@ const GUATEMALA_REGIONS: RegionShortcut[] = [
   { id: 'oriente', name: 'Oriente (Zacapa/Chiquimula)', coords: [14.9722, -89.5306], zoom: 10, icon: '☀️' },
   { id: 'sur', name: 'Sur (Escuintla/Costa)', coords: [14.3009, -90.7850], zoom: 10, icon: '🌴' }
 ];
+
+const escapeHtml = (str: any): string =>
+  String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 export function ClientVisitsMap({
   clients,
   visits,
@@ -479,7 +488,7 @@ export function ClientVisitsMap({
           <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 ease-out transform group-hover:-translate-y-1 z-50 whitespace-nowrap">
             <div class="bg-slate-900/95 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-xl border border-slate-700/80 flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${pinColor}"></span>
-              <span class="max-w-[140px] truncate text-slate-100 font-semibold">${client.name}</span>
+              <span class="max-w-[140px] truncate text-slate-100 font-semibold">${escapeHtml(client.name)}</span>
               <span class="text-[9px] text-slate-400 font-medium">· ${badgeText}</span>
             </div>
             <div class="w-2 h-2 bg-slate-900 rotate-45 mx-auto -mt-1 border-r border-b border-slate-700/80"></div>
@@ -506,20 +515,21 @@ export function ClientVisitsMap({
       const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${client.latitude},${client.longitude}`;
       const wazeUrl = `https://waze.com/ul?ll=${client.latitude},${client.longitude}&navigate=yes`;
 
+      const safeClientId = escapeHtml(client.id);
       const popupContent = document.createElement('div');
       popupContent.className = 'p-3.5 text-slate-800 text-xs max-w-xs space-y-2.5 font-sans';
       popupContent.innerHTML = `
         <div class="border-b border-slate-100 pb-2">
           <div class="flex items-start justify-between gap-2">
-            <h4 class="font-extrabold text-sm text-slate-900 leading-snug">${client.name}</h4>
-            ${client.clientCode ? `<span class="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">#${client.clientCode}</span>` : ''}
+            <h4 class="font-extrabold text-sm text-slate-900 leading-snug">${escapeHtml(client.name)}</h4>
+            ${client.clientCode ? `<span class="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">#${escapeHtml(client.clientCode)}</span>` : ''}
           </div>
-          ${client.companyName ? `<p class="text-slate-500 text-[11px] font-medium mt-0.5 truncate">${client.companyName}</p>` : ''}
+          ${client.companyName ? `<p class="text-slate-500 text-[11px] font-medium mt-0.5 truncate">${escapeHtml(client.companyName)}</p>` : ''}
         </div>
 
         <div class="space-y-1.5 text-[11px] text-slate-600">
-          ${client.phone ? `<p class="flex items-center gap-1.5">📞 <a href="tel:${client.phone}" class="text-emerald-700 font-bold hover:underline">${client.phone}</a></p>` : ''}
-          ${client.address ? `<p class="flex items-center gap-1.5 text-slate-500">🏢 <span class="truncate">${client.address}</span></p>` : ''}
+          ${client.phone ? `<p class="flex items-center gap-1.5">📞 <a href="tel:${escapeHtml(client.phone)}" class="text-emerald-700 font-bold hover:underline">${escapeHtml(client.phone)}</a></p>` : ''}
+          ${client.address ? `<p class="flex items-center gap-1.5 text-slate-500">🏢 <span class="truncate">${escapeHtml(client.address)}</span></p>` : ''}
           <div class="flex items-center gap-1.5 pt-0.5">
             <span class="text-slate-400 font-medium">Estado:</span>
             ${
@@ -535,7 +545,7 @@ export function ClientVisitsMap({
         </div>
 
         <div class="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
-          <button id="visit-btn-${client.id}" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-center transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer text-xs">
+          <button id="visit-btn-${safeClientId}" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-center transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer text-xs">
             <span>📍 Registrar Visita Aquí</span>
           </button>
           <div class="flex gap-1.5">
@@ -547,10 +557,10 @@ export function ClientVisitsMap({
             </a>
           </div>
           <div class="flex gap-1.5 pt-1 border-t border-slate-100">
-            <button id="remark-btn-${client.id}" class="flex-1 py-1 px-2 bg-slate-50 hover:bg-slate-100 text-slate-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
+            <button id="remark-btn-${safeClientId}" class="flex-1 py-1 px-2 bg-slate-50 hover:bg-slate-100 text-slate-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
               📍 Refijar GPS
             </button>
-            <button id="clear-gps-btn-${client.id}" class="py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors" title="Borrar ubicación guardada">
+            <button id="clear-gps-btn-${safeClientId}" class="py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium rounded-lg text-center text-[10px] flex items-center justify-center gap-1 cursor-pointer transition-colors" title="Borrar ubicación guardada">
               🗑️ Borrar GPS
             </button>
           </div>
@@ -564,7 +574,7 @@ export function ClientVisitsMap({
       clientMarkersMapRef.current.set(client.id, marker);
 
       marker.on('popupopen', () => {
-        const btn = document.getElementById(`visit-btn-${client.id}`);
+        const btn = document.getElementById(`visit-btn-${safeClientId}`);
         if (btn) {
           btn.onclick = () => {
             onSelectClientForVisit(client);
@@ -572,7 +582,7 @@ export function ClientVisitsMap({
           };
         }
 
-        const remarkBtn = document.getElementById(`remark-btn-${client.id}`);
+        const remarkBtn = document.getElementById(`remark-btn-${safeClientId}`);
         if (remarkBtn) {
           remarkBtn.onclick = () => {
             if (onOpenMarkClientModalForClient) {
@@ -584,7 +594,7 @@ export function ClientVisitsMap({
           };
         }
 
-        const clearGpsBtn = document.getElementById(`clear-gps-btn-${client.id}`);
+        const clearGpsBtn = document.getElementById(`clear-gps-btn-${safeClientId}`);
         if (clearGpsBtn) {
           clearGpsBtn.onclick = () => {
             if (onClearClientLocation) {
@@ -715,8 +725,8 @@ export function ClientVisitsMap({
             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-emerald-800 bg-emerald-50 border border-emerald-200">
               Punto de Partida / Apertura
             </span>
-            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
-            ${matchedRoute.startAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.startAddress}</p>` : ''}
+            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${escapeHtml(matchedRoute.sellerName || 'Asesor')}</h4>
+            ${matchedRoute.startAddress ? `<p class="text-slate-600 text-[11px]">📍 ${escapeHtml(matchedRoute.startAddress)}</p>` : ''}
             <p class="text-slate-400 text-[10px]">Hora: ${startTime || 'Inicio de jornada'}</p>
           </div>
         `);
@@ -755,10 +765,10 @@ export function ClientVisitsMap({
             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-rose-800 bg-rose-50 border border-rose-200">
               Cierre de Jornada / Fin de Ruta
             </span>
-            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${matchedRoute.sellerName || 'Asesor'}</h4>
-            ${matchedRoute.endAddress ? `<p class="text-slate-600 text-[11px]">📍 ${matchedRoute.endAddress}</p>` : ''}
+            <h4 class="font-extrabold text-slate-900 text-sm mt-1">${escapeHtml(matchedRoute.sellerName || 'Asesor')}</h4>
+            ${matchedRoute.endAddress ? `<p class="text-slate-600 text-[11px]">📍 ${escapeHtml(matchedRoute.endAddress)}</p>` : ''}
             <p class="text-slate-400 text-[10px]">Hora cierre: ${endTime || 'Cierre registrado'}</p>
-            ${matchedRoute.closureNotes ? `<p class="italic text-slate-600 bg-slate-50 p-1 rounded border">"${matchedRoute.closureNotes}"</p>` : ''}
+            ${matchedRoute.closureNotes ? `<p class="italic text-slate-600 bg-slate-50 p-1 rounded border">"${escapeHtml(matchedRoute.closureNotes)}"</p>` : ''}
           </div>
         `);
     }
@@ -833,9 +843,9 @@ export function ClientVisitsMap({
           </div>
 
           <div>
-            <h4 class="font-extrabold text-sm text-slate-950">${v.clientName}</h4>
-            ${v.companyName ? `<p class="text-slate-500 text-[11px]">${v.companyName}</p>` : ''}
-            <p class="text-slate-400 text-[10px] mt-0.5">Asesor: <strong class="text-slate-700">${v.sellerName}</strong></p>
+            <h4 class="font-extrabold text-sm text-slate-950">${escapeHtml(v.clientName)}</h4>
+            ${v.companyName ? `<p class="text-slate-500 text-[11px]">${escapeHtml(v.companyName)}</p>` : ''}
+            <p class="text-slate-400 text-[10px] mt-0.5">Asesor: <strong class="text-slate-700">${escapeHtml(v.sellerName)}</strong></p>
           </div>
 
           ${prevPoint ? `
@@ -846,8 +856,8 @@ export function ClientVisitsMap({
           ` : ''}
 
           <div class="text-[11px] text-slate-600 space-y-1">
-            <p><strong>Gestión:</strong> <span class="capitalize font-bold text-emerald-800">${v.visitType || 'Rutina'}</span></p>
-            ${v.notes ? `<p class="italic text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">"${v.notes}"</p>` : ''}
+            <p><strong>Gestión:</strong> <span class="capitalize font-bold text-emerald-800">${escapeHtml(v.visitType || 'Rutina')}</span></p>
+            ${v.notes ? `<p class="italic text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">"${escapeHtml(v.notes)}"</p>` : ''}
           </div>
         </div>
       `;

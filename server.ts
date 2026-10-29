@@ -59,7 +59,7 @@ export const pgPool = new pg.Pool({
 // Alias para retrocompatibilidad
 export const neonPool = pgPool;
 
-console.log(`[DB] ✅ Conectado a PostgreSQL Local: ${pgDbUrl}`);
+console.log(`[DB] ✅ Conectado a PostgreSQL Local: ${pgDbUrl.replace(/:([^:@]+)@/, ':***@')}`);
 
 export const localDb = createLocalDb({
   pool: pgPool,
@@ -505,8 +505,14 @@ app.use(async (req: any, res: any, next: any) => {
   if (
     !reqPath.startsWith('/api') ||
     reqPath === '/api/login' ||
+    reqPath === '/api/auth/login' ||
+    reqPath === '/api/auth/me' ||
+    reqPath === '/api/panic/status' ||
     reqPath === '/api/system/maintenance' ||
     reqPath.startsWith('/api/admin/maintenance') ||
+    reqPath.startsWith('/api/download-temp') ||
+    reqPath.startsWith('/api/bot/') ||
+    reqPath === '/api/whatsapp/webhook' ||
     reqPath === '/api/app-logo' ||
     reqPath === '/api/health' ||
     reqPath === '/api/webhooks'
@@ -524,7 +530,7 @@ app.use(async (req: any, res: any, next: any) => {
       const token = authHeader.substring(7);
       try {
         const decoded: any = jwt.verify(token, JWT_SECRET);
-        if (decoded?.email?.toLowerCase() === 'seseffff942@gmail.com' || decoded?.role === 'admin') {
+        if (decoded?.email?.toLowerCase() === 'seseffff942@gmail.com' || decoded?.id === 'u1b' || decoded?.role === 'admin') {
           return next();
         }
       } catch (e) {}
@@ -622,7 +628,8 @@ const apiLimiter = rateLimit({
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10, // Limit each IP to 10 login requests per window
+  max: 60, // Limit each IP to 60 login requests per window
+  skip: (req: any) => req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1',
   message: { error: "Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -630,6 +637,7 @@ const loginLimiter = rateLimit({
 });
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", loginLimiter);
+app.use("/api/login", loginLimiter);
 
 // Servidor de archivos estáticos para almacenamiento local de imágenes
 const storageLocalPath = path.join(process.cwd(), 'storage');
@@ -923,6 +931,23 @@ const optionalAuth = async (req: any, res: any, next: any) => {
   next();
 };
 
+const requireAuthOrLocal = async (req: any, res: any, next: any) => {
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  const host = String(req.hostname || req.headers.host || '');
+  const isLocalOrCron =
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip.includes('127.0.0.1') ||
+    ip.includes('172.') ||
+    ip.includes('10.') ||
+    ip.includes('192.168.') ||
+    host.startsWith('localhost') ||
+    host.startsWith('127.0.0.1') ||
+    Boolean(req.headers['x-vercel-cron']);
+  if (isLocalOrCron) return next();
+  return requireAuth(req, res, next);
+};
+
 
 const doesNotNeedStock = (product: { name?: string; category?: string } | null | undefined): boolean => {
   if (!product) return false;
@@ -1047,11 +1072,37 @@ async function acquireStockLocks(productIds: (string | undefined)[]): Promise<()
   };
 }
 
+function isInvoiceOwnerOrAdmin(user: any, invoice: any): boolean {
+  if (!user) return false;
+  const role = String(user.role || '').trim().toLowerCase();
+  if (role === 'admin' || role === 'dueño' || role === 'dueno' || role === 'ceo' || role === 'owner') return true;
+  if (String(user.email || '').trim().toLowerCase() === 'seseffff942@gmail.com') return true;
+  const invSeller = String(invoice?.sellerId || '').trim().toLowerCase();
+  if (!invSeller) return false;
+  const candidates = [user.email, user.id, user.sellerCode, user.name]
+    .map(s => String(s || '').trim().toLowerCase())
+    .filter(Boolean);
+  return candidates.includes(invSeller);
+}
+
+function getEffectiveDeductedQty(item: any): number {
+  if (!item) return 0;
+  if (item.stockDeducted !== undefined && item.stockDeducted !== null) {
+    return Math.max(0, parseFloat(item.stockDeducted) || 0);
+  }
+  if (item.previousStock !== undefined && item.newStock !== undefined && Number(item.previousStock) !== 999999) {
+    return Math.max(0, (parseFloat(item.previousStock) || 0) - (parseFloat(item.newStock) || 0));
+  }
+  return Math.max(0, (parseFloat(item.quantity) || 0) - (parseFloat(item.fiatToOrder) || 0) - (parseFloat(item.tecunToOrder) || 0));
+}
+
 // Devuelve al inventario las cantidades de una factura (al anularla o
 // rechazarla). Respeta variantes y omite productos externos. Se usa tanto
 // al cambiar el estado de la factura como al anular su DTE ante SAT.
 async function restaurarStockDeFactura(invoice: any) {
   for (const item of (invoice.items || [])) {
+    const qtyToRestore = getEffectiveDeductedQty(item);
+    if (qtyToRestore <= 0) continue;
     const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq('id', item.productId);
     const product = prods?.[0];
     if (product && !product.is_external) {
@@ -1066,11 +1117,11 @@ async function restaurarStockDeFactura(invoice: any) {
 
       if (variantObj && variantObj.stock !== undefined) {
         const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + qtyToRestore };
         const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
         if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
       } else {
-        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
+        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + qtyToRestore }).eq('id', item.productId);
         if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
       }
     }
@@ -3153,7 +3204,7 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
 
   const localList = readLocalClients();
 
-  // Validacion por NIT: no permitir dos clientes con el mismo NIT real.
+  // Validacion por NIT: si ya existe un cliente con el mismo NIT y nombre, reutilizarlo sin error
   // "CF" / "C/F" (consumidor final) es generico y SI puede repetirse.
   const normalizarNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
   const nitNuevo = normalizarNit(nit);
@@ -3163,9 +3214,37 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
       (c: any) => c && normalizarNit(c.nit) === nitNuevo && c.name?.trim().toLowerCase() === nameToSave.toLowerCase()
     );
     if (yaExiste) {
-      return res.status(409).json({
-        error: `Ya existe un cliente registrado con el NIT ${nit} y el mismo nombre: "${yaExiste.name}". No se puede duplicar.`,
-        clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit },
+      console.log(`Cliente ya existe con NIT ${nit} y nombre "${yaExiste.name}" (ID: ${yaExiste.id}). Reutilizando cliente existente.`);
+      const updates: any = {};
+      if (!yaExiste.phone && phone) updates.phone = phone;
+      if (!yaExiste.address && address) updates.address = address;
+      if (!yaExiste.companyName && companyToSave) updates.companyName = companyToSave;
+
+      if (latitude !== undefined && longitude !== undefined) {
+        updates.latitude = Number(latitude);
+        updates.longitude = Number(longitude);
+        updates.locationAddress = locationAddress || address || '';
+        updates.geotaggedAt = geotaggedAt || new Date().toISOString();
+        updates.geotaggedBy = req.user?.name || req.user?.email || '';
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateLocalClient(yaExiste.id, updates);
+        try {
+          await localDb.from("clients").update(updates).eq("id", yaExiste.id);
+        } catch (e) { }
+      }
+
+      return res.json({
+        success: true,
+        client: {
+          ...yaExiste,
+          ...updates,
+          nit: yaExiste.nit || nit || '',
+          phone: yaExiste.phone || phone || '',
+          address: yaExiste.address || address || ''
+        },
+        clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit }
       });
     }
   }
@@ -6123,6 +6202,14 @@ app.get("/api/visits/stats", requireAuth, asyncHandler(async (req: any, res: any
 }));
 
 // AUTH
+function isSystemRecord(u: any): boolean {
+  if (!u) return false;
+  const id = String(u.id || '').toLowerCase();
+  const role = String(u.role || '').toLowerCase();
+  const email = String(u.email || '').toLowerCase();
+  return role === 'system' || id.startsWith('sys-') || id.startsWith('system-') || id.startsWith('bot-') || email.endsWith('@bot.local') || email.startsWith('system-');
+}
+
 app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
   const { email: identifierInput, password: tokenProvidedInput } = req.body;
   const identifier = (identifierInput || '').trim();
@@ -6236,6 +6323,10 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
     }
   }
 
+  if (foundUser && isSystemRecord(foundUser)) {
+    foundUser = null;
+  }
+
   if (!foundUser) {
     return res.status(401).json({ error: "Usuario o Código de Vendedor no encontrado en el sistema." });
   }
@@ -6302,7 +6393,7 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
     return res.status(401).json({ error: "Token de acceso inválido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador." });
   }
 
-  const token = jwt.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
+  const token = jwt.sign({ id: foundUser.id, email: foundUser.email, role: foundUser.role }, JWT_SECRET, { expiresIn: '180d' }); // 180 days session
 
   const userToReturn = { ...foundUser };
   delete userToReturn.password;
@@ -6316,7 +6407,7 @@ app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(as
   const hours = parseInt(expiryHours) || 24; // Default 24h if not provided
 
   // Generate random 6 character token
-  const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const token = crypto.randomBytes(3).toString('hex').toUpperCase();
   const id = `lt_${Date.now()}`;
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
@@ -6359,6 +6450,7 @@ app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
   const token = authHeader.split(' ')[1];
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
+    const iat = payload.iat ? payload.iat * 1000 : 0;
     let user = null;
     try {
       const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
@@ -6373,7 +6465,11 @@ app.get("/api/auth/me", asyncHandler(async (req: any, res: any) => {
       user = initialDb.users.find(u => u.id === payload.id);
     }
 
-    if (!user) return res.status(401).json({ error: "User not found" });
+    if (!user || isSystemRecord(user)) return res.status(401).json({ error: "User not found" });
+
+    if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+      return res.status(401).json({ error: "Tu sesión ha sido cerrada por el administrador. Por favor, inicia sesión de nuevo." });
+    }
 
     const userToReturn = { ...user };
     delete userToReturn.password;
@@ -7120,7 +7216,7 @@ function initAutoDailySalesCron() {
 
 initAutoDailySalesCron();
 
-app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any) => {
+app.post("/api/admin/check-daily-sales", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
 
   if (isMultiSeller && req.body?.sendToWebhook) {
@@ -7142,7 +7238,7 @@ app.post("/api/admin/check-daily-sales", asyncHandler(async (req: any, res: any)
   return res.json(result);
 }));
 
-app.post("/api/admin/check-weekly-sales", asyncHandler(async (req: any, res: any) => {
+app.post("/api/admin/check-weekly-sales", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
 
   if (isMultiSeller && req.body?.sendToWebhook) {
@@ -7172,11 +7268,11 @@ app.get("/api/users", requireAuth, asyncHandler(async (req: any, res: any) => {
       if (error.message.includes('sellerCode')) {
         const { data: usersFallback, error: errFallback } = await localDb.from("users").select("id, name, email, role, photo, phone");
         if (errFallback) throw new Error(errFallback.message);
-        return res.json((usersFallback || []).filter((u: any) => u.role !== 'system'));
+        return res.json((usersFallback || []).filter((u: any) => !isSystemRecord(u)));
       }
       throw new Error(error.message);
     }
-    res.json((users || []).filter((u: any) => u.role !== 'system'));
+    res.json((users || []).filter((u: any) => !isSystemRecord(u)));
   } catch (err: any) {
     console.error("Error fetching users:", err);
     res.status(500).json({ error: err.message });
@@ -7788,7 +7884,7 @@ app.post("/api/push/subscribe", optionalAuth, asyncHandler(async (req: any, res:
 }));
 
 // PUSH NOTIFICATION TEST
-app.post("/api/push/test", asyncHandler(async (req: any, res: any) => {
+app.post("/api/push/test", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   const { title, message } = req.body;
   const resolvedTitle = title || "Prueba de Agricovet 🔔";
   const resolvedMessage = message || "¡Las notificaciones Push funcionan con vibración tipo WhatsApp!";
@@ -7849,14 +7945,14 @@ app.get("/api/panic/status", asyncHandler(async (req: any, res: any) => {
   });
 }));
 
-app.post("/api/panic/switch", asyncHandler(async (req: any, res: any) => {
+app.post("/api/panic/switch", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   const { mode } = req.body;
   await persistGlobalDbMode(mode || "local");
   console.log(`[PANIC SWITCH] Base de datos local: LOCAL`);
   return res.json({ success: true, activeMode: 'local' });
 }));
 
-app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
+app.post("/api/panic/sync", requireAuthOrLocal, asyncHandler(async (req: any, res: any) => {
   if (!pgPool) {
     return res.status(500).json({ error: "Base de datos no configurada" });
   }
@@ -7869,6 +7965,7 @@ app.post("/api/panic/sync", asyncHandler(async (req: any, res: any) => {
     const { data: users } = await localDb.from("users").select("*");
     if (users && users.length > 0) {
       for (const u of users) {
+        if (isSystemRecord(u)) continue;
         await client.query(`
             INSERT INTO public.users (id, name, email, role, password, photo, phone, "sellerCode")
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -8657,6 +8754,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
       let currentStock = parseFloat(product.stock || 0);
       let variantObj: any = null;
       let newStock = currentStock;
+      let actualDeductedQty = 0;
 
       if (!product.is_external) {
         let variantsToUpdate = product.variants ? [...product.variants] : [];
@@ -8682,6 +8780,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           deductQty = Math.max(0, Math.min(currentStock, deductQty));
         }
         newStock = Math.max(0, currentStock - deductQty);
+        actualDeductedQty = Math.max(0, currentStock - newStock);
         if (newStock <= 0 && !isExemptFromStock) {
           // Send stock alert to admins
           const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
@@ -8727,17 +8826,17 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
           if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
         }
 
-        if (!isExemptFromStock) {
-          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
+        if (actualDeductedQty > 0) {
+          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
           recordAuditLog({
             action: 'STOCK_DEDUCTED_SALE',
             category: 'stock',
             entity_type: 'product',
             entity_id: product.id,
             entity_name: product.name,
-            description: `Descuento de inventario por venta a "${client}": -${item.quantity} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
+            description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
             previous_data: { stock: currentStock },
-            new_data: { stock: newStock, quantitySold: item.quantity, client },
+            new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
             user_id: req.user?.id,
             user_email: req.user?.email,
             user_name: req.user?.name || req.user?.email,
@@ -8765,6 +8864,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
         originalPrice: product.price,
         previousStock: prevStockVal,
         newStock: newStockVal,
+        stockDeducted: actualDeductedQty,
         isExempt: isExemptFromStock
       });
     }
@@ -9072,6 +9172,10 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
 
+  if (!isInvoiceOwnerOrAdmin(req.user, oldInvoice)) {
+    return res.status(403).json({ error: "No autorizado para editar esta factura" });
+  }
+
   if (oldInvoice.status === 'cancelled' || oldInvoice.status === 'rejected') {
     return res.status(400).json({ error: "Factura anulada, no se puede editar." });
   }
@@ -9091,13 +9195,14 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
       prod = {
         id: item.productId,
         name: 'COSTO DE ENVIO',
+        category: '',
         price: item.price !== undefined ? parseFloat(item.price) : 26,
         stock: 999999,
         is_external: true,
         variants: []
       };
     } else {
-      const { data: products } = await localDb.from("products").select("stock, price, name, is_external, variants").eq('id', item.productId);
+      const { data: products } = await localDb.from("products").select("stock, price, name, category, is_external, variants").eq('id', item.productId);
       prod = products?.[0];
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
@@ -9116,7 +9221,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
       }
     }
 
-    let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
+    let isStockAlert = !prod.is_external && currentStock < item.quantity && !isExemptFromStockBlock(prod, item);
     if (!item.isAuthorized && !item.isOfferApplied && (item.price < prod.price || isStockAlert)) needsAuth = true;
 
     total += item.price * item.quantity;
@@ -9131,12 +9236,14 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
 
   // 2. Apply net stock changes
   const netStockChanges: Record<string, { total: number, variants: Record<string, number> }> = {};
-  for (const old of oldInvoice.items) {
+  for (const old of (oldInvoice.items || [])) {
+    const oldDeducted = getEffectiveDeductedQty(old);
+    if (oldDeducted <= 0) continue;
     if (!netStockChanges[old.productId]) netStockChanges[old.productId] = { total: 0, variants: {} };
     if (old.variantId) {
-      netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + parseFloat(old.quantity);
+      netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + oldDeducted;
     } else {
-      netStockChanges[old.productId].total += parseFloat(old.quantity);
+      netStockChanges[old.productId].total += oldDeducted;
     }
   }
   for (const newItem of items) {
@@ -9152,21 +9259,24 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
   const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
   try {
     for (const [prodId, changes] of Object.entries(netStockChanges)) {
-      const { data: pData } = await localDb.from("products").select("stock, is_external, variants").eq('id', prodId);
+      const { data: pData } = await localDb.from("products").select("stock, name, category, is_external, variants").eq('id', prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
+      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
         if (netDiff === 0) continue;
         const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
         if (vIdx !== -1) {
-          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
+          const rawVarStock = parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff;
+          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
         await localDb.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
       } else if (changes.total !== 0) {
-        await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq('id', prodId);
+        const rawStock = parseFloat(p.stock || 0) + changes.total;
+        await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq('id', prodId);
       }
     }
   } finally {
@@ -9292,6 +9402,10 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req: any,
   const { data: invoices } = await localDb.from("invoices").select("*").eq('id', id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
+
+  if (!isInvoiceOwnerOrAdmin(req.user, oldInvoice)) {
+    return res.status(403).json({ error: "No autorizado para editar esta factura" });
+  }
 
   let baseNotesParts = (oldInvoice.notes || '').split("|||");
   let effectiveNit = nit !== undefined ? String(nit).trim() : baseNotesParts[0].trim();
@@ -9513,8 +9627,16 @@ app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req: any, 
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
-  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No autorizado para archivar esta factura" });
+  }
+  const docFel: any = await felServicio.obtenerDocumentoPorFactura(localDb, id);
+  if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
+    return res.status(409).json({
+      error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
+        "Para anularla o archivarla, usa \"Anular documento ante SAT\" en el panel FEL.",
+      requiereAnulacionFel: true,
+    });
   }
   await localDb.from("invoices").update({ is_archived: true }).eq('id', id);
   invalidateCache("folio_map");
@@ -9528,33 +9650,20 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req: any, res: 
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
-  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.email) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No autorizado para eliminar esta factura" });
   }
+  const docFel: any = await felServicio.obtenerDocumentoPorFactura(localDb, id);
+  if (docFel && docFel.estado === 'certificado' && docFel.numero_autorizacion) {
+    return res.status(409).json({
+      error: "Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. " +
+        "Para anularla, usa \"Anular documento ante SAT\" en el panel FEL: ese proceso " +
+        "anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.",
+      requiereAnulacionFel: true,
+    });
+  }
   if (invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-    for (const item of invoice.items) {
-      const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq('id', item.productId);
-      const product = prods?.[0];
-      if (product && !product.is_external) {
-        let variantsToUpdate = product.variants ? [...product.variants] : [];
-        let variantObj = null;
-        if (item.variantId) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-          }
-        }
-        if (variantObj && variantObj.stock !== undefined) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', item.productId);
-          if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-        } else {
-          const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq('id', item.productId);
-          if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-        }
-      }
-    }
+    await restaurarStockDeFactura(invoice);
   }
   await localDb.from("invoices").delete().eq('id', id);
   invalidateCache("folio_map");
@@ -10653,7 +10762,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
 
     let response: any = null;
     let lastError: any = null;
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
 
     for (const modelName of modelsToTry) {
       let attempts = 0;
@@ -10813,7 +10922,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
 
     let response: any = null;
     let lastError: any = null;
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
 
     for (const modelName of modelsToTry) {
       let attempts = 0;
@@ -11506,7 +11615,8 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
   const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
   let cleanFolio = String(folio || '').replace(/^#/, '').trim();
   const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
-  const numAmount = parseFloat(amount || 0);
+  let numAmount = parseFloat(amount || 0);
+  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
 
   let receiptUrl = null;
   if (receiptBase64 && String(receiptBase64).trim() !== '') {
@@ -11645,6 +11755,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: an
   // Esperar hasta 6s por si la imagen de la boleta se está procesando simultáneamente
   const pending = await waitForPendingBoleta(cleanPhone, 6000);
   let numAmount = parseFloat(amount || 0);
+  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
   let receiptUrl = null;
   let boletaNotes = notes ? decodeURIComponent(notes) : '';
 
@@ -11834,40 +11945,59 @@ ${productsContext}`;
       }
     };
 
-    const chatObj = client.chats.create({
-      model: "gemini-3.1-flash-lite",
-      config: {
-        systemInstruction,
-        tools: [{ functionDeclarations: [checkInventoryQuantity] }]
-      },
-      history: formattedHistory
-    });
+    const chatModelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    let response: any = null;
+    let lastChatErr: any = null;
 
-    let response = await chatObj.sendMessage({ message });
+    for (const modelName of chatModelsToTry) {
+      try {
+        const chatObj = client.chats.create({
+          model: modelName,
+          config: {
+            systemInstruction,
+            tools: [{ functionDeclarations: [checkInventoryQuantity] }]
+          },
+          history: formattedHistory
+        });
 
-    if (response.functionCalls && response.functionCalls.length > 0) {
-      const call = response.functionCalls[0];
-      if (call.name === "check_inventory_quantity") {
-        const product_name = (call.args as any).product_name;
-        const { data } = await localDb.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
+        response = await chatObj.sendMessage({ message });
 
-        let dbResultMsg = "";
-        if (data && data.length > 0) {
-          dbResultMsg = data.map((p: any) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join('; ');
-        } else {
-          dbResultMsg = "No se encontró ningún producto con ese nombre.";
+        if (response.functionCalls && response.functionCalls.length > 0) {
+          const call = response.functionCalls[0];
+          if (call.name === "check_inventory_quantity") {
+            const product_name = (call.args as any).product_name;
+            const { data } = await localDb.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
+
+            let dbResultMsg = "";
+            if (data && data.length > 0) {
+              dbResultMsg = data.map((p: any) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join('; ');
+            } else {
+              dbResultMsg = "No se encontró ningún producto con ese nombre.";
+            }
+
+            response = await chatObj.sendMessage({
+              message: [{
+                functionResponse: {
+                  id: call.id,
+                  name: call.name,
+                  response: { result: dbResultMsg }
+                }
+              }]
+            });
+          }
         }
 
-        response = await chatObj.sendMessage({
-          message: [{
-            functionResponse: {
-              id: call.id,
-              name: call.name,
-              response: { result: dbResultMsg }
-            }
-          }]
-        });
+        if (response && response.text) {
+          break;
+        }
+      } catch (chatErr: any) {
+        lastChatErr = chatErr;
+        console.warn(`Gemini chat with model ${modelName} failed: ${chatErr?.message}. Trying fallback...`);
       }
+    }
+
+    if (!response) {
+      throw lastChatErr || new Error("No se pudo obtener respuesta de Gemini.");
     }
 
     res.json({ reply: response.text });
@@ -11994,7 +12124,7 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res:
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
 
   // Un vendedor solo puede ver sus propias facturas.
-  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
 
@@ -12034,7 +12164,8 @@ app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: a
   });
 
   if (req.user.role !== 'admin') {
-    const { data: propias } = await localDb.from("invoices").select("id").eq("sellerId", req.user.id);
+    const sellerKeys = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].filter(Boolean);
+    const { data: propias } = await localDb.from("invoices").select("id").in("sellerId", sellerKeys);
     const permitidas = new Set((propias || []).map((f: any) => f.id));
     documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
   }
@@ -12106,7 +12237,7 @@ app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, 
   const { data: facturas } = await localDb.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-  if (req.user.role !== 'admin' && invoice.sellerId !== req.user.id) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
 
@@ -12442,8 +12573,12 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
   if (!invoice_id) {
     return res.status(400).json({ error: 'invoice_id es requerido' });
   }
-  const payload = {
-    id: `RC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+  // Usar UUID v4 válido para cumplir con la columna UUID en PostgreSQL
+  const isValidUuid = (val: any) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(val || '').trim());
+  const effectiveId = (req.body?.id && isValidUuid(req.body.id)) ? req.body.id : crypto.randomUUID();
+
+  const payload: any = {
+    id: effectiveId,
     invoice_id: String(invoice_id),
     folio: String(folio || ''),
     receiver_name: receiver_name || null,
@@ -12459,6 +12594,24 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
     pdf_url: pdf_url || null,
     created_by: created_by || req.user?.name || null
   };
+
+  // Si ya existe un recibo previo para esta factura, actualizarlo limpiamente
+  try {
+    const { data: existing } = await localDb.from('recibos_conformes').select('id').eq('invoice_id', String(invoice_id)).limit(1);
+    if (existing && Array.isArray(existing) && existing.length > 0) {
+      const existingId = existing[0].id;
+      const updatePayload = { ...payload };
+      delete updatePayload.id;
+      const { data: updated, error: updateErr } = await localDb.from('recibos_conformes').update(updatePayload).eq('id', existingId).select().single();
+      if (!updateErr && updated) {
+        invalidateCache("recibos_conformes");
+        return res.json(updated);
+      }
+    }
+  } catch (checkErr) {
+    console.warn("Check existing recibo_conforme:", checkErr);
+  }
+
   const { data, error } = await localDb.from('recibos_conformes').insert([payload]).select().single();
   if (error) {
     return res.status(500).json({ error: error.message || 'Error al guardar Recibo Conforme' });
@@ -12480,7 +12633,7 @@ setInterval(() => {
   }
 }, 180000);
 
-app.post('/api/download-temp', express.json({ limit: '50mb' }), (req: any, res: any) => {
+app.post('/api/download-temp', express.json({ limit: '20mb' }), (req: any, res: any) => {
   try {
     const { filename, mimeType, base64 } = req.body;
     if (!filename || !base64) {
@@ -12490,10 +12643,20 @@ app.post('/api/download-temp', express.json({ limit: '50mb' }), (req: any, res: 
     const rawBase64 = base64.includes(',') ? base64.substring(base64.indexOf(',') + 1) : base64;
     const buffer = Buffer.from(rawBase64, 'base64');
     const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
+    const rawMime = String(mimeType || 'application/pdf').toLowerCase().trim();
+    const safeMimeType = (rawMime.includes('html') || rawMime.includes('javascript') || rawMime.includes('script'))
+      ? 'application/octet-stream'
+      : (mimeType || 'application/pdf');
+
+    if (tempDownloadStore.size >= 25) {
+      const oldestKey = tempDownloadStore.keys().next().value;
+      if (oldestKey) tempDownloadStore.delete(oldestKey);
+    }
+
     tempDownloadStore.set(token, {
       buffer,
       filename: safeFilename,
-      mimeType: mimeType || 'application/pdf',
+      mimeType: safeMimeType,
       expires: Date.now() + 180000 // 3 minutos de vigencia
     });
     return res.json({ url: `/api/download-temp/${token}/${encodeURIComponent(safeFilename)}` });
@@ -12511,6 +12674,7 @@ app.get('/api/download-temp/:token/:filename?', (req: any, res: any) => {
   }
 
   res.setHeader('Content-Type', item.mimeType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
   res.setHeader('Content-Length', item.buffer.length.toString());
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -12663,7 +12827,7 @@ async function startServer() {
           console.warn("Users select failed in migration:", e?.message || e);
         }
 
-        const missingUserCodes = usersData.filter((u: any) => !u.sellerCode || u.sellerCode.trim() === '');
+        const missingUserCodes = usersData.filter((u: any) => !isSystemRecord(u) && (!u.sellerCode || u.sellerCode.trim() === ''));
         if (missingUserCodes.length > 0) {
           console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
           const usedUserCodes = new Set(usersData.map((u: any) => u.sellerCode).filter(Boolean));

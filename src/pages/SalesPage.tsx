@@ -3049,12 +3049,33 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       if (!newClientSellerId) {
                         return alert('Por favor asigna un vendedor para el cliente.');
                       }
-                      // No duplicar por NIT (CF puede repetirse y sucursales permitidas con confirmacion)
                       const normNit = (v: any) => String(v ?? '').replace(/[\s\-\/\.]/g, '').toUpperCase();
                       const nitN = normNit(newClientNit);
+                      const nameN = newClientName.trim().toLowerCase();
+
+                      // Si ya existe el cliente registrado en el sistema con el mismo nombre y/o NIT, seleccionarlo de inmediato
+                      const dupExacto = clients.find((c: any) => {
+                        const cNit = normNit(c.nit);
+                        const cName = (c.name || '').trim().toLowerCase();
+                        if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL' && cNit === nitN && cName === nameN) return true;
+                        if (cName === nameN) return true;
+                        return false;
+                      });
+
+                      if (dupExacto) {
+                        setClient(dupExacto.companyName ? `${dupExacto.name} - ${dupExacto.companyName}` : dupExacto.name);
+                        setNit(dupExacto.nit || 'C/F');
+                        setPhone(dupExacto.phone || '');
+                        setAddress(dupExacto.address || '');
+                        setIsEditingAddress(false);
+                        setShowSearchClientModal(false);
+                        return;
+                      }
+
+                      // Si existe un cliente con el mismo NIT pero DIFERENTE nombre, confirmar si es otra sucursal
                       if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
                         const dup = clients.find((c: any) => normNit(c.nit) === nitN);
-                        if (dup) {
+                        if (dup && dup.name?.trim().toLowerCase() !== nameN) {
                           const permitir = confirm(`Ya existe un cliente con el NIT ${newClientNit.trim()}: "${dup.name}".\n\n¿Deseas registrar otra agroveterinaria / sucursal con el mismo NIT?`);
                           if (!permitir) return;
                         }
@@ -3093,6 +3114,22 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         // Close Modal
                         setShowSearchClientModal(false);
                       } catch (err: any) {
+                        const msg = String(err?.message || '');
+                        if (msg.includes('Ya existe un cliente') || msg.includes('No se puede duplicar')) {
+                          const encontrado = clients.find((c: any) => 
+                            (c.name?.trim().toLowerCase() === nameN) ||
+                            (nitN && nitN !== 'CF' && normNit(c.nit) === nitN)
+                          );
+                          if (encontrado) {
+                            setClient(encontrado.companyName ? `${encontrado.name} - ${encontrado.companyName}` : encontrado.name);
+                            setNit(encontrado.nit || 'C/F');
+                            setPhone(encontrado.phone || '');
+                            setAddress(encontrado.address || '');
+                            setIsEditingAddress(false);
+                            setShowSearchClientModal(false);
+                            return;
+                          }
+                        }
                         alert(`Error registrando cliente: ${err.message}`);
                       } finally {
                         setIsSubmitting(false);

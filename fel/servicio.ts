@@ -66,6 +66,8 @@ export interface DocumentoFEL {
   monto_gravable?: number | null;
   monto_iva?: number | null;
   gran_total?: number | null;
+  receptor_nit?: string | null;
+  receptor_nombre?: string | null;
   intentos?: number;
   mensaje_error?: string | null;
   creado_en?: string;
@@ -288,7 +290,7 @@ export async function certificarFactura(
   const nitOverride = (opciones.receptor?.nit ?? '').toString().trim();
   const nombreOverride = (opciones.receptor?.nombre ?? '').toString().trim();
   const nitReceptorFinal = nitOverride || nitReceptor;
-  const nombreReceptorFinal = nombreOverride || invoice.client || 'Consumidor Final';
+  const nombreReceptorFinal = nombreOverride || invoice.client || invoice.clientName || 'Consumidor Final';
 
   // Si el override trae un NIT real, la advertencia de "se emitira como CF"
   // (que prepararDTE agrega cuando la factura no tiene NIT) ya no aplica.
@@ -361,7 +363,7 @@ export async function certificarFactura(
         codigoEstablecimiento: config!.codigo_establecimiento!,
         afiliacionIva: config!.afiliacion_iva,
       },
-      { nit: nitReceptorFinal || 'CF', nombre: nombreReceptorFinal, direccion: invoice.address, correo: invoice.email || invoice.clientEmail },
+      { nit: nitReceptorFinal || 'CF', nombre: nombreReceptorFinal, direccion: invoice.address || invoice.deliveryAddress, correo: invoice.email || invoice.clientEmail },
       totales,
       {
         tipo: (tipoDte === 'FCAM' ? 'FCAM' : 'FACT'),
@@ -505,7 +507,7 @@ export async function anularFactura(
   const xmlAnulacion = construirXmlAnulacion({
     numeroAutorizacion: documento.numero_autorizacion,
     nitEmisor: config?.nit_emisor ?? '',
-    nitReceptor: extraerNit(invoice) || 'CF',
+    nitReceptor: documento.receptor_nit || extraerNit(invoice) || 'CF',
     // OJO: debe ser la fecha que SAT registro al CERTIFICAR (la devuelve el
     // certificador), no la fecha de la factura del sistema. La factura suele
     // guardarse a medianoche UTC, que en hora de Guatemala cae el dia

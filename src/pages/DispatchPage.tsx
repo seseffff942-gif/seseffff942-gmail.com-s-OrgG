@@ -367,17 +367,27 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
     element.style.padding = '25px 30px';
     element.style.backgroundColor = '#ffffff';
     element.style.fontFamily = "'Arial Black', 'Arial', sans-serif";
+
+    const escapeHtml = (str: any): string =>
+      String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     
     const itemsHtml = selectedInvoice.items.map((item) => {
         const qty = dispatchedItems[item.productId] || 0;
         const price = item.price || 0;
         const subtotal = qty * price;
-        const c = item.color || (item as any).variant?.color;
-        const s = item.size || (item as any).variant?.size;
-        const varStr = (c || s) ? `<br/><small style="color: #64748b; font-weight: normal;">🎨 ${c && s && s !== 'Única' ? `${c} - ${s}` : (c || s)}</small>` : '';
+        const rawC = item.color || (item as any).variant?.color;
+        const rawS = item.size || (item as any).variant?.size;
+        const c = rawC ? escapeHtml(rawC) : '';
+        const s = rawS ? escapeHtml(rawS) : '';
+        const varStr = (c || s) ? `<br/><small style="color: #64748b; font-weight: normal;">🎨 ${c && s && rawS !== 'Única' ? `${c} - ${s}` : (c || s)}</small>` : '';
         return `
           <tr style="border-bottom: 1px solid #f1f5f9; page-break-inside: avoid;">
-            <td style="padding: 10px 8px; color: #0f172a; font-size: 9pt; font-weight: 900; text-align: left;">${item.productName || 'Producto'}${varStr}</td>
+            <td style="padding: 10px 8px; color: #0f172a; font-size: 9pt; font-weight: 900; text-align: left;">${escapeHtml(item.productName || 'Producto')}${varStr}</td>
             <td style="padding: 10px 8px; color: #1e293b; font-size: 9pt; font-weight: 900; text-align: center;">${qty}</td>
             <td style="padding: 10px 8px; color: #64748b; font-size: 8.5pt; text-align: right;">Q ${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
             <td style="padding: 10px 8px; color: #1A4D2E; font-size: 9.5pt; text-align: right; font-weight: 900;">Q ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
@@ -410,21 +420,21 @@ export function DispatchPage({ user, isMobile }: DispatchPageProps) {
       <div style="display: flex; justify-content: space-between; margin-bottom: 30px; font-family: Arial, sans-serif;">
         <div style="width: 48%; border-left: 3px solid #1A4D2E; padding-left: 12px;">
           <div style="font-size: 8pt; font-weight: 900; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1.5px;">DESTINATARIO</div>
-          <div style="font-weight: 900; font-size: 12pt; color: #0f172a; margin-bottom: 4px;">${selectedInvoice.client}</div>
+          <div style="font-weight: 900; font-size: 12pt; color: #0f172a; margin-bottom: 4px;">${escapeHtml(selectedInvoice.client)}</div>
           <div style="font-size: 9.5pt; color: #475569; line-height: 1.4;">
-            <strong>NIT:</strong> ${selectedInvoice.nit || 'C/F'}<br>
-            <strong>Dirección:</strong> ${selectedInvoice.address || 'Ciudad'}<br>
-            <strong>Teléfono:</strong> ${selectedInvoice.phone || 'N/A'}
+            <strong>NIT:</strong> ${escapeHtml(selectedInvoice.nit || 'C/F')}<br>
+            <strong>Dirección:</strong> ${escapeHtml(selectedInvoice.address || 'Ciudad')}<br>
+            <strong>Teléfono:</strong> ${escapeHtml(selectedInvoice.phone || 'N/A')}
           </div>
         </div>
         <div style="width: 48%; border-left: 3px solid #e2e8f0; padding-left: 12px;">
           <div style="font-size: 8pt; font-weight: 900; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1.5px;">DATOS DEL ENVÍO</div>
           <div style="font-size: 9.5pt; color: #475569; line-height: 1.4;">
-            <strong>No. Control:</strong> #${selectedInvoice.id.replace('INV-', '')}<br>
+            <strong>No. Control:</strong> #${escapeHtml(selectedInvoice.id.replace('INV-', ''))}<br>
             <strong>Fecha Egreso:</strong> ${new Date().toLocaleDateString()}<br>
-            <strong>Pago:</strong> ${selectedInvoice.paymentMethod || 'CREDITO'}<br>
+            <strong>Pago:</strong> ${escapeHtml(selectedInvoice.paymentMethod || 'CREDITO')}<br>
             <strong>Estado:</strong> <span style="color: #ea580c; font-weight: 900;">PENDIENTE</span><br>
-            <strong>Responsable:</strong> ${getSellerName(selectedInvoice.sellerId || selectedInvoice.seller)}
+            <strong>Responsable:</strong> ${escapeHtml(getSellerName(selectedInvoice.sellerId || selectedInvoice.seller))}
           </div>
         </div>
       </div>

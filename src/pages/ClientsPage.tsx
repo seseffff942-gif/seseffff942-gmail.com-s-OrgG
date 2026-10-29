@@ -249,6 +249,12 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     if (nitN && nitN !== 'CF' && nitN !== 'CONSUMIDORFINAL') {
       const dup = clients.find(c => normNit(c.nit) === nitN);
       if (dup) {
+        if (dup.name?.trim().toLowerCase() === newClient.name.trim().toLowerCase()) {
+          alert(`El cliente "${dup.name}" ya se encuentra registrado con el NIT ${newClient.nit}.`);
+          setNewClient({ name: '', companyName: '', nit: '', phone: '', address: '', sellerId: '', clientCode: '', isBlocked: false });
+          setShowAddForm(false);
+          return;
+        }
         const permitir = confirm(`Ya existe un cliente con el NIT ${newClient.nit}: "${dup.name}".\n\n¿Deseas registrar otra agroveterinaria / sucursal con el mismo NIT?`);
         if (!permitir) return;
       }
