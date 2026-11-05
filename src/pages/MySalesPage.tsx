@@ -642,7 +642,11 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   >
                     <Download size={14} /> PDF
                   </button>
-                  { user.role === 'admin' && invoice.status !== 'sent' ? (
+                  { invoice.isFelCertified ? (
+                    <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-1.5 rounded-lg" title="Facturada en SAT (Bloqueada para edición)">
+                      🔒 FEL
+                    </span>
+                  ) : user.role === 'admin' && invoice.status !== 'sent' ? (
                     <button
                       onClick={() => {
                           localStorage.setItem('edit_invoice', JSON.stringify(invoice));
@@ -938,7 +942,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Fecha</th>
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Monto Abonado</th>
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase">Comprobante</th>
-                        {user.role === 'admin' && (
+                        {user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && (
                           <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-right">Acción</th>
                         )}
                       </tr>
@@ -971,7 +975,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                               <span className="text-neutral-400 text-xs italic px-3 py-1 bg-neutral-50 rounded-lg border border-neutral-100">Sin comprobante</span>
                             )}
                           </td>
-                          {user.role === 'admin' && (
+                          {user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && (
                             <td className="px-4 py-3 text-right">
                               <button
                                 type="button"
@@ -1371,7 +1375,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                     <div>
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400 font-bold block">NIT o C/F</span>
-                        {user.role === 'admin' && (
+                        {user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && (
                           <button
                             onClick={async () => {
                               const newNit = prompt('Editar NIT para esta venta:', selectedInvoiceForModal.nit || 'CF');
@@ -1711,7 +1715,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                             ) : (
                               <span className="text-slate-400 italic text-[10px] px-2 py-1 bg-slate-100 rounded">Sin archivo</span>
                             )}
-                            {user.role === 'admin' && (
+                            {user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && (
                               <button
                                 type="button"
                                 onClick={() => handleDeletePayment(selectedInvoiceForModal.id, payment.id, payment.amount)}
@@ -1792,7 +1796,11 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                 >
                   <Download size={14} /> <span>Descargar PDF</span>
                 </button>
-                {selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && (
+                {selectedInvoiceForModal.isFelCertified ? (
+                  <div className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 sm:px-4 py-2.5 rounded-xl shadow-xs" title="Esta venta está certificada ante la SAT (FEL). No puede modificarse salvo anulación en SAT.">
+                    <span>🔒 Facturada en SAT</span>
+                  </div>
+                ) : selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && (
                   user.role === 'admin' ? (
                    <button
                      onClick={() => {

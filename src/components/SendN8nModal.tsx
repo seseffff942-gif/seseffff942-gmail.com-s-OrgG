@@ -184,7 +184,7 @@ export function SendN8nModal({ isOpen, onClose, onSuccess }: SendN8nModalProps) 
                 Tipo de Reporte a Enviar
               </label>
               <span className="text-[10px] font-bold text-slate-400">
-                {tipoCorte === 'semanal' ? 'Meta Q52,500 (Semanal)' : 'Meta Q8,750 (Diaria)'}
+                {tipoCorte === 'semanal' ? 'Meta Q50,000 (Semanal)' : 'Meta Q8,350 (Diaria)'}
               </span>
             </div>
             <div className="grid grid-cols-3 gap-2">

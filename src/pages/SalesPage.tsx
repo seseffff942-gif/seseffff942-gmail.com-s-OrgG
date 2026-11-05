@@ -333,6 +333,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
       try {
         const inv = JSON.parse(storedEdit);
+        if (inv.isFelCertified) {
+          alert('⚠️ Esta venta ya se encuentra CERTIFICADA ante la SAT (DTE activo). Por normativa contable y fiscal no se puede modificar. Si requieres hacer cambios, anula formalmente el DTE en el panel de facturación.');
+          localStorage.removeItem('edit_invoice');
+          localStorage.removeItem('draft_edit_invoice_id');
+          return;
+        }
         if (inv.status === 'sent') {
           alert('No se puede editar un pedido que ya ha sido marcado como ENVIADO.');
           localStorage.removeItem('edit_invoice');
@@ -456,7 +462,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       return acc + unitPrice * item.quantity;
     }, 0);
 
-    const targetPrice = subtotal >= 1000 ? 0 : 26;
+    const targetPrice = subtotal >= 1000 ? 0 : 29.5;
 
     if (shippingItem.overridePrice !== targetPrice) {
       setCart(prev => prev.map(i => {
@@ -1785,7 +1791,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
             <div className="border-t border-slate-200/60 pt-3">
               <div className="flex items-center justify-between">
                 <div className="flex flex-col">
-                  <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Incluir costo de envío (Q26.00)</span>
+                  <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Incluir costo de envío (Q29.50)</span>
                   <span className="text-[9px] text-slate-400">Gratuito para pedidos superiores a Q1,000</span>
                 </div>
                 <button 
@@ -1798,7 +1804,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       const shippingProduct = products.find(p => p.name === 'COSTO DE ENVIO') || {
                         id: `shipping-${Date.now()}`,
                         name: 'COSTO DE ENVIO',
-                        price: 26,
+                        price: 29.5,
                         stock: 999999,
                         is_external: false,
                         category: 'Servicios',

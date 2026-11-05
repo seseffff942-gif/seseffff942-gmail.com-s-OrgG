@@ -544,6 +544,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   };
 
   const handleStartRoute = async () => {
+    if (isStartingRoute) return;
     try {
       setIsStartingRoute(true);
       let freshLoc: { latitude: number; longitude: number } | null = null;
@@ -1718,6 +1719,12 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 <button
                   type="button"
                   onClick={() => {
+                    const elapsedMs = myActiveRoute?.startedAt ? (Date.now() - new Date(myActiveRoute.startedAt).getTime()) : 999999;
+                    if (elapsedMs < 60000) {
+                      if (!window.confirm("⚠️ Tu ruta fue iniciada hace menos de un minuto. ¿Deseas cancelarla o cerrarla de todos modos?")) {
+                        return;
+                      }
+                    }
                     setRouteToFinish(myActiveRoute);
                     setShowFinishRouteModal(true);
                   }}
@@ -3343,6 +3350,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                     <p className="text-xs text-slate-500 mt-1">
                       Al finalizar, la jornada de <strong>{targetSeller}</strong> se cerrará con las paradas registradas y su <strong>ubicación GPS real de cierre</strong> pasará automáticamente al historial.
                     </p>
+                    {targetToClose?.startedAt && (Date.now() - new Date(targetToClose.startedAt).getTime() < 3 * 60 * 1000) && targetStops === 0 && (
+                      <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 font-semibold flex items-center gap-2">
+                        <span>⚠️ Esta ruta fue iniciada hace menos de 3 minutos y no tiene visitas. Se cerrará sin registrar paradas.</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-2">

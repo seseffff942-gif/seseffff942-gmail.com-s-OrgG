@@ -2364,7 +2364,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sendToWebhook: options?.sendToWebhook ?? false,
-        threshold: options?.threshold ?? 8750,
+        threshold: options?.threshold ?? 8350,
         webhookUrl: options?.webhookUrl,
         corteHora: options?.corteHora,
         targetSellerEmail: options?.targetSellerEmail,
@@ -2390,7 +2390,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sendToWebhook: options?.sendToWebhook ?? false,
-        threshold: options?.threshold ?? 52500,
+        threshold: options?.threshold ?? 50000,
         webhookUrl: options?.webhookUrl,
         targetSellerEmail: options?.targetSellerEmail,
         targetSellerEmails: options?.targetSellerEmails,

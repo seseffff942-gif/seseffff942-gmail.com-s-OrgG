@@ -428,7 +428,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
                 <FileText size={11} />
                 <span>Recibo Conforme</span>
               </button>
-              { user.role === 'admin' && invoice.status !== 'sent' && (
+              { user.role === 'admin' && invoice.status !== 'sent' && !invoice.isFelCertified && (
                  <button 
                    onClick={(e) => {
                         e.stopPropagation();

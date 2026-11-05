@@ -1947,7 +1947,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <div>
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400 font-bold block">NIT o C/F</span>
-                        {user.role === 'admin' && (
+                        {user.role === 'admin' && felEstados[selectedInvoiceForModal.id] !== 'certificado' && !selectedInvoiceForModal.isFelCertified && (
                           <button
                             onClick={async () => {
                               const newNit = prompt('Editar NIT para esta venta:', selectedInvoiceForModal.nit || 'CF');
@@ -2453,7 +2453,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 >
                   <Download size={14} /> <span>Descargar PDF</span>
                 </button>
-                {selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && user.role === 'admin' && (
+                {selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && felEstados[selectedInvoiceForModal.id] !== 'certificado' && !selectedInvoiceForModal.isFelCertified && user.role === 'admin' && (
                   <button
                     onClick={() => {
                       localStorage.setItem('edit_invoice', JSON.stringify(selectedInvoiceForModal));
@@ -2463,6 +2463,11 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                   >
                     <Edit2 size={14} /> <span>Editar Venta</span>
                   </button>
+                )}
+                {(felEstados[selectedInvoiceForModal.id] === 'certificado' || selectedInvoiceForModal.isFelCertified) && selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && (
+                  <div className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 sm:px-4 py-2.5 rounded-xl shadow-xs" title="Esta venta está certificada ante la SAT (FEL). No puede modificarse salvo que se anule el DTE en SAT.">
+                    <span>🔒 Facturada en SAT</span>
+                  </div>
                 )}
                 {selectedInvoiceForModal.phone && (
                   <button

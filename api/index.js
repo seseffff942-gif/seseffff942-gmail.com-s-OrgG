@@ -5714,21 +5714,44 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
       error: "Ubicaci\xF3n GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento."
     });
   }
+  let existingActive = null;
+  if (neonPool) {
+    try {
+      const dbActive = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE status = 'active'
+          AND (
+            ($1 <> '' AND (seller_id = $1 OR "sellerId" = $1)) OR
+            ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2))
+          )
+        ORDER BY COALESCE(started_at, created_at) DESC
+        LIMIT 1;
+      `, [userId, userEmail]);
+      if (dbActive.rows && dbActive.rows.length > 0) {
+        existingActive = dbActive.rows[0];
+      }
+    } catch (e) {
+    }
+  }
   const routes = readLocalRoutes();
-  const existingActive = routes.find((r) => {
-    if (r.status !== "active") return false;
-    const rSellerId = String(r.sellerId || r.seller_id || "").trim();
-    const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
-    return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
-  });
+  if (!existingActive) {
+    existingActive = routes.find((r) => {
+      if (r.status !== "active") return false;
+      const rSellerId = String(r.sellerId || r.seller_id || "").trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
+      return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
+    });
+  }
   if (existingActive) {
-    const existingDate = getGuatemalaDateString(existingActive.startedAt || existingActive.createdAt);
+    const existingDate = getGuatemalaDateString(existingActive.started_at || existingActive.startedAt || existingActive.created_at || existingActive.createdAt);
     const todayDate = getGuatemalaDateString();
     if (existingDate !== todayDate) {
       try {
         await closeActiveRouteAndNotify(existingActive, {
           isAutoClosed: true,
-          finishedAtIso: getGuatemala10PmIsoForDate(existingDate)
+          finishedAtIso: getGuatemala10PmIsoForDate(existingDate),
+          skipWhatsApp: true
+          // No enviar a las 6 o 7 AM del día siguiente resumen de días pasados
         });
       } catch (e) {
       }
@@ -5749,6 +5772,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
           }
         }
       }
+      console.log(`[Start Route] Asesor ${userName} ya cuenta con una jornada activa de hoy (${existingActive.id}). Reutilizando para evitar duplicados.`);
       return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
     }
   }
@@ -5830,7 +5854,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   try {
-    await localDb.from("seller_routes").insert([{
+    await localDb.from("seller_routes").upsert([{
       id: newRoute.id,
       seller_id: newRoute.sellerId,
       seller_name: newRoute.sellerName,
@@ -5843,7 +5867,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
       total_distance_km: 0,
       total_duration_mins: 0,
       notes: newRoute.notes
-    }]);
+    }], { onConflict: "id" });
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
@@ -6217,8 +6241,14 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           targetRoute.finishedAt,
           routeVisits
         );
+        const diffMs = Math.max(0, new Date(targetRoute.finishedAt).getTime() - new Date(targetRoute.startedAt).getTime());
+        const durationMins = Math.round(diffMs / 6e4);
+        const stopsCount = (routeVisits || []).length;
+        const isEphemeralCancellation = durationMins < 3 && stopsCount === 0;
         const isTest = Boolean(req.body.sendWhatsAppTest || req.body.isTest);
-        if (isTest) {
+        if (isEphemeralCancellation) {
+          console.log(`[WhatsApp Finish Route] Omitiendo notificaci\xF3n WhatsApp de auditor\xEDa: jornada cancelada o cerrada en menos de 3 min sin paradas (${durationMins} min, ${stopsCount} visitas).`);
+        } else if (isTest) {
           console.log(`[WhatsApp Finish Route] MODO PRUEBA: Despachando a ${ROUTE_WHATSAPP_TEST_PHONE}`);
           const okN8n = await dispatchRouteToN8nWebhook({
             action: "finish_route",
@@ -6685,7 +6715,7 @@ async function closeActiveRouteAndNotify(routeInput, options) {
     }
     return { success: true, adminSummaryMsg, sellerSummaryMsg };
   }
-  if (ROUTE_WHATSAPP_AUTO_ENABLED) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp) {
     console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
     const okEmanuel = await dispatchRouteToN8nWebhook({
       action: actionType,
@@ -6792,7 +6822,9 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
           console.log(`[AUTO-ROUTE-CRON] \u{1F3C1} Cerrando autom\xE1ticamente ruta rezagada de ${route.sellerName} (${route.id}) de fecha ${routeDateStr}`);
           await closeActiveRouteAndNotify(route, {
             isAutoClosed: true,
-            finishedAtIso: getGuatemala10PmIsoForDate(routeDateStr)
+            finishedAtIso: getGuatemala10PmIsoForDate(routeDateStr),
+            skipWhatsApp: true
+            // No enviar a las 6 o 7 AM del día siguiente resumen de días pasados
           });
         }
         continue;
@@ -7223,7 +7255,7 @@ function getDiaGuatemala(dateInput) {
   return `${year}-${month}-${day}`;
 }
 async function checkAndDispatchDailySales(options) {
-  const SALES_THRESHOLD = Number(options?.threshold) || 8750;
+  const SALES_THRESHOLD = Number(options?.threshold) || 8350;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
   const sendToWebhook = options?.sendToWebhook !== false;
   const now = /* @__PURE__ */ new Date();
@@ -7241,6 +7273,10 @@ async function checkAndDispatchDailySales(options) {
   const esCierre = corte === "17:00" || hour >= 16;
   const corteKey = `${todayLabel}_${corte}`;
   if (options?.isAutomatedCron) {
+    if (gtNow.getDay() === 0) {
+      console.log(`[AUTO-SALES-CRON] ?? Domingo detectado (${todayLabel}). Omitiendo despacho autom?tico.`);
+      return { success: true, skipped: true, message: "Domingo: no se env?an reportes autom?ticos." };
+    }
     const lockAcquired = await acquireCorteDispatchLock(corteKey);
     if (!lockAcquired) {
       console.log(`[AUTO-SALES-CRON] \u{1F6D1} El corte ${corteKey} YA FUE ENVIADO previamente hoy. Omitiendo despacho para evitar duplicados.`);
@@ -7315,8 +7351,8 @@ async function checkAndDispatchDailySales(options) {
       const email = (u.email || "").toLowerCase().trim();
       const name = (u.name || "").toLowerCase().trim();
       const role = (u.role || "").toLowerCase();
-      if (email.includes("susana") || name.includes("susana")) return false;
-      return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
+      if (email.includes("susana") || name.includes("susana") || email.includes("agroveterinaria.com") || email.includes("gmsil.com") || /don carlos|marcos g|prueba|test/i.test(name)) return false;
+      return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com";
     });
   }
   const uniqueTargetUsers = [];
@@ -7330,24 +7366,18 @@ async function checkAndDispatchDailySales(options) {
   });
   const results = [];
   const allReports = [];
+  const userStatsList = [];
   for (const seller of uniqueTargetUsers) {
     const sellerEmail = (seller.email || "").toLowerCase();
     const sellerIdKeys = [
       sellerEmail,
-      seller.id ? seller.id.toLowerCase() : null,
+      seller.id ? String(seller.id).toLowerCase() : null,
       seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
-      seller.name ? seller.name.toLowerCase() : null
+      seller.name ? String(seller.name).toLowerCase() : null
     ].filter(Boolean);
     const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
     const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
     const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
-    const destinatarios = [{
-      nombreDestinatario: sellerDisplayName,
-      telefono: sellerPhoneClean,
-      numero: sellerPhoneClean,
-      email: seller.email,
-      rol: seller.role || "seller"
-    }].filter((d) => Boolean(d.telefono));
     let cantidadVendida = 0;
     let cantidadFacturas = 0;
     const ventas = [];
@@ -7389,36 +7419,211 @@ async function checkAndDispatchDailySales(options) {
     cantidadVendida = Math.round(cantidadVendida * 100) / 100;
     const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
     const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
-    const payload = {
-      fecha: todayLabel,
-      corte,
-      tipoCorte: esCierre ? "cierre" : "mediodia",
-      tipoReporte: esCierre ? "cierre" : "mediodia",
-      tipo: esCierre ? "cierre" : "mediodia",
-      esCierre,
-      hora: corte,
-      horaCorte: corte,
-      corteHora: corte,
-      titulo: esCierre ? `Cierre del D\xEDa (5:00 PM) - ${sellerDisplayName}` : `Corte de Mediod\xEDa (12:00 PM) - ${sellerDisplayName}`,
-      vendedor: sellerDisplayName,
-      nombreDestinatario: sellerDisplayName,
-      email: seller.email,
-      numero: sellerPhoneClean,
-      telefono: sellerPhoneClean,
+    const superavit = Math.max(0, Math.round((cantidadVendida - SALES_THRESHOLD) * 100) / 100);
+    userStatsList.push({
+      seller,
+      sellerEmail,
+      sellerDisplayName,
+      sellerPhoneClean,
       cantidadVendida,
+      cantidadFacturas,
       cantidadFaltante,
       alcanzoMeta,
-      umbral: SALES_THRESHOLD,
-      cantidadFacturas,
-      mensaje: alcanzoMeta ? `\xA1Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, corte de las ${corte === "17:00" ? "5:00 PM" : "12:00 PM"}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
-      destinatarios,
-      ventas,
-      logoBase64: getLogoTiBase64()
-    };
+      superavit,
+      ventas
+    });
+  }
+  const isSingleSpecificSeller = Boolean(options?.targetSellerEmail);
+  const payloadsToDispatch = [];
+  if (isSingleSpecificSeller) {
+    for (const stat of userStatsList) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+  } else {
+    const fieldSellers = userStatsList.filter(
+      (s) => s.sellerEmail === "gruasytransportesali@gmail.com" || s.sellerEmail === "jerickottoniel@gmail.com"
+    );
+    for (const stat of fieldSellers) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+    const herbertData = userStatsList.find((s) => s.sellerEmail === "gruasytransportesali@gmail.com");
+    const erickData = userStatsList.find((s) => s.sellerEmail === "jerickottoniel@gmail.com");
+    const emanuelData = userStatsList.find((s) => s.sellerEmail === "seseffff942@gmail.com");
+    const herbertMonto = herbertData?.cantidadVendida || 0;
+    const herbertFacturas = herbertData?.cantidadFacturas || 0;
+    const herbertMeta = herbertMonto >= SALES_THRESHOLD;
+    const herbertDiff = herbertMeta ? herbertMonto - SALES_THRESHOLD : SALES_THRESHOLD - herbertMonto;
+    const erickMonto = erickData?.cantidadVendida || 0;
+    const erickFacturas = erickData?.cantidadFacturas || 0;
+    const erickMeta = erickMonto >= SALES_THRESHOLD;
+    const erickDiff = erickMeta ? erickMonto - SALES_THRESHOLD : SALES_THRESHOLD - erickMonto;
+    const emanuelMonto = emanuelData?.cantidadVendida || 0;
+    const emanuelFacturas = emanuelData?.cantidadFacturas || 0;
+    const emanuelVendio = emanuelMonto > 0;
+    const total2Vendedores = Math.round((herbertMonto + erickMonto) * 100) / 100;
+    const facturas2Vendedores = herbertFacturas + erickFacturas;
+    const totalGeneral = Math.round((total2Vendedores + (emanuelVendio ? emanuelMonto : 0)) * 100) / 100;
+    const totalFacturasGeneral = facturas2Vendedores + (emanuelVendio ? emanuelFacturas : 0);
+    const adminRecipients = [
+      { name: "Emanuel Lima", email: "seseffff942@gmail.com", phone: "50248234048" },
+      { name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50250007840" }
+    ];
+    for (const adm of adminRecipients) {
+      const horaTexto = corte === "17:00" ? "5:00 PM" : "12:00 PM";
+      const tituloHorario = corte === "17:00" ? "CIERRE DEL D\xCDA (5:00 PM)" : "CORTE DE MEDIOD\xCDA (12:00 PM)";
+      let textoConsolidado = `\u{1F4CA} *RESUMEN CONSOLIDADO DE VENTAS - ${tituloHorario}* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas del d\xEDa (*${todayLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Facturas Totales Hoy:* ${totalFacturasGeneral} factura(s)
+\u{1F3AF} *Meta Diaria por Asesor:* Q. ${SALES_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F465} *DETALLE POR ASESOR:*
+
+1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
+  \u25AB\uFE0F Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))
+  \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
+
+2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor):
+  \u25AB\uFE0F Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))
+  \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
+`;
+      if (emanuelVendio) {
+        textoConsolidado += `
+\u2B50 *Emanuel Lima (Ventas Propias):*
+  \u25AB\uFE0F Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))
+  \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas hoy en sistema
+`;
+      }
+      textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
+      payloadsToDispatch.push({
+        recipientName: adm.name,
+        recipientEmail: adm.email,
+        recipientPhone: adm.phone,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          esConsolidado: true,
+          titulo: `Resumen Consolidado (${horaTexto}) - ${adm.name}`,
+          vendedor: adm.name,
+          nombreDestinatario: adm.name,
+          email: adm.email,
+          numero: adm.phone,
+          telefono: adm.phone,
+          cantidadVendida: totalGeneral,
+          cantidadFaltante: 0,
+          alcanzoMeta: true,
+          umbral: SALES_THRESHOLD * 2,
+          cantidadFacturas: totalFacturasGeneral,
+          mensaje: textoConsolidado,
+          textoWhatsApp: textoConsolidado,
+          caption: textoConsolidado,
+          destinatarios: [{
+            nombreDestinatario: adm.name,
+            telefono: adm.phone,
+            numero: adm.phone,
+            email: adm.email,
+            rol: "admin"
+          }],
+          ventas: [],
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+  }
+  for (let i = 0; i < payloadsToDispatch.length; i++) {
+    const item = payloadsToDispatch[i];
+    const { recipientName, recipientEmail, recipientPhone, payload } = item;
     allReports.push(payload);
     let webhookResult = null;
     if (sendToWebhook) {
-      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
+      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${recipientName} (${corte}) [${recipientPhone}]: ${N8N_WEBHOOK_URL}`);
       try {
         const webhookRes = await fetch(N8N_WEBHOOK_URL, {
           method: "POST",
@@ -7427,23 +7632,22 @@ async function checkAndDispatchDailySales(options) {
         });
         const resText = await webhookRes.text().catch(() => "");
         webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[AUTO-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+        console.log(`[AUTO-SALES-CRON] Respuesta n8n (${recipientName}): HTTP ${webhookRes.status} - ${resText}`);
       } catch (err) {
         webhookResult = { error: err.message, ok: false };
-        console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+        console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${recipientName}:`, err.message);
       }
-      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
-      if (!isLastSeller) {
-        console.log(`[AUTO-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+      if (i < payloadsToDispatch.length - 1) {
+        console.log(`[AUTO-SALES-CRON] ? Esperando 60 segundos (1 minuto) antes de enviar al siguiente destinatario para proteger el n?mero...`);
         await new Promise((resolve) => setTimeout(resolve, 6e4));
       }
     }
     results.push({
-      vendedor: sellerDisplayName,
-      email: seller.email,
-      telefono: sellerPhoneClean,
-      cantidadVendida,
-      cantidadFacturas,
+      vendedor: recipientName,
+      email: recipientEmail,
+      telefono: recipientPhone,
+      cantidadVendida: payload.cantidadVendida,
+      cantidadFacturas: payload.cantidadFacturas,
       webhookResult,
       payload
     });
@@ -7459,7 +7663,7 @@ async function checkAndDispatchDailySales(options) {
   };
 }
 async function checkAndDispatchWeeklySales(options) {
-  const WEEKLY_THRESHOLD = Number(options?.threshold) || 52500;
+  const WEEKLY_THRESHOLD = Number(options?.threshold) || 5e4;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
   const sendToWebhook = options?.sendToWebhook !== false;
   const now = /* @__PURE__ */ new Date();
@@ -7482,6 +7686,10 @@ async function checkAndDispatchWeeklySales(options) {
   const periodoLabel = `${mDay}/${mMonth}/${mYear} al ${day}/${month}/${year}`;
   const corteKey = `${todayLabel}_semanal`;
   if (options?.isAutomatedCron) {
+    if (gtNow.getDay() !== 6) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] ?? D?a no v?lido para cierre semanal autom?tico (${todayLabel}, d?a=${gtNow.getDay()}). Omitiendo.`);
+      return { success: true, skipped: true, message: "El cierre semanal autom?tico solo se env?a los s?bados." };
+    }
     const lockAcquired = await acquireCorteDispatchLock(corteKey);
     if (!lockAcquired) {
       console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F6D1} El corte semanal ${corteKey} YA FUE ENVIADO previamente. Omitiendo despacho para evitar duplicados.`);
@@ -7714,6 +7922,7 @@ function initAutoDailySalesCron() {
       const year = gtNow.getFullYear();
       const month = String(gtNow.getMonth() + 1).padStart(2, "0");
       const day = String(gtNow.getDate()).padStart(2, "0");
+      if (gtNow.getDay() === 0) return;
       const hour = gtNow.getHours();
       const minute = gtNow.getMinutes();
       const todayDateStr = `${year}-${month}-${day}`;
@@ -7741,14 +7950,6 @@ function initAutoDailySalesCron() {
               }
             }, 6e4);
           }
-        }
-      }
-      if (hour === 20 && minute === 0) {
-        const corteKey = `${todayDateStr}_20:00`;
-        if (lastDispatchedCorteKey !== corteKey) {
-          lastDispatchedCorteKey = corteKey;
-          console.log(`[AUTO-SALES-CRON] \u{1F557} Disparando corte autom\xE1tico de las 8:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
         }
       }
     } catch (e) {
@@ -9022,7 +9223,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
           product = {
             id: item.productId,
             name: "COSTO DE ENVIO",
-            price: item.price !== void 0 ? parseFloat(item.price) : 26,
+            price: item.price !== void 0 ? parseFloat(item.price) : 29.5,
             stock: 999999,
             is_external: true,
             category: "Servicios",
@@ -9419,6 +9620,15 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   if (oldInvoice.status === "cancelled" || oldInvoice.status === "rejected") {
     return res.status(400).json({ error: "Factura anulada, no se puede editar." });
   }
+  const docFelFull = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelFull && docFelFull.estado === "certificado" && docFelFull.numero_autorizacion) {
+    return res.status(409).json({
+      error: `Esta venta ya est\xE1 CERTIFICADA ante la SAT (DTE Serie: ${docFelFull.serie}, No: ${docFelFull.numero}). Por seguridad fiscal y control contable no puede ser modificada. Si requieres corregirla, debes anular formalmente el DTE ante la SAT en el panel FEL.`,
+      requiereAnulacionFel: true,
+      serie: docFelFull.serie,
+      numero: docFelFull.numero
+    });
+  }
   let finalNotes = notes || oldInvoice.notes || "";
   if (sellerSignature) {
     finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
@@ -9433,7 +9643,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
         id: item.productId,
         name: "COSTO DE ENVIO",
         category: "",
-        price: item.price !== void 0 ? parseFloat(item.price) : 26,
+        price: item.price !== void 0 ? parseFloat(item.price) : 29.5,
         stock: 999999,
         is_external: true,
         variants: []
@@ -9611,6 +9821,15 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res)
   if (!isInvoiceOwnerOrAdmin(req.user, oldInvoice)) {
     return res.status(403).json({ error: "No autorizado para editar esta factura" });
   }
+  const docFelCustomer = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelCustomer && docFelCustomer.estado === "certificado" && docFelCustomer.numero_autorizacion) {
+    return res.status(409).json({
+      error: `Esta factura est\xE1 CERTIFICADA ante la SAT (DTE Serie: ${docFelCustomer.serie}, No: ${docFelCustomer.numero}). No se pueden modificar los datos fiscales de un documento legalmente emitido. Para correcciones, anula el DTE en SAT.`,
+      requiereAnulacionFel: true,
+      serie: docFelCustomer.serie,
+      numero: docFelCustomer.numero
+    });
+  }
   let baseNotesParts = (oldInvoice.notes || "").split("|||");
   let effectiveNit = nit !== void 0 ? String(nit).trim() : baseNotesParts[0].trim();
   let otherFlags = baseNotesParts.slice(1).join("|||");
@@ -9700,6 +9919,15 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
   const invoice = invoices[0];
   if (invoice.status === "paid" || invoice.status === "cancelled") {
     return res.status(400).json({ error: "Cannot edit this invoice." });
+  }
+  const docFelPrice = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelPrice && docFelPrice.estado === "certificado" && docFelPrice.numero_autorizacion) {
+    return res.status(409).json({
+      error: `No se pueden cambiar los precios de una factura CERTIFICADA ante la SAT (DTE Serie: ${docFelPrice.serie}, No: ${docFelPrice.numero}).`,
+      requiereAnulacionFel: true,
+      serie: docFelPrice.serie,
+      numero: docFelPrice.numero
+    });
   }
   if (invoice.items[itemIndex]) {
     invoice.items[itemIndex].price = newPrice;
@@ -9957,6 +10185,16 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     return !hasDirectFolio && !hasNoteFolio;
   });
   const folioMap = needsFolioMap ? await getFolioMap() : {};
+  const certifiedFelIds = /* @__PURE__ */ new Set();
+  try {
+    const { data: certRows } = await localDb.from("fel_documentos").select("invoice_id").eq("estado", "certificado");
+    if (certRows && Array.isArray(certRows)) {
+      certRows.forEach((r) => {
+        if (r.invoice_id) certifiedFelIds.add(String(r.invoice_id));
+      });
+    }
+  } catch (e) {
+  }
   const parsedInvoices = invoices.map((inv) => {
     const mappedInv = { ...inv };
     const rawNotes = mappedInv.notes || "";
@@ -10039,7 +10277,8 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       totalAmount: Number(mappedInv.totalAmount || 0),
       paidAmount: Number(mappedInv.paidAmount || 0),
       total: Number(mappedInv.total || mappedInv.totalAmount || 0),
-      trackingNumber: mappedInv.trackingNumber
+      trackingNumber: mappedInv.trackingNumber,
+      isFelCertified: certifiedFelIds.has(String(mappedInv.id))
     };
   });
   let filteredInvoices = parsedInvoices;

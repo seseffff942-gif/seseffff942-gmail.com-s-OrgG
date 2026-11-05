@@ -124,6 +124,7 @@ export interface Invoice {
   sellerSignature?: string;
   adminSignature?: string;
   reviewedBy?: string;
+  isFelCertified?: boolean;
 }
 
 export interface Payment {

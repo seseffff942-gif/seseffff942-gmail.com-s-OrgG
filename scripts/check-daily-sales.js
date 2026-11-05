@@ -30,7 +30,7 @@ const N8N_WEBHOOK_URL =
   process.env.N8N_WEBHOOK_URL ||
   'https://flattop-accent-throttle.ngrok-free.dev/webhook/ventas-reporte';
 
-const SALES_THRESHOLD = Number(process.env.SALES_THRESHOLD) || 8750;
+const SALES_THRESHOLD = Number(process.env.SALES_THRESHOLD) || 8350;
 
 // Vendedor objetivo específico
 const TARGET_SELLER_EMAIL = 'seseffff942@gmail.com';
