@@ -11643,9 +11643,10 @@ async function popPendingBoleta(phone) {
         }
       }
     }
+    return null;
   } catch (e) {
+    return null;
   }
-  return null;
 }
 async function savePendingFolio(phone, data) {
   try {

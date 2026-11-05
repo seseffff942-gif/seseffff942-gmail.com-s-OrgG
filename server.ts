@@ -12243,9 +12243,83 @@ app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (r
 app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
   const { waToken, waPhoneId, waUrl } = req.body;
   try {
-    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-whatsapp-config'
-  } catch (e) { }
-  return null;
+    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
+    const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
+
+    if (existing) {
+      await localDb.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
+    } else {
+      await localDb.from('users').insert([{
+        id: 'sys-whatsapp-config',
+        name: 'WhatsApp Config',
+        email: 'system-whatsapp@agricovet.com',
+        role: 'system',
+        phone: '',
+        password: '',
+        photo: payloadStr
+      }]);
+    }
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error("Error saving WhatsApp config:", e);
+    res.status(500).json({ error: e.message });
+  }
+}));
+
+// ========================================
+// BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by PostgreSQL Local for Cloud / Serverless)
+const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
+
+async function savePendingBoleta(phone: string, data: any) {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    const recordId = 'bot-boleta-' + phone;
+    await localDb.from('users').upsert({
+      id: recordId,
+      name: 'Pending Boleta',
+      email: `${recordId}@bot.local`,
+      role: 'system',
+      phone: phone,
+      password: '',
+      photo: payload
+    });
+  } catch (e) {
+    console.warn("Could not save pending boleta to PostgreSQL Local:", e);
+  }
+}
+
+async function popPendingBoleta(phone: string) {
+  try {
+    const now = Date.now();
+    const recordId = 'bot-boleta-' + phone;
+    const { data: direct } = await localDb.from('users').select('*').eq('id', recordId).single();
+    if (direct && direct.photo) {
+      try {
+        const parsed = JSON.parse(direct.photo);
+        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
+          await localDb.from('users').delete().eq('id', recordId);
+          return parsed;
+        }
+      } catch (e) { }
+    }
+    const { data: recent } = await localDb.from('users').select('*').ilike('id', 'bot-boleta-%');
+    if (recent && recent.length > 0) {
+      for (const r of recent) {
+        if (r.photo) {
+          try {
+            const parsed = JSON.parse(r.photo);
+            if (now - (parsed.timestamp || 0) < 60000) {
+              await localDb.from('users').delete().eq('id', r.id);
+              return parsed;
+            }
+          } catch (e) { }
+        }
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
 
 async function savePendingFolio(phone: string, data: any) {
