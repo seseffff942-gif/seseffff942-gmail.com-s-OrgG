@@ -56,6 +56,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isLoadingSavedRef = useRef<boolean>(false);
 
   // Load all invoices, users & saved receipts on mount
   const loadData = async () => {
@@ -95,17 +96,42 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
     };
   }, [user]);
 
-  // When selected invoice changes, recipient fields start blank
+  // When selected invoice changes, check if there is an existing saved receipt for it
   useEffect(() => {
     if (selectedInvoice) {
-      setReceiverName('');
-      setReceiverDpi('');
-      setReceiverPhone('');
-      setReceiverRelationship('');
-      setDeliveryNotes(selectedInvoice.notes || (selectedInvoice as any).observations || '');
-      setSignatureImage(null);
+      if (isLoadingSavedRef.current) {
+        isLoadingSavedRef.current = false;
+        return;
+      }
+
+      // Check if there is an existing saved receipt for this invoice
+      const existing = savedRecibos.find(r => 
+        String(r.invoice_id) === String(selectedInvoice.id) || 
+        (selectedInvoice.folio && String(r.folio) === String(selectedInvoice.folio))
+      );
+
+      if (existing) {
+        setReceiverName(existing.receiver_name || '');
+        setReceiverDpi(existing.receiver_dpi || '');
+        setReceiverPhone(existing.receiver_phone || '');
+        setReceiverRelationship(existing.receiver_relationship || '');
+        setDeliveryNotes(existing.delivery_notes || selectedInvoice.notes || (selectedInvoice as any).observations || '');
+        setIncludePrices(existing.include_prices !== false);
+        setSignatureImage(existing.signature_data || null);
+        if (existing.delivered_by) {
+          setDeliveryType('driver_custom');
+          setCustomDeliveryName(existing.delivered_by);
+        }
+      } else {
+        setReceiverName('');
+        setReceiverDpi('');
+        setReceiverPhone('');
+        setReceiverRelationship('');
+        setDeliveryNotes(selectedInvoice.notes || (selectedInvoice as any).observations || '');
+        setSignatureImage(null);
+      }
     }
-  }, [selectedInvoice]);
+  }, [selectedInvoice, savedRecibos]);
 
   // Handle outside click for dropdown
   useEffect(() => {
@@ -222,6 +248,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
   };
 
   const handleLoadSavedRecibo = (recibo: ReciboConforme) => {
+    isLoadingSavedRef.current = true;
     const matchedInv = allInvoices.find(i => String(i.id) === String(recibo.invoice_id) || String(i.folio) === String(recibo.folio));
     if (matchedInv) {
       setSelectedInvoice(matchedInv);
@@ -232,9 +259,7 @@ export function ReciboConformePage({ user, isMobile }: ReciboConformePageProps) 
     setReceiverRelationship(recibo.receiver_relationship || '');
     setDeliveryNotes(recibo.delivery_notes || '');
     setIncludePrices(recibo.include_prices !== false);
-    if (recibo.signature_data) {
-      setSignatureImage(recibo.signature_data);
-    }
+    setSignatureImage(recibo.signature_data || null);
     if (recibo.delivered_by) {
       setDeliveryType('driver_custom');
       setCustomDeliveryName(recibo.delivered_by);

@@ -1490,11 +1490,22 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
   }
 }
 
-export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): string {
-  const dateStr = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+export interface DeliveryLetterOptions {
+  receiverName?: string;
+  receiverDpi?: string;
+  receiverPhone?: string;
+  deliveredBy?: string;
+  receiverSignature?: string;
+  delivererSignature?: string;
+  deliveryDate?: string;
+}
+
+export function generateDeliveryLetterHtml(invoice: any, sellerName?: string, options?: DeliveryLetterOptions): string {
+  const dateStr = options?.deliveryDate || new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const logoUrl = getAppLogoBase64();
 
   const effectiveSellerName =
+    options?.deliveredBy ||
     (sellerName && sellerName.toLowerCase() !== 'desconocido' && sellerName.toLowerCase() !== 'sin vendedor' ? sellerName : '') ||
     invoice.sellerName ||
     invoice.seller ||
@@ -1504,7 +1515,8 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
     invoice.name ||
     'vendedor';
 
-  const clientName = invoice.client || invoice.customerName || invoice.name || 'N/A';
+  const clientName = options?.receiverName || invoice.client || invoice.customerName || invoice.name || 'N/A';
+  const hasDigitalSignatures = Boolean(options?.delivererSignature || options?.receiverSignature);
 
   return `
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #333; line-height: 1.6;">
@@ -1513,12 +1525,12 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
           <img src="${logoUrl}" alt="Agricovet Logo" style="width: 68px; height: 68px; min-width: 68px; min-height: 68px; object-fit: contain; border-radius: 50%; border: 1.5px solid #0b4d2c; background: #ffffff;" />
           <div>
             <h1 style="color: #0b4d2c; margin: 0 0 5px 0; font-size: 24px;">Carta de Entrega de Mercadería</h1>
-            <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || invoice.id.substring(0, 8)}</p>
+            <p style="margin: 0; color: #666; font-size: 14px;">Folio de Venta: #${invoice.folio || (invoice.id ? invoice.id.substring(0, 8) : 'S/F')}</p>
           </div>
         </div>
         <div style="text-align: right; font-size: 14px;">
-          <p style="margin: 0;">Fecha de Emisión: ${dateStr}</p>
-          <p style="margin: 0;">Vendedor: ${effectiveSellerName}</p>
+          <p style="margin: 0;">Fecha: ${dateStr}</p>
+          <p style="margin: 0;">Entrega: <strong>${effectiveSellerName}</strong></p>
         </div>
       </div>
 
@@ -1526,8 +1538,8 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
         <h3 style="color: #0b4d2c; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Datos del Cliente</h3>
         <table style="width: 100%; font-size: 14px;">
           <tr>
-            <td style="padding: 5px 0; width: 120px;"><strong>Nombre/Razón:</strong></td>
-            <td>${clientName}</td>
+            <td style="padding: 5px 0; width: 140px;"><strong>Nombre/Razón:</strong></td>
+            <td><strong>${clientName}</strong></td>
           </tr>
           <tr>
             <td style="padding: 5px 0;"><strong>NIT/CF:</strong></td>
@@ -1535,7 +1547,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
           </tr>
           <tr>
             <td style="padding: 5px 0;"><strong>Teléfono:</strong></td>
-            <td>${invoice.phone || 'N/A'}</td>
+            <td>${options?.receiverPhone || invoice.phone || 'N/A'}</td>
           </tr>
           <tr>
             <td style="padding: 5px 0;"><strong>Dirección:</strong></td>
@@ -1549,7 +1561,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
         <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
           <thead>
             <tr style="background-color: #f8fafc;">
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Cant.</th>
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; width: 80px;">Cant.</th>
               <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Descripción</th>
             </tr>
           </thead>
@@ -1565,9 +1577,9 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
     }
     return `
               <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #0b4d2c;">${item.quantity}x</td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                  <div style="font-weight: bold;">${item.productName}</div>
+                  <div style="font-weight: bold; color: #1e293b;">${item.productName}</div>
                   ${varStr}
                 </td>
               </tr>
@@ -1576,10 +1588,45 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
         </table>
       </div>
 
-      <div style="margin-top: 60px; font-size: 14px;">
-        <p>Por medio de la presente, confirmo que he recibido de conformidad la mercadería detallada anteriormente, en las cantidades y condiciones indicadas, por parte de <strong>Agricovet</strong>.</p>
+      <div style="margin-top: 40px; font-size: 14px;">
+        <p style="margin-bottom: 30px; font-style: italic; color: #475569;">
+          Por medio de la presente, confirmo que he recibido de conformidad la mercadería detallada anteriormente, en las cantidades y condiciones indicadas, por parte de <strong>Agricovet de Guatemala</strong>.
+        </p>
         
-        <div style="margin-top: 80px; display: flex; justify-content: space-around;">
+        ${hasDigitalSignatures ? `
+        <div style="display: flex; justify-content: space-between; gap: 40px; margin-top: 25px;">
+          <!-- Firma Quien Entrega -->
+          <div style="flex: 1; text-align: center; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; background: #fafafa;">
+            <div style="height: 95px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 8px;">
+              ${options?.delivererSignature ? `<img src="${options.delivererSignature}" alt="Firma Entrega" style="max-height: 90px; max-width: 100%; object-fit: contain;" />` : '<span style="color: #94a3b8; font-size: 12px; font-style: italic;">Sin firma</span>'}
+            </div>
+            <div style="border-bottom: 1.5px solid #0f172a; margin-bottom: 6px;"></div>
+            <p style="margin: 0; font-weight: bold; font-size: 13px; color: #0f172a;">Entregado Por (Agricovet)</p>
+            <p style="margin: 3px 0 0 0; color: #334155; font-size: 12px; font-weight: 600;">${effectiveSellerName}</p>
+            <p style="margin: 2px 0 0 0; color: #64748b; font-size: 10px; text-transform: uppercase; font-weight: bold;">Asesor / Repartidor</p>
+          </div>
+
+          <!-- Firma Quien Recibe -->
+          <div style="flex: 1; text-align: center; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; background: #fafafa;">
+            <div style="height: 95px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 8px;">
+              ${options?.receiverSignature ? `<img src="${options.receiverSignature}" alt="Firma Receptor" style="max-height: 90px; max-width: 100%; object-fit: contain;" />` : '<span style="color: #94a3b8; font-size: 12px; font-style: italic;">Sin firma</span>'}
+            </div>
+            <div style="border-bottom: 1.5px solid #0f172a; margin-bottom: 6px;"></div>
+            <p style="margin: 0; font-weight: bold; font-size: 13px; color: #0f172a;">Recibido Conforme (Cliente)</p>
+            <p style="margin: 3px 0 0 0; color: #334155; font-size: 12px; font-weight: 600;">${options?.receiverName || clientName}</p>
+            <p style="margin: 2px 0 0 0; color: #64748b; font-size: 10px; font-weight: 500;">DPI: ${options?.receiverDpi || 'Registrado en entrega'}</p>
+          </div>
+        </div>
+        <div style="margin-top: 25px; padding: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; text-align: center; font-size: 11px; color: #065f46; font-weight: bold;">
+          🔒 Constancia digital capturada y validada en dispositivo táctil / S-Pen • Folio #${invoice.folio || invoice.id.substring(0, 8)}
+        </div>
+        ` : `
+        <div style="margin-top: 60px; display: flex; justify-content: space-around;">
+          <div style="text-align: center; width: 250px;">
+            <div style="border-bottom: 1px solid #333; height: 1px; margin-bottom: 10px;"></div>
+            <p style="margin: 0;"><strong>Firma de Entrega (Agricovet)</strong></p>
+            <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">Nombre: ${effectiveSellerName}</p>
+          </div>
           <div style="text-align: center; width: 250px;">
             <div style="border-bottom: 1px solid #333; height: 1px; margin-bottom: 10px;"></div>
             <p style="margin: 0;"><strong>Firma de Recibido (Cliente)</strong></p>
@@ -1587,6 +1634,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string): s
             <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">DPI: _________________________</p>
           </div>
         </div>
+        `}
       </div>
     </div>
   `;

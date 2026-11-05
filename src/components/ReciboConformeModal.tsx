@@ -67,6 +67,7 @@ export const ReciboConformeModal: React.FC<ReciboConformeModalProps> = ({
   const [deliveryType, setDeliveryType] = useState<string>('seller');
   const [customDeliveryName, setCustomDeliveryName] = useState<string>('');
   const [teamUsers, setTeamUsers] = useState<User[]>([]);
+  const [savedRecibos, setSavedRecibos] = useState<any[]>([]);
 
   const [signatureImage, setSignatureImage] = useState<string | null>(null);
   const [showSignaturePad, setShowSignaturePad] = useState<boolean>(false);
@@ -75,7 +76,7 @@ export const ReciboConformeModal: React.FC<ReciboConformeModalProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Load invoices and users if not supplied
+  // Load invoices, users and saved receipts if not supplied
   useEffect(() => {
     if (isOpen) {
       if (!invoicesList || invoicesList.length === 0) {
@@ -91,6 +92,7 @@ export const ReciboConformeModal: React.FC<ReciboConformeModalProps> = ({
       }
 
       api.getUsers().then(u => setTeamUsers(u || [])).catch(() => {});
+      api.getRecibosConformes().then(r => setSavedRecibos(r || [])).catch(() => {});
     }
   }, [isOpen, invoicesList]);
 
@@ -111,17 +113,36 @@ export const ReciboConformeModal: React.FC<ReciboConformeModalProps> = ({
     }
   }, [isOpen, initialInvoice, initialFolio, allInvoices]);
 
-  // When invoice changes, recipient fields start blank
+  // When invoice changes, load saved receipt if exists, otherwise start blank
   useEffect(() => {
     if (selectedInvoice) {
-      setReceiverName('');
-      setReceiverDpi('');
-      setReceiverPhone('');
-      setReceiverRelationship('');
-      setDeliveryNotes(selectedInvoice.notes || (selectedInvoice as any).observations || '');
-      setSignatureImage(null); // Reset signature for new selection
+      const existing = savedRecibos.find((r: any) => 
+        String(r.invoice_id) === String(selectedInvoice.id) || 
+        (selectedInvoice.folio && String(r.folio) === String(selectedInvoice.folio))
+      );
+
+      if (existing) {
+        setReceiverName(existing.receiver_name || '');
+        setReceiverDpi(existing.receiver_dpi || '');
+        setReceiverPhone(existing.receiver_phone || '');
+        setReceiverRelationship(existing.receiver_relationship || '');
+        setDeliveryNotes(existing.delivery_notes || selectedInvoice.notes || (selectedInvoice as any).observations || '');
+        setIncludePrices(existing.include_prices !== false);
+        setSignatureImage(existing.signature_data || null);
+        if (existing.delivered_by) {
+          setDeliveryType('driver_custom');
+          setCustomDeliveryName(existing.delivered_by);
+        }
+      } else {
+        setReceiverName('');
+        setReceiverDpi('');
+        setReceiverPhone('');
+        setReceiverRelationship('');
+        setDeliveryNotes(selectedInvoice.notes || (selectedInvoice as any).observations || '');
+        setSignatureImage(null);
+      }
     }
-  }, [selectedInvoice]);
+  }, [selectedInvoice, savedRecibos]);
 
   // Close dropdown on outside click
   useEffect(() => {

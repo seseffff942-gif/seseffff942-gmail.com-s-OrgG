@@ -31,13 +31,15 @@ import {
   RefreshCcw,
   Printer,
   ScanLine,
-  Download
+  Download,
+  PenTool
 } from 'lucide-react';
 import { cn, generateDeliveryLetterHtml, printHtml, downloadHtmlAsPdf, compilePrintTemplate, DEFAULT_PRINT_TEMPLATE, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, isFiatProduct, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { ReciboConformeModal } from '../components/ReciboConformeModal';
+import { DeliverySignatureModal } from '../components/DeliverySignatureModal';
 import { DateFilterDropdown } from '../components/DateFilterDropdown';
 import { 
   ResponsiveContainer, 
@@ -82,6 +84,8 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [selectedViewInvoice, setSelectedViewInvoice] = useState<Invoice | null>(null);
   const [showReciboModal, setShowReciboModal] = useState<boolean>(false);
   const [selectedReciboInvoice, setSelectedReciboInvoice] = useState<Invoice | null>(null);
+  const [showDeliverySignatureModal, setShowDeliverySignatureModal] = useState<boolean>(false);
+  const [selectedInvoiceForSignature, setSelectedInvoiceForSignature] = useState<Invoice | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
   const [users, setUsers] = useState<User[]>([]);
   const [printTemplate, setPrintTemplate] = useState<string>(DEFAULT_PRINT_TEMPLATE);
@@ -476,48 +480,66 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
               >Entrega Personal</button>
             </div>
             {trackingMethodOverride === 'personal' ? (
-              <>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                  <span className="text-xs font-bold text-blue-800">Entrega Personal - Carta de Conformidad:</span>
-                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <div className="space-y-3">
+                {/* 1. BOTÓN PRINCIPAL: FIRMAR EN PANTALLA CON S-PEN */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedInvoiceForSignature(invoice);
+                    setShowDeliverySignatureModal(true);
+                  }}
+                  className="w-full bg-gradient-to-r from-[#0b4d2c] via-emerald-700 to-teal-800 hover:from-emerald-900 hover:to-teal-900 text-white font-black py-3 px-4 rounded-2xl flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95 text-xs sm:text-sm border border-emerald-500/30 group"
+                >
+                  <PenTool size={16} className="text-emerald-200 group-hover:scale-110 transition-transform" />
+                  <span>✍️ Firmar Hoja de Entrega en Pantalla (S-Pen / Táctil)</span>
+                </button>
+
+                {/* 2. OPCIÓN ALTERNATIVA DE HOJA EN PAPEL FÍSICO */}
+                <div className="pt-2 border-t border-blue-200/70">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      Ó con hoja impresa en papel:
+                    </span>
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         const seller = typeof invoice.sellerId === 'object' ? (invoice.sellerId as any).name : 'Vendedor';
                         const html = generateDeliveryLetterHtml(invoice, seller);
                         downloadHtmlAsPdf(html, `carta-entrega-${invoice.folio || invoice.id}.pdf`);
                       }}
-                      className="text-xs bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all flex-1 sm:flex-initial cursor-pointer"
+                      className="text-[10px] bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold py-1 px-2.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                     >
-                      <Download size={14} />
+                      <Download size={11} />
                       <span>Descargar PDF</span>
                     </button>
                   </div>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2 w-full items-center">
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={e => setDeliveryLetterFile(e.target.files?.[0] || null)}
-                    className="text-xs flex-1 w-full sm:w-auto border border-slate-200 rounded-xl px-2 py-1 bg-white min-w-0"
-                  />
-                  <div className="flex gap-2 w-full sm:w-auto">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); executeMarkAsSent(invoice.id, '', true); }}
-                      disabled={isUploadingLetter || !deliveryLetterFile}
-                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 px-4 rounded-xl transition cursor-pointer flex-1 sm:flex-none whitespace-nowrap disabled:opacity-50"
-                    >
-                      {isUploadingLetter ? 'Subiendo...' : 'Confirmar'}
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setTrackingPromptFor(null); setDeliveryLetterFile(null); }}
-                      className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold py-2 px-3 rounded-xl transition cursor-pointer flex-shrink-0"
-                    >
-                      X
-                    </button>
+                  <div className="flex flex-col sm:flex-row gap-2 w-full items-center">
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={e => setDeliveryLetterFile(e.target.files?.[0] || null)}
+                      className="text-xs flex-1 w-full sm:w-auto border border-slate-200 rounded-xl px-2 py-1 bg-white min-w-0"
+                    />
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); executeMarkAsSent(invoice.id, '', true); }}
+                        disabled={isUploadingLetter || !deliveryLetterFile}
+                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 px-4 rounded-xl transition cursor-pointer flex-1 sm:flex-none whitespace-nowrap disabled:opacity-50"
+                      >
+                        {isUploadingLetter ? 'Subiendo...' : 'Confirmar'}
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setTrackingPromptFor(null); setDeliveryLetterFile(null); }}
+                        className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold py-2 px-3 rounded-xl transition cursor-pointer flex-shrink-0"
+                      >
+                        X
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </>
+              </div>
             ) : (
               <>
                 <span className="text-xs font-bold text-blue-800">Ingrese el número de guía:</span>
@@ -2001,6 +2023,19 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         initialInvoice={selectedReciboInvoice}
         invoicesList={invoices}
         currentUser={user}
+      />
+      <DeliverySignatureModal
+        isOpen={showDeliverySignatureModal}
+        onClose={() => {
+          setShowDeliverySignatureModal(false);
+          setSelectedInvoiceForSignature(null);
+        }}
+        invoice={selectedInvoiceForSignature}
+        currentUser={user}
+        onSuccess={() => {
+          setTrackingPromptFor(null);
+          loadData();
+        }}
       />
     </div>
   );
