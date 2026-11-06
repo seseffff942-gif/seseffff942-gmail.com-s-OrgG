@@ -75,15 +75,24 @@ export const ImageModal: React.FC<ImageModalProps> = ({ isOpen, onClose, imageUr
           </div>
 
           <div className="p-4 border-t border-slate-100 bg-white flex justify-end">
-            <a 
-              href={imageUrl} 
-              download="imagen.jpg" 
-              target="_blank" 
-              rel="noreferrer" 
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
+            <button 
+              type="button"
+              onClick={() => {
+                try {
+                  const a = document.createElement('a');
+                  a.href = imageUrl;
+                  a.download = `${(title || 'imagen').toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                } catch (e) {
+                  window.open(imageUrl, '_blank');
+                }
+              }}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
             >
               <Download size={18} /> Descargar Imagen
-            </a>
+            </button>
           </div>
         </motion.div>
       </div>

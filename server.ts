@@ -11482,8 +11482,8 @@ app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(as
   res.json({ success: true });
 }));
 
-// RECEIPT IMAGE UPLOAD FOR DEBTS
-app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
+// RECEIPT IMAGE UPLOAD FOR DEBTS AND DELIVERY LETTERS
+app.post("/api/business-debts/upload-receipt", requireAuth, upload.single("receipt"), asyncHandler(async (req: any, res: any) => {
   if (!req.file) return res.status(400).json({ error: "No se proporcionó ningún archivo de boleta" });
 
   try {

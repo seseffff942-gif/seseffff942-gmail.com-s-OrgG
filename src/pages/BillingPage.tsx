@@ -36,7 +36,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [invoiceFel, setInvoiceFel] = useState<Invoice | null>(null);
   const [showFelConfig, setShowFelConfig] = useState(false);
   const [shippingModalConfig, setShippingModalConfig] = useState<{ id: string } | null>(null);
-  const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string } | null>(null);
+  const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string; title?: string } | null>(null);
   const [manualFolio, setManualFolio] = useState<string>('');
   const [invoicePayments, setInvoicePayments] = useState<Record<string, Payment[]>>({});
   const [dailyStats, setDailyStats] = useState<any>(null);
@@ -336,6 +336,9 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
   const handleUpdateItemPrice = async (invoiceId: string, itemIdx: number, quantity: number, currentPriceStr: string) => {
     const invoice = invoices.find(i => i.id === invoiceId);
+    if (invoice?.isFelCertified || felEstados[invoiceId] === 'certificado') {
+      return alert('🔒 Esta factura ya está CERTIFICADA ante la SAT. No se pueden alterar los precios de un documento tributario legal.');
+    }
     if (invoice?.status === 'sent') {
       return alert('No se puede editar el pedido porque ya ha sido catalogado como ENVIADO.');
     }
@@ -790,7 +793,21 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                             )
                           )}
                           {inv.deliveryLetterUrl && (
-                            <a href={inv.deliveryLetterUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[9px] font-mono text-blue-500 font-bold bg-blue-550/10 px-1.5 py-0.5 rounded underline hover:text-blue-700">Carta Entregada</a>
+                            <button 
+                              type="button" 
+                              onClick={e => { 
+                                e.stopPropagation(); 
+                                setViewingImageConfig({ 
+                                  url: inv.deliveryLetterUrl!, 
+                                  scanClient: inv.client, 
+                                  scanDate: inv.date ? formatDateSafe(inv.date) : undefined,
+                                  title: `Carta de Entrega - Folio #${inv.folio || (inv.id ? inv.id.substring(0, 8) : '')}` 
+                                }); 
+                              }} 
+                              className="text-[9px] font-mono text-blue-500 font-bold bg-blue-550/10 px-1.5 py-0.5 rounded underline hover:text-blue-700 cursor-pointer text-left"
+                            >
+                              Carta Entregada
+                            </button>
                           )}
                         </div>
                       ) : needsAuth ? (
@@ -1019,7 +1036,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       <span className="text-[10px] text-blue-500 font-bold">Guía: {invoice.trackingNumber}</span>
                     )
                   )}
-                  {invoice.deliveryLetterUrl && <a href={invoice.deliveryLetterUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[10px] text-blue-500 font-bold underline hover:text-blue-700">Carta Entregada</a>}
+                  {invoice.deliveryLetterUrl && (
+                    <button 
+                      type="button" 
+                      onClick={e => { 
+                        e.stopPropagation(); 
+                        setViewingImageConfig({ 
+                          url: invoice.deliveryLetterUrl!, 
+                          scanClient: invoice.client, 
+                          scanDate: invoice.date ? formatDateSafe(invoice.date) : undefined,
+                          title: `Carta de Entrega - Folio #${invoice.folio || (invoice.id ? invoice.id.substring(0, 8) : '')}` 
+                        }); 
+                      }} 
+                      className="text-[10px] text-blue-500 font-bold underline hover:text-blue-700 cursor-pointer text-left"
+                    >
+                      Carta Entregada
+                    </button>
+                  )}
                 </div>
               ) : invoice.status === 'paid' ? (
                 <div className="flex flex-col items-end gap-0.5">
@@ -1031,7 +1064,23 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       <span className="text-[10px] text-blue-500 font-bold">Guía: {invoice.trackingNumber}</span>
                     )
                   )}
-                  {invoice.deliveryLetterUrl && <a href={invoice.deliveryLetterUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[10px] text-blue-500 font-bold underline hover:text-blue-700">Carta Entregada</a>}
+                  {invoice.deliveryLetterUrl && (
+                    <button 
+                      type="button" 
+                      onClick={e => { 
+                        e.stopPropagation(); 
+                        setViewingImageConfig({ 
+                          url: invoice.deliveryLetterUrl!, 
+                          scanClient: invoice.client, 
+                          scanDate: invoice.date ? formatDateSafe(invoice.date) : undefined,
+                          title: `Carta de Entrega - Folio #${invoice.folio || (invoice.id ? invoice.id.substring(0, 8) : '')}` 
+                        }); 
+                      }} 
+                      className="text-[10px] text-blue-500 font-bold underline hover:text-blue-700 cursor-pointer text-left"
+                    >
+                      Carta Entregada
+                    </button>
+                  )}
                 </div>
               ) : needsAuth ? (
                 <span className="text-red-600 text-[11px] uppercase tracking-wider font-bold bg-red-100 border border-red-200 px-1.5 py-0.5 rounded shadow-sm">Review Auth</span>
@@ -1179,7 +1228,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     </span>
                     <div className="flex flex-col items-end gap-1">
                       <span className={`font-medium ${isCancelled ? 'text-neutral-400 line-through' : 'text-neutral-800'}`}>{formatMoney(item.total)}</span>
-                      {!isCancelled && invoice.status === 'pending' && user.role === 'admin' && (
+                      {!isCancelled && invoice.status === 'pending' && user.role === 'admin' && !invoice.isFelCertified && felEstados[invoice.id] !== 'certificado' && (
                         <button 
                           onClick={() => handleUpdateItemPrice(invoice.id, idx, item.quantity, (item.total / item.quantity).toFixed(4))}
                           className="text-[10px] text-blue-500 hover:text-blue-700 underline font-medium"
@@ -1977,7 +2026,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                       <span className="text-slate-400 font-bold block">Dirección</span>
                       <p className="font-extrabold text-slate-800 mt-0.5">{selectedInvoiceForModal.address || 'N/A'}</p>
                     </div>
-                    {user.role === 'admin' && (
+                    {user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && felEstados[selectedInvoiceForModal.id] !== 'certificado' && (
                        <div className="col-span-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-4">
                           <div className="flex-1">
                             <span className="text-slate-400 font-bold block">Folio Manual</span>
@@ -2198,7 +2247,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                               );
                             })()}
                             
-                            {(item as any).requiresAuth && !(item as any).isAuthorized && (() => {
+                            {(item as any).requiresAuth && !(item as any).isAuthorized && !selectedInvoiceForModal.isFelCertified && felEstados[selectedInvoiceForModal.id] !== 'certificado' && (() => {
                               const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
                               const supplierLabel = isFiat ? 'FIAT' : 'TECUN';
                               return (
@@ -2272,7 +2321,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                           <div className="text-right flex flex-col items-end gap-1">
                             <span className="font-extrabold text-slate-700 text-sm">{formatMoney(item.total)}</span>
                             <span className="text-[10px] text-slate-400">P.U: {formatMoney((item.total / item.quantity))}</span>
-                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && (
+                            {selectedInvoiceForModal.status === 'pending' && user.role === 'admin' && !selectedInvoiceForModal.isFelCertified && felEstados[selectedInvoiceForModal.id] !== 'certificado' && (
                               <button 
                                 onClick={async () => {
                                   const currentPriceStr = (item.total / item.quantity).toFixed(4);
@@ -2597,7 +2646,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         scanClient={viewingImageConfig?.scanClient}
         scanDate={viewingImageConfig?.scanDate}
         trackingNumber={viewingImageConfig?.trackingNumber}
-        title="Guía de Envío" 
+        title={viewingImageConfig?.title || "Guía de Envío"} 
       />
       {showSignaturePad && (
         <SignaturePad

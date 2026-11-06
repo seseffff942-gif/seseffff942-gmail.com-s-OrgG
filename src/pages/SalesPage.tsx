@@ -378,13 +378,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         setCart(parsedItems.map((i: any) => {
            const prodPrice = i.originalPrice !== undefined ? Number(i.originalPrice) : (Number(i.price) || 0);
            const variantObj = i.variant || (i.color || i.size || i.variantId ? { id: i.variantId || '', color: i.color || '', size: i.size || '' } : undefined);
+           const liveProd = (p || []).find((prod: any) => prod.id === i.productId || prod.name?.trim().toLowerCase() === (i.productName || '').trim().toLowerCase());
            return {
              product: { 
                id: i.productId, 
                name: i.productName || 'Producto', 
                price: prodPrice, 
-               sku: i.sku || '', 
-               category: i.category || '' 
+               sku: i.sku || liveProd?.sku || '', 
+               category: i.category || liveProd?.category || '',
+               stock: liveProd?.stock !== undefined ? Number(liveProd.stock) : (i.tecunWarehouseStock ?? 0)
              },
              quantity: Number(i.quantity) || 1,
              overridePrice: Number(i.price) || 0,
@@ -619,16 +621,23 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         if (item.variant?.id && item.product.variants) {
           variantStock = item.product.variants.find(v => v.id === item.variant?.id)?.stock;
         }
-        const maxStock = variantStock !== undefined ? variantStock : item.product.stock;
+        const liveProd = products.find(p => p.id === item.product.id || p.name?.trim().toLowerCase() === (item.product.name || '').trim().toLowerCase());
+        const currentStock = liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(item.product.stock) || 0);
+        const maxStock = variantStock !== undefined ? variantStock : currentStock;
+        const productForBreakdown = {
+          ...item.product,
+          stock: currentStock,
+          category: liveProd?.category || item.product.category
+        };
 
-        if (newQ > maxStock && !doesNotNeedStock(item.product)) {
-           if (isTecunProduct(item.product)) {
-              const tecunBreakdown = calculateTecunStockBreakdown(item.product, newQ);
+        if (newQ > maxStock && !doesNotNeedStock(productForBreakdown)) {
+           if (isTecunProduct(productForBreakdown)) {
+              const tecunBreakdown = calculateTecunStockBreakdown(productForBreakdown, newQ);
               setErrorMsg(`"${item.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
               setTimeout(() => setErrorMsg(''), 7000);
               return { ...item, quantity: newQ, requiresAuth: true };
-           } else if (isFiatProduct(item.product)) {
-              const fiatBreakdown = calculateSupplierStockBreakdown(item.product, newQ);
+           } else if (isFiatProduct(productForBreakdown)) {
+              const fiatBreakdown = calculateSupplierStockBreakdown(productForBreakdown, newQ);
               setErrorMsg(`"${item.product.name}" (FIAT): En bodega hay ${fiatBreakdown.fromWarehouse} uds. Se solicitarán ${fiatBreakdown.toOrderFromCompany} uds a la empresa.`);
               setTimeout(() => setErrorMsg(''), 7000);
               return { ...item, quantity: newQ, requiresAuth: true };
@@ -829,7 +838,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     try {
       const items = cart.flatMap(i => {
         let price = i.overridePrice ?? i.product.price;
-        const supplierBreakdown = calculateSupplierStockBreakdown(i.product, i.quantity);
+        const liveProd = products.find(p => p.id === i.product.id || p.name?.trim().toLowerCase() === (i.product.name || '').trim().toLowerCase());
+        const productForBreakdown = {
+          ...i.product,
+          stock: liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(i.product.stock) || 0),
+          category: liveProd?.category || i.product.category
+        };
+        const supplierBreakdown = calculateSupplierStockBreakdown(productForBreakdown, i.quantity);
 
         if (i.appliedCustomOffer?.splitBonus) {
            const packageSize = (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
@@ -2009,16 +2024,23 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                                     if (it.variant?.id && it.product.variants) {
                                       variantStock = it.product.variants.find(v => v.id === it.variant?.id)?.stock;
                                     }
-                                    const maxStock = variantStock !== undefined ? variantStock : it.product.stock;
+                                    const liveProd = products.find(p => p.id === it.product.id || p.name?.trim().toLowerCase() === (it.product.name || '').trim().toLowerCase());
+                                    const currentStock = liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(it.product.stock) || 0);
+                                    const maxStock = variantStock !== undefined ? variantStock : currentStock;
+                                    const productForBreakdown = {
+                                      ...it.product,
+                                      stock: currentStock,
+                                      category: liveProd?.category || it.product.category
+                                    };
                                     
-                                    if (newQ > maxStock && !doesNotNeedStock(it.product)) {
-                                      if (isTecunProduct(it.product)) {
-                                         const tecunBreakdown = calculateTecunStockBreakdown(it.product, newQ);
+                                    if (newQ > maxStock && !doesNotNeedStock(productForBreakdown)) {
+                                      if (isTecunProduct(productForBreakdown)) {
+                                         const tecunBreakdown = calculateTecunStockBreakdown(productForBreakdown, newQ);
                                          setErrorMsg(`"${it.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
                                          setTimeout(() => setErrorMsg(''), 7000);
                                          return { ...it, quantity: newQ, requiresAuth: true };
-                                      } else if (isFiatProduct(it.product)) {
-                                         const fiatBreakdown = calculateSupplierStockBreakdown(it.product, newQ);
+                                      } else if (isFiatProduct(productForBreakdown)) {
+                                         const fiatBreakdown = calculateSupplierStockBreakdown(productForBreakdown, newQ);
                                          setErrorMsg(`"${it.product.name}" (FIAT): En bodega hay ${fiatBreakdown.fromWarehouse} uds. Se solicitarán ${fiatBreakdown.toOrderFromCompany} uds a la empresa.`);
                                          setTimeout(() => setErrorMsg(''), 7000);
                                          return { ...it, quantity: newQ, requiresAuth: true };
@@ -2043,7 +2065,13 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       {(isTecunProduct(item.product) || isFiatProduct(item.product)) && (() => {
                         const isFiat = isFiatProduct(item.product);
                         const supplierLabel = isFiat ? 'FIAT' : 'Tecún';
-                        const tb = calculateSupplierStockBreakdown(item.product, item.quantity);
+                        const liveProd = products.find(p => p.id === item.product.id || p.name?.trim().toLowerCase() === (item.product.name || '').trim().toLowerCase());
+                        const productForBreakdown = {
+                          ...item.product,
+                          stock: liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(item.product.stock) || 0),
+                          category: liveProd?.category || item.product.category
+                        };
+                        const tb = calculateSupplierStockBreakdown(productForBreakdown, item.quantity);
                         return (
                           <div className={cn(
                             "mt-2.5 p-2 rounded-xl text-[10px] font-bold border transition-all",

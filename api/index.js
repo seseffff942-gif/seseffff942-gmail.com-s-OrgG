@@ -10928,7 +10928,7 @@ app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(as
   invalidateCache("business_debts");
   res.json({ success: true });
 }));
-app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload.single("receipt"), asyncHandler(async (req, res) => {
+app.post("/api/business-debts/upload-receipt", requireAuth, upload.single("receipt"), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No se proporcion\xF3 ning\xFAn archivo de boleta" });
   try {
     const fileName = `receipt-${Date.now()}.jpg`;

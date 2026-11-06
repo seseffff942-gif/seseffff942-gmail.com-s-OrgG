@@ -70,7 +70,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
   const [showPaymentsModal, setShowPaymentsModal] = useState(false);
   const [trackingPromptFor, setTrackingPromptFor] = useState<string | null>(null);
   const [shippingModalConfig, setShippingModalConfig] = useState<{ id: string } | null>(null);
-  const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string } | null>(null);
+  const [viewingImageConfig, setViewingImageConfig] = useState<{ url: string; scanClient?: string; scanDate?: string; trackingNumber?: string; title?: string } | null>(null);
   const [trackingGuideValue, setTrackingGuideValue] = useState('');
   const [deliveryLetterFile, setDeliveryLetterFile] = useState<File | null>(null);
   const [isUploadingLetter, setIsUploadingLetter] = useState(false);
@@ -344,15 +344,21 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             )
           )}
           {invoice.deliveryLetterUrl && (
-            <a 
-              href={invoice.deliveryLetterUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-[10px] text-blue-500 font-bold leading-none underline hover:text-blue-700 mt-0.5"
-              onClick={e => e.stopPropagation()}
+            <button 
+              type="button"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setViewingImageConfig({ 
+                  url: invoice.deliveryLetterUrl!, 
+                  scanClient: invoice.client, 
+                  scanDate: invoice.date ? formatDateSafe(invoice.date) : undefined,
+                  title: `Carta de Entrega - Folio #${invoice.folio || (invoice.id ? invoice.id.substring(0, 8) : '')}`
+                }); 
+              }} 
+              className="text-[10px] text-blue-500 font-bold leading-none underline hover:text-blue-700 mt-0.5 text-left cursor-pointer"
             >
               Ver Carta de Entrega
-            </a>
+            </button>
           )}
         </div>
       );
@@ -368,15 +374,21 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
             )
           )}
           {invoice.deliveryLetterUrl && (
-            <a 
-              href={invoice.deliveryLetterUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-[10px] text-blue-500 font-bold leading-none underline hover:text-blue-700 mt-0.5"
-              onClick={e => e.stopPropagation()}
+            <button 
+              type="button"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setViewingImageConfig({ 
+                  url: invoice.deliveryLetterUrl!, 
+                  scanClient: invoice.client, 
+                  scanDate: invoice.date ? formatDateSafe(invoice.date) : undefined,
+                  title: `Carta de Entrega - Folio #${invoice.folio || (invoice.id ? invoice.id.substring(0, 8) : '')}`
+                }); 
+              }} 
+              className="text-[10px] text-blue-500 font-bold leading-none underline hover:text-blue-700 mt-0.5 text-left cursor-pointer"
             >
               Ver Carta de Entrega
-            </a>
+            </button>
           )}
         </div>
       );
@@ -2012,7 +2024,7 @@ export function DailySalesPage({ user, isMobile }: DailySalesPageProps) {
         scanClient={viewingImageConfig?.scanClient}
         scanDate={viewingImageConfig?.scanDate}
         trackingNumber={viewingImageConfig?.trackingNumber}
-        title="Guía de Envío" 
+        title={viewingImageConfig?.title || "Guía de Envío"} 
       />
       <ReciboConformeModal
         isOpen={showReciboModal}
