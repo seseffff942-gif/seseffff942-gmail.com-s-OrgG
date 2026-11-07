@@ -99,6 +99,8 @@ export default defineConfig(async ({ command }) => {
       }
     },
     server: {
+      port: 2300,
+      host: '0.0.0.0',
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR === 'true' ? false : (process.env.USE_WSS_HMR === 'true' ? {
@@ -106,7 +108,20 @@ export default defineConfig(async ({ command }) => {
         clientPort: 443,
       } : true),
       watch: process.env.DISABLE_HMR === 'true' ? null : {
-        ignored: ['**/android/**', '**/dist/**', '**/.git/**', '**/panic_state.json', '**/*.apk', '**/*.jar', '**/node_modules/**']
+        ignored: [
+          '**/android/**',
+          '**/dist/**',
+          '**/.git/**',
+          '**/panic_state.json',
+          '**/*.apk',
+          '**/*.jar',
+          '**/node_modules/**',
+          '**/*.json',
+          '**/*.log',
+          '**/storage/**',
+          '**/boletas/**',
+          '**/*.txt'
+        ]
       },
     },
   };

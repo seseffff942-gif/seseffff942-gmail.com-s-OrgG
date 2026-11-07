@@ -4,10 +4,11 @@ import { Invoice, Payment, User } from '../types';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, X, Edit2, Clock, TrendingUp, Receipt, Leaf, Sparkles, ArrowRight, MessageCircle, Layers, History, User as UserIcon, Trash2, RefreshCcw, Send } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, formatDateSafe, formatMoney, isTecunProduct, isFiatProduct } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, printHtml, downloadHtmlAsPdf, cn, cleanObservations, formatDateSafe, formatMoney, isTecunProduct, isFiatProduct, calculateSupplierStockBreakdown } from '../utils';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
 import { SendN8nModal } from '../components/SendN8nModal';
+import { useModalBackHandler } from '../utils/modalBackHandler';
 import { motion } from 'motion/react';
 
 interface BillingPageProps {
@@ -31,6 +32,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   const [showCancelledAndRejected, setShowCancelledAndRejected] = useState(false);
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
   const [invoicePayments, setInvoicePayments] = useState<Record<string, Payment[]>>({});
   const [dailyStats, setDailyStats] = useState<any>(null);
   const [showSalesModal, setShowSalesModal] = useState(false);
@@ -53,9 +55,17 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Cerrar modal de detalles con botón / gesto atrás de Android
+  useModalBackHandler(!!selectedInvoiceForModal, () => {
+    setSelectedInvoiceForModal(null);
+    setPaymentAmount('');
+    setPaymentFile(null);
+  }, 'mysales_invoice_modal');
+
   useEffect(() => {
     loadInvoices();
     api.getUsers().then(setUsers).catch(console.error);
+    api.getProducts().then(setCatalogProducts).catch(console.error);
     
     api.getPrintTemplate().then(data => {
       setPrintTemplate(data.template || DEFAULT_PRINT_TEMPLATE);
@@ -69,6 +79,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       if (!key || key === 'all' || key === 'invoices' || key === 'folio_map' || key === 'sales') {
         loadInvoices();
         api.getDailyStats(filterDate).then(setDailyStats).catch(() => {});
+        api.getProducts().then(setCatalogProducts).catch(() => {});
       }
     };
     window.addEventListener('agricovet-mutate', handleMutate);
@@ -1359,22 +1370,22 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
       )}
 
       {selectedInvoiceForModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-2.5 sm:p-4 pt-7 sm:pt-4 pb-3 sm:pb-4">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-100"
+            className="bg-white rounded-3xl sm:rounded-[2rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[88vh] sm:max-h-[92vh] border border-slate-100 my-auto"
           >
             {/* Header */}
-            <div className="p-6 bg-slate-50 border-b border-slate-100 flex items-center justify-between shadow-xs">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl border border-teal-100 shadow-xs">
-                  <FileText size={22} />
+            <div className="p-3.5 sm:p-5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between shadow-xs gap-2">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                <div className="p-2 sm:p-2.5 bg-teal-50 text-teal-700 rounded-xl border border-teal-100 shadow-xs shrink-0">
+                  <FileText size={20} className="sm:w-[22px] sm:h-[22px]" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura (Mis Ventas)</span>
-                  <h3 className="text-xl font-black text-slate-800 leading-none mt-0.5">{selectedInvoiceForModal.client}</h3>
-                  <p className="text-xs text-slate-500 font-mono mt-1">ID: {selectedInvoiceForModal.id}</p>
+                  <h3 className="text-sm sm:text-lg font-black text-slate-800 leading-snug mt-0.5 truncate">{selectedInvoiceForModal.client}</h3>
+                  <p className="text-[10px] sm:text-xs text-slate-500 font-mono mt-0.5 truncate">ID: {selectedInvoiceForModal.id}</p>
                 </div>
               </div>
               <button 
@@ -1383,14 +1394,16 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                   setPaymentAmount('');
                   setPaymentFile(null);
                 }} 
-                className="p-2 text-[10px] sm:text-xs font-black text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-200/90 hover:bg-slate-300 active:scale-95 text-slate-700 rounded-full transition-all shrink-0 flex items-center justify-center shadow-xs border border-slate-300 cursor-pointer"
+                title="Cerrar ventana (o desliza atrás)"
+                aria-label="Cerrar modal"
               >
-                <X size={20} />
+                <X size={20} className="stroke-[2.5]" />
               </button>
             </div>
 
             {/* Scrollable Body */}
-            <div className="flex-1 overflow-y-auto p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 pb-32 sm:pb-8 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
               {/* Panel Left: Client info and products */}
               <div className="space-y-6">
                 {selectedInvoiceForModal.sellerPaysShipping && (
@@ -1560,15 +1573,19 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                             )}
 
                             {((item as any).tecunToOrder !== undefined || (item as any).fiatToOrder !== undefined || isTecunProduct(item as any) || isFiatProduct(item as any) || isTecunProduct({ name: item.productName || (item as any).name }) || isFiatProduct({ name: item.productName || (item as any).name })) && (() => {
-                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
+                              const liveProd = catalogProducts.find((p: any) => p.id === item.productId || (p.name && item.productName && p.name.trim().toLowerCase() === item.productName.trim().toLowerCase()));
+                              const liveBreakdown = liveProd ? calculateSupplierStockBreakdown(liveProd, item.quantity) : null;
+                              const isCert = selectedInvoiceForModal.isFelCertified || (selectedInvoiceForModal as any).fel_status === 'certificado' || Boolean((selectedInvoiceForModal as any).fel_uuid);
+                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name }) || liveBreakdown?.isFiat;
                               const supplierName = isFiat ? 'FIAT' : 'Tecún';
-                              const toOrder = (item as any).fiatToOrder ?? (item as any).tecunToOrder ?? 0;
-                              const warehouse = (item as any).fiatWarehouseStock ?? (item as any).tecunWarehouseStock ?? 0;
+                              const toOrder = (!isCert && liveBreakdown) ? liveBreakdown.toOrderFromCompany : ((item as any).fiatToOrder ?? (item as any).tecunToOrder ?? 0);
+                              const warehouse = (!isCert && liveBreakdown) ? liveBreakdown.fromWarehouse : ((item as any).fiatWarehouseStock ?? (item as any).tecunWarehouseStock ?? 0);
+                              const hasShortage = toOrder > 0;
                               return (
                                 <div className="mt-1.5 p-2 bg-purple-50/90 border border-purple-200 rounded-xl text-[10px] text-purple-950 font-bold">
                                   <div className="flex items-center justify-between font-black uppercase text-[9px] text-purple-800 mb-1">
                                     <span>🏢 Detalle Proveedor {supplierName}</span>
-                                    {toOrder > 0 ? (
+                                    {hasShortage ? (
                                       <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded text-[8px]">Falta en Bodega</span>
                                     ) : (
                                       <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">En Bodega</span>
@@ -1586,74 +1603,93 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                               );
                             })()}
                             
-                            {(item as any).requiresAuth && !(item as any).isAuthorized && !selectedInvoiceForModal.isFelCertified && (selectedInvoiceForModal as any).fel_status !== 'certificado' && !Boolean((selectedInvoiceForModal as any).fel_uuid) && (() => {
-                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name });
+                            {(() => {
+                              const liveProd = catalogProducts.find((p: any) => p.id === item.productId || (p.name && item.productName && p.name.trim().toLowerCase() === item.productName.trim().toLowerCase()));
+                              const liveBreakdown = liveProd ? calculateSupplierStockBreakdown(liveProd, item.quantity) : null;
+                              const isCert = selectedInvoiceForModal.isFelCertified || (selectedInvoiceForModal as any).fel_status === 'certificado' || Boolean((selectedInvoiceForModal as any).fel_uuid);
+                              const toOrder = (!isCert && liveBreakdown) ? liveBreakdown.toOrderFromCompany : ((item as any).fiatToOrder ?? (item as any).tecunToOrder ?? 0);
+                              const hasShortage = toOrder > 0;
+                              const isFiat = (item as any).fiatToOrder !== undefined || isFiatProduct(item as any) || isFiatProduct({ name: item.productName || (item as any).name }) || liveBreakdown?.isFiat;
                               const supplierLabel = isFiat ? 'FIAT' : 'TECUN';
+
+                              if ((!hasShortage && !(item as any).requiresAuth) || (item as any).isAuthorized || isCert) {
+                                return null;
+                              }
+
                               return (
-                                <div className="mt-2 p-2 bg-slate-100 border border-slate-200 rounded-lg">
-                                  <span className="block text-[10px] font-bold text-slate-700 mb-1 uppercase tracking-wider">¿Hay en existencia? (Autorización {supplierLabel})</span>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={async () => {
-                                      if (!confirm('¿Confirmas que SI hay stock y autorizas la venta de este producto?')) return;
-                                      try {
-                                        let newItems = [...selectedInvoiceForModal.items];
-                                        newItems[idx] = { ...newItems[idx], isAuthorized: true };
-                                        await api.updateFullInvoice(selectedInvoiceForModal.id, {
-                                          client: selectedInvoiceForModal.client,
-                                          nit: selectedInvoiceForModal.nit,
-                                          phone: selectedInvoiceForModal.phone,
-                                          address: selectedInvoiceForModal.address,
-                                          notes: selectedInvoiceForModal.notes,
-                                          items: newItems,
-                                          isOwed: true
-                                        });
-                                        const refreshedInvoices = await api.getInvoices(user.email);
-                                        setInvoices(Array.isArray(refreshedInvoices) ? refreshedInvoices : []);
-                                        const updatedInvoice = (refreshedInvoices as Invoice[]).find(v => v.id === selectedInvoiceForModal.id);
-                                        if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
-                                      } catch(err: any) {
-                                        alert("Error al autorizar: " + err.message);
-                                      }
-                                    }}
-                                    className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
-                                  >
-                                    Sí, autorizar
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      if (!confirm('¿Confirmas que NO hay stock? El producto será retirado de la factura y los totales se reajustarán.')) return;
-                                      try {
-                                        let newItems = [...selectedInvoiceForModal.items];
-                                        newItems.splice(idx, 1);
-                                        if (newItems.length === 0) {
-                                          alert("No puedes dejar la factura sin productos. Anula la factura en su lugar.");
-                                          return;
+                                <div className="mt-2 p-2.5 bg-slate-100 border border-slate-200 rounded-xl shadow-xs">
+                                  <span className="block text-[10px] font-black text-slate-700 mb-1.5 uppercase tracking-wider">¿Hay en existencia? (Autorización {supplierLabel})</span>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={async () => {
+                                        if (!confirm('¿Confirmas que SI hay stock y autorizas la venta de este producto?')) return;
+                                        try {
+                                          let newItems = [...selectedInvoiceForModal.items];
+                                          newItems[idx] = { 
+                                            ...newItems[idx], 
+                                            isAuthorized: true,
+                                            requiresAuth: false,
+                                            tecunToOrder: 0,
+                                            tecunWarehouseStock: newItems[idx].quantity,
+                                            fiatToOrder: 0,
+                                            fiatWarehouseStock: newItems[idx].quantity
+                                          };
+                                          await api.updateFullInvoice(selectedInvoiceForModal.id, {
+                                            client: selectedInvoiceForModal.client,
+                                            nit: selectedInvoiceForModal.nit,
+                                            phone: selectedInvoiceForModal.phone,
+                                            address: selectedInvoiceForModal.address,
+                                            notes: selectedInvoiceForModal.notes,
+                                            items: newItems,
+                                            isOwed: true
+                                          });
+                                          const refreshedInvoices = await api.getInvoices(user.email);
+                                          setInvoices(Array.isArray(refreshedInvoices) ? refreshedInvoices : []);
+                                          const updatedInvoice = (refreshedInvoices as Invoice[]).find(v => v.id === selectedInvoiceForModal.id);
+                                          if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
+                                        } catch(err: any) {
+                                          alert("Error al autorizar: " + err.message);
                                         }
-                                        await api.updateFullInvoice(selectedInvoiceForModal.id, {
-                                          client: selectedInvoiceForModal.client,
-                                          nit: selectedInvoiceForModal.nit,
-                                          phone: selectedInvoiceForModal.phone,
-                                          address: selectedInvoiceForModal.address,
-                                          notes: selectedInvoiceForModal.notes,
-                                          items: newItems,
-                                          isOwed: true
-                                        });
-                                        const refreshedInvoices = await api.getInvoices(user.email);
-                                        setInvoices(Array.isArray(refreshedInvoices) ? refreshedInvoices : []);
-                                        const updatedInvoice = (refreshedInvoices as Invoice[]).find(v => v.id === selectedInvoiceForModal.id);
-                                        if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
-                                      } catch(err: any) {
-                                        alert("Error al retirar: " + err.message);
-                                      }
-                                    }}
-                                    className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-md shadow-sm transition-colors"
-                                  >
-                                    No, retirar
-                                  </button>
+                                      }}
+                                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-black rounded-lg shadow-sm transition-colors cursor-pointer"
+                                    >
+                                      Sí, autorizar
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (!confirm('¿Confirmas que NO hay stock? El producto será retirado de la factura y los totales se reajustarán.')) return;
+                                        try {
+                                          let newItems = [...selectedInvoiceForModal.items];
+                                          newItems.splice(idx, 1);
+                                          if (newItems.length === 0) {
+                                            alert("No puedes dejar la factura sin productos. Anula la factura en su lugar.");
+                                            return;
+                                          }
+                                          await api.updateFullInvoice(selectedInvoiceForModal.id, {
+                                            client: selectedInvoiceForModal.client,
+                                            nit: selectedInvoiceForModal.nit,
+                                            phone: selectedInvoiceForModal.phone,
+                                            address: selectedInvoiceForModal.address,
+                                            notes: selectedInvoiceForModal.notes,
+                                            items: newItems,
+                                            isOwed: true
+                                          });
+                                          const refreshedInvoices = await api.getInvoices(user.email);
+                                          setInvoices(Array.isArray(refreshedInvoices) ? refreshedInvoices : []);
+                                          const updatedInvoice = (refreshedInvoices as Invoice[]).find(v => v.id === selectedInvoiceForModal.id);
+                                          if (updatedInvoice) setSelectedInvoiceForModal(updatedInvoice);
+                                        } catch(err: any) {
+                                          alert("Error al retirar: " + err.message);
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded-lg shadow-sm transition-colors cursor-pointer"
+                                    >
+                                      No, retirar
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            ); })()}
+                              );
+                            })()}
 
                           </div>
                           <div className="text-right flex flex-col items-end gap-1">
@@ -1823,17 +1859,17 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
             </div>
 
             {/* Action Footer */}
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
-              <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
+            <div className="p-3 sm:p-5 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5 sm:gap-4">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
                 <button
                   onClick={() => downloadInvoicePdf(selectedInvoiceForModal)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs"
+                  className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all shadow-xs"
                 >
                   <Download size={14} /> <span>Descargar PDF</span>
                 </button>
                 {selectedInvoiceForModal.isFelCertified ? (
-                  <div className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 sm:px-4 py-2.5 rounded-xl shadow-xs" title="Esta venta está certificada ante la SAT (FEL). No puede modificarse salvo anulación en SAT.">
-                    <span>🔒 Facturada en SAT</span>
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-xs" title="Esta venta está certificada ante la SAT (FEL). No puede modificarse salvo anulación en SAT.">
+                    <span>🔒 En SAT</span>
                   </div>
                 ) : selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && selectedInvoiceForModal.status !== 'sent' && (
                   user.role === 'admin' ? (
@@ -1842,7 +1878,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                         localStorage.setItem('edit_invoice', JSON.stringify(selectedInvoiceForModal));
                         window.location.hash = 'sales';
                      }}
-                     className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+                     className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
                    >
                      <Edit2 size={14} /> <span>Editar</span>
                    </button>
@@ -1851,7 +1887,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                      onClick={() => {
                         setSuggestEditInvoice(selectedInvoiceForModal);
                      }}
-                     className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+                     className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
                      title="Sugerir edición a administrador"
                    >
                      <Edit2 size={14} /> <span>Sugerir Edición</span>
@@ -1867,17 +1903,17 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                       if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
                       window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
                     }}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-bold bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-2.5 rounded-xl transition-all shadow-xs"
+                    className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-bold bg-green-600 hover:bg-green-700 text-white px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all shadow-xs"
                   >
                     <MessageCircle size={14} /> <span>WhatsApp</span>
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 w-full sm:w-auto">
+              <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
                 {user.role === 'admin' && selectedInvoiceForModal.status !== 'cancelled' && selectedInvoiceForModal.status !== 'rejected' && (
-                  <div className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold">
-                    <span className="text-slate-500">Estado:</span>
+                  <div className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold">
+                    <span className="text-slate-500 text-[11px]">Estado:</span>
                     <select 
                       value={selectedInvoiceForModal.status}
                       onChange={async (e) => {
@@ -1889,7 +1925,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                           setSelectedInvoiceForModal(currentUpdated);
                         }
                       }}
-                      className="font-bold text-[#116858] outline-none border-none bg-transparent"
+                      className="font-bold text-[#116858] outline-none border-none bg-transparent text-xs"
                     >
                       <option value="pending">Pendiente</option>
                       <option value="paid">Completada/Pagada</option>
@@ -1917,7 +1953,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                         alert('Solo el administrador o el vendedor de esta factura pueden anularla.');
                       }
                     }}
-                    className="flex-1 sm:flex-none text-center justify-center px-4 py-2.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-xl transition-all"
+                    className="flex-1 sm:flex-none text-center justify-center px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-xl transition-all"
                   >
                     Anular Factura
                   </button>
@@ -1937,7 +1973,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                           }
                         }
                       }}
-                      className="inline-flex items-center justify-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                      className="inline-flex items-center justify-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all"
                     >
                       📥 Archivar
                     </button>
@@ -1956,7 +1992,7 @@ export function MySalesPage({ user, isMobile }: BillingPageProps) {
                             }
                           }
                         }}
-                        className="inline-flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                        className="inline-flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all"
                       >
                         🗑️ Eliminar
                       </button>

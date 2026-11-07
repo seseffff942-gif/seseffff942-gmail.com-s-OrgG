@@ -8,7 +8,7 @@ import {
   Building2, Phone, MapPin, Calendar, Tag, ShieldAlert, ArrowRight,
   DollarSign, FileText, CheckCircle, Copy, ExternalLink, Sparkles, Edit2
 } from 'lucide-react';
-import { cn, printHtml, downloadHtmlAsPdf, formatMoney, compileQuotationTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct } from '../utils';
+import { cn, printHtml, downloadHtmlAsPdf, formatMoney, compileQuotationTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct, generarPdfBlob, descargarBlob, blobToBase64 } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProductImage, getFallbackImage, LOGO_PLACEHOLDER } from '../components/ProductImage';
 
@@ -489,6 +489,62 @@ export function QuotationsPage({ user, isMobile }: QuotationsPageProps) {
       const result = await api.createQuotation(quotePayload);
       setCreatedQuotation(result);
       setShowSuccessModal(true);
+
+      // =========================================================================
+      // AUTO-DISPATCH DE PEDIDO / COTIZACIÓN EN PDF A WHATSAPP (BOT & N8N)
+      // 1. Descarga el archivo PDF localmente en la computadora / dispositivo
+      // 2. Envía el PDF por WhatsApp Bot (Evolution API + n8n)
+      // En modo prueba (o Emanuel): Envía a +502 4823 4048
+      // En producción: Envía al vendedor correspondiente
+      // =========================================================================
+      try {
+        const html = compileQuotationTemplate(result, result.sellerName || user.name);
+        const filename = `Cotizacion-${result.folio || result.id}-${String(result.client || 'CF').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+        setTimeout(() => {
+          generarPdfBlob(html).then(async (pdfBlob) => {
+            if (!pdfBlob || pdfBlob.size === 0) return;
+
+            // A. Descarga automática al dispositivo/PC
+            try {
+              await descargarBlob(pdfBlob, filename);
+            } catch (downErr) {
+              console.warn('[Auto-Descarga PDF Cotización] Error:', downErr);
+            }
+
+            // B. Envío por Bot WhatsApp (Evolution API / n8n)
+            try {
+              const base64 = await blobToBase64(pdfBlob);
+              const token = localStorage.getItem('app_token');
+              const botResp = await fetch('/api/bot/send-order-document', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                  invoice: result,
+                  pdfBase64: base64,
+                  fileName: filename,
+                  sellerPhone: user?.phone,
+                  sellerEmail: user?.email,
+                  isTest: user?.email === 'seseffff942@gmail.com'
+                })
+              });
+              const botResult = await botResp.json().catch(() => ({}));
+              if (botResult?.ok) {
+                console.log(`[Bot WhatsApp] ✅ Cotización enviada exitosamente a: ${botResult.targetPhone}`);
+              }
+            } catch (botErr) {
+              console.error('[Bot WhatsApp Despacho Cotización] Error:', botErr);
+            }
+          }).catch(pdfErr => {
+            console.error('[Auto-Dispatch Cotización] Error generando PDF:', pdfErr);
+          });
+        }, 300);
+      } catch (autoErr) {
+        console.error('[Auto-Dispatch Cotización] Error general:', autoErr);
+      }
       
       // Clear Cart Form & LocalStorage Draft
       clearQuotationDraft();

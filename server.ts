@@ -5031,6 +5031,61 @@ async function sendWhatsAppEvolutionMessage(phone: string, text: string): Promis
   return false;
 }
 
+async function sendWhatsAppEvolutionMedia(params: {
+  phone: string;
+  mediaBase64: string;
+  fileName: string;
+  caption?: string;
+  mimeType?: string;
+  mediaType?: 'document' | 'image';
+}): Promise<{ ok: boolean; status?: number; error?: string; endpoint?: string }> {
+  let cleanPhone = String(params.phone || '').replace(/\D/g, '');
+  if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return { ok: false, error: 'Número de teléfono inválido' };
+
+  let rawB64 = params.mediaBase64 || '';
+  if (rawB64.includes(',')) {
+    rawB64 = rawB64.split(',')[1];
+  }
+
+  const endpoints = [
+    'http://localhost:8080/message/sendMedia/bot-recibos',
+    'http://evolution_api:8080/message/sendMedia/bot-recibos',
+    'http://185.166.39.49:8080/message/sendMedia/bot-recibos'
+  ];
+
+  const payload = {
+    number: cleanPhone,
+    mediatype: params.mediaType || 'document',
+    mimetype: params.mimeType || 'application/pdf',
+    caption: params.caption || '',
+    media: rawB64,
+    fileName: params.fileName || 'documento.pdf'
+  };
+
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'apikey': 'B6D711FCDE4D4FD5936544120E713976',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Bot SendMedia] ✅ Documento "${params.fileName}" enviado a ${cleanPhone} vía ${url}`);
+        return { ok: true, status: resp.status, endpoint: url };
+      }
+    } catch (err: any) {
+      // Intentar siguiente endpoint
+    }
+  }
+
+  console.warn(`[WhatsApp Bot SendMedia] ⚠️ No se pudo enviar media a ${cleanPhone} en ningún endpoint`);
+  return { ok: false, error: 'No se pudo contactar a Evolution API' };
+}
+
 async function dispatchRouteToN8nWebhook(payload: {
   action: 'start_route' | 'finish_route' | 'auto_finish_route' | 'route_reminder';
   isAutoClosed?: boolean;
@@ -9791,50 +9846,53 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     releaseStockLocks();
   }
 
-  try {
-    const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
-    const invoiceUrl = `${baseUrl}/#billing`;
+  const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
+  const invoiceUrl = `${baseUrl}/#billing`;
 
-    // WhatsApp API Notification a Admins
-    // Encontrar admins y notificar únicamente a los administradores
-    const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
-    if (admins && admins.length > 0) {
-      const itemSummary = processedItems && processedItems.length > 0
-        ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
-        : "Sin productos";
-      const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-      const totalFormatted = `Q. ${total.toFixed(2)}`;
-      const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+  // WhatsApp API Notification a Admins
+  // En modo test se omite para evitar duplicados de mensajes de texto en WhatsApp
+  const isDispatchTest = process.env.ORDER_DISPATCH_MODE === 'test' || req.user?.email === 'seseffff942@gmail.com';
+  if (!isDispatchTest) {
+    try {
+      const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
+      if (admins && admins.length > 0) {
+        const itemSummary = processedItems && processedItems.length > 0
+          ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
+          : "Sin productos";
+        const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+        const totalFormatted = `Q. ${total.toFixed(2)}`;
+        const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
 
-      const folioMap = await getFolioMap();
-      const folioVal = String(folioMap[String(id)] || 1);
+        const folioMap = await getFolioMap();
+        const folioVal = String(folioMap[String(id)] || 1);
 
-      for (const admin of admins) {
-        if (admin.phone) {
-          const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
+        for (const admin of admins) {
+          if (admin.phone) {
+            const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
 
-          console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
-          internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
-            admin.name || "Sergio",
-            client,
-            itemSummaryTruncated,
-            totalFormatted,
-            zone,
-            folioVal
-          ]).then(result => {
-            if (!result.success) {
-              console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
-            } else {
-              console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
-            }
-          }).catch(err => {
-            console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
-          });
+            console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
+            internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
+              admin.name || "Sergio",
+              client,
+              itemSummaryTruncated,
+              totalFormatted,
+              zone,
+              folioVal
+            ]).then(result => {
+              if (!result.success) {
+                console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
+              } else {
+                console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
+              }
+            }).catch(err => {
+              console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
+            });
+          }
         }
       }
+    } catch (e) {
+      console.error("Notification block error:", e);
     }
-  } catch (e) {
-    console.error("Notification block error:", e);
   }
 
   // CREATE UI NOTIFICATION
@@ -12672,6 +12730,135 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: an
     receiptUrl
   });
 }));
+
+// ========================================
+// DESPACHO AUTOMÁTICO DE PEDIDO/FACTURA EN PDF A WHATSAPP (BOT & N8N)
+// HABILITADO EXCLUSIVAMENTE PARA HERBERT ARGUETA (CÓDIGO 1521)
+// ========================================
+app.post('/api/bot/send-order-document', asyncHandler(async (req: any, res: any) => {
+  const { invoice, pdfBase64, fileName, caption, recipientPhone, sellerPhone, isTest } = req.body || {};
+
+  if (!pdfBase64) {
+    return res.status(400).json({ ok: false, error: 'pdfBase64 es requerido' });
+  }
+
+  // 1. Identificar vendedor y verificar si es Herbert Argueta (código 1521)
+  let dbSeller: any = null;
+  const rawSellerVal = String(invoice?.sellerId || invoice?.sellerCode || req.user?.sellerCode || req.user?.id || '').trim();
+  if (rawSellerVal) {
+    try {
+      const uRes = await localDb.query(
+        `SELECT id, name, email, phone, "sellerCode" FROM users 
+         WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
+        [rawSellerVal]
+      );
+      if (uRes.rows[0]) dbSeller = uRes.rows[0];
+    } catch (e) {}
+  }
+
+  const sellerCode = String(invoice?.sellerCode || dbSeller?.sellerCode || req.user?.sellerCode || '').trim();
+  const sellerName = String(invoice?.sellerName || dbSeller?.name || req.user?.name || '').trim();
+  const sellerId = String(invoice?.sellerId || dbSeller?.id || req.user?.id || '').trim();
+  const sellerEmail = String(req.body?.sellerEmail || dbSeller?.email || req.user?.email || '').trim().toLowerCase();
+
+  const isHerbertArgueta = 
+    sellerCode === '1521' ||
+    sellerId === '1521' ||
+    sellerId === 'u_1780870803300' ||
+    sellerName.toLowerCase().includes('herbert') ||
+    sellerEmail === 'gruasytransportesali@gmail.com';
+
+  const isTestUser = Boolean(isTest || req.user?.email === 'seseffff942@gmail.com');
+
+  // REGLA ESTRICTA: Habilitado únicamente para Herbert Argueta (código 1521) o pruebas de Emanuel
+  if (!isHerbertArgueta && !isTestUser) {
+    console.log(`[Bot Despacho Pedido] Omitido: El despacho automático está habilitado únicamente para Herbert Argueta (código 1521). Vendedor recibido: "${sellerName || sellerId || sellerCode}"`);
+    return res.json({
+      ok: true,
+      skipped: true,
+      message: 'Despacho omitido: activo únicamente para Herbert Argueta (código 1521)'
+    });
+  }
+
+  // Determinar teléfono destino:
+  // - Para Herbert Argueta: Su número oficial 50241323037 (o el registrado en BD)
+  // - Para pruebas de Emanuel Lima: 50248234048
+  let targetPhone = '';
+  if (isHerbertArgueta) {
+    targetPhone = dbSeller?.phone || sellerPhone || '50241323037';
+  } else if (isTestUser) {
+    targetPhone = '50248234048';
+  } else {
+    targetPhone = recipientPhone || sellerPhone || '50241323037';
+  }
+
+  let cleanPhone = String(targetPhone).replace(/\D/g, '');
+  if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) cleanPhone = '50241323037';
+
+  const docName = fileName || `pedido-${invoice?.folio || invoice?.id || Date.now()}.pdf`;
+  const defaultCaption = caption || `📄 *NUEVO PEDIDO REGISTRADO - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `👤 *Cliente:* ${invoice?.client || invoice?.clientName || 'C/F'}\n` +
+    `🔖 *Folio:* #${invoice?.folio || invoice?.id || 'S/N'}\n` +
+    `💰 *Total:* Q. ${Number(invoice?.totalAmount ?? invoice?.total ?? 0).toFixed(2)}\n` +
+    `💼 *Vendedor:* ${sellerName || 'Herbert Argueta (1521)'}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📎 _Adjunto documento PDF con el detalle completo del pedido._`;
+
+  console.log(`[Bot Despacho Pedido] [Herbert Argueta: ${isHerbertArgueta}] Enviando ${docName} a ${cleanPhone}...`);
+
+  // Paso A: Disparar al webhook de n8n para trazabilidad y workflows de n8n
+  let n8nSuccess = false;
+  const n8nEndpoints = [
+    'http://localhost:5678/webhook/pedidos-documentos',
+    'http://n8n:5678/webhook/pedidos-documentos',
+    'http://185.166.39.49:5678/webhook/pedidos-documentos'
+  ];
+
+  for (const n8nUrl of n8nEndpoints) {
+    try {
+      const n8nRes = await fetch(n8nUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: cleanPhone,
+          media: pdfBase64,
+          fileName: docName,
+          caption: defaultCaption,
+          invoice
+        })
+      });
+      if (n8nRes.ok) {
+        console.log(`[Bot Despacho Pedido] ✅ Documento recibido y procesado por n8n webhook (${n8nUrl})`);
+        n8nSuccess = true;
+        break;
+      }
+    } catch (n8nErr) {}
+  }
+
+  // Paso B: SOLO si n8n no estuvo disponible, enviar como fallback directo a Evolution API
+  let evoResult: any = { ok: n8nSuccess };
+  if (!n8nSuccess) {
+    console.log(`[Bot Despacho Pedido] n8n no respondió, utilizando fallback directo a Evolution API...`);
+    evoResult = await sendWhatsAppEvolutionMedia({
+      phone: cleanPhone,
+      mediaBase64: pdfBase64,
+      fileName: docName,
+      caption: defaultCaption,
+      mimeType: 'application/pdf',
+      mediaType: 'document'
+    });
+  }
+
+  return res.json({
+    ok: n8nSuccess || evoResult.ok,
+    targetPhone: cleanPhone,
+    sellerCode,
+    isHerbertArgueta,
+    n8nStatus: n8nSuccess ? 'sent' : 'failed',
+    evoStatus: evoResult.status || (n8nSuccess ? 200 : (evoResult.ok ? 201 : 500))
+  });
+}));
 // ========================================
 
 // WHATSAPP WEBHOOK ENDPOINTS
@@ -13573,7 +13760,7 @@ export default app;
 
 async function startServer() {
   console.log("Starting server script...");
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = Number(process.env.PORT) || 2300;
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   // ======== VITE MIDDLEWARE / SPA ========
   if (process.env.NODE_ENV !== "production") {

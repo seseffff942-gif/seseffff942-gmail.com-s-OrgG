@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Camera, Loader2, Package, Upload, ScanLine, FileText, Download } from 'lucide-react';
 import { api } from '../api';
+import { useModalBackHandler } from '../utils/modalBackHandler';
 
 interface ShippingGuideModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface ShippingGuideModalProps {
 }
 
 export const ShippingGuideModal: React.FC<ShippingGuideModalProps> = ({ isOpen, onClose, onSubmit }) => {
+  useModalBackHandler(isOpen, onClose, 'shipping_guide_modal');
+
   const [guideNumber, setGuideNumber] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scannedData, setScannedData] = useState<any>(null);
@@ -70,8 +73,13 @@ export const ShippingGuideModal: React.FC<ShippingGuideModalProps> = ({ isOpen, 
                 <p className="text-xs text-slate-500 font-medium">Ingrese o escanee la guía de paquetería</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
-              <X size={20} />
+            <button 
+              onClick={onClose} 
+              className="w-9 h-9 bg-slate-200/90 hover:bg-slate-300 active:scale-95 text-slate-700 rounded-full transition-all shrink-0 flex items-center justify-center shadow-xs border border-slate-300 cursor-pointer"
+              title="Cerrar ventana (o desliza atrás)"
+              aria-label="Cerrar modal"
+            >
+              <X size={20} className="stroke-[2.5]" />
             </button>
           </div>
 

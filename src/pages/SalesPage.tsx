@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer, Invoice } from '../types';
 import { ShoppingCart, Plus, Minus, Trash2, Tag, CheckCircle, Edit2, X, Search, AlertTriangle, AlertCircle, FileText, Send, MessageCircle, Upload, Phone, WifiOff, RefreshCw, Download, Printer, ArrowLeft, Clock, Receipt } from 'lucide-react';
-import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct, calculateTecunStockBreakdown, calculateSupplierStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, isClientOfSeller } from '../utils';
+import { cn, DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, doesNotNeedStock, isTecunProduct, isFiatProduct, calculateTecunStockBreakdown, calculateSupplierStockBreakdown, printHtml, downloadHtmlAsPdf, formatMoney, diaGuatemala, isClientOfSeller, generarPdfBlob, descargarBlob, blobToBase64 } from '../utils';
 import { motion } from 'motion/react';
 import { ProductImage, getFallbackImage } from '../components/ProductImage';
 
@@ -727,9 +727,29 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   };
 
   const downloadTicketPdf = async (invoice: any) => {
-    const sellerName = getSellerDisplayName(invoice);
-
-    const htmlContent = compilePrintTemplate(printTemplate, invoice, sellerName);
+    const sellerName = getSellerDisplayName(invoice) || user?.name || 'Emanuel Lima';
+    const formattedItems = (invoice.items || []).map((it: any) => ({
+      ...it,
+      productName: it.productName || it.name || 'Producto',
+      quantity: Number(it.quantity || 1),
+      price: Number(it.price || 0),
+      total: it.total !== undefined && it.total !== null ? Number(it.total) : (Number(it.quantity || 1) * Number(it.price || 0))
+    }));
+    const invoiceForPdf = {
+      ...invoice,
+      client: invoice.client || invoice.clientName || 'C/F',
+      customerName: invoice.client || invoice.clientName || 'C/F',
+      nit: invoice.nit || 'CF',
+      phone: invoice.phone || invoice.customerPhone || '',
+      customerPhone: invoice.phone || invoice.customerPhone || '',
+      address: invoice.address || invoice.deliveryAddress || 'Ciudad',
+      customerAddress: invoice.address || invoice.deliveryAddress || 'Ciudad',
+      folio: invoice.folio || '1',
+      totalAmount: invoice.totalAmount || invoice.total || 0,
+      items: formattedItems,
+      sellerName: sellerName
+    };
+    const htmlContent = compilePrintTemplate(printTemplate || DEFAULT_PRINT_TEMPLATE, invoiceForPdf, sellerName);
     await downloadHtmlAsPdf(htmlContent, `factura-${invoice.folio || invoice.id || 'venta'}.pdf`);
   };
 
@@ -1026,6 +1046,110 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
 
       setLastCreatedInvoice(newInvoice);
+
+      // =========================================================================
+      // AUTO-DISPATCH DE DOCUMENTO PDF A WHATSAPP VÍA BOT & N8N
+      // 1. Genera y descarga el PDF localmente en el dispositivo
+      // 2. Envía el archivo PDF por WhatsApp Bot (Evolution API + n8n)
+      // REGLA: HABILITADO EXCLUSIVAMENTE PARA HERBERT ARGUETA (CÓDIGO 1521)
+      // (O para pruebas del administrador Emanuel Lima)
+      // =========================================================================
+      try {
+        const sellerName = getSellerDisplayName(newInvoice) || user?.name || '';
+        const sellerId = String(newInvoice.sellerId || user?.id || '');
+        const sellerCode = String(newInvoice.sellerCode || user?.sellerCode || '');
+
+        const isHerbertArgueta = 
+          sellerCode === '1521' ||
+          sellerId === '1521' ||
+          sellerId === 'u_1780870803300' ||
+          sellerName.toLowerCase().includes('herbert') ||
+          String(user?.email || '').toLowerCase() === 'gruasytransportesali@gmail.com';
+
+        const isTestUser = user?.email === 'seseffff942@gmail.com';
+
+        if (!isHerbertArgueta && !isTestUser) {
+          console.log('[Auto-Dispatch PDF] Omitido: activo exclusivamente para Herbert Argueta (código 1521)');
+          return;
+        }
+
+        const formattedItems = (newInvoice.items && newInvoice.items.length > 0 ? newInvoice.items : cart.map(i => ({
+          productId: i.product.id,
+          productName: i.product.name,
+          quantity: i.quantity,
+          price: i.overridePrice ?? i.product.price,
+          total: (Number(i.quantity) || 1) * (Number(i.overridePrice ?? i.product.price) || 0)
+        }))).map((it: any) => ({
+          ...it,
+          productName: it.productName || it.name || 'Producto',
+          quantity: Number(it.quantity || 1),
+          price: Number(it.price || 0),
+          total: it.total !== undefined && it.total !== null ? Number(it.total) : (Number(it.quantity || 1) * Number(it.price || 0))
+        }));
+
+        const invoiceForPdf = {
+          ...newInvoice,
+          client: newInvoice.client || newInvoice.clientName || originalClient,
+          customerName: newInvoice.client || newInvoice.clientName || originalClient,
+          nit: newInvoice.nit || nit || 'CF',
+          phone: newInvoice.phone || newInvoice.customerPhone || originalPhone || '',
+          customerPhone: newInvoice.phone || newInvoice.customerPhone || originalPhone || '',
+          address: newInvoice.address || newInvoice.deliveryAddress || address || 'Ciudad',
+          customerAddress: newInvoice.address || newInvoice.deliveryAddress || address || 'Ciudad',
+          folio: newInvoice.folio || '1',
+          totalAmount: newInvoice.totalAmount || newInvoice.total || cartTotal,
+          items: formattedItems,
+          sellerName: sellerName
+        };
+
+        const htmlContent = compilePrintTemplate(printTemplate || DEFAULT_PRINT_TEMPLATE, invoiceForPdf, sellerName);
+        const docFileName = `factura-${newInvoice.folio || newInvoice.id || 'venta'}.pdf`;
+
+        // Generar el blob del PDF idéntico al botón de descarga
+        setTimeout(() => {
+          generarPdfBlob(htmlContent).then(async (pdfBlob) => {
+            if (!pdfBlob || pdfBlob.size === 0) return;
+
+            // A. Descarga automática al dispositivo/PC
+            try {
+              await descargarBlob(pdfBlob, docFileName);
+            } catch (downErr) {
+              console.warn('[Auto-Descarga PDF Local] Error descargando:', downErr);
+            }
+
+            // B. Envío del archivo PDF por el Bot WhatsApp (Evolution API / n8n)
+            try {
+              const base64 = await blobToBase64(pdfBlob);
+              const token = localStorage.getItem('app_token');
+              const botResp = await fetch('/api/bot/send-order-document', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                  invoice: invoiceForPdf,
+                  pdfBase64: base64,
+                  fileName: docFileName,
+                  sellerPhone: user?.phone,
+                  sellerEmail: user?.email,
+                  isTest: user?.email === 'seseffff942@gmail.com'
+                })
+              });
+              const botResult = await botResp.json().catch(() => ({}));
+              if (botResult?.ok) {
+                console.log(`[Bot WhatsApp] ✅ Documento PDF enviado exitosamente a: ${botResult.targetPhone}`);
+              }
+            } catch (botErr) {
+              console.error('[Bot WhatsApp Despacho] Error enviando documento:', botErr);
+            }
+          }).catch(pdfErr => {
+            console.error('[Auto-Dispatch PDF] Error generando PDF:', pdfErr);
+          });
+        }, 300);
+      } catch (autoErr) {
+        console.error('[Auto-Dispatch Venta] Error general:', autoErr);
+      }
 
       if (newInvoice.authStatus === 'pending') {
          const reason = (!OMITIR_LIMITACION_FACTURAS_VENCIDAS && debtType !== 'none') ? 'por DEUDA pendiente del cliente' : 'por precio de oferta/rebajado';

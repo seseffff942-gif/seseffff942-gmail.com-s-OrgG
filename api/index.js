@@ -5417,6 +5417,47 @@ async function sendWhatsAppEvolutionMessage(phone, text) {
   console.warn(`[WhatsApp Route Automation] No se pudo enviar WhatsApp a ${cleanPhone}`);
   return false;
 }
+async function sendWhatsAppEvolutionMedia(params) {
+  let cleanPhone = String(params.phone || "").replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return { ok: false, error: "N\xFAmero de tel\xE9fono inv\xE1lido" };
+  let rawB64 = params.mediaBase64 || "";
+  if (rawB64.includes(",")) {
+    rawB64 = rawB64.split(",")[1];
+  }
+  const endpoints = [
+    "http://localhost:8080/message/sendMedia/bot-recibos",
+    "http://evolution_api:8080/message/sendMedia/bot-recibos",
+    "http://185.166.39.49:8080/message/sendMedia/bot-recibos"
+  ];
+  const payload = {
+    number: cleanPhone,
+    mediatype: params.mediaType || "document",
+    mimetype: params.mimeType || "application/pdf",
+    caption: params.caption || "",
+    media: rawB64,
+    fileName: params.fileName || "documento.pdf"
+  };
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "apikey": "B6D711FCDE4D4FD5936544120E713976",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Bot SendMedia] \u2705 Documento "${params.fileName}" enviado a ${cleanPhone} v\xEDa ${url}`);
+        return { ok: true, status: resp.status, endpoint: url };
+      }
+    } catch (err) {
+    }
+  }
+  console.warn(`[WhatsApp Bot SendMedia] \u26A0\uFE0F No se pudo enviar media a ${cleanPhone} en ning\xFAn endpoint`);
+  return { ok: false, error: "No se pudo contactar a Evolution API" };
+}
 async function dispatchRouteToN8nWebhook(payload) {
   const endpoints = [
     "http://localhost:5678/webhook/rutas-visitas",
@@ -9456,20 +9497,22 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     } finally {
       releaseStockLocks();
     }
-    try {
-      const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : "https://" + req.headers.host;
-      const invoiceUrl = `${baseUrl}/#billing`;
-      const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
-      if (admins && admins.length > 0) {
-        const itemSummary = processedItems && processedItems.length > 0 ? processedItems.map((item) => `${item.quantity}x ${item.productName || "Producto"}`).join(", ") : "Sin productos";
-        const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-        const totalFormatted = `Q. ${total.toFixed(2)}`;
-        const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
-        const folioMap2 = await getFolioMap();
-        const folioVal = String(folioMap2[String(id)] || 1);
-        for (const admin2 of admins) {
-          if (admin2.phone) {
-            const message = `\u{1F6A8} *\xA1Nuevo Pedido Ingresado!* \u{1F6A8}
+    const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : "https://" + req.headers.host;
+    const invoiceUrl = `${baseUrl}/#billing`;
+    const isDispatchTest = process.env.ORDER_DISPATCH_MODE === "test" || req.user?.email === "seseffff942@gmail.com";
+    if (!isDispatchTest) {
+      try {
+        const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
+        if (admins && admins.length > 0) {
+          const itemSummary = processedItems && processedItems.length > 0 ? processedItems.map((item) => `${item.quantity}x ${item.productName || "Producto"}`).join(", ") : "Sin productos";
+          const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+          const totalFormatted = `Q. ${total.toFixed(2)}`;
+          const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+          const folioMap2 = await getFolioMap();
+          const folioVal = String(folioMap2[String(id)] || 1);
+          for (const admin2 of admins) {
+            if (admin2.phone) {
+              const message = `\u{1F6A8} *\xA1Nuevo Pedido Ingresado!* \u{1F6A8}
 
 Hola ${admin2.name || "Sergio"},
 
@@ -9482,28 +9525,29 @@ Detalles de la compra:
 Por favor, revisa el panel de administraci\xF3n para confirmar el inventario y coordinar el despacho. \u{1F331}\u{1F69C}
 
 AgricoVet - Sistema de Notificaciones`;
-            console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin2.name} (${admin2.phone})`);
-            internalSendWhatsApp(admin2.phone, message, "alerta_nuevo_pedido_interno", "es", [
-              admin2.name || "Sergio",
-              client,
-              itemSummaryTruncated,
-              totalFormatted,
-              zone,
-              folioVal
-            ]).then((result) => {
-              if (!result.success) {
-                console.error(`Error WhatsApp al admin ${admin2.name} (${admin2.phone}):`, result.error, result.data || "");
-              } else {
-                console.log(`WhatsApp enviado exitosamente a ${admin2.name}.`);
-              }
-            }).catch((err) => {
-              console.error(`Exception enviando WhatsApp a admin ${admin2.name}:`, err);
-            });
+              console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin2.name} (${admin2.phone})`);
+              internalSendWhatsApp(admin2.phone, message, "alerta_nuevo_pedido_interno", "es", [
+                admin2.name || "Sergio",
+                client,
+                itemSummaryTruncated,
+                totalFormatted,
+                zone,
+                folioVal
+              ]).then((result) => {
+                if (!result.success) {
+                  console.error(`Error WhatsApp al admin ${admin2.name} (${admin2.phone}):`, result.error, result.data || "");
+                } else {
+                  console.log(`WhatsApp enviado exitosamente a ${admin2.name}.`);
+                }
+              }).catch((err) => {
+                console.error(`Exception enviando WhatsApp a admin ${admin2.name}:`, err);
+              });
+            }
           }
         }
+      } catch (e) {
+        console.error("Notification block error:", e);
       }
-    } catch (e) {
-      console.error("Notification block error:", e);
     }
     await createNotification(
       "new_order",
@@ -11927,6 +11971,107 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
     receiptUrl
   });
 }));
+app.post("/api/bot/send-order-document", asyncHandler(async (req, res) => {
+  const { invoice, pdfBase64, fileName, caption, recipientPhone, sellerPhone, isTest } = req.body || {};
+  if (!pdfBase64) {
+    return res.status(400).json({ ok: false, error: "pdfBase64 es requerido" });
+  }
+  let dbSeller = null;
+  const rawSellerVal = String(invoice?.sellerId || invoice?.sellerCode || req.user?.sellerCode || req.user?.id || "").trim();
+  if (rawSellerVal) {
+    try {
+      const uRes = await localDb.query(
+        `SELECT id, name, email, phone, "sellerCode" FROM users 
+         WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
+        [rawSellerVal]
+      );
+      if (uRes.rows[0]) dbSeller = uRes.rows[0];
+    } catch (e) {
+    }
+  }
+  const sellerCode = String(invoice?.sellerCode || dbSeller?.sellerCode || req.user?.sellerCode || "").trim();
+  const sellerName = String(invoice?.sellerName || dbSeller?.name || req.user?.name || "").trim();
+  const sellerId = String(invoice?.sellerId || dbSeller?.id || req.user?.id || "").trim();
+  const sellerEmail = String(req.body?.sellerEmail || dbSeller?.email || req.user?.email || "").trim().toLowerCase();
+  const isHerbertArgueta = sellerCode === "1521" || sellerId === "1521" || sellerId === "u_1780870803300" || sellerName.toLowerCase().includes("herbert") || sellerEmail === "gruasytransportesali@gmail.com";
+  const isTestUser = Boolean(isTest || req.user?.email === "seseffff942@gmail.com");
+  if (!isHerbertArgueta && !isTestUser) {
+    console.log(`[Bot Despacho Pedido] Omitido: El despacho autom\xE1tico est\xE1 habilitado \xFAnicamente para Herbert Argueta (c\xF3digo 1521). Vendedor recibido: "${sellerName || sellerId || sellerCode}"`);
+    return res.json({
+      ok: true,
+      skipped: true,
+      message: "Despacho omitido: activo \xFAnicamente para Herbert Argueta (c\xF3digo 1521)"
+    });
+  }
+  let targetPhone = "";
+  if (isHerbertArgueta) {
+    targetPhone = dbSeller?.phone || sellerPhone || "50241323037";
+  } else if (isTestUser) {
+    targetPhone = "50248234048";
+  } else {
+    targetPhone = recipientPhone || sellerPhone || "50241323037";
+  }
+  let cleanPhone = String(targetPhone).replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) cleanPhone = "50241323037";
+  const docName = fileName || `pedido-${invoice?.folio || invoice?.id || Date.now()}.pdf`;
+  const defaultCaption = caption || `\u{1F4C4} *NUEVO PEDIDO REGISTRADO - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F464} *Cliente:* ${invoice?.client || invoice?.clientName || "C/F"}
+\u{1F516} *Folio:* #${invoice?.folio || invoice?.id || "S/N"}
+\u{1F4B0} *Total:* Q. ${Number(invoice?.totalAmount ?? invoice?.total ?? 0).toFixed(2)}
+\u{1F4BC} *Vendedor:* ${sellerName || "Herbert Argueta (1521)"}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CE} _Adjunto documento PDF con el detalle completo del pedido._`;
+  console.log(`[Bot Despacho Pedido] [Herbert Argueta: ${isHerbertArgueta}] Enviando ${docName} a ${cleanPhone}...`);
+  let n8nSuccess = false;
+  const n8nEndpoints = [
+    "http://localhost:5678/webhook/pedidos-documentos",
+    "http://n8n:5678/webhook/pedidos-documentos",
+    "http://185.166.39.49:5678/webhook/pedidos-documentos"
+  ];
+  for (const n8nUrl of n8nEndpoints) {
+    try {
+      const n8nRes = await fetch(n8nUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: cleanPhone,
+          media: pdfBase64,
+          fileName: docName,
+          caption: defaultCaption,
+          invoice
+        })
+      });
+      if (n8nRes.ok) {
+        console.log(`[Bot Despacho Pedido] \u2705 Documento recibido y procesado por n8n webhook (${n8nUrl})`);
+        n8nSuccess = true;
+        break;
+      }
+    } catch (n8nErr) {
+    }
+  }
+  let evoResult = { ok: n8nSuccess };
+  if (!n8nSuccess) {
+    console.log(`[Bot Despacho Pedido] n8n no respondi\xF3, utilizando fallback directo a Evolution API...`);
+    evoResult = await sendWhatsAppEvolutionMedia({
+      phone: cleanPhone,
+      mediaBase64: pdfBase64,
+      fileName: docName,
+      caption: defaultCaption,
+      mimeType: "application/pdf",
+      mediaType: "document"
+    });
+  }
+  return res.json({
+    ok: n8nSuccess || evoResult.ok,
+    targetPhone: cleanPhone,
+    sellerCode,
+    isHerbertArgueta,
+    n8nStatus: n8nSuccess ? "sent" : "failed",
+    evoStatus: evoResult.status || (n8nSuccess ? 200 : evoResult.ok ? 201 : 500)
+  });
+}));
 app.get("/api/whatsapp/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -12661,7 +12806,7 @@ app.get(["/agricovet-live.apk", "/agricovet.apk", "/*.apk"], (req, res) => {
 var server_default = app;
 async function startServer() {
   console.log("Starting server script...");
-  const PORT = Number(process.env.PORT) || 3e3;
+  const PORT = Number(process.env.PORT) || 2300;
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   if (process.env.NODE_ENV !== "production") {
     console.log("Initializing Vite middleware server...");

@@ -1228,11 +1228,12 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         return `<br/><small style="color: #555;">🎨 ${c || ''} - ${s || ''}</small>`;
       };
       const variantStr = getVariantString(item);
+      const subtotalVal = item.total !== undefined && item.total !== null ? Number(item.total) : (Number(item.quantity || 0) * Number(item.price || 0));
       return '<tr>' +
         '<td class="col-producto notranslate" translate="no">' + (item.productName || '') + variantStr + '</td>' +
         '<td class="col-cant">' + formatGT(item.quantity || 0) + '</td>' +
         '<td class="col-precio">' + formatGT(item.price || 0) + '</td>' +
-        '<td class="col-subtotal">' + formatGT(item.total || 0) + '</td>' +
+        '<td class="col-subtotal">' + formatGT(subtotalVal) + '</td>' +
         '</tr>';
     }).join('');
 
@@ -1412,16 +1413,17 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         row = row.replace(/\{\{this\.price\}\}/g, formatGT(item.price || 0));
         row = row.replace(/\{\{price\}\}/g, formatGT(item.price || 0));
 
-        row = row.replace(/\{\{this\.subtotal\}\}/g, formatGT(item.total || 0));
-        row = row.replace(/\{\{subtotal\}\}/g, formatGT(item.total || 0));
+        const subtotalVal = item.total !== undefined && item.total !== null ? Number(item.total) : (Number(item.quantity || 0) * Number(item.price || 0));
+        row = row.replace(/\{\{this\.subtotal\}\}/g, formatGT(subtotalVal));
+        row = row.replace(/\{\{subtotal\}\}/g, formatGT(subtotalVal));
 
         return row;
       }).join('\n');
     });
 
-    // Nombre del cliente con fallbacks: invoice.client, customerName o name.
+    // Nombre del cliente con fallbacks: invoice.client, invoice.clientName, customerName o name.
     // Sin esto la factura impresa salia con el cliente vacio segun el origen.
-    const clientName = String(invoice.client || invoice.customerName || invoice.name || '').replace(/\*/g, '');
+    const clientName = String(invoice.client || invoice.clientName || invoice.customerName || invoice.name || '').replace(/\*/g, '');
 
     // Receptor: si el DTE se certifico con datos ajustados (nombre/NIT distintos
     // a los de la venta), la representacion grafica debe mostrar EXACTAMENTE lo
@@ -1437,7 +1439,7 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{client\}\}/g, String(custName));
     t = t.replace(/\{\{customerName\}\}/g, String(custName));
     t = t.replace(/\{\{customerNit\}\}/g, String(custNit));
-    t = t.replace(/\{\{customerAddress\}\}/g, String(invoice.address || 'Ciudad'));
+    t = t.replace(/\{\{customerAddress\}\}/g, String(invoice.address || invoice.deliveryAddress || 'Ciudad'));
     t = t.replace(/\{\{clientPhoneLine\}\}/g, clientPhoneLine);
     t = t.replace(/\{\{clientAddressLine\}\}/g, clientAddressLine);
     t = t.replace(/\{\{phone\}\}/g, phoneVal);
@@ -1448,9 +1450,15 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
     t = t.replace(/\{\{status\}\}/g, isCredit ? 'POR COBRAR' : (invoice.status === 'cancelled' || invoice.status === 'rejected' ? 'ANULADA' : 'PAGADO'));
     t = t.replace(/\{\{sellerName\}\}/g, effectiveSellerName);
     t = t.replace(/\{\{itemsTableRows\}\}/g, itemsTableRows);
-    t = t.replace(/\{\{totalAmount\}\}/g, formatGT(invoice.totalAmount || 0));
+
+    const effectiveTotal = invoice.totalAmount !== undefined && invoice.totalAmount !== null 
+      ? Number(invoice.totalAmount) 
+      : (invoice.total !== undefined && invoice.total !== null 
+        ? Number(invoice.total) 
+        : (invoice.items || []).reduce((acc: number, it: any) => acc + (Number(it.quantity || 0) * Number(it.price || 0)), 0));
+    t = t.replace(/\{\{totalAmount\}\}/g, formatGT(effectiveTotal));
     t = t.replace(/\{\{paidAmount\}\}/g, formatGT(invoice.paidAmount || 0));
-    t = t.replace(/\{\{dueAmount\}\}/g, formatGT((invoice.totalAmount || 0) - (invoice.paidAmount || 0)));
+    t = t.replace(/\{\{dueAmount\}\}/g, formatGT(effectiveTotal - Number(invoice.paidAmount || 0)));
 
     // Signatures and Seals
     t = t.replace(/\{\{sellerSignature\}\}/g, invoice.sellerSignature || '');

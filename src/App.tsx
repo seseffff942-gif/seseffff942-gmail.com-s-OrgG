@@ -201,11 +201,18 @@ export default function App() {
     return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
+  const tabHistoryRef = React.useRef<string[]>([currentTab]);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   React.useEffect(() => {
     if (!showLoginDirectly) {
-      window.location.hash = currentTab;
+      if (window.location.hash.replace('#', '').split('?')[0] !== currentTab) {
+        window.location.hash = currentTab;
+      }
+      const last = tabHistoryRef.current[tabHistoryRef.current.length - 1];
+      if (last !== currentTab) {
+        tabHistoryRef.current.push(currentTab);
+      }
     }
   }, [currentTab, showLoginDirectly]);
 
@@ -215,9 +222,15 @@ export default function App() {
       const cleanHash = hash.split('?')[0];
       if (cleanHash === 'login') {
         setShowLoginDirectly(true);
+        return;
       }
-      if (['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'].includes(cleanHash)) {
+      const validTabs = ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'];
+      if (validTabs.includes(cleanHash)) {
         setCurrentTab(cleanHash);
+      } else if (!cleanHash) {
+        // Si el usuario presionó atrás y el hash quedó vacío, ir a 'home' en vez de salir de la APK
+        setCurrentTab('home');
+        window.location.hash = 'home';
       }
     };
     window.addEventListener('hashchange', handleHashChange);

@@ -31,6 +31,7 @@ import {
   formatMoney
 } from '../utils';
 import SignaturePad from './SignaturePad';
+import { useModalBackHandler } from '../utils/modalBackHandler';
 
 interface ReciboConformeModalProps {
   isOpen: boolean;
@@ -49,6 +50,8 @@ export const ReciboConformeModal: React.FC<ReciboConformeModalProps> = ({
   invoicesList,
   currentUser
 }) => {
+  useModalBackHandler(isOpen, onClose, 'recibo_conforme_modal');
+
   const [allInvoices, setAllInvoices] = useState<Invoice[]>(invoicesList || []);
   const [loadingInvoices, setLoadingInvoices] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
