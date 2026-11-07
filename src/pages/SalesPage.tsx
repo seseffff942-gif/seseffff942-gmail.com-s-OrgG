@@ -333,7 +333,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       }
       try {
         const inv = JSON.parse(storedEdit);
-        if (inv.isFelCertified) {
+        if (inv.isFelCertified || inv.is_fel_certified || inv.uuid) {
           alert('⚠️ Esta venta ya se encuentra CERTIFICADA ante la SAT (DTE activo). Por normativa contable y fiscal no se puede modificar. Si requieres hacer cambios, anula formalmente el DTE en el panel de facturación.');
           localStorage.removeItem('edit_invoice');
           localStorage.removeItem('draft_edit_invoice_id');
@@ -348,19 +348,34 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         setEditInvoiceSellerId(inv.sellerId || '');
         
         // Keep the full client name intact (with company if present) so it matches correctly
-        setClient(inv.client || '');
+        setClient(inv.client || inv.clientName || '');
         setNit(inv.nit || '');
-        setPhone(inv.phone || '');
-        setAddress(inv.address || '');
+        setPhone(inv.phone || inv.customerPhone || '');
+        setAddress(inv.address || inv.deliveryAddress || '');
         if (inv.notes) {
           setNotes(inv.notes);
         }
+        if (inv.invoiceType || inv.invoice_type) {
+          setInvoiceType(inv.invoiceType || inv.invoice_type);
+        }
+        if (inv.transportMethod || inv.transport_method) {
+          setTransportMethod(inv.transportMethod || inv.transport_method);
+        }
         if (inv.date) {
           setCustomDate(diaGuatemala(inv.date));
+          setIsCustomDateChanged(true);
         } else {
           setCustomDate(diaGuatemala());
         }
-        setIsCustomDateChanged(false);
+
+        // Obtener productos disponibles desde caché local para mapear stock y categorías sin error
+        let prodsList: any[] = [];
+        const cachedProdsRaw = localStorage.getItem('offline_products');
+        if (cachedProdsRaw) {
+          try {
+            prodsList = JSON.parse(cachedProdsRaw);
+          } catch (e) {}
+        }
 
         // Robust parsing of items list
         let parsedItems = inv.items;
@@ -376,20 +391,25 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         }
 
         setCart(parsedItems.map((i: any) => {
-           const prodPrice = i.originalPrice !== undefined ? Number(i.originalPrice) : (Number(i.price) || 0);
+           const pId = i.productId || i.product?.id || i.id;
+           const pName = i.productName || i.product?.name || i.name || 'Producto';
+           const liveProd = prodsList.find((prod: any) => 
+             (prod.id && pId && prod.id === pId) || 
+             (prod.name && pName && prod.name.trim().toLowerCase() === pName.trim().toLowerCase())
+           );
+           const prodPrice = i.originalPrice !== undefined ? Number(i.originalPrice) : (i.product?.price !== undefined ? Number(i.product.price) : (Number(i.price) || (Number(liveProd?.price) || 0)));
            const variantObj = i.variant || (i.color || i.size || i.variantId ? { id: i.variantId || '', color: i.color || '', size: i.size || '' } : undefined);
-           const liveProd = (p || []).find((prod: any) => prod.id === i.productId || prod.name?.trim().toLowerCase() === (i.productName || '').trim().toLowerCase());
            return {
              product: { 
-               id: i.productId, 
-               name: i.productName || 'Producto', 
+               id: pId, 
+               name: pName, 
                price: prodPrice, 
                sku: i.sku || liveProd?.sku || '', 
                category: i.category || liveProd?.category || '',
                stock: liveProd?.stock !== undefined ? Number(liveProd.stock) : (i.tecunWarehouseStock ?? 0)
              },
              quantity: Number(i.quantity) || 1,
-             overridePrice: Number(i.price) || 0,
+             overridePrice: Number(i.overridePrice ?? i.price) || 0,
              suggestedPrice: undefined,
              appliedCustomOffer: undefined,
              variant: variantObj
@@ -1435,6 +1455,42 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       {/* Product Selection Area */}
       <section className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#f4f7f5] ${isMobile ? 'pb-32' : ''}`}>
         
+        {/* Banner de Modo Edición de Venta */}
+        {editingInvoiceId && (
+          <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-5 py-3 shadow-md flex items-center justify-between gap-3 border-b border-amber-400/40 z-20 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-1.5 bg-white/20 rounded-xl shrink-0">
+                <Edit2 size={16} className="text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-wider leading-tight">Modo Edición de Venta</p>
+                <p className="text-[11px] font-semibold text-amber-100 truncate">Modificando pedido: <span className="font-mono font-bold text-white">#{editingInvoiceId}</span></p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingInvoiceId(null);
+                setEditInvoiceSellerId(null);
+                setCart([]);
+                setClient('');
+                setNit('');
+                setPhone('');
+                setAddress('');
+                setNotes('');
+                setIsCustomDateChanged(false);
+                setCustomDate(diaGuatemala());
+                localStorage.removeItem('draft_edit_invoice_id');
+                localStorage.removeItem('draft_edit_invoice_sellerId');
+                localStorage.removeItem('edit_invoice');
+              }}
+              className="bg-white/20 hover:bg-white/30 active:scale-95 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition cursor-pointer border border-white/20 shrink-0"
+            >
+              Cancelar Edición
+            </button>
+          </div>
+        )}
+
         {/* Header / Search & Interactive Branding bar */}
         <div className="flex flex-col gap-4.5 p-5 md:p-6 bg-white border-b border-emerald-900/10 z-10 shrink-0 shadow-sm">
           
