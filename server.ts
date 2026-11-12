@@ -13365,7 +13365,7 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res:
 app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
   let documentos = await felServicio.listarDocumentos(localDb, {
     estado: req.query.estado,
-    limite: Number(req.query.limite) || 200,
+    limite: req.query.limite ? Number(req.query.limite) : 10000,
   });
 
   if (req.user.role !== 'admin') {

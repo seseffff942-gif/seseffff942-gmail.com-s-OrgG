@@ -436,9 +436,10 @@ async function obtenerDocumentoPorFactura(db, invoiceId) {
   return data && data.length ? data[0] : null;
 }
 async function listarDocumentos(db, filtros = {}) {
-  let q = db.from("fel_documentos").select("*").order("creado_en", { ascending: false });
+  let q = db.from("fel_documentos").select("*");
   if (filtros.estado) q = q.eq("estado", filtros.estado);
-  q = q.limit(filtros.limite ?? 200);
+  q = q.order("creado_en", { ascending: false, nullsFirst: false });
+  if (filtros.limite) q = q.limit(filtros.limite);
   const { data, error } = await q;
   if (error) throw new Error(`No se pudieron listar los documentos FEL: ${error.message}`);
   return data || [];
@@ -489,6 +490,7 @@ async function certificarFactura(db, invoice, opciones = {}) {
     receptor_nit: nitReceptorFinal || "CF",
     receptor_nombre: nombreReceptorFinal,
     intentos: (existente?.intentos ?? 0) + 1,
+    creado_en: existente?.creado_en ?? (/* @__PURE__ */ new Date()).toISOString(),
     actualizado_en: (/* @__PURE__ */ new Date()).toISOString()
   };
   const credenciales = {
@@ -12524,7 +12526,7 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req, res) => {
 app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req, res) => {
   let documentos = await listarDocumentos(localDb, {
     estado: req.query.estado,
-    limite: Number(req.query.limite) || 200
+    limite: req.query.limite ? Number(req.query.limite) : 1e4
   });
   if (req.user.role !== "admin") {
     const sellerKeys = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].filter(Boolean);

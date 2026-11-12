@@ -59,6 +59,16 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
   const [dateViewMode, setDateViewMode] = useState<'day' | 'all'>('all');
   const [sellerFilter, setSellerFilter] = useState<string>('all');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
+  const [felFilter, setFelFilter] = useState<'all' | 'certified' | 'uncertified'>('all');
+
+  const getEstadoFel = (inv?: Invoice | null): EstadoFEL => {
+    if (!inv) return 'sin_emitir';
+    if (felEstados[inv.id]) return felEstados[inv.id];
+    if (inv.isFelCertified || (inv as any).fel_status === 'certificado' || Boolean((inv as any).fel_uuid)) {
+      return 'certificado';
+    }
+    return 'sin_emitir';
+  };
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
@@ -175,7 +185,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, paymentStatusFilter, showCancelledAndRejected, pageSize]);
+  }, [searchTerm, filterDate, dateViewMode, dateFilter, sellerFilter, paymentStatusFilter, felFilter, showCancelledAndRejected, pageSize]);
 
   const loadInvoices = async () => {
     setLoading(true);
@@ -380,11 +390,18 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         (cleanDigits && String(i.folio) === cleanDigits)
       );
 
+      const felStr = getEstadoFel(i);
+      const isFelCert = felStr === 'certificado';
+      const matchFelSearch = term === 'fel' || term === 'sat' || 
+        (term.startsWith('cert') && isFelCert) ||
+        (term.includes('emit') && !isFelCert);
+
       const matchSearch = !term || (i.client || '').toLowerCase().includes(term) || 
         (i.id || '').toLowerCase().includes(term) ||
         (i.sellerId || '').toLowerCase().includes(term) ||
         (getSellerName(i.sellerId || '') || '').toLowerCase().includes(term) ||
-        Boolean(matchFolio);
+        Boolean(matchFolio) ||
+        matchFelSearch;
       
       let matchDate = true;
       if (!term) {
@@ -424,9 +441,17 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
         matchPaymentStatus = i.status !== 'cancelled' && i.status !== 'rejected' && i.status !== 'paid' && (i.totalAmount - (i.paidAmount || 0) > 0.001);
       }
 
-      return matchSearch && matchDate && matchSeller && matchPaymentStatus;
+      let matchFel = true;
+      const iEstadoFel = getEstadoFel(i);
+      if (felFilter === 'certified') {
+        matchFel = iEstadoFel === 'certificado';
+      } else if (felFilter === 'uncertified') {
+        matchFel = iEstadoFel !== 'certificado' && i.status !== 'cancelled' && i.status !== 'rejected';
+      }
+
+      return matchSearch && matchDate && matchSeller && matchPaymentStatus && matchFel;
     });
-  }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, paymentStatusFilter, users]);
+  }, [invoices, showCancelledAndRejected, searchTerm, dateViewMode, filterDate, dateFilter, sellerFilter, paymentStatusFilter, felFilter, felEstados, users]);
 
   const totalSalesFiltered = useMemo(() => {
     return filteredInvoices.reduce((acc, inv) => {
@@ -741,7 +766,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                         )}
                         {!isCancelled && (
                           <FelBadge
-                            estado={felEstados[inv.id] ?? 'sin_emitir'}
+                            estado={getEstadoFel(inv)}
                             onClick={() => setInvoiceFel(inv)}
                           />
                         )}
@@ -833,7 +858,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
 
                       {!isCancelled && (
                         <FelBadge
-                          estado={felEstados[inv.id] ?? 'sin_emitir'}
+                          estado={getEstadoFel(inv)}
                           onClick={() => setInvoiceFel(inv)}
                         />
                       )}
@@ -1680,6 +1705,19 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
               </select>
             </div>
 
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider select-none">FEL:</span>
+              <select
+                value={felFilter}
+                onChange={(e) => setFelFilter(e.target.value as any)}
+                className="text-xs font-extrabold text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+              >
+                <option value="all">Todas</option>
+                <option value="certified">📄 Certificadas</option>
+                <option value="uncertified">⏳ Sin emitir</option>
+              </select>
+            </div>
+
             {/* View Mode Segment Controllers */}
             <div className="flex border border-slate-200 bg-slate-50 p-1 rounded-xl shadow-xs shrink-0">
               <button 
@@ -1965,7 +2003,7 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                     <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 block">Detalles de Factura</span>
                     {selectedInvoiceForModal.status !== 'cancelled' && (
                       <FelBadge
-                        estado={felEstados[selectedInvoiceForModal.id] ?? 'sin_emitir'}
+                        estado={getEstadoFel(selectedInvoiceForModal)}
                         onClick={() => setInvoiceFel(selectedInvoiceForModal)}
                       />
                     )}

@@ -238,9 +238,10 @@ export async function listarDocumentos(
   db: any,
   filtros: { estado?: string; limite?: number } = {}
 ): Promise<DocumentoFEL[]> {
-  let q = db.from('fel_documentos').select('*').order('creado_en', { ascending: false });
+  let q = db.from('fel_documentos').select('*');
   if (filtros.estado) q = q.eq('estado', filtros.estado);
-  q = q.limit(filtros.limite ?? 200);
+  q = q.order('creado_en', { ascending: false, nullsFirst: false });
+  if (filtros.limite) q = q.limit(filtros.limite);
   const { data, error } = await q;
   if (error) throw new Error(`No se pudieron listar los documentos FEL: ${error.message}`);
   return data || [];
@@ -328,6 +329,7 @@ export async function certificarFactura(
     receptor_nit: nitReceptorFinal || 'CF',
     receptor_nombre: nombreReceptorFinal,
     intentos: (existente?.intentos ?? 0) + 1,
+    creado_en: existente?.creado_en ?? new Date().toISOString(),
     actualizado_en: new Date().toISOString(),
   };
 

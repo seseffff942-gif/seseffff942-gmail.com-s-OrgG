@@ -6,10 +6,10 @@ import { cn, descargarBlob } from '../utils';
 
 /** Apariencia de cada estado FEL. El color codifica la urgencia, no la marca. */
 const ESTILOS: Record<EstadoFEL, { texto: string; clase: string; Icono: any }> = {
-  sin_emitir:  { texto: 'Sin emitir',  clase: 'bg-slate-100 text-slate-600 border-slate-200',    Icono: Clock },
+  sin_emitir:  { texto: 'Sin emitir',  clase: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200',    Icono: Clock },
   pendiente:   { texto: 'Pendiente',   clase: 'bg-amber-50 text-amber-700 border-amber-200',     Icono: Clock },
   enviado:     { texto: 'Enviado',     clase: 'bg-blue-50 text-blue-700 border-blue-200',        Icono: RefreshCw },
-  certificado: { texto: 'Certificada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icono: FileCheck2 },
+  certificado: { texto: 'Certificada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200 font-extrabold hover:bg-emerald-100', Icono: FileCheck2 },
   error:       { texto: 'Con error',   clase: 'bg-red-50 text-red-700 border-red-200',           Icono: XCircle },
   anulado:     { texto: 'Anulada',     clase: 'bg-slate-100 text-slate-500 border-slate-200',    Icono: Ban },
 };
