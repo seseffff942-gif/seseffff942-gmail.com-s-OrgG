@@ -1,33 +1,39 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { Capacitor } from '@capacitor/core';
 // Agricovet PWA App - Soporte iOS e Instalación optimizada detectando Standalone
 import { User } from './types';
 import { Login } from './components/Login';
 import { Navigation } from './components/Navigation';
-import { InventoryPage } from './pages/InventoryPage';
-import { SalesPage } from './pages/SalesPage';
-import { BillingPage } from './pages/BillingPage';
-import { MySalesPage } from './pages/MySalesPage';
-import { TeamPage } from './pages/TeamPage';
-import { ClientsPage } from './pages/ClientsPage';
-import { SellerDebtsPage } from './pages/SellerDebtsPage';
-import { DailySalesPage } from './pages/DailySalesPage';
-import { DispatchPage } from './pages/DispatchPage';
 import { HomePage } from './pages/HomePage';
-import { TermsPage } from './pages/TermsPage';
-import { PrivacyPage } from './pages/PrivacyPage';
-import { BusinessDebtsPage } from './pages/BusinessDebtsPage';
-import { ReciboConformePage } from './pages/ReciboConformePage';
-import { QuotationsPage } from './pages/QuotationsPage';
-import { ClientVisitsPage } from './pages/ClientVisitsPage';
-import { ClientSalesTrackingPage } from './pages/ClientSalesTrackingPage';
-import { MasterAuditPage } from './pages/MasterAuditPage';
-import { ReciboCajaModulo } from './components/recibo-caja';
 import { MaintenancePage } from './components/MaintenancePage';
 import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
 import { api, clearApiCache } from './api';
 import { initRealtime } from './realtime';
+import { closeTopModalIfAny, isHandlingModalPopstate } from './utils/modalBackHandler';
 import { Download, X, Smartphone, Share, CheckCircle2, HelpCircle, Database, RefreshCw } from 'lucide-react';
+
+const lazyNamed = <T extends React.ComponentType<any>>(
+  loader: () => Promise<any>,
+  exportName: string
+) => React.lazy(() => loader().then((m) => ({ default: m[exportName] as T })));
+
+const InventoryPage = lazyNamed(() => import('./pages/InventoryPage'), 'InventoryPage');
+const SalesPage = lazyNamed(() => import('./pages/SalesPage'), 'SalesPage');
+const BillingPage = lazyNamed(() => import('./pages/BillingPage'), 'BillingPage');
+const MySalesPage = lazyNamed(() => import('./pages/MySalesPage'), 'MySalesPage');
+const TeamPage = lazyNamed(() => import('./pages/TeamPage'), 'TeamPage');
+const ClientsPage = lazyNamed(() => import('./pages/ClientsPage'), 'ClientsPage');
+const SellerDebtsPage = lazyNamed(() => import('./pages/SellerDebtsPage'), 'SellerDebtsPage');
+const DailySalesPage = lazyNamed(() => import('./pages/DailySalesPage'), 'DailySalesPage');
+const DispatchPage = lazyNamed(() => import('./pages/DispatchPage'), 'DispatchPage');
+const TermsPage = lazyNamed(() => import('./pages/TermsPage'), 'TermsPage');
+const PrivacyPage = lazyNamed(() => import('./pages/PrivacyPage'), 'PrivacyPage');
+const BusinessDebtsPage = lazyNamed(() => import('./pages/BusinessDebtsPage'), 'BusinessDebtsPage');
+const ReciboConformePage = lazyNamed(() => import('./pages/ReciboConformePage'), 'ReciboConformePage');
+const QuotationsPage = lazyNamed(() => import('./pages/QuotationsPage'), 'QuotationsPage');
+const ClientVisitsPage = lazyNamed(() => import('./pages/ClientVisitsPage'), 'ClientVisitsPage');
+const MasterAuditPage = lazyNamed(() => import('./pages/MasterAuditPage'), 'MasterAuditPage');
+const ReciboCajaModulo = lazyNamed(() => import('./components/recibo-caja'), 'ReciboCajaModulo');
 
 // ... (in App component) ...
 
@@ -198,25 +204,130 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
+    return hash && ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'master-audit', 'terms', 'privacy'].includes(hash.split('?')[0]) ? hash.split('?')[0] : 'home';
   });
 
   const tabHistoryRef = React.useRef<string[]>([currentTab]);
+  const currentTabRef = React.useRef<string>(currentTab);
+  currentTabRef.current = currentTab;
+  const isPopNavigatingRef = React.useRef(false);
+  const lastBackAtRef = React.useRef(0);
+  const [showBackExitHint, setShowBackExitHint] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   React.useEffect(() => {
     if (!showLoginDirectly) {
       if (window.location.hash.replace('#', '').split('?')[0] !== currentTab) {
-        window.location.hash = currentTab;
+        try {
+          window.history.pushState({ agricovetTab: currentTab }, '', `#${currentTab}`);
+        } catch {
+          window.location.hash = currentTab;
+        }
       }
-      const last = tabHistoryRef.current[tabHistoryRef.current.length - 1];
-      if (last !== currentTab) {
-        tabHistoryRef.current.push(currentTab);
+      if (isPopNavigatingRef.current) {
+        isPopNavigatingRef.current = false;
+      } else {
+        const last = tabHistoryRef.current[tabHistoryRef.current.length - 1];
+        if (last !== currentTab) {
+          tabHistoryRef.current.push(currentTab);
+          if (tabHistoryRef.current.length > 30) {
+            tabHistoryRef.current.shift();
+          }
+        }
       }
     }
   }, [currentTab, showLoginDirectly]);
 
   React.useEffect(() => {
+    const navigateBackInApp = (): boolean => {
+      if (closeTopModalIfAny()) {
+        return true;
+      }
+      if (tabHistoryRef.current.length > 1) {
+        tabHistoryRef.current.pop();
+        const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
+        isPopNavigatingRef.current = true;
+        setCurrentTab(prevTab);
+        return true;
+      }
+      if (currentTabRef.current !== 'home') {
+        isPopNavigatingRef.current = true;
+        tabHistoryRef.current = ['home'];
+        setCurrentTab('home');
+        return true;
+      }
+      return false;
+    };
+
+    // Guard initial history entry so browser/PWA Back button can intercept instead of exiting immediately
+    if (!showLoginDirectly && (!window.history.state || !window.history.state.agricovetTab)) {
+      try {
+        window.history.replaceState({ agricovetTab: currentTabRef.current, isRootGuard: true }, '', `#${currentTabRef.current}`);
+        window.history.pushState({ agricovetTab: currentTabRef.current }, '', `#${currentTabRef.current}`);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Hook nativo para MainActivity.java (Capacitor Android APK)
+    (window as any).__handleAndroidBackButton = () => {
+      if (navigateBackInApp()) {
+        return true;
+      }
+      const now = Date.now();
+      if (now - lastBackAtRef.current < 2000) {
+        return false; // Permite salir si presiona atrás dos veces seguidas en Inicio
+      }
+      lastBackAtRef.current = now;
+      setShowBackExitHint(true);
+      window.setTimeout(() => setShowBackExitHint(false), 2000);
+      return true;
+    };
+
+    const handlePopState = () => {
+      // Si modalBackHandler ya cerró un modal en este popstate, no cambiar de pestaña
+      if (isHandlingModalPopstate()) return;
+
+      const hash = window.location.hash.replace('#', '');
+      const cleanHash = hash.split('?')[0];
+      if (cleanHash === 'login') {
+        setShowLoginDirectly(true);
+        return;
+      }
+
+      if (tabHistoryRef.current.length > 1) {
+        tabHistoryRef.current.pop();
+        const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
+        isPopNavigatingRef.current = true;
+        setCurrentTab(prevTab);
+        try {
+          window.history.replaceState({ agricovetTab: prevTab }, '', `#${prevTab}`);
+        } catch {}
+        return;
+      }
+
+      if (currentTabRef.current !== 'home') {
+        isPopNavigatingRef.current = true;
+        tabHistoryRef.current = ['home'];
+        setCurrentTab('home');
+        try {
+          window.history.pushState({ agricovetTab: 'home' }, '', '#home');
+        } catch {}
+        return;
+      }
+
+      // Ya estamos en 'home' sin historial previo: re-inyectar estado para no salir de la app al primer "atrás"
+      const now = Date.now();
+      if (now - lastBackAtRef.current >= 2000) {
+        lastBackAtRef.current = now;
+        setShowBackExitHint(true);
+        window.setTimeout(() => setShowBackExitHint(false), 2000);
+        try {
+          window.history.pushState({ agricovetTab: 'home' }, '', '#home');
+        } catch {}
+      }
+    };
+
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
@@ -224,18 +335,20 @@ export default function App() {
         setShowLoginDirectly(true);
         return;
       }
-      const validTabs = ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'terms', 'privacy'];
-      if (validTabs.includes(cleanHash)) {
+      const validTabs = ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'master-audit', 'terms', 'privacy'];
+      if (validTabs.includes(cleanHash) && cleanHash !== currentTabRef.current) {
         setCurrentTab(cleanHash);
-      } else if (!cleanHash) {
-        // Si el usuario presionó atrás y el hash quedó vacío, ir a 'home' en vez de salir de la APK
-        setCurrentTab('home');
-        window.location.hash = 'home';
       }
     };
+
+    window.addEventListener('popstate', handlePopState);
     window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    return () => {
+      delete (window as any).__handleAndroidBackButton;
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [showLoginDirectly]);
 
   React.useEffect(() => {
     if (user?.email === 'limalopez22@gmail.com' && currentTab === 'team') {
@@ -499,24 +612,33 @@ export default function App() {
       />
       <main className={`flex-1 overflow-auto relative md:ml-[260px] md:pt-16`}>
         {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
-        {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'quotations' && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'recibo-conforme' && activeUser.role === 'admin' && <ReciboConformePage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'daily-sales' && <DailySalesPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
-        {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="my_portfolio" />}
-        {currentTab === 'client-tracking' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="control" />}
-        {currentTab === 'master-audit' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <MasterAuditPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
-        {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
-        {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
+        <Suspense fallback={
+          <div className="flex items-center justify-center min-h-[50vh] p-6">
+            <div className="flex flex-col items-center gap-3 text-slate-500">
+              <RefreshCw size={24} className="animate-spin text-[#00696a]" />
+              <span className="text-xs font-bold tracking-wide">Cargando módulo...</span>
+            </div>
+          </div>
+        }>
+          {currentTab === 'dispatch' && activeUser.role === 'admin' && <DispatchPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'inventory' && <InventoryPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'sales' && <SalesPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'billing' && <BillingPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'quotations' && <QuotationsPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'recibo-conforme' && activeUser.role === 'admin' && <ReciboConformePage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'recibos-caja' && <ReciboCajaModulo user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'my-sales' && <MySalesPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'daily-sales' && <DailySalesPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'seller-debts' && <SellerDebtsPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'business-debts' && <BusinessDebtsPage user={activeUser as User} />}
+          {currentTab === 'clients' && <ClientsPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'visits' && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="my_portfolio" />}
+          {currentTab === 'client-tracking' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <ClientVisitsPage user={activeUser as User} isMobile={isMobile} initialTab="control" />}
+          {currentTab === 'master-audit' && (activeUser?.role === 'admin' || activeUser?.email?.toLowerCase() === 'seseffff942@gmail.com') && <MasterAuditPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'team' && <TeamPage user={user!} isMobile={isMobile} />}
+          {currentTab === 'terms' && <TermsPage user={activeUser as User} isMobile={isMobile} />}
+          {currentTab === 'privacy' && <PrivacyPage user={activeUser as User} isMobile={isMobile} />}
+        </Suspense>
         
         {/* Floating Download Button (Android & Desktop Chrome support) */}
         {deferredPrompt && !isInstallDismissed && (
@@ -819,6 +941,12 @@ export default function App() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {showBackExitHint && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[120] px-4 py-2 rounded-full bg-slate-900/90 text-white text-xs font-bold shadow-lg pointer-events-none">
+            Presiona atrás de nuevo para salir
           </div>
         )}
       </main>

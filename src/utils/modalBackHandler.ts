@@ -8,19 +8,37 @@ interface ModalEntry {
 const modalStack: ModalEntry[] = [];
 let isPopstateHandling = false;
 
+/**
+ * Cierra el modal superior si existe alguno abierto.
+ * Usado por el botón atrás nativo de Android (MainActivity) y popstate.
+ */
+export function closeTopModalIfAny(): boolean {
+  if (modalStack.length === 0) return false;
+  const topModal = modalStack.pop();
+  if (topModal) {
+    try {
+      topModal.onClose();
+    } catch (err) {
+      console.error('[modalBackHandler] Error cerrando modal:', err);
+    }
+  }
+  return true;
+}
+
+export function hasOpenModal(): boolean {
+  return modalStack.length > 0;
+}
+
+export function isHandlingModalPopstate(): boolean {
+  return isPopstateHandling || modalStack.length > 0;
+}
+
 // Listener global de popstate para capturar el botón o gesto atrás de Android
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
     if (modalStack.length > 0) {
       isPopstateHandling = true;
-      const topModal = modalStack.pop();
-      if (topModal) {
-        try {
-          topModal.onClose();
-        } catch (err) {
-          console.error('[modalBackHandler] Error cerrando modal con botón atrás:', err);
-        }
-      }
+      closeTopModalIfAny();
       setTimeout(() => {
         isPopstateHandling = false;
       }, 80);

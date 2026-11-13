@@ -2942,3 +2942,40 @@ export function matchInvoiceSearch(
 
   return false;
 }
+
+export const QUICK_SEARCH_EVENT = 'agricovet-quick-search';
+const QUICK_SEARCH_STORAGE_KEY = 'agricovet_quick_search';
+
+/**
+ * Envía un término de búsqueda rápida hacia un módulo destino (clientes, inventario, facturación)
+ * para que al abrirse o si ya está activo, filtre automáticamente por ese término.
+ */
+export function dispatchQuickSearch(tab: string, query: string): void {
+  const cleanQuery = String(query || '').trim();
+  if (!cleanQuery || typeof window === 'undefined') return;
+  const payload = { tab, query: cleanQuery, ts: Date.now() };
+  try {
+    sessionStorage.setItem(QUICK_SEARCH_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+  window.dispatchEvent(new CustomEvent(QUICK_SEARCH_EVENT, { detail: payload }));
+}
+
+/**
+ * Consume un término de búsqueda rápida pendiente para el módulo indicado (vigente 10 s).
+ */
+export function consumeQuickSearch(tab: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(QUICK_SEARCH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.tab !== tab) return null;
+    sessionStorage.removeItem(QUICK_SEARCH_STORAGE_KEY);
+    if (Date.now() - Number(parsed?.ts || 0) > 10000) return null;
+    return typeof parsed?.query === 'string' ? parsed.query : null;
+  } catch {
+    return null;
+  }
+}

@@ -7,7 +7,7 @@ import {
   MapPin, ShoppingBag, ArrowUpDown, TrendingUp, DollarSign, 
   Mail, Calendar, Briefcase, CheckCircle, Clock, AlertTriangle, Hash, Trash2
 } from 'lucide-react';
-import { cn, fechaDDMMYYYY, isClientOfSeller } from '../utils';
+import { cn, consumeQuickSearch, fechaDDMMYYYY, isClientOfSeller, QUICK_SEARCH_EVENT } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ClientAccountStatementModal } from '../components/ClientAccountStatementModal';
 
@@ -54,7 +54,18 @@ export function ClientsPage({ user, isMobile }: ClientsPageProps) {
     }
     return true;
   });
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => consumeQuickSearch('clients') || '');
+
+  useEffect(() => {
+    const onQuickSearch = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.tab === 'clients' && detail?.query) {
+        setSearchTerm(detail.query);
+      }
+    };
+    window.addEventListener(QUICK_SEARCH_EVENT, onQuickSearch);
+    return () => window.removeEventListener(QUICK_SEARCH_EVENT, onQuickSearch);
+  }, []);
   const [sortBy, setSortBy] = useState<'name' | 'sales' | 'invoices'>('name');
   const [portfolioFilter, setPortfolioFilter] = useState<'all' | 'regular' | 'prospect'>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<'mine' | 'all'>(user.role === 'admin' ? 'all' : 'mine');

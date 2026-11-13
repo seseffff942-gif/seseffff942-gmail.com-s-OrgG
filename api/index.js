@@ -3340,81 +3340,53 @@ async function safeInsertClient(clientData) {
     const { error } = await localDb.from("clients").insert([clientData]);
     if (!error) return true;
     console.warn("Primary PostgreSQL Local client insert failed, trying fallbacks:", error.message);
-    const payload = {
+    const isProsp = clientData.isProspect === true || clientData.clientType === "prospect";
+    const fallbackPayload = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || "",
       phone: clientData.phone || "",
       address: clientData.address || "",
       companyName: clientData.companyName || "",
-      company_name: clientData.companyName || "",
-      createdAt: clientData.createdAt || clientData.created_at,
-      created_at: clientData.createdAt || clientData.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+      createdAt: clientData.createdAt || clientData.created_at || (/* @__PURE__ */ new Date()).toISOString(),
       sellerId: clientData.sellerId || "",
-      seller_id: clientData.sellerId || "",
       clientCode: clientData.clientCode,
       isBlocked: clientData.isBlocked || false,
       latitude: clientData.latitude,
       longitude: clientData.longitude,
       locationAddress: clientData.locationAddress,
-      location_address: clientData.locationAddress,
       geotaggedAt: clientData.geotaggedAt,
-      geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      geotagged_by: clientData.geotaggedBy,
-      isProspect: clientData.isProspect || false,
-      is_prospect: clientData.isProspect || false,
-      clientType: clientData.clientType || (clientData.isProspect ? "prospect" : "regular"),
-      client_type: clientData.clientType || (clientData.isProspect ? "prospect" : "regular")
+      isProspect: isProsp,
+      is_prospect: isProsp,
+      clientType: isProsp ? "prospect" : clientData.clientType || "regular",
+      client_type: isProsp ? "prospect" : clientData.clientType || "regular"
     };
-    const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
-    if (!errorWithFallbacks) return true;
-    console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
-    let prunedPayload = { ...payload };
-    let needsRetry = false;
-    const errMsg = errorWithFallbacks.message;
-    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
-      delete prunedPayload.isProspect;
-      delete prunedPayload.is_prospect;
-      delete prunedPayload.clientType;
-      delete prunedPayload.client_type;
-      needsRetry = true;
-    }
-    if (errMsg.includes("sellerId") || errMsg.includes('column "sellerId"') || errMsg.includes("schema cache")) {
-      delete prunedPayload.sellerId;
-      needsRetry = true;
-    }
-    if (errMsg.includes("seller_id") || errMsg.includes('column "seller_id"')) {
-      delete prunedPayload.seller_id;
-      needsRetry = true;
-    }
-    if (errMsg.includes("createdAt") || errMsg.includes('column "createdAt"')) {
-      delete prunedPayload.createdAt;
-      needsRetry = true;
-    }
-    if (errMsg.includes("created_at") || errMsg.includes('column "created_at"')) {
-      delete prunedPayload.created_at;
-      needsRetry = true;
-    }
-    if (errMsg.includes("companyName") || errMsg.includes('column "companyName"')) {
-      delete prunedPayload.companyName;
-      needsRetry = true;
-    }
-    if (errMsg.includes("company_name") || errMsg.includes('column "company_name"')) {
-      delete prunedPayload.company_name;
-      needsRetry = true;
-    }
-    if (needsRetry) {
-      const { error: retryError } = await localDb.from("clients").insert([prunedPayload]);
+    Object.keys(fallbackPayload).forEach((k) => {
+      if (fallbackPayload[k] === void 0) delete fallbackPayload[k];
+    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { error: retryError } = await localDb.from("clients").insert([fallbackPayload]);
       if (!retryError) return true;
-      console.warn("Client pruned insert failed:", retryError.message);
+      const errMsg = retryError.message || "";
+      const match = errMsg.match(/column\s+"?([^"\s»]+)"?|columna\s+«([^»]+)»/i);
+      const missingCol = match?.[1] || match?.[2];
+      if (missingCol && Object.prototype.hasOwnProperty.call(fallbackPayload, missingCol)) {
+        delete fallbackPayload[missingCol];
+        continue;
+      }
+      console.warn("Client fallback insert failed:", errMsg);
+      break;
     }
     const bareClient = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || "",
       phone: clientData.phone || "",
-      address: clientData.address || ""
+      address: clientData.address || "",
+      sellerId: clientData.sellerId || "",
+      isProspect: isProsp,
+      clientType: isProsp ? "prospect" : "regular"
     };
     const { error: bareError } = await localDb.from("clients").insert([bareClient]);
     if (!bareError) return true;
@@ -12209,12 +12181,14 @@ app.post("/api/bot/send-order-document", asyncHandler(async (req, res) => {
   const rawSellerVal = String(invoice?.sellerId || invoice?.sellerCode || req.user?.sellerCode || req.user?.id || "").trim();
   if (rawSellerVal) {
     try {
-      const uRes = await localDb.query(
-        `SELECT id, name, email, phone, "sellerCode" FROM users 
-         WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
-        [rawSellerVal]
-      );
-      if (uRes.rows[0]) dbSeller = uRes.rows[0];
+      if (pgPool) {
+        const uRes = await pgPool.query(
+          `SELECT id, name, email, phone, "sellerCode" FROM users 
+           WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
+          [rawSellerVal]
+        );
+        if (uRes.rows[0]) dbSeller = uRes.rows[0];
+      }
     } catch (e) {
     }
   }

@@ -9,6 +9,8 @@ import { PanicButton } from './PanicButton';
 import { SendN8nModal } from './SendN8nModal';
 import { Capacitor } from '@capacitor/core';
 import { initNativeNotifications, showNativeAlert } from '../nativeNotifications';
+import { GlobalSearchModal } from './GlobalSearchModal';
+import { getOfflineVisitCount, OFFLINE_VISITS_CHANGED_EVENT } from '../utils/offlineVisitStore';
 
 interface NavigationProps {
   user: User;
@@ -518,6 +520,9 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   // Estado de conexión del navegador y monitoreo de sincronización de caché (Offline vs Tiempo Real)
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingOfflineVisitsCount, setPendingOfflineVisitsCount] = useState(0);
+  const [syncFeedbackMsg, setSyncFeedbackMsg] = useState('');
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>(() => {
     return localStorage.getItem('last_sync_time') || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
@@ -754,29 +759,77 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
   };
 
   useEffect(() => {
+    const refreshPendingVisits = async () => {
+      try {
+        const count = await getOfflineVisitCount();
+        setPendingOfflineVisitsCount(count);
+      } catch {}
+    };
+
     const handleOnline = async () => {
       setIsOnline(true);
       setIsSyncing(true);
       try {
         await api.getMe();
+        await api.syncOfflineVisits().catch(() => ({ synced: 0 }));
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         localStorage.setItem('last_sync_time', timeStr);
         setLastSyncTime(timeStr);
       } catch (e) {}
+      await refreshPendingVisits();
       setIsSyncing(false);
     };
     const handleOffline = () => {
       setIsOnline(false);
     };
 
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch((prev) => !prev);
+      }
+    };
+
+    refreshPendingVisits();
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('focus', refreshPendingVisits);
+    window.addEventListener(OFFLINE_VISITS_CHANGED_EVENT, refreshPendingVisits);
+    window.addEventListener('keydown', handleGlobalKeyDown);
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('focus', refreshPendingVisits);
+      window.removeEventListener(OFFLINE_VISITS_CHANGED_EVENT, refreshPendingVisits);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, []);
+
+  const handleManualSyncOfflineVisits = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncFeedbackMsg('');
+    try {
+      const res = await api.syncOfflineVisits();
+      const remaining = await getOfflineVisitCount();
+      setPendingOfflineVisitsCount(remaining);
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      localStorage.setItem('last_sync_time', timeStr);
+      setLastSyncTime(timeStr);
+      if ((res?.synced || 0) > 0) {
+        setSyncFeedbackMsg(`Se sincronizaron ${res.synced} visita(s) correctamente.`);
+      } else if (remaining === 0) {
+        setSyncFeedbackMsg('Todo está al día.');
+      } else {
+        setSyncFeedbackMsg(`Quedan ${remaining} visita(s) pendientes. Verifica tu conexión.`);
+      }
+    } catch {
+      setSyncFeedbackMsg('No se pudo sincronizar en este momento.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -1110,6 +1163,11 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               <span>
                 {isOnline ? "Local" : "Offline"}
               </span>
+              {pendingOfflineVisitsCount > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black leading-tight">
+                  {pendingOfflineVisitsCount}
+                </span>
+              )}
             </button>
             {user.role === 'admin' && (
               <div className="hidden xs:block">
@@ -1154,6 +1212,13 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               <Send size={16} className="text-emerald-600" />
             </button>
           )}
+          <button
+            onClick={() => setShowGlobalSearch(true)}
+            className="text-slate-500 hover:text-[#00696a] hover:bg-slate-50 p-1.5 rounded-lg transition-transform active:scale-95 flex items-center justify-center cursor-pointer"
+            title="Buscador rápido (Ctrl+K)"
+          >
+            <Search size={19} />
+          </button>
           <button 
             onClick={() => setShowNotifications(!showNotifications)} 
             className={cn(
@@ -1595,7 +1660,25 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
               <span>
                 {isOnline ? "Sincronizado (Tiempo Real)" : "Trabajando con Datos Locales (Caché)"}
               </span>
+              {pendingOfflineVisitsCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black leading-none">
+                  {pendingOfflineVisitsCount} pend.
+                </span>
+              )}
               <RefreshCw size={11} className={cn("text-slate-400 ml-1.5", isSyncing && "animate-spin")} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowGlobalSearch(true)}
+              className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 text-xs font-semibold transition-all cursor-pointer active:scale-95"
+              title="Buscar módulos, clientes o productos (Ctrl+K)"
+            >
+              <Search size={14} className="text-[#00696a]" />
+              <span>Buscar...</span>
+              <kbd className="px-1.5 py-0.5 text-[10px] font-black bg-white border border-slate-200 rounded text-slate-400">
+                Ctrl+K
+              </kbd>
             </button>
 
             {/* Botón de Pánico y Selector de Base de Datos */}
@@ -1765,12 +1848,48 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
                   </span>
                 </div>
 
+                <div className="flex justify-between items-center text-xs border-b border-slate-100 pb-1.5">
+                  <span className="text-slate-500 font-bold">Visitas Pendientes (Cola Offline)</span>
+                  <span className={cn(
+                    "font-extrabold uppercase tracking-widest text-[9px] px-2 py-0.5 rounded-full font-mono",
+                    pendingOfflineVisitsCount > 0
+                      ? "text-amber-800 bg-amber-100"
+                      : "text-emerald-700 bg-emerald-50"
+                  )}>
+                    {pendingOfflineVisitsCount > 0 ? `${pendingOfflineVisitsCount} por subir` : "0 pendientes"}
+                  </span>
+                </div>
+
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-500 font-bold">Última Sincronización Exitosa</span>
                   <span className="text-slate-700 font-mono text-xs font-black">
                     {lastSyncTime}
                   </span>
                 </div>
+
+                {pendingOfflineVisitsCount > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleManualSyncOfflineVisits}
+                      disabled={isSyncing || !isOnline}
+                      className="w-full py-2 bg-[#00696a] hover:bg-[#005556] disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <RefreshCw size={13} className={cn(isSyncing && "animate-spin")} />
+                      {isSyncing
+                        ? "Sincronizando visitas..."
+                        : isOnline
+                        ? `Sincronizar ${pendingOfflineVisitsCount} visita(s) ahora`
+                        : "Sin conexión para sincronizar"}
+                    </button>
+                  </div>
+                )}
+
+                {syncFeedbackMsg && (
+                  <p className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-100 rounded-lg px-2.5 py-1.5 text-center">
+                    {syncFeedbackMsg}
+                  </p>
+                )}
               </div>
 
               {/* Notificaciones Push Nativas */}
@@ -2071,6 +2190,14 @@ export function Navigation({ user, activeUser, currentTab, onChangeTab, onLogout
       <SendN8nModal 
         isOpen={isN8nModalOpen}
         onClose={() => setIsN8nModalOpen(false)}
+      />
+
+      {/* Buscador Rápido Global (Ctrl+K) */}
+      <GlobalSearchModal
+        isOpen={showGlobalSearch}
+        onClose={() => setShowGlobalSearch(false)}
+        navItems={userNavItems}
+        onSelectTab={onChangeTab}
       />
     </>
   );

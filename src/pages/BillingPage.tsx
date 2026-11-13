@@ -5,7 +5,7 @@ import SignaturePad from '../components/SignaturePad';
 import { Search, Upload, CheckCircle, FileText, ChevronDown, ChevronUp, Printer, Download, Settings, RefreshCcw, X, TrendingUp, Receipt, Clock, MessageCircle, Settings2, Trash2, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, isFiatProduct, calculateSupplierStockBreakdown, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala } from '../utils';
+import { DEFAULT_PRINT_TEMPLATE, compilePrintTemplate, cn, printHtml, downloadHtmlAsPdf, cleanObservations, getStartOfCurrentWeek, formatMoney, formatDateSafe, diaGuatemala, isTecunProduct, isFiatProduct, calculateSupplierStockBreakdown, getMesActualGuatemala, getMesPasadoGuatemala, getNombreMesGuatemala, descargarExcel } from '../utils';
 import { motion } from 'motion/react';
 import { ShippingGuideModal } from '../components/ShippingGuideModal';
 import { ImageModal } from '../components/ImageModal';
@@ -68,6 +68,103 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
       return 'certificado';
     }
     return 'sin_emitir';
+  };
+
+  const handleExportFilteredExcel = async () => {
+    if (filteredInvoices.length === 0) return;
+    const XLSX = await import('xlsx');
+    const headers = [
+      'Folio',
+      'Fecha',
+      'Cliente',
+      'Empresa',
+      'NIT',
+      'Vendedor',
+      'Total',
+      'Pagado',
+      'Saldo Pendiente',
+      'Estado Pago',
+      'Estado FEL',
+      'UUID FEL',
+    ];
+
+    const splitClientAndCompany = (inv: Invoice): { cliente: string; empresa: string } => {
+      const explicitCompany = String((inv as any).companyName || '').trim();
+      const rawClient = String(inv.client || '').trim();
+      const sepIdx = rawClient.indexOf(' - ');
+      if (sepIdx !== -1) {
+        const left = rawClient.slice(0, sepIdx).trim();
+        const right = rawClient.slice(sepIdx + 3).trim();
+        return {
+          cliente: left || rawClient,
+          empresa: explicitCompany || right,
+        };
+      }
+      return { cliente: rawClient, empresa: explicitCompany };
+    };
+
+    const rows = filteredInvoices.map((inv) => {
+      const total = Number(inv.totalAmount || 0);
+      const paid = Number(inv.paidAmount || 0);
+      const balance = Math.max(0, total - paid);
+      const estadoFel = getEstadoFel(inv) === 'certificado' ? 'Certificada' : 'Sin emitir';
+      const estadoPago =
+        inv.status === 'cancelled'
+          ? 'Anulada'
+          : inv.status === 'rejected'
+          ? 'Rechazada'
+          : balance <= 0.001
+          ? 'Pagada'
+          : 'Pendiente';
+      const { cliente, empresa } = splitClientAndCompany(inv);
+      return {
+        Folio: inv.folio ? `F-${inv.folio}` : inv.id,
+        Fecha: inv.date ? diaGuatemala(inv.date) : '',
+        Cliente: cliente,
+        Empresa: empresa,
+        NIT: (inv as any).clientNit || (inv as any).nit || 'CF',
+        Vendedor: getSellerName(inv.sellerId || '') || inv.sellerId || '',
+        Total: Number(total.toFixed(2)),
+        Pagado: Number(paid.toFixed(2)),
+        'Saldo Pendiente': Number(balance.toFixed(2)),
+        'Estado Pago': estadoPago,
+        'Estado FEL': estadoFel,
+        'UUID FEL': (inv as any).fel_uuid || '',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+
+    // Auto-ajustar el ancho de cada columna según el contenido máximo
+    ws['!cols'] = headers.map((h) => {
+      const maxLen = rows.reduce((max, r) => {
+        const val = String((r as any)[h] ?? '');
+        return Math.max(max, val.length);
+      }, h.length);
+      return { wch: Math.min(Math.max(maxLen + 4, 10), 48) };
+    });
+
+    // Formato numérico con separador de miles y 2 decimales para columnas de montos (G, H, I -> índices 6, 7, 8)
+    for (let r = 1; r <= rows.length; r++) {
+      for (const c of [6, 7, 8]) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        if (ws[addr] && typeof ws[addr].v === 'number') {
+          ws[addr].z = '#,##0.00';
+        }
+      }
+    }
+
+    // Agregar autofiltro de tabla en los encabezados
+    ws['!autofilter'] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: rows.length, c: headers.length - 1 },
+      }),
+    };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+    await descargarExcel(wb, `facturas_agricovet_${diaGuatemala()}.xlsx`);
   };
   const [displayMode, setDisplayMode] = useState<'list' | 'seller_cards'>('list');
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -1764,6 +1861,57 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
                 title="Agrupado por Cliente"
               >
                 👤 Por Cliente
+              </button>
+            </div>
+
+            {/* Quick Status Pills & CSV Export */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                {
+                  label: 'Todas',
+                  active: paymentStatusFilter === 'all' && felFilter === 'all',
+                  onClick: () => { setPaymentStatusFilter('all'); setFelFilter('all'); },
+                },
+                {
+                  label: '⏳ Por Cobrar',
+                  active: paymentStatusFilter === 'pending',
+                  onClick: () => setPaymentStatusFilter(paymentStatusFilter === 'pending' ? 'all' : 'pending'),
+                },
+                {
+                  label: '📄 Sin FEL',
+                  active: felFilter === 'uncertified',
+                  onClick: () => setFelFilter(felFilter === 'uncertified' ? 'all' : 'uncertified'),
+                },
+                {
+                  label: '✅ Certificadas',
+                  active: felFilter === 'certified',
+                  onClick: () => setFelFilter(felFilter === 'certified' ? 'all' : 'certified'),
+                },
+              ].map((pill) => (
+                <button
+                  key={pill.label}
+                  type="button"
+                  onClick={pill.onClick}
+                  className={cn(
+                    "px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer active:scale-95",
+                    pill.active
+                      ? "bg-[#0c5c35] text-white border-[#0c5c35] shadow-xs"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  )}
+                >
+                  {pill.label}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={handleExportFilteredExcel}
+                disabled={filteredInvoices.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-40 transition-all cursor-pointer active:scale-95"
+                title="Descargar facturas filtradas en archivo Excel (.xlsx)"
+              >
+                <Download size={13} />
+                <span>Excel ({filteredInvoices.length})</span>
               </button>
             </div>
 

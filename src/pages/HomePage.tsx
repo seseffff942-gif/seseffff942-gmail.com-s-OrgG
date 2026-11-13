@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product } from '../types';
-import { Leaf, User as UserIcon, CheckCircle, ArrowRight, MapPin, Lock, Unlock, Edit, Save, X, Share2, MessageCircle, Search, TrendingUp, TrendingDown, BarChart2, Calendar, Activity, DollarSign, Heart, Award, ShieldCheck, Sparkles, Layers, Volume2, VolumeX, Play, Pause, Wheat, Stethoscope, Sprout, ShoppingBag, Clock, Phone, Eye, Upload } from 'lucide-react';
+import { Leaf, User as UserIcon, CheckCircle, ArrowRight, MapPin, Lock, Unlock, Edit, Save, X, Share2, MessageCircle, Search, TrendingUp, TrendingDown, BarChart2, Calendar, Activity, DollarSign, Heart, Award, ShieldCheck, Sparkles, Layers, Volume2, VolumeX, Play, Pause, Wheat, Stethoscope, Sprout, ShoppingBag, Clock, Phone, Eye, Upload, AlertTriangle, Package, FileText } from 'lucide-react';
 import { api } from '../api';
 import { cn, getStartOfCurrentWeek } from '../utils';
 import * as Sentry from '@sentry/react';
@@ -1028,6 +1028,74 @@ export function HomePage({ user, onChangeTab, onLogout, isMobile }: HomePageProp
                 </div>
               </div>
               
+              {/* Quick Operational Alerts Strip */}
+              {(() => {
+                const lowStockCount = (products || []).filter((p: any) => Number(p?.stock ?? 0) <= 5).length;
+                const pendingCollectionCount = (invoices || []).filter((inv: any) => {
+                  if (inv?.status === 'cancelled' || inv?.status === 'rejected' || inv?.status === 'paid') return false;
+                  return Number(inv?.totalAmount || 0) - Number(inv?.paidAmount || 0) > 0.01;
+                }).length;
+                const uncertifiedFelCount = (invoices || []).filter((inv: any) => {
+                  if (inv?.status === 'cancelled' || inv?.status === 'rejected') return false;
+                  return !inv?.isFelCertified && inv?.fel_status !== 'certificado' && !inv?.fel_uuid;
+                }).length;
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    <button
+                      type="button"
+                      onClick={() => onChangeTab('inventory')}
+                      className="flex items-center justify-between p-4 rounded-2xl bg-amber-50/80 hover:bg-amber-50 border border-amber-200 text-left transition-all cursor-pointer active:scale-[0.99]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-amber-100 text-amber-700 shrink-0">
+                          <Package size={18} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Stock Bajo (≤ 5)</p>
+                          <p className="text-xl font-black text-slate-800 leading-tight">{lowStockCount} productos</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={16} className="text-amber-600 shrink-0" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeTab('billing')}
+                      className="flex items-center justify-between p-4 rounded-2xl bg-rose-50/80 hover:bg-rose-50 border border-rose-200 text-left transition-all cursor-pointer active:scale-[0.99]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 shrink-0">
+                          <AlertTriangle size={18} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-rose-700">Facturas por Cobrar</p>
+                          <p className="text-xl font-black text-slate-800 leading-tight">{pendingCollectionCount} pendientes</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={16} className="text-rose-600 shrink-0" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeTab('billing')}
+                      className="flex items-center justify-between p-4 rounded-2xl bg-teal-50/80 hover:bg-teal-50 border border-teal-200 text-left transition-all cursor-pointer active:scale-[0.99]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-teal-100 text-[#00696a] shrink-0">
+                          <FileText size={18} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-[#00696a]">FEL Sin Emitir</p>
+                          <p className="text-xl font-black text-slate-800 leading-tight">{uncertifiedFelCount} docs</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={16} className="text-[#00696a] shrink-0" />
+                    </button>
+                  </div>
+                );
+              })()}
+
               {/* Executive Commercial Analytics & Stagnant Inventory Radar */}
               <div className="mb-8">
                 <CommercialAnalyticsDashboard invoices={invoices} products={products} user={user} />

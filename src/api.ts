@@ -1453,8 +1453,9 @@ export const api = {
     const res = await fetchWithAuth('/api/invoices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      timeoutMs: 20000,
       body: JSON.stringify(data)
-    });
+    }, 0);
     if (!res.ok) {
       const err = await safeJson(res);
       throw new Error(err?.error || err?.message || `Error al procesar factura (${res.status})`);
@@ -1478,8 +1479,9 @@ export const api = {
     const res = await fetchWithAuth(`/api/invoices/${id}/full`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      timeoutMs: 20000,
       body: JSON.stringify(data)
-    });
+    }, 0);
     if (!res.ok) {
       const err = await safeJson(res);
       throw new Error(err?.error || err?.message || 'Failed to update invoice');
@@ -1685,8 +1687,9 @@ export const api = {
 
     const res = await fetchWithAuth(`/api/invoices/${invoiceId}/payments`, {
       method: 'POST',
+      timeoutMs: 25000,
       body: formData
-    });
+    }, 0);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Payment failed');

@@ -8,6 +8,13 @@ const DB_NAME = 'agricovet_offline_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'offline_visits';
 const LEGACY_STORAGE_KEY = 'offline_client_visits';
+export const OFFLINE_VISITS_CHANGED_EVENT = 'offline-visits-changed';
+
+export const notifyOfflineVisitsChanged = (): void => {
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(OFFLINE_VISITS_CHANGED_EVENT));
+  }
+};
 
 const getVisitKey = (visit: any): string =>
   String(visit?.offlineId || visit?.id || `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
@@ -109,12 +116,15 @@ export const enqueueOfflineVisit = async (visit: any): Promise<any[]> => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error || new Error('Error guardando visita offline en IndexedDB'));
     });
-    return await getOfflineVisitQueue();
+    const updated = await getOfflineVisitQueue();
+    notifyOfflineVisitsChanged();
+    return updated;
   } catch (idbErr) {
     if (typeof localStorage !== 'undefined') {
       const current = readLegacyQueue().filter(v => getVisitKey(v) !== queueKey);
       const next = [record, ...current];
       localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(next));
+      notifyOfflineVisitsChanged();
       return next;
     }
     throw idbErr;
@@ -145,13 +155,20 @@ export const removeOfflineVisit = async (idOrOfflineId: string): Promise<void> =
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    notifyOfflineVisitsChanged();
   } catch {
     if (typeof localStorage !== 'undefined') {
       const current = readLegacyQueue().filter(
         v => v?.id !== targetKey && v?.offlineId !== targetKey && v?.queueKey !== targetKey
       );
       localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(current));
+      notifyOfflineVisitsChanged();
     }
   }
+};
+
+export const getOfflineVisitCount = async (): Promise<number> => {
+  const queue = await getOfflineVisitQueue();
+  return queue.length;
 };
 
