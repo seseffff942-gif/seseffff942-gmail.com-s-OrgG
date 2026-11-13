@@ -5134,7 +5134,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   });
   emitRealtimeSync("client_visits", newVisit);
   res.json({ success: true, visit: newVisit, activeRoute });
-  if (isNewAutoRoute) {
+  if (isNewAutoRoute && !isRouteNotificationExcluded(sellerEmailStr)) {
     console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
     sendStartRouteNotification({
       route: activeRoute,
@@ -5373,6 +5373,11 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
   res.json({ success: true, route: activeRoute || null });
 }));
 var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
+var ROUTE_EXCLUDED_EMAILS = ["seseffff942@gmail.com"];
+function isRouteNotificationExcluded(email) {
+  if (!email) return false;
+  return ROUTE_EXCLUDED_EMAILS.includes(String(email).trim().toLowerCase());
+}
 var ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || "50248234048";
 var ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || "50250007840";
 function formatTimeGuatemala(isoString) {
@@ -5517,6 +5522,10 @@ async function sendStartRouteNotification({
   isTest = false
 }) {
   if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
+  if (isRouteNotificationExcluded(userEmail) && !isTest) {
+    console.log(`[Start Route] \u{1F515} Notificaci\xF3n de inicio de ruta desactivada para ${userEmail} (pruebas).`);
+    return;
+  }
   try {
     let sCode = "";
     let sPhone = "";
@@ -5914,7 +5923,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(userEmail) || req.body.sendWhatsAppTest || req.body.isTest) {
     sendStartRouteNotification({
       route: newRoute,
       userName,
@@ -6179,7 +6188,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
     }]);
   } catch (e) {
   }
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+  const finishEmailCheck = String(targetRoute.sellerEmail || reqSellerEmail || "").trim().toLowerCase();
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(finishEmailCheck) || req.body.sendWhatsAppTest) {
     (async () => {
       try {
         const targetSellerId = targetRoute.sellerId || reqSellerId;
@@ -6758,7 +6768,7 @@ async function closeActiveRouteAndNotify(routeInput, options) {
     }
     return { success: true, adminSummaryMsg, sellerSummaryMsg };
   }
-  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp && !isRouteNotificationExcluded(info.sellerEmail)) {
     console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
     const okEmanuel = await dispatchRouteToN8nWebhook({
       action: actionType,
@@ -6873,12 +6883,14 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
         continue;
       }
       if (routeDateStr === todayDateStr) {
+        const routeEmailCheck = String(route.sellerEmail || route.seller_email || "").trim().toLowerCase();
+        const isExcludedFromAlerts = isRouteNotificationExcluded(routeEmailCheck);
         if (hour === 19 && minute >= 0 && minute <= 14) {
           const remKey = `${route.id}_${todayDateStr}_19:00`;
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] \u23F0 Enviando recordatorio de 7:00 PM a ${route.sellerName} (${route.id})`);
-            await sendRouteClosureReminderToSeller(route);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
           }
         }
         if (hour === 20 && minute >= 30 && minute <= 44) {
@@ -6886,7 +6898,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] \u23F0 Enviando recordatorio de 8:30 PM a ${route.sellerName} (${route.id})`);
-            await sendRouteClosureReminderToSeller(route);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
           }
         }
         if (hour >= 22) {
@@ -6894,7 +6906,8 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
             console.log(`[AUTO-ROUTE-CRON] \u{1F559} 10:00 PM alcanzado. Cerrando autom\xE1ticamente la ruta activa de ${route.sellerName} (${route.id}) y enviando resumen.`);
             await closeActiveRouteAndNotify(route, {
               isAutoClosed: true,
-              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr)
+              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr),
+              skipWhatsApp: isExcludedFromAlerts
             });
           }
         }

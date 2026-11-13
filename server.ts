@@ -4696,7 +4696,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   res.json({ success: true, visit: newVisit, activeRoute });
 
   // Si esta primera visita dio inicio automático a la jornada de hoy, notificar inmediatamente a los administradores
-  if (isNewAutoRoute) {
+  if (isNewAutoRoute && !isRouteNotificationExcluded(sellerEmailStr)) {
     console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
     sendStartRouteNotification({
       route: activeRoute,
@@ -4977,6 +4977,11 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
 // ==========================================
 // Activo en producción para enviar automáticamente a los asesores al cerrar su jornada
 const ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== 'false';
+const ROUTE_EXCLUDED_EMAILS = ['seseffff942@gmail.com'];
+function isRouteNotificationExcluded(email?: string | null): boolean {
+  if (!email) return false;
+  return ROUTE_EXCLUDED_EMAILS.includes(String(email).trim().toLowerCase());
+}
 const ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || '50248234048'; // Emanuel Lima (Dueño/CEO - ÚNICO PARA PRUEBAS)
 const ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || '50250007840'; // Sergio Lima (Supervisor - SOLO EN PRODUCCIÓN REAL)
 
@@ -5151,6 +5156,10 @@ async function sendStartRouteNotification({
   isTest?: boolean;
 }) {
   if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
+  if (isRouteNotificationExcluded(userEmail) && !isTest) {
+    console.log(`[Start Route] 🔕 Notificación de inicio de ruta desactivada para ${userEmail} (pruebas).`);
+    return;
+  }
 
   try {
     let sCode = '';
@@ -5576,7 +5585,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
 
   // 3. Notificación de Inicio de Ruta por WhatsApp (Asíncrono para no retrasar la respuesta UI)
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+  if ((ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(userEmail)) || req.body.sendWhatsAppTest || req.body.isTest) {
     sendStartRouteNotification({
       route: newRoute,
       userName,
@@ -5897,7 +5906,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
   } catch (e) { }
 
   // 7. Enviar resumen por WhatsApp (Inactivo hoy por defecto para no disparar a los vendedores reales; solo se envía si ROUTE_WHATSAPP_AUTO_ENABLED es true o si req.body.sendWhatsAppTest es true)
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+  const finishEmailCheck = String(targetRoute.sellerEmail || reqSellerEmail || '').trim().toLowerCase();
+  if ((ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(finishEmailCheck)) || req.body.sendWhatsAppTest) {
     (async () => {
       try {
         const targetSellerId = targetRoute.sellerId || reqSellerId;
@@ -6577,7 +6587,7 @@ async function closeActiveRouteAndNotify(
     return { success: true, adminSummaryMsg, sellerSummaryMsg };
   }
 
-  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp && !isRouteNotificationExcluded(info.sellerEmail)) {
     // 1. Enviar a Emanuel (48234048)
     console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
     const okEmanuel = await dispatchRouteToN8nWebhook({
@@ -6713,13 +6723,15 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
 
       // CASO B: Ruta activa de HOY
       if (routeDateStr === todayDateStr) {
+        const routeEmailCheck = String(route.sellerEmail || route.seller_email || '').trim().toLowerCase();
+        const isExcludedFromAlerts = isRouteNotificationExcluded(routeEmailCheck);
         // Recordatorio 1 a las 7:00 PM (19:00 a 19:14)
         if (hour === 19 && minute >= 0 && minute <= 14) {
           const remKey = `${route.id}_${todayDateStr}_19:00`;
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 7:00 PM a ${route.sellerName} (${route.id})`);
-            await sendRouteClosureReminderToSeller(route);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
           }
         }
 
@@ -6729,7 +6741,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 8:30 PM a ${route.sellerName} (${route.id})`);
-            await sendRouteClosureReminderToSeller(route);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
           }
         }
 
@@ -6739,7 +6751,8 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
             console.log(`[AUTO-ROUTE-CRON] 🕙 10:00 PM alcanzado. Cerrando automáticamente la ruta activa de ${route.sellerName} (${route.id}) y enviando resumen.`);
             await closeActiveRouteAndNotify(route, {
               isAutoClosed: true,
-              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr)
+              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr),
+              skipWhatsApp: isExcludedFromAlerts
             });
           }
         }
