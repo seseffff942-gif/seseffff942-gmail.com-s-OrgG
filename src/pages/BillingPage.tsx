@@ -197,6 +197,10 @@ export function BillingPage({ user, isMobile }: BillingPageProps) {
     setPaymentFile(null);
   }, 'billing_invoice_modal');
 
+  useModalBackHandler(!!invoiceFel, () => {
+    setInvoiceFel(null);
+  }, 'fel_panel');
+
   useEffect(() => {
     loadInvoices();
     api.getUsers().then(setUsers).catch(console.error);

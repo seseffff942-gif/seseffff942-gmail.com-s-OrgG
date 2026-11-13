@@ -329,6 +329,15 @@ export default function App() {
     };
 
     const handleHashChange = () => {
+      if (isHandlingModalPopstate()) {
+        // Restaurar el hash de la pestaña actual si un cierre de modal alteró el hash
+        if (window.location.hash.replace('#', '').split('?')[0] !== currentTabRef.current) {
+          try {
+            window.history.replaceState({ agricovetTab: currentTabRef.current }, '', `#${currentTabRef.current}`);
+          } catch {}
+        }
+        return;
+      }
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
       if (cleanHash === 'login') {

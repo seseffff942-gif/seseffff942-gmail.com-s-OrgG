@@ -7,6 +7,7 @@ interface ModalEntry {
 
 const modalStack: ModalEntry[] = [];
 let isPopstateHandling = false;
+let programmaticBackCount = 0;
 
 /**
  * Cierra el modal superior si existe alguno abierto.
@@ -30,18 +31,28 @@ export function hasOpenModal(): boolean {
 }
 
 export function isHandlingModalPopstate(): boolean {
-  return isPopstateHandling || modalStack.length > 0;
+  return isPopstateHandling || programmaticBackCount > 0 || modalStack.length > 0;
 }
 
 // Listener global de popstate para capturar el botón o gesto atrás de Android
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
+    if (programmaticBackCount > 0) {
+      programmaticBackCount = Math.max(0, programmaticBackCount - 1);
+      isPopstateHandling = true;
+      setTimeout(() => {
+        if (programmaticBackCount === 0) {
+          isPopstateHandling = false;
+        }
+      }, 150);
+      return;
+    }
     if (modalStack.length > 0) {
       isPopstateHandling = true;
       closeTopModalIfAny();
       setTimeout(() => {
         isPopstateHandling = false;
-      }, 80);
+      }, 150);
     }
   });
 }
@@ -78,14 +89,27 @@ export function useModalBackHandler(isOpen: boolean, onClose: () => void, modalN
       const index = modalStack.findIndex(m => m.id === id);
       if (index !== -1) {
         modalStack.splice(index, 1);
-        // Si el modal fue cerrado por el usuario (ej. botón X o cancelar) y NO por el botón atrás de Android,
-        // revertimos el estado en el historial para mantener la pila limpia.
-        if (!isPopstateHandling) {
+        // Solo revertir history.back() si el estado actual del historial corresponde exactamente a este modal
+        if (
+          !isPopstateHandling &&
+          typeof window !== 'undefined' &&
+          window.history.state?.isModal === true &&
+          window.history.state?.modalId === id
+        ) {
+          programmaticBackCount++;
+          isPopstateHandling = true;
           try {
             window.history.back();
           } catch (e) {
-            // Ignorar
+            programmaticBackCount = Math.max(0, programmaticBackCount - 1);
+            isPopstateHandling = false;
           }
+          setTimeout(() => {
+            if (programmaticBackCount > 0) {
+              programmaticBackCount = 0;
+            }
+            isPopstateHandling = false;
+          }, 350);
         }
       }
       modalIdRef.current = null;
