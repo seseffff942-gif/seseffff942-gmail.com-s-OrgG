@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Client, User, VisitType, ClientVisit } from '../types';
 import { api } from '../api';
+import { enqueueOfflineVisit } from '../utils/offlineVisitStore';
 import { 
   Search, MapPin, X, Check, Building2, Phone, 
   ShoppingCart, DollarSign, UserPlus, Package, 
@@ -142,28 +143,37 @@ export function RegisterVisitModal({
   const requestDirectGps = () => {
     if (!navigator.geolocation) return;
     setIsManualGpsLoading(true);
+    const savePos = (pos: GeolocationPosition) => {
+      const fresh = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
+      };
+      setLocalDeviceGps(fresh);
+      try {
+        localStorage.setItem('last_known_gps_coords', JSON.stringify({
+          ...fresh,
+          timestamp: Date.now()
+        }));
+      } catch (e) {}
+      setIsManualGpsLoading(false);
+      setErrorMsg('');
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const fresh = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy
-        };
-        setLocalDeviceGps(fresh);
-        try {
-          localStorage.setItem('last_known_gps_coords', JSON.stringify({
-            ...fresh,
-            timestamp: Date.now()
-          }));
-        } catch (e) {}
-        setIsManualGpsLoading(false);
-        setErrorMsg('');
-      },
+      savePos,
       (err) => {
-        console.warn('Direct GPS check failed:', err);
-        setIsManualGpsLoading(false);
+        console.warn('High-accuracy GPS check failed, trying standard GPS fallback:', err);
+        navigator.geolocation.getCurrentPosition(
+          savePos,
+          (fallbackErr) => {
+            console.warn('Fallback GPS check failed:', fallbackErr);
+            setIsManualGpsLoading(false);
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 35000, maximumAge: 15000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
     );
   };
 
@@ -458,30 +468,34 @@ export function RegisterVisitModal({
     let serverRes: any = null;
 
     if (isCurrentlyOffline) {
-      // 1. Visita offline genuina: Guardar en la cola local de visitas pendientes
+      // 1. Visita offline genuina: Guardar en IndexedDB de visitas pendientes
       try {
-        const storedQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-        storedQueue.unshift(visitPayload);
-        localStorage.setItem('offline_client_visits', JSON.stringify(storedQueue));
-      } catch (storageErr) {
-        console.warn('Could not store in offline_client_visits:', storageErr);
+        await enqueueOfflineVisit(visitPayload);
+      } catch (storageErr: any) {
+        console.warn('Could not store offline visit:', storageErr);
+        setErrorMsg('No se pudo guardar la visita offline en el dispositivo. Libera espacio e intenta de nuevo.');
+        setIsSubmitting(false);
+        return;
       }
     } else {
       // 2. Visita normal online: Enviar directo al servidor con su ID oficial VISIT-...
       try {
         serverRes = await api.createVisit(visitPayload);
       } catch (networkErr: any) {
-        console.warn('Network submit failed, converting to offline queue:', networkErr);
-        // Si el envío en vivo falló por corte de red, solo entonces pasa a offline
+        console.warn('Network/timeout submit failed, converting to offline queue:', networkErr);
+        // Si el envío en vivo falló por corte de red, señal fantasma o timeout, pasa a IndexedDB
         const offlineId = `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
         visitPayload.id = offlineId;
         visitPayload.offlineId = offlineId;
         visitPayload.isOffline = true;
         try {
-          const storedQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-          storedQueue.unshift(visitPayload);
-          localStorage.setItem('offline_client_visits', JSON.stringify(storedQueue));
-        } catch (storageErr) {}
+          await enqueueOfflineVisit(visitPayload);
+        } catch (storageErr: any) {
+          console.warn('Could not store fallback offline visit:', storageErr);
+          setErrorMsg('Falló la conexión y no se pudo guardar la visita localmente. Intenta de nuevo.');
+          setIsSubmitting(false);
+          return;
+        }
       }
     }
 

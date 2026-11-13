@@ -9408,6 +9408,15 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         return res.status(400).json({ error: `Producto no encontrado en inventario (ID: ${item.productId})` });
       }
       const prodCheck = prodsCheck[0];
+      if (req.user?.role !== "admin" && !item.isOfferApplied && !item.isAuthorized) {
+        const reqPrice = item.price !== void 0 ? parseFloat(item.price) : parseFloat(prodCheck.price || 0);
+        const baseCatalogPrice = parseFloat(prodCheck.price || 0);
+        if (reqPrice < baseCatalogPrice - 1e-3) {
+          return res.status(403).json({
+            error: `No autorizado: el vendedor no puede vender "${prodCheck.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
+          });
+        }
+      }
       const isExempt = isExemptFromStockBlock(prodCheck, item);
       if (!prodCheck.is_external && !isExempt) {
         let availableStock = parseFloat(prodCheck.stock || 0);
@@ -9861,6 +9870,13 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   if (sellerSignature) {
     finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
   }
+  const oldQtyByKey = {};
+  for (const old of oldInvoice.items || []) {
+    const oldDeducted = getEffectiveDeductedQty(old);
+    if (oldDeducted <= 0 || !old.productId) continue;
+    const key = old.variantId ? `${old.productId}::${old.variantId}` : String(old.productId);
+    oldQtyByKey[key] = (oldQtyByKey[key] || 0) + oldDeducted;
+  }
   let total = 0;
   let needsAuth = false;
   let formattedItems = [];
@@ -9881,6 +9897,15 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
       prod = products?.[0];
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
+    if (!prod.is_external && req.user?.role !== "admin" && !item.isOfferApplied && !item.isAuthorized) {
+      const reqPrice = item.price !== void 0 ? parseFloat(item.price) : parseFloat(prod.price || 0);
+      const baseCatalogPrice = parseFloat(prod.price || 0);
+      if (reqPrice < baseCatalogPrice - 1e-3) {
+        return res.status(403).json({
+          error: `No autorizado: el vendedor no puede vender "${prod.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
+        });
+      }
+    }
     let variantsToUpdate = prod.variants ? [...prod.variants] : [];
     let variantObj = null;
     let currentStock = parseFloat(prod.stock || 0);
@@ -9893,11 +9918,18 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
         }
       }
     }
-    let isStockAlert = !prod.is_external && currentStock < item.quantity && !isExemptFromStockBlock(prod, item);
-    if (!item.isAuthorized && !item.isOfferApplied && (item.price < prod.price || isStockAlert)) needsAuth = true;
+    const isAdminEditor = req.user?.role === "admin";
+    const itemKey = item.variantId ? `${item.productId}::${item.variantId}` : String(item.productId);
+    const prevQtyOnInvoice = oldQtyByKey[itemKey] || 0;
+    const addedQty = Math.max(0, parseFloat(item.quantity || 0) - prevQtyOnInvoice);
+    let isStockAlert = !isAdminEditor && !prod.is_external && currentStock < addedQty && !isExemptFromStockBlock(prod, item);
+    const isItemPriceLower = !isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && parseFloat(item.price) < parseFloat(prod.price || 0) - 1e-3;
+    if (!isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && (isItemPriceLower || isStockAlert)) needsAuth = true;
     total += item.price * item.quantity;
     formattedItems.push({
       ...item,
+      isAuthorized: isAdminEditor ? true : Boolean(item.isAuthorized),
+      isPriceAlert: isAdminEditor ? false : isItemPriceLower,
       isStockAlert,
       productName: prod.name,
       originalPrice: prod.price,
@@ -9931,19 +9963,32 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
       const p = pData?.[0];
       if (!p || p.is_external) continue;
       const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
+      const isExemptProd = isExemptFromStockBlock(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
         if (netDiff === 0) continue;
         const vIdx = varsToUpdate.findIndex((v) => v.id === varId);
         if (vIdx !== -1) {
-          const rawVarStock = parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff;
+          const curVarStock = parseFloat(varsToUpdate[vIdx].stock || 0);
+          const rawVarStock = curVarStock + netDiff;
+          if (netDiff < 0 && rawVarStock < 0 && !isSpecialProd && !isExemptProd) {
+            return res.status(400).json({
+              error: `Stock insuficiente para agregar ${Math.abs(netDiff)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curVarStock}).`
+            });
+          }
           varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
         await localDb.from("products").update({ variants: varsToUpdate }).eq("id", prodId);
       } else if (changes.total !== 0) {
-        const rawStock = parseFloat(p.stock || 0) + changes.total;
+        const curProdStock = parseFloat(p.stock || 0);
+        const rawStock = curProdStock + changes.total;
+        if (changes.total < 0 && rawStock < 0 && !isSpecialProd && !isExemptProd) {
+          return res.status(400).json({
+            error: `Stock insuficiente para agregar ${Math.abs(changes.total)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curProdStock}).`
+          });
+        }
         await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq("id", prodId);
       }
     }

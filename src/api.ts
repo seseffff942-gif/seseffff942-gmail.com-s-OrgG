@@ -2,6 +2,35 @@ import { Capacitor } from '@capacitor/core';
 import { Product, User, Invoice, Payment, Offer, Client, AppNotification, EstadoFacturaFEL, Quotation, ReciboConforme, ClientVisit, VisitStats, SellerRoute } from './types';
 import { isTodayGuatemala, getGuatemalaTodayIso } from './utils';
 import preloadedData from './data/preloadedData.json';
+import { getOfflineVisitQueue, removeOfflineVisit } from './utils/offlineVisitStore';
+
+let activeVisitSyncPromise: Promise<{ synced: number; remaining: number }> | null = null;
+
+const stripHeavyPhotosForLocalCache = (visits: any[]): any[] =>
+  visits.slice(0, 100).map((v: any) => {
+    if (typeof v?.photoUrl === 'string' && v.photoUrl.startsWith('data:image/') && v.photoUrl.length > 2048) {
+      return { ...v, photoUrl: '' };
+    }
+    return v;
+  });
+
+const mergePendingOfflineVisits = (serverOrCachedVisits: any[], pendingQueue: any[]): any[] => {
+  if (!Array.isArray(pendingQueue) || pendingQueue.length === 0) {
+    return Array.isArray(serverOrCachedVisits) ? serverOrCachedVisits : [];
+  }
+  const base = Array.isArray(serverOrCachedVisits) ? serverOrCachedVisits : [];
+  const existingIds = new Set<string>();
+  for (const v of base) {
+    if (v?.id) existingIds.add(String(v.id));
+    if (v?.offlineId) existingIds.add(String(v.offlineId));
+  }
+  const missingPending = pendingQueue.filter((pv: any) => {
+    const pid = pv?.id ? String(pv.id) : '';
+    const oid = pv?.offlineId ? String(pv.offlineId) : '';
+    return (!pid || !existingIds.has(pid)) && (!oid || !existingIds.has(oid));
+  });
+  return [...missingPending, ...base];
+};
 
 // Modo 100% PostgreSQL Local Permanente
 export const isNeonMode = (): boolean => true;
@@ -303,17 +332,30 @@ const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 
 };
 
 // Simple api wrapper
-const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1): Promise<Response> => {
+const fetchWithAuth = async (url: string, options: RequestInit & { timeoutMs?: number } = {}, retries = 1): Promise<Response> => {
   const token = localStorage.getItem('app_token');
   const headers: any = { ...options.headers };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const { timeoutMs, ...fetchOptions } = options;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let controller: AbortController | undefined;
+  if (timeoutMs && timeoutMs > 0 && !fetchOptions.signal) {
+    controller = new AbortController();
+    timeoutId = setTimeout(() => controller?.abort(), timeoutMs);
+    fetchOptions.signal = controller.signal;
+  }
+
   let response: Response;
   try {
-    response = await fetch(getApiUrl(url), { ...options, headers });
+    response = await fetch(getApiUrl(url), { ...fetchOptions, headers });
   } catch (err: any) {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (err?.name === 'AbortError') {
+      throw new Error('Tiempo de espera agotado por señal débil o sin conexión.');
+    }
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, 400));
       return fetchWithAuth(url, options, retries - 1);
@@ -323,6 +365,8 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 1
       throw new Error('Sin conexión con el servidor (agricovet.lat). Revisa tu conexión a internet o intenta de nuevo.');
     }
     throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
   
   // If mutating and successful, notify standard notification listener to poll
@@ -691,17 +735,19 @@ export const api = {
     if (params?.startDate) query.append('startDate', params.startDate);
     if (params?.endDate) query.append('endDate', params.endDate);
 
+    const pendingQueue = await getOfflineVisitQueue();
     const url = `/api/visits${query.toString() ? `?${query.toString()}` : ''}`;
     try {
-      const res = await fetchWithAuth(url, { cache: 'no-store' });
+      const res = await fetchWithAuth(url, { cache: 'no-store', timeoutMs: 12000 }, 0);
       if (res.ok) {
         const data = await safeJson(res);
-        if (typeof localStorage !== 'undefined' && Array.isArray(data)) {
+        const list = Array.isArray(data) ? data : [];
+        if (typeof localStorage !== 'undefined') {
           try {
-            localStorage.setItem('cached_client_visits', JSON.stringify(data));
+            localStorage.setItem('cached_client_visits', JSON.stringify(stripHeavyPhotosForLocalCache(list)));
           } catch (storageErr) {}
         }
-        return Array.isArray(data) ? data : [];
+        return mergePendingOfflineVisits(list, pendingQueue);
       }
     } catch (err) {}
 
@@ -709,140 +755,130 @@ export const api = {
       const cached = localStorage.getItem('cached_client_visits');
       if (cached) {
         try {
-          return JSON.parse(cached);
+          return mergePendingOfflineVisits(JSON.parse(cached), pendingQueue);
         } catch (e) {}
       }
     }
-    return [];
+    return mergePendingOfflineVisits([], pendingQueue);
   },
 
   createVisit: async (visitData: Partial<ClientVisit> & { offlineId?: string; capturedAt?: string; gpsSource?: string; isOffline?: boolean }): Promise<{ success: boolean; visit: ClientVisit; deduplicated?: boolean }> => {
     const originalDate = visitData.capturedAt || visitData.createdAt || new Date().toISOString();
     const isOffline = Boolean(visitData.isOffline || visitData.offlineId || (typeof navigator !== 'undefined' && !navigator.onLine));
     const visitId = visitData.id || (isOffline ? `VISIT_OFFLINE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}` : `VISIT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
-    
-    const fallbackVisit: ClientVisit = {
-      id: visitId,
-      clientId: visitData.clientId || '',
-      clientName: visitData.clientName || '',
-      clientCode: visitData.clientCode,
-      companyName: visitData.companyName,
-      sellerId: visitData.sellerId || '',
-      sellerName: visitData.sellerName || 'Vendedor',
-      sellerEmail: visitData.sellerEmail || '',
-      latitude: visitData.latitude || 0,
-      longitude: visitData.longitude || 0,
-      accuracy: visitData.accuracy,
-      visitType: visitData.visitType || 'rutina',
-      notes: visitData.notes,
-      photoUrl: visitData.photoUrl,
-      createdAt: originalDate
-    };
 
-    // Save in local storage cache first
+    const res = await fetchWithAuth('/api/visits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        ...visitData,
+        id: visitId,
+        createdAt: originalDate,
+        capturedAt: originalDate
+      })
+    }, 0);
+    const data = await safeJson(res);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || `Error del servidor (${res.status}) al registrar visita`);
+    }
+
     if (typeof localStorage !== 'undefined') {
       try {
         const cached = localStorage.getItem('cached_client_visits');
         const list = cached ? JSON.parse(cached) : [];
         if (Array.isArray(list)) {
-          // Avoid duplicate entry in local cache
           const filtered = list.filter((v: any) => v.id !== visitId && v.offlineId !== visitId);
-          localStorage.setItem('cached_client_visits', JSON.stringify([fallbackVisit, ...filtered]));
+          localStorage.setItem('cached_client_visits', JSON.stringify(stripHeavyPhotosForLocalCache([data.visit, ...filtered])));
         }
       } catch (e) {}
     }
 
-    try {
-      const res = await fetchWithAuth('/api/visits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...visitData,
-          id: visitId,
-          createdAt: originalDate,
-          capturedAt: originalDate
-        })
-      });
-      const data = await safeJson(res);
-      if (res.ok && data.success) {
-        clearApiCache('clients');
-        return data;
-      }
-    } catch (err) {
-      console.warn('API /visits offline/network failure:', err);
-    }
-
     clearApiCache('clients');
-    return { success: true, visit: fallbackVisit };
+    return data;
   },
 
   syncOfflineVisits: async (): Promise<{ synced: number; remaining: number }> => {
-    if (typeof localStorage === 'undefined' || !navigator.onLine) {
-      return { synced: 0, remaining: 0 };
+    if (activeVisitSyncPromise) {
+      return activeVisitSyncPromise;
     }
 
-    // 1. Sincronizar clientes creados offline si hay en cola
-    try {
-      const clientQueue = JSON.parse(localStorage.getItem('offline_clients_queue') || '[]');
-      if (Array.isArray(clientQueue) && clientQueue.length > 0) {
-        const remainingClients: any[] = [];
-        for (const cli of clientQueue) {
-          try {
-            const resCli = await fetchWithAuth('/api/clients', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cli)
-            });
-            if (!resCli.ok) remainingClients.push(cli);
-          } catch {
-            remainingClients.push(cli);
+    activeVisitSyncPromise = (async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const queue = await getOfflineVisitQueue();
+        return { synced: 0, remaining: queue.length };
+      }
+
+      // 1. Sincronizar clientes creados offline si hay en cola
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const clientQueue = JSON.parse(localStorage.getItem('offline_clients_queue') || '[]');
+          if (Array.isArray(clientQueue) && clientQueue.length > 0) {
+            const remainingClients: any[] = [];
+            for (const cli of clientQueue) {
+              try {
+                const resCli = await fetchWithAuth('/api/clients', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  timeoutMs: 12000,
+                  body: JSON.stringify(cli)
+                }, 0);
+                if (!resCli.ok) remainingClients.push(cli);
+              } catch {
+                remainingClients.push(cli);
+              }
+            }
+            localStorage.setItem('offline_clients_queue', JSON.stringify(remainingClients));
           }
-        }
-        localStorage.setItem('offline_clients_queue', JSON.stringify(remainingClients));
+        } catch (e) {}
       }
-    } catch (e) {}
 
-    // 2. Sincronizar visitas offline
-    let queue: any[] = [];
-    try {
-      queue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-    } catch (e) {
-      queue = [];
-    }
-    if (!Array.isArray(queue) || queue.length === 0) {
-      return { synced: 0, remaining: 0 };
-    }
-
-    let syncedCount = 0;
-    const remainingQueue: any[] = [];
-
-    for (const v of queue) {
-      try {
-        const res = await fetchWithAuth('/api/visits', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(v)
-        });
-        const data = await safeJson(res);
-        if (res.ok && data?.success) {
-          syncedCount++;
-        } else {
-          remainingQueue.push(v);
-        }
-      } catch (err) {
-        remainingQueue.push(v);
+      // 2. Sincronizar visitas offline desde IndexedDB
+      const queue = await getOfflineVisitQueue();
+      if (queue.length === 0) {
+        return { synced: 0, remaining: 0 };
       }
-    }
+
+      let syncedCount = 0;
+      let remainingCount = queue.length;
+
+      for (const v of queue) {
+        try {
+          const res = await fetchWithAuth('/api/visits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeoutMs: 20000,
+            body: JSON.stringify(v)
+          }, 0);
+          const data = await safeJson(res);
+          if (res.ok && data?.success) {
+            syncedCount++;
+            remainingCount--;
+            await removeOfflineVisit(String(v.offlineId || v.id || v.queueKey || ''));
+          } else {
+            console.warn('[syncOfflineVisits] Error del servidor al sincronizar visita:', res.status, data?.error);
+            if (res.status >= 500 || res.status === 408 || res.status === 429) {
+              break;
+            }
+          }
+        } catch (err) {
+          console.warn('[syncOfflineVisits] Error de red/timeout al sincronizar visita:', err);
+          break;
+        }
+      }
+
+      if (syncedCount > 0) {
+        clearApiCache('clients');
+      }
+
+      return { synced: syncedCount, remaining: remainingCount };
+    })();
 
     try {
-      localStorage.setItem('offline_client_visits', JSON.stringify(remainingQueue));
-    } catch (e) {}
-
-    if (syncedCount > 0) {
-      clearApiCache('clients');
+      return await activeVisitSyncPromise;
+    } finally {
+      activeVisitSyncPromise = null;
     }
-
-    return { synced: syncedCount, remaining: remainingQueue.length };
   },
 
   deleteVisit: async (id: string): Promise<{ success: boolean; message?: string }> => {

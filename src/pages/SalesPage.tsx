@@ -214,6 +214,19 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(() => localStorage.getItem('draft_edit_invoice_id') || null);
   const [editInvoiceSellerId, setEditInvoiceSellerId] = useState<string | null>(() => localStorage.getItem('draft_edit_invoice_sellerId') || null);
+  const [editingOriginalQtyMap, setEditingOriginalQtyMap] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('draft_edit_original_qty_map') || '{}') || {};
+    } catch {
+      return {};
+    }
+  });
+  const getEditStockKey = (productId: string, variantId?: string) =>
+    variantId ? `${productId}::${variantId}` : productId;
+  const getEffectiveMaxStock = (productId: string, baseStock: number, variantId?: string) => {
+    if (!editingInvoiceId) return baseStock;
+    return baseStock + (editingOriginalQtyMap[getEditStockKey(productId, variantId)] || 0);
+  };
   const [isEditingAddress, setIsEditingAddress] = useState(false);
 
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -263,15 +276,17 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     localStorage.setItem('draft_invoiceType', invoiceType);
     if (editingInvoiceId) {
       localStorage.setItem('draft_edit_invoice_id', editingInvoiceId);
+      localStorage.setItem('draft_edit_original_qty_map', JSON.stringify(editingOriginalQtyMap));
     } else {
       localStorage.removeItem('draft_edit_invoice_id');
+      localStorage.removeItem('draft_edit_original_qty_map');
     }
     if (editInvoiceSellerId) {
       localStorage.setItem('draft_edit_invoice_sellerId', editInvoiceSellerId);
     } else {
       localStorage.removeItem('draft_edit_invoice_sellerId');
     }
-  }, [client, nit, phone, address, notes, cart, checkoutIsOwed, transportMethod, shippingHandled, customDate, invoiceType, editingInvoiceId, editInvoiceSellerId]);
+  }, [client, nit, phone, address, notes, cart, checkoutIsOwed, transportMethod, shippingHandled, customDate, invoiceType, editingInvoiceId, editInvoiceSellerId, editingOriginalQtyMap]);
 
 
   useEffect(() => {
@@ -390,6 +405,17 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
           parsedItems = [];
         }
 
+        const origQtyMap: Record<string, number> = {};
+        for (const rawItem of parsedItems) {
+          const rId = rawItem.productId || rawItem.product?.id || rawItem.id;
+          const rVarId = rawItem.variantId || rawItem.variant?.id;
+          if (rId) {
+            const k = getEditStockKey(String(rId), rVarId ? String(rVarId) : undefined);
+            origQtyMap[k] = (origQtyMap[k] || 0) + (Number(rawItem.quantity) || 0);
+          }
+        }
+        setEditingOriginalQtyMap(origQtyMap);
+
         setCart(parsedItems.map((i: any) => {
            const pId = i.productId || i.product?.id || i.id;
            const pName = i.productName || i.product?.name || i.name || 'Producto';
@@ -412,6 +438,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
              overridePrice: Number(i.overridePrice ?? i.price) || 0,
              suggestedPrice: undefined,
              appliedCustomOffer: undefined,
+             isOfferApplied: Boolean(i.isOfferApplied || i.isBonus),
+             isBonus: Boolean(i.isBonus),
+             isAuthorized: Boolean(i.isAuthorized || inv.authStatus === 'authorized'),
              variant: variantObj
            };
         }));
@@ -514,7 +543,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
     if (variant?.id && product.variants) {
       variantStock = product.variants.find(v => v.id === variant.id)?.stock;
     }
-    const maxStock = variantStock !== undefined ? variantStock : product.stock;
+    const baseMaxStock = variantStock !== undefined ? variantStock : product.stock;
+    const maxStock = getEffectiveMaxStock(product.id, baseMaxStock, variant?.id);
 
     let requiresAuth = false;
     if (totalNewQty > maxStock && !doesNotNeedStock(product)) {
@@ -643,7 +673,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         }
         const liveProd = products.find(p => p.id === item.product.id || p.name?.trim().toLowerCase() === (item.product.name || '').trim().toLowerCase());
         const currentStock = liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(item.product.stock) || 0);
-        const maxStock = variantStock !== undefined ? variantStock : currentStock;
+        const baseMaxStock = variantStock !== undefined ? variantStock : currentStock;
+        const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id);
         const productForBreakdown = {
           ...item.product,
           stock: currentStock,
@@ -941,14 +972,18 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            effectivePrice = (price * i.appliedCustomOffer.buyQty) / (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
         }
 
+        const preservedOffer = Boolean(i.appliedCustomOffer || (i as any).isOfferApplied || (i as any).isBonus);
+        const preservedAuthorized = Boolean((i as any).isAuthorized || (editingInvoiceId && user?.role === 'admin'));
         return [{
           productId: i.product.id,
           productName: i.product.name,
           quantity: i.quantity,
           price: effectivePrice,
           suggestedPrice: i.suggestedPrice,
-          isOfferApplied: !!i.appliedCustomOffer,
-          isPriceAlert: price < i.product.price,
+          isOfferApplied: preservedOffer,
+          isBonus: Boolean((i as any).isBonus),
+          isAuthorized: preservedAuthorized,
+          isPriceAlert: !preservedOffer && !preservedAuthorized && (price < i.product.price - 0.001),
           variantId: i.variant?.id || (i as any).variantId,
           color: i.variant?.color || (i as any).color,
           size: i.variant?.size || (i as any).size,
@@ -1238,7 +1273,8 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       if (item.variant?.id && item.product.variants) {
         variantStock = item.product.variants.find(v => v.id === item.variant?.id)?.stock;
       }
-      const maxStock = variantStock !== undefined ? variantStock : item.product.stock;
+      const baseMaxStock = variantStock !== undefined ? variantStock : item.product.stock;
+      const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id);
 
       if (item.quantity > maxStock && !doesNotNeedStock(item.product)) {
         if (isTecunProduct(item.product) || isFiatProduct(item.product)) {
@@ -1253,6 +1289,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       if (itemPrice < 0) {
         setErrorMsg('El precio de venta de los productos no puede ser negativo.');
         setTimeout(() => setErrorMsg(''), 5000);
+        return;
+      }
+      if (user.role !== 'admin' && !item.appliedCustomOffer && itemPrice < item.product.price) {
+        setErrorMsg(`No tienes permiso para vender "${item.product.name}" por debajo de su precio base (${formatMoney(item.product.price)}).`);
+        setTimeout(() => setErrorMsg(''), 6000);
         return;
       }
     }
@@ -2526,7 +2567,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         <label className="text-[10px] font-extrabold text-slate-400 block uppercase tracking-wider mb-1">Precio c/u (Q)</label>
                         <input 
                            type="number" 
-                           min="0" 
+                           min={user.role !== 'admin' ? selectedProduct.price : 0} 
                            step="0.01"
                            value={modalPrice} 
                            onChange={e => {
@@ -2540,7 +2581,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                            }`} 
                         />
                         {parseFloat(modalPrice) < selectedProduct.price && (
-                           <p className="text-[9px] text-red-650 font-black mt-1 uppercase tracking-tight leading-normal">⚠️ BAJO PRECIO BASE ({formatMoney(selectedProduct.price)})</p>
+                           <p className="text-[9px] text-red-600 font-black mt-1 uppercase tracking-tight leading-normal">
+                             {user.role !== 'admin'
+                               ? `⛔ NO SE PERMITE VENDER BAJO ${formatMoney(selectedProduct.price)}`
+                               : `⚠️ BAJO PRECIO BASE (${formatMoney(selectedProduct.price)})`}
+                           </p>
                         )}
                      </div>
                   </div>
@@ -2551,6 +2596,9 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       const price = parseFloat(modalPrice);
                       if (isNaN(qty) || qty < 1) return alert("Cantidad inválida");
                       if (isNaN(price) || price < 0) return alert("Precio inválido");
+                      if (user.role !== 'admin' && price < selectedProduct.price) {
+                        return alert(`No está permitido vender "${selectedProduct.name}" por debajo de su precio base (${formatMoney(selectedProduct.price)}).`);
+                      }
 
                       if (selectedProduct?.variants && selectedProduct.variants.length > 0) {
                         if (!selectedVariantId) {

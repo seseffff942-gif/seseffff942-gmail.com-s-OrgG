@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Client, ClientVisit, User, VisitStats, VisitType, SellerRoute } from '../types';
 import { api } from '../api';
+import { getOfflineVisitQueue } from '../utils/offlineVisitStore';
 import { ClientVisitsMap } from '../components/ClientVisitsMap';
 import { MarkClientModal } from '../components/MarkClientModal';
 import { RegisterVisitModal } from '../components/RegisterVisitModal';
@@ -56,13 +57,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
   // Offline Visits Queue State
-  const [offlineVisitsQueue, setOfflineVisitsQueue] = useState<any[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-    } catch (e) {
-      return [];
-    }
-  });
+  const [offlineVisitsQueue, setOfflineVisitsQueue] = useState<any[]>([]);
   const [isSyncingVisits, setIsSyncingVisits] = useState(false);
   const [syncVisitsMsg, setSyncVisitsMsg] = useState('');
 
@@ -72,7 +67,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     setIsSyncingVisits(true);
     try {
       const res = await api.syncOfflineVisits();
-      const currentQueue = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+      const currentQueue = await getOfflineVisitQueue();
       setOfflineVisitsQueue(currentQueue);
       if (res.synced > 0) {
         setSyncVisitsMsg(`✅ Se sincronizaron exitosamente ${res.synced} visita(s) guardadas sin conexión.`);
@@ -344,16 +339,18 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     }, 25000);
 
     // 2. Monitoreo y auto-sincronización de cola de visitas offline al recuperar señal
-    window.addEventListener('online', handleSyncOfflineVisits);
-    const offlineCheckInterval = setInterval(() => {
+    const refreshOfflineQueueAndSync = async () => {
       try {
-        const q = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
+        const q = await getOfflineVisitQueue();
         setOfflineVisitsQueue(q);
         if (q.length > 0 && navigator.onLine) {
           handleSyncOfflineVisits();
         }
       } catch (e) {}
-    }, 15000);
+    };
+    refreshOfflineQueueAndSync();
+    window.addEventListener('online', handleSyncOfflineVisits);
+    const offlineCheckInterval = setInterval(refreshOfflineQueueAndSync, 15000);
 
     let watchId: number | null = null;
     if (navigator.geolocation) {
@@ -468,10 +465,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   const handleVisitRegistered = (newVisit: ClientVisit) => {
     setVisits(prev => [newVisit, ...prev.filter(v => v.id !== newVisit.id)]);
-    try {
-      const q = JSON.parse(localStorage.getItem('offline_client_visits') || '[]');
-      setOfflineVisitsQueue(q);
-    } catch (e) {}
+    getOfflineVisitQueue().then(setOfflineVisitsQueue).catch(() => {});
     loadData(true);
   };
 
