@@ -211,19 +211,45 @@ export default function App() {
   const currentTabRef = React.useRef<string>(currentTab);
   currentTabRef.current = currentTab;
   const isPopNavigatingRef = React.useRef(false);
+  const needsUserGestureGuardRef = React.useRef(true);
   const lastBackAtRef = React.useRef(0);
   const [showBackExitHint, setShowBackExitHint] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  React.useEffect(() => {
-    if (!showLoginDirectly) {
-      if (window.location.hash.replace('#', '').split('?')[0] !== currentTab) {
-        try {
-          window.history.pushState({ agricovetTab: currentTab }, '', `#${currentTab}`);
-        } catch {
-          window.location.hash = currentTab;
+  // Función síncrona para cambiar de pestaña DENTRO del evento click/tap del usuario.
+  // Android Chrome / WebView exige que history.pushState ocurra dentro de un gesto real
+  // del usuario (click/pointerdown) para no ignorar la entrada al presionar el botón Atrás.
+  const handleTabChange = React.useCallback((nextTab: string) => {
+    const prevTab = currentTabRef.current;
+    if (!showLoginDirectly && typeof window !== 'undefined') {
+      try {
+        if (needsUserGestureGuardRef.current) {
+          window.history.replaceState({ agricovetTab: prevTab, isRootGuard: true }, '', `#${prevTab}`);
+          window.history.pushState({ agricovetTab: prevTab, guard: true }, '', `#${prevTab}`);
+          needsUserGestureGuardRef.current = false;
+        }
+        if (nextTab !== prevTab) {
+          window.history.pushState({ agricovetTab: nextTab }, '', `#${nextTab}`);
+        }
+      } catch {
+        window.location.hash = nextTab;
+      }
+    }
+    if (nextTab !== prevTab) {
+      const last = tabHistoryRef.current[tabHistoryRef.current.length - 1];
+      if (last !== nextTab) {
+        tabHistoryRef.current.push(nextTab);
+        if (tabHistoryRef.current.length > 30) {
+          tabHistoryRef.current.shift();
         }
       }
+      currentTabRef.current = nextTab;
+      setCurrentTab(nextTab);
+    }
+  }, [showLoginDirectly]);
+
+  React.useEffect(() => {
+    if (!showLoginDirectly) {
       if (isPopNavigatingRef.current) {
         isPopNavigatingRef.current = false;
       } else {
@@ -247,27 +273,33 @@ export default function App() {
         tabHistoryRef.current.pop();
         const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
         isPopNavigatingRef.current = true;
+        currentTabRef.current = prevTab;
         setCurrentTab(prevTab);
         return true;
       }
       if (currentTabRef.current !== 'home') {
         isPopNavigatingRef.current = true;
         tabHistoryRef.current = ['home'];
+        currentTabRef.current = 'home';
         setCurrentTab('home');
         return true;
       }
       return false;
     };
 
-    // Guard initial history entry so browser/PWA Back button can intercept instead of exiting immediately
-    if (!showLoginDirectly && (!window.history.state || !window.history.state.agricovetTab)) {
+    // Armar un estado de historial con activación de usuario real en el primer toque/clic
+    // (o tras consumir un popstate), evitando la intervención de Android Chrome que salta entradas sin gesto.
+    const ensureHistoryGuardOnUserGesture = () => {
+      if (showLoginDirectly || !needsUserGestureGuardRef.current) return;
       try {
-        window.history.replaceState({ agricovetTab: currentTabRef.current, isRootGuard: true }, '', `#${currentTabRef.current}`);
-        window.history.pushState({ agricovetTab: currentTabRef.current }, '', `#${currentTabRef.current}`);
+        const tab = currentTabRef.current;
+        window.history.replaceState({ agricovetTab: tab, isRootGuard: true }, '', `#${tab}`);
+        window.history.pushState({ agricovetTab: tab, guard: true }, '', `#${tab}`);
+        needsUserGestureGuardRef.current = false;
       } catch {
         // ignore
       }
-    }
+    };
 
     // Hook nativo para MainActivity.java (Capacitor Android APK)
     (window as any).__handleAndroidBackButton = () => {
@@ -286,7 +318,10 @@ export default function App() {
 
     const handlePopState = () => {
       // Si modalBackHandler ya cerró un modal en este popstate, no cambiar de pestaña
-      if (isHandlingModalPopstate()) return;
+      if (isHandlingModalPopstate()) {
+        needsUserGestureGuardRef.current = true;
+        return;
+      }
 
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
@@ -295,10 +330,14 @@ export default function App() {
         return;
       }
 
+      // Al consumir una entrada con el botón Atrás, re-armar el guard en el próximo toque del usuario
+      needsUserGestureGuardRef.current = true;
+
       if (tabHistoryRef.current.length > 1) {
         tabHistoryRef.current.pop();
         const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'home';
         isPopNavigatingRef.current = true;
+        currentTabRef.current = prevTab;
         setCurrentTab(prevTab);
         try {
           window.history.replaceState({ agricovetTab: prevTab }, '', `#${prevTab}`);
@@ -309,14 +348,15 @@ export default function App() {
       if (currentTabRef.current !== 'home') {
         isPopNavigatingRef.current = true;
         tabHistoryRef.current = ['home'];
+        currentTabRef.current = 'home';
         setCurrentTab('home');
         try {
-          window.history.pushState({ agricovetTab: 'home' }, '', '#home');
+          window.history.replaceState({ agricovetTab: 'home' }, '', '#home');
         } catch {}
         return;
       }
 
-      // Ya estamos en 'home' sin historial previo: re-inyectar estado para no salir de la app al primer "atrás"
+      // Ya estamos en 'home' sin historial previo
       const now = Date.now();
       if (now - lastBackAtRef.current >= 2000) {
         lastBackAtRef.current = now;
@@ -329,31 +369,21 @@ export default function App() {
     };
 
     const handleHashChange = () => {
-      if (isHandlingModalPopstate()) {
-        // Restaurar el hash de la pestaña actual si un cierre de modal alteró el hash
-        if (window.location.hash.replace('#', '').split('?')[0] !== currentTabRef.current) {
-          try {
-            window.history.replaceState({ agricovetTab: currentTabRef.current }, '', `#${currentTabRef.current}`);
-          } catch {}
-        }
-        return;
-      }
       const hash = window.location.hash.replace('#', '');
       const cleanHash = hash.split('?')[0];
       if (cleanHash === 'login') {
         setShowLoginDirectly(true);
-        return;
-      }
-      const validTabs = ['home', 'inventory', 'sales', 'dispatch', 'billing', 'quotations', 'recibo-conforme', 'seller-debts', 'business-debts', 'daily-sales', 'my-sales', 'recibos-caja', 'team', 'clients', 'visits', 'client-tracking', 'master-audit', 'terms', 'privacy'];
-      if (validTabs.includes(cleanHash) && cleanHash !== currentTabRef.current) {
-        setCurrentTab(cleanHash);
       }
     };
 
+    window.addEventListener('click', ensureHistoryGuardOnUserGesture, true);
+    window.addEventListener('touchend', ensureHistoryGuardOnUserGesture, true);
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('hashchange', handleHashChange);
     return () => {
       delete (window as any).__handleAndroidBackButton;
+      window.removeEventListener('click', ensureHistoryGuardOnUserGesture, true);
+      window.removeEventListener('touchend', ensureHistoryGuardOnUserGesture, true);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('hashchange', handleHashChange);
     };
@@ -601,7 +631,7 @@ export default function App() {
         user={user!} 
         activeUser={activeUser as User}
         currentTab={currentTab} 
-        onChangeTab={setCurrentTab} 
+        onChangeTab={handleTabChange} 
         onLogout={handleLogout} 
         onReturnToAdmin={returnToAdmin}
         onImpersonate={handleImpersonate}
@@ -620,7 +650,7 @@ export default function App() {
         }}
       />
       <main className={`flex-1 overflow-auto relative md:ml-[260px] md:pt-16`}>
-        {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={setCurrentTab} onLogout={handleLogout} isMobile={isMobile} />}
+        {currentTab === 'home' && <HomePage user={activeUser as User} onChangeTab={handleTabChange} onLogout={handleLogout} isMobile={isMobile} />}
         <Suspense fallback={
           <div className="flex items-center justify-center min-h-[50vh] p-6">
             <div className="flex flex-col items-center gap-3 text-slate-500">

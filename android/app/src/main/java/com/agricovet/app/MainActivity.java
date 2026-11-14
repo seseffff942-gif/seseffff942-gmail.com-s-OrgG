@@ -33,6 +33,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.FileProvider;
 
@@ -55,6 +56,12 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         createNotificationChannel();
         configureWebView();
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleBackNavigation(this);
+            }
+        });
     }
 
     private void configureWebView() {
@@ -88,11 +95,9 @@ public class MainActivity extends BridgeActivity {
         }, 500);
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBackNavigation(OnBackPressedCallback callback) {
         if (getBridge() != null && getBridge().getWebView() != null) {
             WebView webView = getBridge().getWebView();
-            // Permite a la app web cerrar modales antes de salir de la aplicación
             webView.evaluateJavascript(
                 "(function() { " +
                 "  if (typeof window.__handleAndroidBackButton === 'function') { " +
@@ -102,10 +107,14 @@ public class MainActivity extends BridgeActivity {
                 "})()",
                 result -> {
                     if ("true".equals(result) || "\"true\"".equals(result)) {
-                        return; // Modal cerrado en JavaScript
+                        return; // Navegación atrás o modal manejado en JavaScript
                     }
                     if (webView.canGoBack()) {
                         webView.goBack();
+                    } else if (callback != null) {
+                        callback.setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                        callback.setEnabled(true);
                     } else {
                         MainActivity.super.onBackPressed();
                     }
@@ -113,7 +122,18 @@ public class MainActivity extends BridgeActivity {
             );
             return;
         }
-        super.onBackPressed();
+        if (callback != null) {
+            callback.setEnabled(false);
+            getOnBackPressedDispatcher().onBackPressed();
+            callback.setEnabled(true);
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        handleBackNavigation(null);
     }
 
     private void createNotificationChannel() {
