@@ -212,7 +212,7 @@ export async function setGlobalMaintenanceMode(enabled: boolean): Promise<boolea
       if (typeof emitRealtimeSync === 'function') {
         emitRealtimeSync("maintenance", { maintenance: enabled });
       }
-    } catch (errSync) {}
+    } catch (errSync) { }
   } catch (e: any) {
     console.error("Error guardando maintenance_mode en base de datos:", e.message);
   }
@@ -468,7 +468,7 @@ export function emitRealtimeSync(entity: string, data?: any) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("disconnect", () => {});
+  socket.on("disconnect", () => { });
 });
 app.set("trust proxy", 1);
 app.use(compression());
@@ -533,7 +533,7 @@ app.use(async (req: any, res: any, next: any) => {
         if (decoded?.email?.toLowerCase() === 'seseffff942@gmail.com' || decoded?.id === 'u1b' || decoded?.role === 'admin') {
           return next();
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Bloquear a cualquier otro usuario con 503 Service Unavailable
@@ -1039,7 +1039,7 @@ let salesProcessingQueue: Promise<any> = Promise.resolve();
 
 export function enqueueSaleTask<T>(task: () => Promise<T>): Promise<T> {
   const next = salesProcessingQueue.then(task, task);
-  salesProcessingQueue = next.catch(() => {});
+  salesProcessingQueue = next.catch(() => { });
   return next;
 }
 
@@ -1218,7 +1218,7 @@ export async function recordAuditLog(entry: {
     if (typeof emitRealtimeSync === 'function') {
       emitRealtimeSync("audit_logs", logItem);
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return logItem;
 }
@@ -2636,60 +2636,90 @@ async function safeInsertClient(clientData: any) {
 
     console.warn("Primary PostgreSQL Local client insert failed, trying fallbacks:", error.message);
 
-    // 2. Fallback: only use columns that exist in public.clients and strip any single unknown column iteratively
-    // instead of dropping isProspect, clientType or sellerId.
-    const isProsp = clientData.isProspect === true || clientData.clientType === 'prospect';
-    const fallbackPayload: any = {
+    // 2. Prep falling back object mapping standard snake_case alongside camelCase to cover both bases!
+    const payload: any = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || '',
       phone: clientData.phone || '',
       address: clientData.address || '',
       companyName: clientData.companyName || '',
-      createdAt: clientData.createdAt || clientData.created_at || new Date().toISOString(),
+      company_name: clientData.companyName || '',
+      createdAt: clientData.createdAt || clientData.created_at,
+      created_at: clientData.createdAt || clientData.created_at || new Date().toISOString(),
       sellerId: clientData.sellerId || '',
+      seller_id: clientData.sellerId || '',
       clientCode: clientData.clientCode,
       isBlocked: clientData.isBlocked || false,
       latitude: clientData.latitude,
       longitude: clientData.longitude,
       locationAddress: clientData.locationAddress,
+      location_address: clientData.locationAddress,
       geotaggedAt: clientData.geotaggedAt,
+      geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      isProspect: isProsp,
-      is_prospect: isProsp,
-      clientType: isProsp ? 'prospect' : (clientData.clientType || 'regular'),
-      client_type: isProsp ? 'prospect' : (clientData.clientType || 'regular')
+      geotagged_by: clientData.geotaggedBy,
+      isProspect: clientData.isProspect || false,
+      is_prospect: clientData.isProspect || false,
+      clientType: clientData.clientType || (clientData.isProspect ? 'prospect' : 'regular'),
+      client_type: clientData.clientType || (clientData.isProspect ? 'prospect' : 'regular')
     };
 
-    Object.keys(fallbackPayload).forEach(k => {
-      if (fallbackPayload[k] === undefined) delete fallbackPayload[k];
-    });
+    const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
+    if (!errorWithFallbacks) return true;
 
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const { error: retryError } = await localDb.from("clients").insert([fallbackPayload]);
-      if (!retryError) return true;
+    console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
 
-      const errMsg = retryError.message || '';
-      const match = errMsg.match(/column\s+"?([^"\s»]+)"?|columna\s+«([^»]+)»/i);
-      const missingCol = match?.[1] || match?.[2];
-      if (missingCol && Object.prototype.hasOwnProperty.call(fallbackPayload, missingCol)) {
-        delete fallbackPayload[missingCol];
-        continue;
-      }
-      console.warn("Client fallback insert failed:", errMsg);
-      break;
+    // 3. Incrementally prune potentially missing columns (like sellerId or createdAt)
+    let prunedPayload = { ...payload };
+    let needsRetry = false;
+
+    const errMsg = errorWithFallbacks.message;
+    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
+      delete prunedPayload.isProspect;
+      delete prunedPayload.is_prospect;
+      delete prunedPayload.clientType;
+      delete prunedPayload.client_type;
+      needsRetry = true;
+    }
+    if (errMsg.includes("sellerId") || errMsg.includes("column \"sellerId\"") || errMsg.includes("schema cache")) {
+      delete prunedPayload.sellerId;
+      needsRetry = true;
+    }
+    if (errMsg.includes("seller_id") || errMsg.includes("column \"seller_id\"")) {
+      delete prunedPayload.seller_id;
+      needsRetry = true;
+    }
+    if (errMsg.includes("createdAt") || errMsg.includes("column \"createdAt\"")) {
+      delete prunedPayload.createdAt;
+      needsRetry = true;
+    }
+    if (errMsg.includes("created_at") || errMsg.includes("column \"created_at\"")) {
+      delete prunedPayload.created_at;
+      needsRetry = true;
+    }
+    if (errMsg.includes("companyName") || errMsg.includes("column \"companyName\"")) {
+      delete prunedPayload.companyName;
+      needsRetry = true;
+    }
+    if (errMsg.includes("company_name") || errMsg.includes("column \"company_name\"")) {
+      delete prunedPayload.company_name;
+      needsRetry = true;
     }
 
-    // 4. Ultimate fallback preserving prospect & seller identity
+    if (needsRetry) {
+      const { error: retryError } = await localDb.from("clients").insert([prunedPayload]);
+      if (!retryError) return true;
+      console.warn("Client pruned insert failed:", retryError.message);
+    }
+
+    // 4. Ultimate fallback to bare essentials: id, name, and basics which are guaranteed to exist
     const bareClient: any = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || '',
       phone: clientData.phone || '',
-      address: clientData.address || '',
-      sellerId: clientData.sellerId || '',
-      isProspect: isProsp,
-      clientType: isProsp ? 'prospect' : 'regular'
+      address: clientData.address || ''
     };
     const { error: bareError } = await localDb.from("clients").insert([bareClient]);
     if (!bareError) return true;
@@ -3242,134 +3272,134 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   const effectiveGeotaggedBy = req.user?.name || req.user?.email || '';
 
   if (matchedClient) {
-  console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
+    console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
 
-  const updates: any = {};
-  if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-  if (!matchedClient.phone && phone) updates.phone = phone;
-  if (!matchedClient.address && address) updates.address = address;
-  if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+    const updates: any = {};
+    if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+    if (!matchedClient.phone && phone) updates.phone = phone;
+    if (!matchedClient.address && address) updates.address = address;
+    if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
 
-  if (latitude !== undefined && longitude !== undefined) {
-    updates.latitude = Number(latitude);
-    updates.longitude = Number(longitude);
-    updates.locationAddress = locationAddress || address || '';
-    updates.geotaggedAt = geotaggedAt || new Date().toISOString();
-    updates.geotaggedBy = effectiveGeotaggedBy;
-  }
-
-  const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-  if (!currentSeller) updates.sellerId = effectiveSellerId;
-
-  if (Object.keys(updates).length > 0) {
-    updateLocalClient(matchedClient.id, updates);
-    try {
-      await localDb.from("clients").update(updates).eq("id", matchedClient.id);
-    } catch (e) { }
-  }
-
-  return res.json({
-    success: true,
-    client: {
-      ...matchedClient,
-      nit: matchedClient.nit || nit || '',
-      phone: matchedClient.phone || phone || '',
-      address: matchedClient.address || address || '',
-      sellerId: currentSeller || effectiveSellerId,
-      ...(latitude !== undefined && longitude !== undefined ? {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        locationAddress: locationAddress || address || '',
-        geotaggedAt: updates.geotaggedAt,
-        geotaggedBy: effectiveGeotaggedBy
-      } : {})
+    if (latitude !== undefined && longitude !== undefined) {
+      updates.latitude = Number(latitude);
+      updates.longitude = Number(longitude);
+      updates.locationAddress = locationAddress || address || '';
+      updates.geotaggedAt = geotaggedAt || new Date().toISOString();
+      updates.geotaggedBy = effectiveGeotaggedBy;
     }
-  });
-}
 
-// Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
-const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
-if (deletedMatch) {
-  console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
-  removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+    const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+    if (!currentSeller) updates.sellerId = effectiveSellerId;
 
-  const reactivatedPayload = {
-    name: nameToSave,
-    companyName: companyToSave || deletedMatch.companyName || '',
-    nit: nit || deletedMatch.nit || '',
-    phone: phone || deletedMatch.phone || '',
-    address: address || deletedMatch.address || '',
-    sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
-    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
-    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
-    locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
-    geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
-    geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
-    isDeleted: false,
-    is_deleted: false,
-    isBlocked: false,
-    is_blocked: false
-  };
+    if (Object.keys(updates).length > 0) {
+      updateLocalClient(matchedClient.id, updates);
+      try {
+        await localDb.from("clients").update(updates).eq("id", matchedClient.id);
+      } catch (e) { }
+    }
 
-  updateLocalClient(deletedMatch.id, reactivatedPayload);
+    return res.json({
+      success: true,
+      client: {
+        ...matchedClient,
+        nit: matchedClient.nit || nit || '',
+        phone: matchedClient.phone || phone || '',
+        address: matchedClient.address || address || '',
+        sellerId: currentSeller || effectiveSellerId,
+        ...(latitude !== undefined && longitude !== undefined ? {
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          locationAddress: locationAddress || address || '',
+          geotaggedAt: updates.geotaggedAt,
+          geotaggedBy: effectiveGeotaggedBy
+        } : {})
+      }
+    });
+  }
 
-  try {
-    await localDb.from("clients").update({
+  // Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
+  const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
+  if (deletedMatch) {
+    console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
+    removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+
+    const reactivatedPayload = {
       name: nameToSave,
-      company_name: companyToSave || deletedMatch.companyName || '',
+      companyName: companyToSave || deletedMatch.companyName || '',
       nit: nit || deletedMatch.nit || '',
       phone: phone || deletedMatch.phone || '',
       address: address || deletedMatch.address || '',
-      seller_id: reactivatedPayload.sellerId,
-      latitude: reactivatedPayload.latitude,
-      longitude: reactivatedPayload.longitude,
-      location_address: reactivatedPayload.locationAddress,
-      geotagged_at: reactivatedPayload.geotaggedAt,
-      geotagged_by: reactivatedPayload.geotaggedBy
-    }).eq("id", deletedMatch.id);
-  } catch (e) { }
+      sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
+      latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
+      longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
+      locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
+      geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
+      geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
+      isDeleted: false,
+      is_deleted: false,
+      isBlocked: false,
+      is_blocked: false
+    };
 
-  invalidateCache("clients");
-  return res.json({
-    success: true,
-    client: {
-      ...deletedMatch,
-      ...reactivatedPayload,
-      id: deletedMatch.id
-    }
-  });
-}
+    updateLocalClient(deletedMatch.id, reactivatedPayload);
 
-const clientData = {
-  id: id || `CLI-${Date.now()}`,
-  sellerId: effectiveSellerId,
-  geotaggedBy: effectiveGeotaggedBy,
-  name: nameToSave,
-  companyName: companyToSave,
-  nit: nit || '',
-  phone: phone || '',
-  address: address || '',
-  clientCode: clientCode ? String(clientCode).trim() : undefined,
-  latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
-  longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
-  locationAddress: locationAddress || address || undefined,
-  geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
-  isProspect: isProspect === true || clientType === 'prospect',
-  clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
-  createdAt: new Date().toISOString()
-};
-
-// Remove from blacklist if explicitly adding new client
-removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
-
-// Save locally
-addLocalClient(clientData);
-
-try {
-  await safeInsertClient(clientData);
-  if (clientData.latitude && clientData.longitude) {
     try {
-      await queryNeon(`
+      await localDb.from("clients").update({
+        name: nameToSave,
+        company_name: companyToSave || deletedMatch.companyName || '',
+        nit: nit || deletedMatch.nit || '',
+        phone: phone || deletedMatch.phone || '',
+        address: address || deletedMatch.address || '',
+        seller_id: reactivatedPayload.sellerId,
+        latitude: reactivatedPayload.latitude,
+        longitude: reactivatedPayload.longitude,
+        location_address: reactivatedPayload.locationAddress,
+        geotagged_at: reactivatedPayload.geotaggedAt,
+        geotagged_by: reactivatedPayload.geotaggedBy
+      }).eq("id", deletedMatch.id);
+    } catch (e) { }
+
+    invalidateCache("clients");
+    return res.json({
+      success: true,
+      client: {
+        ...deletedMatch,
+        ...reactivatedPayload,
+        id: deletedMatch.id
+      }
+    });
+  }
+
+  const clientData = {
+    id: id || `CLI-${Date.now()}`,
+    sellerId: effectiveSellerId,
+    geotaggedBy: effectiveGeotaggedBy,
+    name: nameToSave,
+    companyName: companyToSave,
+    nit: nit || '',
+    phone: phone || '',
+    address: address || '',
+    clientCode: clientCode ? String(clientCode).trim() : undefined,
+    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
+    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
+    locationAddress: locationAddress || address || undefined,
+    geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
+    isProspect: isProspect === true || clientType === 'prospect',
+    clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
+    createdAt: new Date().toISOString()
+  };
+
+  // Remove from blacklist if explicitly adding new client
+  removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
+
+  // Save locally
+  addLocalClient(clientData);
+
+  try {
+    await safeInsertClient(clientData);
+    if (clientData.latitude && clientData.longitude) {
+      try {
+        await queryNeon(`
           UPDATE public.clients
           SET latitude = $1,
               longitude = $2,
@@ -3378,30 +3408,30 @@ try {
               "geotaggedBy" = $5
           WHERE id = $6
         `, [clientData.latitude, clientData.longitude, clientData.locationAddress || null, clientData.geotaggedAt || new Date().toISOString(), clientData.geotaggedBy || effectiveGeotaggedBy, clientData.id]);
-    } catch (neonErr: any) {
-      console.warn('[Insert Client Location Neon Warning]', neonErr.message);
+      } catch (neonErr: any) {
+        console.warn('[Insert Client Location Neon Warning]', neonErr.message);
+      }
     }
+  } catch (e) {
+    console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
-} catch (e) {
-  console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
-}
 
-recordAuditLog({
-  action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
-  category: 'clientes',
-  entity_type: 'client',
-  entity_id: clientData.id,
-  entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
-  description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
-  new_data: clientData,
-  user_id: req.user?.id,
-  user_email: req.user?.email,
-  user_name: req.user?.name || req.user?.email,
-  user_role: req.user?.role,
-  ip_address: req.ip
-}).catch(() => { });
+  recordAuditLog({
+    action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
+    category: 'clientes',
+    entity_type: 'client',
+    entity_id: clientData.id,
+    entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
+    description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
+    new_data: clientData,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => { });
 
-res.json({ success: true, client: clientData });
+  res.json({ success: true, client: clientData });
 }));
 
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -4666,7 +4696,7 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => 
   res.json({ success: true, visit: newVisit, activeRoute });
 
   // Si esta primera visita dio inicio automático a la jornada de hoy, notificar inmediatamente a los administradores
-  if (isNewAutoRoute && !isRouteNotificationExcluded(sellerEmailStr)) {
+  if (isNewAutoRoute) {
     console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
     sendStartRouteNotification({
       route: activeRoute,
@@ -4947,11 +4977,6 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req: any, res: an
 // ==========================================
 // Activo en producción para enviar automáticamente a los asesores al cerrar su jornada
 const ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== 'false';
-const ROUTE_EXCLUDED_EMAILS = ['seseffff942@gmail.com'];
-function isRouteNotificationExcluded(email?: string | null): boolean {
-  if (!email) return false;
-  return ROUTE_EXCLUDED_EMAILS.includes(String(email).trim().toLowerCase());
-}
 const ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || '50248234048'; // Emanuel Lima (Dueño/CEO - ÚNICO PARA PRUEBAS)
 const ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || '50250007840'; // Sergio Lima (Supervisor - SOLO EN PRODUCCIÓN REAL)
 
@@ -5126,10 +5151,6 @@ async function sendStartRouteNotification({
   isTest?: boolean;
 }) {
   if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
-  if (isRouteNotificationExcluded(userEmail) && !isTest) {
-    console.log(`[Start Route] 🔕 Notificación de inicio de ruta desactivada para ${userEmail} (pruebas).`);
-    return;
-  }
 
   try {
     let sCode = '';
@@ -5555,7 +5576,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req: any, res: an
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
 
   // 3. Notificación de Inicio de Ruta por WhatsApp (Asíncrono para no retrasar la respuesta UI)
-  if ((ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(userEmail)) || req.body.sendWhatsAppTest || req.body.isTest) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
     sendStartRouteNotification({
       route: newRoute,
       userName,
@@ -5876,8 +5897,7 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req: any, re
   } catch (e) { }
 
   // 7. Enviar resumen por WhatsApp (Inactivo hoy por defecto para no disparar a los vendedores reales; solo se envía si ROUTE_WHATSAPP_AUTO_ENABLED es true o si req.body.sendWhatsAppTest es true)
-  const finishEmailCheck = String(targetRoute.sellerEmail || reqSellerEmail || '').trim().toLowerCase();
-  if ((ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(finishEmailCheck)) || req.body.sendWhatsAppTest) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
     (async () => {
       try {
         const targetSellerId = targetRoute.sellerId || reqSellerId;
@@ -6557,7 +6577,7 @@ async function closeActiveRouteAndNotify(
     return { success: true, adminSummaryMsg, sellerSummaryMsg };
   }
 
-  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp && !isRouteNotificationExcluded(info.sellerEmail)) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp) {
     // 1. Enviar a Emanuel (48234048)
     console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
     const okEmanuel = await dispatchRouteToN8nWebhook({
@@ -6693,15 +6713,13 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
 
       // CASO B: Ruta activa de HOY
       if (routeDateStr === todayDateStr) {
-        const routeEmailCheck = String(route.sellerEmail || route.seller_email || '').trim().toLowerCase();
-        const isExcludedFromAlerts = isRouteNotificationExcluded(routeEmailCheck);
         // Recordatorio 1 a las 7:00 PM (19:00 a 19:14)
         if (hour === 19 && minute >= 0 && minute <= 14) {
           const remKey = `${route.id}_${todayDateStr}_19:00`;
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 7:00 PM a ${route.sellerName} (${route.id})`);
-            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
+            await sendRouteClosureReminderToSeller(route);
           }
         }
 
@@ -6711,7 +6729,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
           if (!dispatchedRouteReminderKeys.has(remKey)) {
             dispatchedRouteReminderKeys.add(remKey);
             console.log(`[AUTO-ROUTE-CRON] ⏰ Enviando recordatorio de 8:30 PM a ${route.sellerName} (${route.id})`);
-            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
+            await sendRouteClosureReminderToSeller(route);
           }
         }
 
@@ -6721,8 +6739,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
             console.log(`[AUTO-ROUTE-CRON] 🕙 10:00 PM alcanzado. Cerrando automáticamente la ruta activa de ${route.sellerName} (${route.id}) y enviando resumen.`);
             await closeActiveRouteAndNotify(route, {
               isAutoClosed: true,
-              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr),
-              skipWhatsApp: isExcludedFromAlerts
+              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr)
             });
           }
         }
@@ -6736,7 +6753,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
 function initAutoRouteClosureCron() {
   console.log('[AUTO-ROUTE-CRON] ⏰ Programador activo: Recordatorios de cierre (7:00 PM / 8:30 PM) y Cierre Automático de Ruta a las 10:00 PM (Guatemala).');
   setInterval(() => {
-    checkActiveRoutesForRemindersAndAutoClosure().catch(() => {});
+    checkActiveRoutesForRemindersAndAutoClosure().catch(() => { });
   }, 45000);
 }
 
@@ -7509,56 +7526,7 @@ async function checkAndDispatchDailySales(options?: {
       });
     }
   } else {
-    // REGLA SOLICITADA:
-    // A) Enviar reporte individual a los 2 vendedores en ruta: Herbert Argueta y Erick Ju?rez
-    const fieldSellers = userStatsList.filter(s => 
-      s.sellerEmail === "gruasytransportesali@gmail.com" || 
-      s.sellerEmail === "jerickottoniel@gmail.com"
-    );
-
-    for (const stat of fieldSellers) {
-      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
-        continue;
-      }
-      payloadsToDispatch.push({
-        recipientName: stat.sellerDisplayName,
-        recipientEmail: stat.sellerEmail,
-        recipientPhone: stat.sellerPhoneClean,
-        payload: {
-          fecha: todayLabel,
-          corte,
-          tipoCorte: esCierre ? 'cierre' : 'mediodia',
-          tipoReporte: esCierre ? 'cierre' : 'mediodia',
-          tipo: esCierre ? 'cierre' : 'mediodia',
-          esCierre,
-          hora: corte,
-          horaCorte: corte,
-          corteHora: corte,
-          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
-          vendedor: stat.sellerDisplayName,
-          nombreDestinatario: stat.sellerDisplayName,
-          email: stat.sellerEmail,
-          numero: stat.sellerPhoneClean,
-          telefono: stat.sellerPhoneClean,
-          cantidadVendida: stat.cantidadVendida,
-          cantidadFaltante: stat.cantidadFaltante,
-          alcanzoMeta: stat.alcanzoMeta,
-          umbral: SALES_THRESHOLD,
-          cantidadFacturas: stat.cantidadFacturas,
-          destinatarios: [{
-            nombreDestinatario: stat.sellerDisplayName,
-            telefono: stat.sellerPhoneClean,
-            numero: stat.sellerPhoneClean,
-            email: stat.sellerEmail,
-            rol: stat.seller.role || "seller"
-          }],
-          ventas: stat.ventas,
-          logoBase64: getLogoTiBase64(),
-        }
-      });
-    }
-
-    // B) Enviar RESUMEN CONSOLIDADO UNIFICADO a Emanuel Lima (seseffff942@gmail.com) y Sergio Lima (limalopez22@gmail.com)
+    // B) Enviar RESUMEN CONSOLIDADO UNIFICADO PRIMERO a Emanuel Lima (seseffff942@gmail.com) y Sergio Lima (limalopez22@gmail.com) para que llegue a las 12:00 / 5:00 en punto sin esperar 2 minutos
     const herbertData = userStatsList.find(s => s.sellerEmail === "gruasytransportesali@gmail.com");
     const erickData = userStatsList.find(s => s.sellerEmail === "jerickottoniel@gmail.com");
     const emanuelData = userStatsList.find(s => s.sellerEmail === "seseffff942@gmail.com");
@@ -7596,20 +7564,20 @@ async function checkAndDispatchDailySales(options?: {
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas del día (*${todayLabel}*):\n\n` +
         `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📄 *Facturas Totales Hoy:* ${totalFacturasGeneral} factura(s)\n` +
+        `📄 *Ventas / Facturas Totales Hoy:* ${totalFacturasGeneral} venta(s)\n` +
         `🎯 *Meta Diaria por Asesor:* Q. ${SALES_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `👥 *DETALLE POR ASESOR:*\n\n` +
         `1️⃣ *Herbert Argueta* (Asesor #1521):\n` +
-        `  ▫️ Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))\n` +
+        `  ▫️ Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} venta(s))\n` +
         `  ▫️ Estado: ${herbertMeta ? `🏆 *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `⚠️ *Bajo Meta* (-Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}\n\n` +
-        `2️⃣ *Erick Juárez* (Asesor):\n` +
-        `  ▫️ Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))\n` +
+        `2️⃣ *Erick Juárez* (Asesor #8363):\n` +
+        `  ▫️ Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} venta(s))\n` +
         `  ▫️ Estado: ${erickMeta ? `🏆 *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `⚠️ *Bajo Meta* (-Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}\n`;
 
       if (emanuelVendio) {
         textoConsolidado += `\n⭐ *Emanuel Lima (Ventas Propias):*\n` +
-          `  ▫️ Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))\n` +
+          `  ▫️ Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} venta(s))\n` +
           `  ▫️ Estado: ✅ Registró ventas hoy en sistema\n`;
       }
 
@@ -7652,6 +7620,54 @@ async function checkAndDispatchDailySales(options?: {
             rol: "admin"
           }],
           ventas: [],
+          logoBase64: getLogoTiBase64(),
+        }
+      });
+    }
+
+    // A) Enviar reporte individual a los 2 vendedores en ruta: Herbert Argueta y Erick Juárez
+    const fieldSellers = userStatsList.filter(s => 
+      s.sellerEmail === "gruasytransportesali@gmail.com" || 
+      s.sellerEmail === "jerickottoniel@gmail.com"
+    );
+
+    for (const stat of fieldSellers) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? 'cierre' : 'mediodia',
+          tipoReporte: esCierre ? 'cierre' : 'mediodia',
+          tipo: esCierre ? 'cierre' : 'mediodia',
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del Día (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediodía (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
           logoBase64: getLogoTiBase64(),
         }
       });
@@ -7920,9 +7936,9 @@ async function checkAndDispatchWeeklySales(options?: {
   const sellerStats = uniqueFieldSellers.map(s => computeWeeklyStatsForUser(s));
 
   // Estadísticas específicas para el consolidado
-  const herbertStat = sellerStats.find(s => s.email === "gruasytransportesali@gmail.com") 
+  const herbertStat = sellerStats.find(s => s.email === "gruasytransportesali@gmail.com")
     || computeWeeklyStatsForUser({ name: "Herbert Argueta", email: "gruasytransportesali@gmail.com", sellerCode: "1521", phone: "50241323037" });
-    
+
   const erickStat = sellerStats.find(s => s.email === "jerickottoniel@gmail.com" || s.email === "erickjuarez02@gmail.com")
     || computeWeeklyStatsForUser({ name: "Erick Juárez", email: "jerickottoniel@gmail.com", sellerCode: "8363", phone: "50254743595" });
 
@@ -7959,7 +7975,101 @@ async function checkAndDispatchWeeklySales(options?: {
 
   const payloadsToDispatch: any[] = [];
 
-  // A) Despacho individual para Asesores de Campo (Herbert Argueta, Erick Juárez)
+  // A) Despacho PRIMERO de RESUMEN CONSOLIDADO SEMANAL para Administradores (Emanuel Lima, Sergio Lima) para que llegue de inmediato sin esperar 2 minutos
+  for (const adm of adminRecipients) {
+    if (targetSellerEmailsList && !targetSellerEmailsList.includes(adm.email.toLowerCase())) {
+      continue;
+    }
+    const cleanPhone = formatTelefonoDestinatario(adm.phone);
+    if (!cleanPhone) continue;
+
+    let textoConsolidado = alcanzoMetaEquipo
+      ? `🏆 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* 🏢\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
+        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+        `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
+        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+        `📈 *Superávit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+        `🔥 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`
+      : `📊 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* 🏢\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
+        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+        `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
+        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+        `📉 *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+        `📈 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`;
+
+    textoConsolidado += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👥 *RESUMEN Y CANTIDAD DE VENTAS POR ASESOR:*\n\n` +
+      `1️⃣ *Herbert Argueta* (Asesor #1521):\n` +
+      `  ▫️ Ventas Realizadas: *${herbertFacturas} venta(s)*\n` +
+      `  ▫️ Total Vendido Semana: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `  ▫️ Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+      `  ▫️ Estado: ${herbertMeta ? `🏆 *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `📉 *Faltante:* Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${herbertPct}%)\n\n` +
+      `2️⃣ *Erick Juárez* (Asesor #8363):\n` +
+      `  ▫️ Ventas Realizadas: *${erickFacturas} venta(s)*\n` +
+      `  ▫️ Total Vendido Semana: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `  ▫️ Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+      `  ▫️ Estado: ${erickMeta ? `🏆 *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `📉 *Faltante:* Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${erickPct}%)\n`;
+
+    if (emanuelVendio) {
+      textoConsolidado += `\n⭐ *Emanuel Lima (Ventas Propias):*\n` +
+        `  ▫️ Ventas Realizadas: *${emanuelFacturas} venta(s)*\n` +
+        `  ▫️ Total Vendido Semana: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+        `  ▫️ Estado: ✅ Registró ventas en sistema esta semana\n`;
+    }
+
+    textoConsolidado += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rendimiento Comercial Agricovet_`;
+
+    payloadsToDispatch.push({
+      recipientName: adm.name,
+      recipientEmail: adm.email,
+      recipientPhone: cleanPhone,
+      isConsolidado: true,
+      payload: {
+        fecha: todayLabel,
+        corte: 'semanal',
+        tipoCorte: 'semanal',
+        tipoReporte: 'semanal',
+        tipo: 'semanal',
+        esSemanal: true,
+        esConsolidado: true,
+        hora: '17:00',
+        horaCorte: '17:00',
+        corteHora: '17:00',
+        titulo: `Cierre Semanal Consolidado - ${adm.name}`,
+        vendedor: adm.name,
+        nombreDestinatario: adm.name,
+        email: adm.email,
+        numero: cleanPhone,
+        telefono: cleanPhone,
+        cantidadVendida: totalGeneral,
+        cantidadFaltante: faltanteEquipo,
+        alcanzoMeta: alcanzoMetaEquipo,
+        superavit: superavitEquipo,
+        umbral: metaSemanalEquipo,
+        metaSemanal: metaSemanalEquipo,
+        cantidadFacturas: totalFacturasGeneral,
+        porcentajeCumplimiento: porcentajeEquipo,
+        mensaje: textoConsolidado,
+        textoWhatsApp: textoConsolidado,
+        caption: textoConsolidado,
+        destinatarios: [{
+          nombreDestinatario: adm.name,
+          telefono: cleanPhone,
+          numero: cleanPhone,
+          email: adm.email,
+          rol: "admin"
+        }],
+        ventas: [],
+        logoBase64: getLogoTiBase64(),
+      }
+    });
+  }
+
+  // B) Despacho individual para Asesores de Campo (Herbert Argueta, Erick Juárez)
   for (const stat of sellerStats) {
     if (targetSellerEmailsList && !targetSellerEmailsList.includes(stat.email)) {
       continue;
@@ -8014,100 +8124,6 @@ async function checkAndDispatchWeeklySales(options?: {
           rol: stat.user?.role || "seller"
         }],
         ventas: stat.ventas,
-        logoBase64: getLogoTiBase64(),
-      }
-    });
-  }
-
-  // B) Despacho de RESUMEN CONSOLIDADO SEMANAL para Administradores (Emanuel Lima, Sergio Lima)
-  for (const adm of adminRecipients) {
-    if (targetSellerEmailsList && !targetSellerEmailsList.includes(adm.email.toLowerCase())) {
-      continue;
-    }
-    const cleanPhone = formatTelefonoDestinatario(adm.phone);
-    if (!cleanPhone) continue;
-
-    let textoConsolidado = alcanzoMetaEquipo
-      ? `🏆 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (SÁBADO 5:00 PM)* 🏢\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
-        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📄 *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)\n` +
-        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-        `📈 *Superávit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `🔥 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`
-      : `📊 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (SÁBADO 5:00 PM)* 🏢\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
-        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📄 *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)\n` +
-        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-        `📉 *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📈 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`;
-
-    textoConsolidado += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👥 *DETALLE POR ASESOR:*\n\n` +
-      `1️⃣ *Herbert Argueta* (Asesor #1521):\n` +
-      `  ▫️ Total Vendido Semana: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))\n` +
-      `  ▫️ Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-      `  ▫️ Estado: ${herbertMeta ? `🏆 *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `📉 *Faltante:* Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${herbertPct}%)\n\n` +
-      `2️⃣ *Erick Juárez* (Asesor #8363):\n` +
-      `  ▫️ Total Vendido Semana: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))\n` +
-      `  ▫️ Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-      `  ▫️ Estado: ${erickMeta ? `🏆 *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `📉 *Faltante:* Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${erickPct}%)\n`;
-
-    if (emanuelVendio) {
-      textoConsolidado += `\n⭐ *Emanuel Lima (Ventas Propias):*\n` +
-        `  ▫️ Total Vendido Semana: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))\n` +
-        `  ▫️ Estado: ✅ Registró ventas en sistema esta semana\n`;
-    } else {
-      textoConsolidado += `\n⭐ *Emanuel Lima (Ventas Propias):*\n` +
-        `  ▫️ Sin ventas directas registradas esta semana (Q. 0.00)\n`;
-    }
-
-    textoConsolidado += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 _Sistema de Gestión & Rendimiento Comercial Agricovet_`;
-
-    payloadsToDispatch.push({
-      recipientName: adm.name,
-      recipientEmail: adm.email,
-      recipientPhone: cleanPhone,
-      isConsolidado: true,
-      payload: {
-        fecha: todayLabel,
-        corte: 'semanal',
-        tipoCorte: 'semanal',
-        tipoReporte: 'semanal',
-        tipo: 'semanal',
-        esSemanal: true,
-        esConsolidado: true,
-        hora: '17:00',
-        horaCorte: '17:00',
-        corteHora: '17:00',
-        titulo: `Cierre Semanal Consolidado - ${adm.name}`,
-        vendedor: adm.name,
-        nombreDestinatario: adm.name,
-        email: adm.email,
-        numero: cleanPhone,
-        telefono: cleanPhone,
-        cantidadVendida: totalGeneral,
-        cantidadFaltante: faltanteEquipo,
-        alcanzoMeta: alcanzoMetaEquipo,
-        superavit: superavitEquipo,
-        umbral: metaSemanalEquipo,
-        metaSemanal: metaSemanalEquipo,
-        cantidadFacturas: totalFacturasGeneral,
-        porcentajeCumplimiento: porcentajeEquipo,
-        mensaje: textoConsolidado,
-        textoWhatsApp: textoConsolidado,
-        caption: textoConsolidado,
-        destinatarios: [{
-          nombreDestinatario: adm.name,
-          telefono: cleanPhone,
-          numero: cleanPhone,
-          email: adm.email,
-          rol: "admin"
-        }],
-        ventas: [],
         logoBase64: getLogoTiBase64(),
       }
     });
@@ -8171,6 +8187,10 @@ async function checkAndDispatchWeeklySales(options?: {
 
 // Iniciar programador en segundo plano para cortes a las 12:00 PM y 5:00 PM (Hora Guatemala UTC-6)
 function initAutoDailySalesCron() {
+  if (process.platform === 'win32' && process.env.FORCE_LOCAL_CRON !== 'true') {
+    console.log('[AUTO-SALES-CRON] 🔕 Cron automático desactivado en entorno local Windows (evita enviar plantillas con 0 desde base de datos local).');
+    return;
+  }
   console.log('[AUTO-SALES-CRON] ⏰ Programador automático activo para cortes de 12:00 PM y 5:00 PM (Guatemala).');
   setInterval(async () => {
     try {
@@ -8182,7 +8202,7 @@ function initAutoDailySalesCron() {
       const year = gtNow.getFullYear();
       const month = String(gtNow.getMonth() + 1).padStart(2, "0");
       const day = String(gtNow.getDate()).padStart(2, "0");
-      // Omitir domingos (0 = Domingo): jam?s enviar cortes en domingo
+      // Omitir domingos (0 = Domingo): jamás enviar cortes en domingo
       if (gtNow.getDay() === 0) return;
 
       const hour = gtNow.getHours();
@@ -8194,8 +8214,14 @@ function initAutoDailySalesCron() {
         const corteKey = `${todayDateStr}_12:00`;
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
-          console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: '12:00', isAutomatedCron: true });
+          // En sábado a las 12:00 PM NO enviar el corte diario en 0; en sábado solo aplica el Resumen Semanal Consolidado
+          if (gtNow.getDay() === 6) {
+            console.log(`[AUTO-SALES-CRON] 🏁 Sábado 12:00 PM detectado. Omitiendo corte diario de mediodía en 0 y disparando RESUMEN SEMANAL CONSOLIDADO para ${todayDateStr}`);
+            await checkAndDispatchWeeklySales({ isAutomatedCron: true });
+          } else {
+            console.log(`[AUTO-SALES-CRON] 🕛 Disparando corte automático de las 12:00 PM para ${todayDateStr}`);
+            await checkAndDispatchDailySales({ corteHora: '12:00', isAutomatedCron: true });
+          }
         }
       }
 
@@ -8204,7 +8230,7 @@ function initAutoDailySalesCron() {
         const corteKey = `${todayDateStr}_17:00`;
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
-          // Si es sábado (gtNow.getDay() === 6), el corte oficial de las 5:00 PM es el CIERRE SEMANAL CONSOLIDADO (mensaje de fin de semana)
+          // Si es sábado (gtNow.getDay() === 6), el corte oficial es el CIERRE SEMANAL CONSOLIDADO (mensaje de fin de semana)
           if (gtNow.getDay() === 6) {
             console.log(`[AUTO-SALES-CRON] 🏁 Sábado 5:00 PM detectado. Disparando CIERRE SEMANAL CONSOLIDADO (Mensaje de fin de semana) para ${todayDateStr}`);
             await checkAndDispatchWeeklySales({ isAutomatedCron: true });
@@ -9697,15 +9723,6 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
         return res.status(400).json({ error: `Producto no encontrado en inventario (ID: ${item.productId})` });
       }
       const prodCheck = prodsCheck[0];
-      if (req.user?.role !== 'admin' && !item.isOfferApplied && !item.isAuthorized) {
-        const reqPrice = item.price !== undefined ? parseFloat(item.price) : parseFloat(prodCheck.price || 0);
-        const baseCatalogPrice = parseFloat(prodCheck.price || 0);
-        if (reqPrice < baseCatalogPrice - 0.001) {
-          return res.status(403).json({
-            error: `No autorizado: el vendedor no puede vender "${prodCheck.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
-          });
-        }
-      }
       const isExempt = isExemptFromStockBlock(prodCheck, item);
       if (!prodCheck.is_external && !isExempt) {
         let availableStock = parseFloat(prodCheck.stock || 0);
@@ -9744,431 +9761,431 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
     const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
 
-  try {
-    for (const item of items) {
-      let product;
-      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
-        product = {
-          id: item.productId,
-          name: 'COSTO DE ENVIO',
-          price: item.price !== undefined ? parseFloat(item.price) : 29.5,
-          stock: 999999,
-          is_external: true,
-          category: 'Servicios',
-          description: 'Costo de envío'
-        };
-      } else {
-        const { data: products, error } = await localDb.from("products").select("*").eq('id', item.productId);
-        if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
-        product = products[0];
-      }
-
-      const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
-
-      const isExemptFromStock = isExemptFromStockBlock(product, item);
-      const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
-
-      let currentStock = parseFloat(product.stock || 0);
-      let variantObj: any = null;
-      let newStock = currentStock;
-      let actualDeductedQty = 0;
-
-      if (!product.is_external) {
-        let variantsToUpdate = product.variants ? [...product.variants] : [];
-
-        if (item.variantId) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-            if (variantObj.stock !== undefined) {
-              currentStock = parseFloat(variantObj.stock || 0);
-            }
-          }
+    try {
+      for (const item of items) {
+        let product;
+        if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+          product = {
+            id: item.productId,
+            name: 'COSTO DE ENVIO',
+            price: item.price !== undefined ? parseFloat(item.price) : 29.5,
+            stock: 999999,
+            is_external: true,
+            category: 'Servicios',
+            description: 'Costo de envío'
+          };
+        } else {
+          const { data: products, error } = await localDb.from("products").select("*").eq('id', item.productId);
+          if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
+          product = products[0];
         }
 
-        if (currentStock < item.quantity && !isExemptFromStock) {
-          requiresAuth = true;
-          item.isStockAlert = true;
-        }
+        const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
 
-        let deductQty = parseFloat(item.quantity);
-        if (isSpecialSupplier) {
-          // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
-          deductQty = Math.max(0, Math.min(currentStock, deductQty));
-        }
-        newStock = Math.max(0, currentStock - deductQty);
-        actualDeductedQty = Math.max(0, currentStock - newStock);
-        if (newStock <= 0 && !isExemptFromStock) {
-          // Send stock alert to admins
-          const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-          const stockMessage = `⚠️ *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
-          const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
-          if (admins) {
-            for (const admin of admins) {
-              if (admin.phone) {
-                console.log(`Enviando alerta de stock a admin ${admin.name}: ${productNameStr}`);
-                internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_cero", "es_MX", [
-                  { name: "w_producto", value: productNameStr.substring(0, 50) },
-                  { name: "w_cliente", value: client.substring(0, 50) }
-                ]).catch(err => console.warn(`Error enviando alerta stock a ${admin.name}:`, err.message));
+        const isExemptFromStock = isExemptFromStockBlock(product, item);
+        const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
+
+        let currentStock = parseFloat(product.stock || 0);
+        let variantObj: any = null;
+        let newStock = currentStock;
+        let actualDeductedQty = 0;
+
+        if (!product.is_external) {
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            if (varIndex !== -1) {
+              variantObj = variantsToUpdate[varIndex];
+              if (variantObj.stock !== undefined) {
+                currentStock = parseFloat(variantObj.stock || 0);
               }
             }
           }
-        } else if (!isExemptFromStock) {
-          const threshold = getCriticalStockThreshold(product);
-          if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+
+          if (currentStock < item.quantity && !isExemptFromStock) {
+            requiresAuth = true;
+            item.isStockAlert = true;
+          }
+
+          let deductQty = parseFloat(item.quantity);
+          if (isSpecialSupplier) {
+            // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
+            deductQty = Math.max(0, Math.min(currentStock, deductQty));
+          }
+          newStock = Math.max(0, currentStock - deductQty);
+          actualDeductedQty = Math.max(0, currentStock - newStock);
+          if (newStock <= 0 && !isExemptFromStock) {
+            // Send stock alert to admins
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-            const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+            const stockMessage = `⚠️ *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
             const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin of admins) {
                 if (admin.phone) {
-                  internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                  console.log(`Enviando alerta de stock a admin ${admin.name}: ${productNameStr}`);
+                  internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_cero", "es_MX", [
                     { name: "w_producto", value: productNameStr.substring(0, 50) },
-                    { name: "w_stock", value: String(newStock) }
-                  ]).catch(err => console.warn(`Error enviando alerta crítica a ${admin.name}:`, err.message));
+                    { name: "w_cliente", value: client.substring(0, 50) }
+                  ]).catch(err => console.warn(`Error enviando alerta stock a ${admin.name}:`, err.message));
+                }
+              }
+            }
+          } else if (!isExemptFromStock) {
+            const threshold = getCriticalStockThreshold(product);
+            if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+              const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
+              const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+              const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
+              if (admins) {
+                for (const admin of admins) {
+                  if (admin.phone) {
+                    internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                      { name: "w_producto", value: productNameStr.substring(0, 50) },
+                      { name: "w_stock", value: String(newStock) }
+                    ]).catch(err => console.warn(`Error enviando alerta crítica a ${admin.name}:`, err.message));
+                  }
                 }
               }
             }
           }
+
+          if (variantObj && variantObj.stock !== undefined) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+            const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
+            if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
+          } else {
+            const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq('id', product.id);
+            if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+          }
+
+          if (actualDeductedQty > 0) {
+            deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
+            recordAuditLog({
+              action: 'STOCK_DEDUCTED_SALE',
+              category: 'stock',
+              entity_type: 'product',
+              entity_id: product.id,
+              entity_name: product.name,
+              description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
+              previous_data: { stock: currentStock },
+              new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
+              user_id: req.user?.id,
+              user_email: req.user?.email,
+              user_name: req.user?.name || req.user?.email,
+              user_role: req.user?.role,
+              ip_address: req.ip
+            }).catch(() => { });
+          }
         }
 
-        if (variantObj && variantObj.stock !== undefined) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
-          if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
-        } else {
-          const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq('id', product.id);
-          if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+        if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
+          requiresAuth = true;
         }
 
-        if (actualDeductedQty > 0) {
-          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
-          recordAuditLog({
-            action: 'STOCK_DEDUCTED_SALE',
-            category: 'stock',
-            entity_type: 'product',
-            entity_id: product.id,
-            entity_name: product.name,
-            description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
-            previous_data: { stock: currentStock },
-            new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
-            user_id: req.user?.id,
-            user_email: req.user?.email,
-            user_name: req.user?.name || req.user?.email,
-            user_role: req.user?.role,
-            ip_address: req.ip
-          }).catch(() => { });
+        const itemTotal = item.quantity * itemPrice;
+        total += itemTotal;
+        const prevStockVal = !product.is_external ? currentStock : 999999;
+        const newStockVal = !product.is_external ? newStock : 999999;
+        const baseName = variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name);
+        const finalProductName = item.isBonus && !baseName.includes('Bonificación') ? `${baseName} (Bonificación / Gratis)` : baseName;
+        processedItems.push({
+          ...item,
+          price: itemPrice,
+          total: itemTotal,
+          productName: finalProductName,
+          originalPrice: product.price,
+          previousStock: prevStockVal,
+          newStock: newStockVal,
+          stockDeducted: actualDeductedQty,
+          isExempt: isExemptFromStock
+        });
+      }
+
+      const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+      // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
+      invalidateCache("folio_map");
+      const currentFolioMap = await getFolioMap(true);
+      const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
+      const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
+
+      let startFromConfig = 1;
+      try {
+        const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+          const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+          startFromConfig = cfg.startFrom || 1;
+        }
+      } catch (e) { }
+
+      let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
+      while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
+        assignedFolio++;
+      }
+      let folioFlag = `|||FOLIO:${assignedFolio}`;
+
+      let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
+      let baseNotes = (nit || "");
+      let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
+      let invoiceTypeFlag = "|||TYPE:" + (invoiceType || 'veterinaria');
+      let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === 'agricola' ? 60 : 30));
+      let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
+      let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
+      let authFlag = requiresAuth ? "|||AUTH:pending" : "";
+      let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
+      if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
+        authFlag += "|||DEBT:true";
+      }
+
+      // Regla estricta de negocio:
+      // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
+      // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
+      const isUserAdmin = req.user && req.user.role === 'admin';
+      const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
+      const saleExactTimestamp = isExplicitCustomDate
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
+          ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+          : new Date(customDate).toISOString())
+        : new Date().toISOString();
+
+      // Try to insert with updated schema mapping
+      const invoiceDataRaw: any = {
+        id,
+        sellerId: saleOwner,
+        notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
+        items: processedItems,
+        totalAmount: total,
+        paidAmount: isOwed ? 0 : total,
+        status: isOwed ? 'pending' : 'paid',
+        date: saleExactTimestamp
+      };
+      invoiceDataRaw['clientName'] = client;
+      invoiceDataRaw['customerPhone'] = phone || "";
+      invoiceDataRaw['deliveryAddress'] = address || "";
+      invoiceDataRaw['nit'] = nit || "";
+      invoiceDataRaw['folio'] = String(assignedFolio);
+      invoiceDataRaw['invoice_type'] = invoiceType || 'veterinaria';
+      invoiceDataRaw['credit_days'] = creditDays || (invoiceType === 'agricola' ? 60 : 30);
+      invoiceDataRaw['transport_method'] = transportMethod || "";
+      invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
+      invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
+      invoiceDataRaw['is_archived'] = false;
+      if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
+
+      let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
+
+      if (insertError) {
+        console.warn("Primary insert invoice error:", insertError.message);
+        // Fallback 1: try old schema names
+        const fallbackInvoice1 = { ...invoiceDataRaw };
+        delete fallbackInvoice1['clientName'];
+        delete fallbackInvoice1['customerPhone'];
+        delete fallbackInvoice1['deliveryAddress'];
+        fallbackInvoice1['client'] = client;
+        fallbackInvoice1['phone'] = phone || "";
+        fallbackInvoice1['address'] = address || "";
+        fallbackInvoice1['folio'] = String(assignedFolio);
+
+        const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
+        if (retryError1) {
+          // Fallback 2: bare minimum
+          const bareInvoice = { ...fallbackInvoice1 };
+          delete bareInvoice['phone'];
+          delete bareInvoice['address'];
+          // Si la base no tuviera la columna `nit`, se descarta igual que las
+          // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
+          delete bareInvoice['nit'];
+          const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
+          if (retryError2) throw new Error(retryError2.message);
         }
       }
 
-      if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
-        requiresAuth = true;
-      }
+      invoice = { ...invoiceDataRaw, client, phone, address };
+      await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
 
-      const itemTotal = item.quantity * itemPrice;
-      total += itemTotal;
-      const prevStockVal = !product.is_external ? currentStock : 999999;
-      const newStockVal = !product.is_external ? newStock : 999999;
-      const baseName = variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name);
-      const finalProductName = item.isBonus && !baseName.includes('Bonificación') ? `${baseName} (Bonificación / Gratis)` : baseName;
-      processedItems.push({ 
-        ...item, 
-        price: itemPrice, 
-        total: itemTotal, 
-        productName: finalProductName, 
-        originalPrice: product.price,
-        previousStock: prevStockVal,
-        newStock: newStockVal,
-        stockDeducted: actualDeductedQty,
-        isExempt: isExemptFromStock
-      });
-    }
-
-    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
-    // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
-    invalidateCache("folio_map");
-    const currentFolioMap = await getFolioMap(true);
-    const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
-    const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
-
-    let startFromConfig = 1;
-    try {
-      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-        const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-        startFromConfig = cfg.startFrom || 1;
-      }
-    } catch (e) { }
-
-    let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
-    while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
-      assignedFolio++;
-    }
-    let folioFlag = `|||FOLIO:${assignedFolio}`;
-
-    let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
-    let baseNotes = (nit || "");
-    let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
-    let invoiceTypeFlag = "|||TYPE:" + (invoiceType || 'veterinaria');
-    let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === 'agricola' ? 60 : 30));
-    let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
-    let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
-    let authFlag = requiresAuth ? "|||AUTH:pending" : "";
-    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
-      authFlag += "|||DEBT:true";
-    }
-
-    // Regla estricta de negocio:
-    // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
-    // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
-    const isUserAdmin = req.user && req.user.role === 'admin';
-    const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
-    const saleExactTimestamp = isExplicitCustomDate
-      ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
-        ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
-        : new Date(customDate).toISOString())
-      : new Date().toISOString();
-
-    // Try to insert with updated schema mapping
-    const invoiceDataRaw: any = {
-      id,
-      sellerId: saleOwner,
-      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
-      items: processedItems,
-      totalAmount: total,
-      paidAmount: isOwed ? 0 : total,
-      status: isOwed ? 'pending' : 'paid',
-      date: saleExactTimestamp
-    };
-    invoiceDataRaw['clientName'] = client;
-    invoiceDataRaw['customerPhone'] = phone || "";
-    invoiceDataRaw['deliveryAddress'] = address || "";
-    invoiceDataRaw['nit'] = nit || "";
-    invoiceDataRaw['folio'] = String(assignedFolio);
-    invoiceDataRaw['invoice_type'] = invoiceType || 'veterinaria';
-    invoiceDataRaw['credit_days'] = creditDays || (invoiceType === 'agricola' ? 60 : 30);
-    invoiceDataRaw['transport_method'] = transportMethod || "";
-    invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
-    invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
-    invoiceDataRaw['is_archived'] = false;
-    if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
-
-    let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
-
-    if (insertError) {
-      console.warn("Primary insert invoice error:", insertError.message);
-      // Fallback 1: try old schema names
-      const fallbackInvoice1 = { ...invoiceDataRaw };
-      delete fallbackInvoice1['clientName'];
-      delete fallbackInvoice1['customerPhone'];
-      delete fallbackInvoice1['deliveryAddress'];
-      fallbackInvoice1['client'] = client;
-      fallbackInvoice1['phone'] = phone || "";
-      fallbackInvoice1['address'] = address || "";
-      fallbackInvoice1['folio'] = String(assignedFolio);
-
-      const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
-      if (retryError1) {
-        // Fallback 2: bare minimum
-        const bareInvoice = { ...fallbackInvoice1 };
-        delete bareInvoice['phone'];
-        delete bareInvoice['address'];
-        // Si la base no tuviera la columna `nit`, se descarta igual que las
-        // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
-        delete bareInvoice['nit'];
-        const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
-        if (retryError2) throw new Error(retryError2.message);
-      }
-    }
-
-    invoice = { ...invoiceDataRaw, client, phone, address };
-    await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
-
-    invalidateCache("products");
-    invalidateCache("invoices");
-    invalidateCache("folio_map");
-  } catch (err: any) {
-    // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
-    if (deductedStockRecords.length > 0) {
-      console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
-      for (const ded of deductedStockRecords) {
-        try {
-          const { data: pList } = await localDb.from("products").select("stock, variants").eq('id', ded.productId);
-          const p = pList?.[0];
-          if (p) {
-            if (ded.variantId && p.variants) {
-              const vars = [...p.variants];
-              const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
-              if (vIdx !== -1) {
-                vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                await localDb.from("products").update({ variants: vars }).eq('id', ded.productId);
+      invalidateCache("products");
+      invalidateCache("invoices");
+      invalidateCache("folio_map");
+    } catch (err: any) {
+      // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
+      if (deductedStockRecords.length > 0) {
+        console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
+        for (const ded of deductedStockRecords) {
+          try {
+            const { data: pList } = await localDb.from("products").select("stock, variants").eq('id', ded.productId);
+            const p = pList?.[0];
+            if (p) {
+              if (ded.variantId && p.variants) {
+                const vars = [...p.variants];
+                const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
+                if (vIdx !== -1) {
+                  vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
+                  await localDb.from("products").update({ variants: vars }).eq('id', ded.productId);
+                }
+              } else {
+                await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
               }
-            } else {
-              await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
+            }
+          } catch (rbErr: any) {
+            console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+          }
+        }
+        invalidateCache("products");
+      }
+      throw err;
+    } finally {
+      releaseStockLocks();
+    }
+
+    const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
+    const invoiceUrl = `${baseUrl}/#billing`;
+
+    // WhatsApp API Notification a Admins
+    // En modo test se omite para evitar duplicados de mensajes de texto en WhatsApp
+    const isDispatchTest = process.env.ORDER_DISPATCH_MODE === 'test' || req.user?.email === 'seseffff942@gmail.com';
+    if (!isDispatchTest) {
+      try {
+        const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
+        if (admins && admins.length > 0) {
+          const itemSummary = processedItems && processedItems.length > 0
+            ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
+            : "Sin productos";
+          const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+          const totalFormatted = `Q. ${total.toFixed(2)}`;
+          const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+
+          const folioMap = await getFolioMap();
+          const folioVal = String(folioMap[String(id)] || 1);
+
+          for (const admin of admins) {
+            if (admin.phone) {
+              const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
+
+              console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
+              internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
+                admin.name || "Sergio",
+                client,
+                itemSummaryTruncated,
+                totalFormatted,
+                zone,
+                folioVal
+              ]).then(result => {
+                if (!result.success) {
+                  console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
+                } else {
+                  console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
+                }
+              }).catch(err => {
+                console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
+              });
             }
           }
-        } catch (rbErr: any) {
-          console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
         }
+      } catch (e) {
+        console.error("Notification block error:", e);
       }
-      invalidateCache("products");
     }
-    throw err;
-  } finally {
-    releaseStockLocks();
-  }
 
-  const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
-  const invoiceUrl = `${baseUrl}/#billing`;
-
-  // WhatsApp API Notification a Admins
-  // En modo test se omite para evitar duplicados de mensajes de texto en WhatsApp
-  const isDispatchTest = process.env.ORDER_DISPATCH_MODE === 'test' || req.user?.email === 'seseffff942@gmail.com';
-  if (!isDispatchTest) {
-    try {
-      const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
-      if (admins && admins.length > 0) {
-        const itemSummary = processedItems && processedItems.length > 0
-          ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
-          : "Sin productos";
-        const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-        const totalFormatted = `Q. ${total.toFixed(2)}`;
-        const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
-
-        const folioMap = await getFolioMap();
-        const folioVal = String(folioMap[String(id)] || 1);
-
-        for (const admin of admins) {
-          if (admin.phone) {
-            const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
-
-            console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
-            internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
-              admin.name || "Sergio",
-              client,
-              itemSummaryTruncated,
-              totalFormatted,
-              zone,
-              folioVal
-            ]).then(result => {
-              if (!result.success) {
-                console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
-              } else {
-                console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
-              }
-            }).catch(err => {
-              console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
-            });
-          }
-        }
+    // CREATE UI NOTIFICATION
+    await createNotification(
+      'new_order',
+      '🛒 ¡Nuevo Pedido!',
+      `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`,
+      {
+        invoiceId: id,
+        sellerId: saleOwner,
+        sellerName: req.user?.name || ''
       }
-    } catch (e) {
-      console.error("Notification block error:", e);
+    );
+
+    let returnInvoice = { ...invoice };
+    const rawNotes = returnInvoice.notes || "";
+
+    // Better flag extraction
+    const flags = rawNotes.split("|||");
+    let tempNit = flags[0].trim();
+    let realNotes = "";
+
+    flags.slice(1).forEach(flag => {
+      const idx = flag.indexOf(":");
+      if (idx === -1) return;
+      const key = flag.substring(0, idx);
+      const value = flag.substring(idx + 1);
+
+      if (key === "AUTH") {
+        (returnInvoice as any).authStatus = value;
+      } else if (key === "DEBT") {
+        (returnInvoice as any).hasDebtAlert = value === "true";
+      } else if (key === "CREDIT") {
+        (returnInvoice as any).creditDays = parseInt(value);
+      } else if (key === "TYPE") {
+        (returnInvoice as any).invoiceType = value;
+      } else if (key === "OBS") {
+        realNotes = value;
+      } else if (key === "TRANS") {
+        (returnInvoice as any).transportMethod = value;
+      } else if (key === "PAYSHIP") {
+        (returnInvoice as any).sellerPaysShipping = value === "true";
+      } else if (key === "EDITED") {
+        (returnInvoice as any).isEdited = value === "true";
+      } else if (key === "SCAN_CLIENT") {
+        (returnInvoice as any).scanClient = value;
+      } else if (key === "SCAN_DATE") {
+        (returnInvoice as any).scanDate = value;
+      } else if (key === "SELLER_SIG") {
+        (returnInvoice as any).sellerSignature = value;
+      } else if (key === "ADMIN_SIG") {
+        (returnInvoice as any).adminSignature = value;
+      } else if (key === "REVIEWED_BY") {
+        (returnInvoice as any).reviewedBy = value;
+      }
+    });
+
+    if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
+      returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
+      returnInvoice.nit = returnInvoice.nit || "";
+    } else {
+      returnInvoice.nit = returnInvoice.nit || tempNit;
+      returnInvoice.notes = realNotes;
     }
-  }
 
-  // CREATE UI NOTIFICATION
-  await createNotification(
-    'new_order',
-    '🛒 ¡Nuevo Pedido!',
-    `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`,
-    {
-      invoiceId: id,
-      sellerId: saleOwner,
-      sellerName: req.user?.name || ''
-    }
-  );
+    invalidateCache("invoices");
+    const folioMap = await getFolioMap();
 
-  let returnInvoice = { ...invoice };
-  const rawNotes = returnInvoice.notes || "";
-
-  // Better flag extraction
-  const flags = rawNotes.split("|||");
-  let tempNit = flags[0].trim();
-  let realNotes = "";
-
-  flags.slice(1).forEach(flag => {
-    const idx = flag.indexOf(":");
-    if (idx === -1) return;
-    const key = flag.substring(0, idx);
-    const value = flag.substring(idx + 1);
-
-    if (key === "AUTH") {
-      (returnInvoice as any).authStatus = value;
-    } else if (key === "DEBT") {
-      (returnInvoice as any).hasDebtAlert = value === "true";
-    } else if (key === "CREDIT") {
-      (returnInvoice as any).creditDays = parseInt(value);
-    } else if (key === "TYPE") {
-      (returnInvoice as any).invoiceType = value;
-    } else if (key === "OBS") {
-      realNotes = value;
-    } else if (key === "TRANS") {
-      (returnInvoice as any).transportMethod = value;
-    } else if (key === "PAYSHIP") {
-      (returnInvoice as any).sellerPaysShipping = value === "true";
-    } else if (key === "EDITED") {
-      (returnInvoice as any).isEdited = value === "true";
-    } else if (key === "SCAN_CLIENT") {
-      (returnInvoice as any).scanClient = value;
-    } else if (key === "SCAN_DATE") {
-      (returnInvoice as any).scanDate = value;
-    } else if (key === "SELLER_SIG") {
-      (returnInvoice as any).sellerSignature = value;
-    } else if (key === "ADMIN_SIG") {
-      (returnInvoice as any).adminSignature = value;
-    } else if (key === "REVIEWED_BY") {
-      (returnInvoice as any).reviewedBy = value;
-    }
-  });
-
-  if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
-    returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
-    returnInvoice.nit = returnInvoice.nit || "";
-  } else {
-    returnInvoice.nit = returnInvoice.nit || tempNit;
-    returnInvoice.notes = realNotes;
-  }
-
-  invalidateCache("invoices");
-  const folioMap = await getFolioMap();
-
-  const invoiceTotal = (items || []).reduce((acc: number, it: any) => acc + (parseFloat(it.price || 0) * parseFloat(it.quantity || 0)), 0);
-  recordAuditLog({
-    action: 'SALE_CREATED',
-    category: 'ventas',
-    entity_type: 'invoice',
-    entity_id: returnInvoice.id,
-    entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
-    description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
-    new_data: {
-      invoiceId: returnInvoice.id,
-      folio: folioMap[returnInvoice.id] || 1,
-      client,
-      total: invoiceTotal,
-      itemsCount: (items || []).length,
-      seller: req.user?.email,
-      itemsStockSummary: (processedItems || []).map((it: any) => ({
-        productId: it.productId,
-        productName: it.productName,
-        previousStock: it.previousStock,
-        quantitySold: parseFloat(it.quantity) || 0,
-        newStock: it.newStock,
-        unitPrice: it.price,
-        subtotal: it.total,
-        isExempt: it.isExempt
-      }))
-    },
-    user_id: req.user?.id,
-    user_email: req.user?.email,
-    user_name: req.user?.name || req.user?.email,
-    user_role: req.user?.role,
-    ip_address: req.ip
-  }).catch(() => { });
+    const invoiceTotal = (items || []).reduce((acc: number, it: any) => acc + (parseFloat(it.price || 0) * parseFloat(it.quantity || 0)), 0);
+    recordAuditLog({
+      action: 'SALE_CREATED',
+      category: 'ventas',
+      entity_type: 'invoice',
+      entity_id: returnInvoice.id,
+      entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
+      description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
+      new_data: {
+        invoiceId: returnInvoice.id,
+        folio: folioMap[returnInvoice.id] || 1,
+        client,
+        total: invoiceTotal,
+        itemsCount: (items || []).length,
+        seller: req.user?.email,
+        itemsStockSummary: (processedItems || []).map((it: any) => ({
+          productId: it.productId,
+          productName: it.productName,
+          previousStock: it.previousStock,
+          quantitySold: parseFloat(it.quantity) || 0,
+          newStock: it.newStock,
+          unitPrice: it.price,
+          subtotal: it.total,
+          isExempt: it.isExempt
+        }))
+      },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => { });
 
     res.json({
       ...returnInvoice,
@@ -10216,15 +10233,6 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
     finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
   }
 
-  // Build map of quantities already belonging to this invoice before editing
-  const oldQtyByKey: Record<string, number> = {};
-  for (const old of (oldInvoice.items || [])) {
-    const oldDeducted = getEffectiveDeductedQty(old);
-    if (oldDeducted <= 0 || !old.productId) continue;
-    const key = old.variantId ? `${old.productId}::${old.variantId}` : String(old.productId);
-    oldQtyByKey[key] = (oldQtyByKey[key] || 0) + oldDeducted;
-  }
-
   // 1. Validate all new products exist and calculate new total
   let total = 0;
   let needsAuth = false;
@@ -10247,16 +10255,6 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
 
-    if (!prod.is_external && req.user?.role !== 'admin' && !item.isOfferApplied && !item.isAuthorized) {
-      const reqPrice = item.price !== undefined ? parseFloat(item.price) : parseFloat(prod.price || 0);
-      const baseCatalogPrice = parseFloat(prod.price || 0);
-      if (reqPrice < baseCatalogPrice - 0.001) {
-        return res.status(403).json({
-          error: `No autorizado: el vendedor no puede vender "${prod.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
-        });
-      }
-    }
-
     let variantsToUpdate = prod.variants ? [...prod.variants] : [];
     let variantObj = null;
     let currentStock = parseFloat(prod.stock || 0);
@@ -10271,19 +10269,12 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
       }
     }
 
-    const isAdminEditor = req.user?.role === 'admin';
-    const itemKey = item.variantId ? `${item.productId}::${item.variantId}` : String(item.productId);
-    const prevQtyOnInvoice = oldQtyByKey[itemKey] || 0;
-    const addedQty = Math.max(0, parseFloat(item.quantity || 0) - prevQtyOnInvoice);
-    let isStockAlert = !isAdminEditor && !prod.is_external && currentStock < addedQty && !isExemptFromStockBlock(prod, item);
-    const isItemPriceLower = !isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && (parseFloat(item.price) < parseFloat(prod.price || 0) - 0.001);
-    if (!isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && (isItemPriceLower || isStockAlert)) needsAuth = true;
+    let isStockAlert = !prod.is_external && currentStock < item.quantity && !isExemptFromStockBlock(prod, item);
+    if (!item.isAuthorized && !item.isOfferApplied && (item.price < prod.price || isStockAlert)) needsAuth = true;
 
     total += item.price * item.quantity;
     formattedItems.push({
       ...item,
-      isAuthorized: isAdminEditor ? true : Boolean(item.isAuthorized),
-      isPriceAlert: isAdminEditor ? false : isItemPriceLower,
       isStockAlert,
       productName: prod.name,
       originalPrice: prod.price,
@@ -10320,32 +10311,19 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
       const p = pData?.[0];
       if (!p || p.is_external) continue;
       const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
-      const isExemptProd = isExemptFromStockBlock(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
         if (netDiff === 0) continue;
         const vIdx = varsToUpdate.findIndex((v: any) => v.id === varId);
         if (vIdx !== -1) {
-          const curVarStock = parseFloat(varsToUpdate[vIdx].stock || 0);
-          const rawVarStock = curVarStock + netDiff;
-          if (netDiff < 0 && rawVarStock < 0 && !isSpecialProd && !isExemptProd) {
-            return res.status(400).json({
-              error: `Stock insuficiente para agregar ${Math.abs(netDiff)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curVarStock}).`
-            });
-          }
+          const rawVarStock = parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff;
           varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
         await localDb.from("products").update({ variants: varsToUpdate }).eq('id', prodId);
       } else if (changes.total !== 0) {
-        const curProdStock = parseFloat(p.stock || 0);
-        const rawStock = curProdStock + changes.total;
-        if (changes.total < 0 && rawStock < 0 && !isSpecialProd && !isExemptProd) {
-          return res.status(400).json({
-            error: `Stock insuficiente para agregar ${Math.abs(changes.total)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curProdStock}).`
-          });
-        }
+        const rawStock = parseFloat(p.stock || 0) + changes.total;
         await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq('id', prodId);
       }
     }
@@ -12157,1954 +12135,5 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any)
   allInvoices.forEach(inv => {
     if (matchesTargetDate(inv.date, todayStr)) {
       if (inv.status !== 'cancelled' && inv.status !== 'rejected') {
-        salesBySeller[inv.sellerId] = (salesBySeller[inv.sellerId] || 0) + (inv.totalAmount || 0);
-      }
-    }
-  });
-
-  const invoicesMap = new Map<string, any>();
-  allInvoices.forEach(inv => {
-    if (inv && inv.id) {
-      invoicesMap.set(inv.id, inv);
-    }
-  });
-
-  // Calculate today's payments (based on payment date)
-  allPayments.forEach(pay => {
-    const payDate = pay.date || '';
-    if (matchesTargetDate(payDate, todayStr)) {
-      const inv = invoicesMap.get(pay.invoiceId);
-
-      const rawRecordedBy = pay.recordedBy || pay.recordedby || pay.recorded_by;
-      const recordedBy = rawRecordedBy || (inv ? inv.sellerId : 'Desconocido');
-
-      const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (pay.amount || 0);
-      const clientName = inv ? (inv.clientName || inv.client || 'Cliente') : 'Cliente';
-      const folioNum = inv ? (inv.folio || 1) : 1;
-      const folio = String(folioNum);
-      const receiptUrl = pay.receiptUrl || pay.receipturl || pay.receipt_url || null;
-
-      paymentsBySeller[recordedBy] = (paymentsBySeller[recordedBy] || 0) + amount;
-
-      todayPaymentsDetail.push({
-        id: pay.id,
-        amount,
-        date: payDate,
-        receiptUrl,
-        notes: pay.notes || '',
-        recordedBy,
-        invoiceFolio: folio,
-        clientName,
-        invoiceId: pay.invoiceId
-      });
-    }
-  });
-
-  res.json({
-    todayStr,
-    salesBySeller,
-    paymentsBySeller,
-    todayPaymentsDetail,
-    totalSales: Object.values(salesBySeller).reduce((a, b) => a + b, 0),
-    totalPayments: Object.values(paymentsBySeller).reduce((a, b) => a + b, 0)
-  });
-}));
-
-// WHATSAPP
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal as any
-    });
-    clearTimeout(timer);
-    return response;
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
-}
-
-async function internalSendWhatsApp(phone: string, message: string, templateName?: string, templateLanguage: string = "es_MX", templateVariables?: any[]) {
-  // Check if WhatsApp is enabled (by default false/archived)
-  const isWhatsAppEnabled = process.env.ENABLE_WHATSAPP === 'true';
-  if (!isWhatsAppEnabled) {
-    console.log(`[WhatsApp - ARCHIVED] Bypassed message to ${phone}: ${message}`);
-    return {
-      success: true,
-      bypassed: true,
-      archived: true,
-      message: "Las notificaciones de WhatsApp están desactivadas/archivadas."
-    };
-  }
-
-  // Limpiar el número de teléfono para que solo contenga dígitos (quita espacios, guiones, +, etc)
-  let cleanPhone = String(phone).replace(/\D/g, "");
-  if (cleanPhone.length === 8) {
-    cleanPhone = "502" + cleanPhone; // Guatemala country code prefix by default if 8 digits
-  } else if (cleanPhone.length === 10) {
-    cleanPhone = "52" + cleanPhone; // Mexico country code default if 10 digits
-  }
-
-  // Configura estas variables en tu archivo .env o en el panel de despliegue
-  let waToken = (process.env.WHATSAPP_TOKEN || "").trim().replace(/['"]/g, '');
-  let waPhoneId = (process.env.WHATSAPP_PHONE_ID || "").trim().replace(/['"]/g, '');
-  let waUrl = (process.env.WHATSAPP_API_URL || "").trim().replace(/['"]/g, '');
-
-  // Intentar leer configuración desde PostgreSQL Local si existe (para respaldo en BD)
-  try {
-    const { data: configData } = await localDb.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
-    if (configData && configData.
-photo) {
-      const parsed = JSON.parse(configData.photo);
-      if (parsed.waToken) waToken = parsed.waToken.trim();
-      if (parsed.waPhoneId) waPhoneId = parsed.waPhoneId.trim();
-      if (parsed.waUrl) waUrl = parsed.waUrl.trim();
-    }
-  } catch (e) { }
-
-  console.log(`[WhatsApp] Configuración: Token presente=${!!waToken} (${waToken.substring(0, 7)}...), PhoneID=${waPhoneId || 'None'}, URL=${waUrl || 'Default'}`);
-
-  // Auto-corrección si el usuario pegó el Token en el lugar de la URL o viceversa
-  if (waUrl && waUrl.includes("EAA")) {
-    console.warn("[WhatsApp] Se detectó Token en el campo de URL. Corrigiendo...");
-    waUrl = "";
-  }
-
-  if (waUrl && waUrl.includes("graph.facebook.com") && waPhoneId && !waUrl.includes("messages")) {
-    // Ensure it has the correct path
-    const baseUrl = waUrl.endsWith('/') ? waUrl.slice(0, -1) : waUrl;
-    waUrl = `${baseUrl}/${waPhoneId}/messages`;
-  } else if (!waUrl && waPhoneId) {
-    waUrl = `https://graph.facebook.com/v20.0/${waPhoneId}/messages`;
-  }
-
-  if (!waToken || !waUrl) {
-    const missing = [];
-    if (!waToken) missing.push("WHATSAPP_TOKEN");
-    if (!waUrl) missing.push("WHATSAPP_PHONE_ID (o WHATSAPP_API_URL)");
-
-    console.warn(`⚠️ ERROR: WhatsApp NO configurado. Faltan: ${missing.join(", ")}`);
-    return {
-      success: false,
-      mock: true,
-      error: `Faltan variables de entorno: ${missing.join(", ")}`
-    };
-  }
-
-  let fetchUrl = waUrl;
-  let options: RequestInit = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    }
-  };
-
-  // Si es la API oficial de Meta (Cloud API):
-  if (waUrl.includes("graph.facebook.com")) {
-    let payload: any = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: cleanPhone,
-    };
-
-    if (templateName) {
-      // FOR TESTING: Override any template with hello_world
-      console.log(`[WhatsApp] Overriding template ${templateName} to hello_world for testing`);
-      templateName = "hello_world";
-      templateLanguage = "en_US";
-      templateVariables = [];
-
-      payload.type = "template";
-      payload.template = {
-        name: templateName,
-        language: { code: templateLanguage }
-      };
-
-      if (templateVariables && templateVariables.length > 0) {
-        if (templateName === "alerta_nuevo_pedido_interno") {
-          payload.template.components = [
-            {
-              type: "body",
-              parameters: templateVariables.slice(0, 5).map((val) => {
-                const text = typeof val === 'object' && val !== null ? String(val.value || val.text || "") : String(val);
-                return { type: "text", text };
-              })
-            }
-          ];
-          const buttonVal = templateVariables[5];
-          if (buttonVal !== undefined) {
-            const buttonText = typeof buttonVal === 'object' && buttonVal !== null ? String(buttonVal.value || buttonVal.text || "") : String(buttonVal);
-            payload.template.components.push({
-              type: "button",
-              sub_type: "url",
-              index: "0",
-              parameters: [
-                { type: "text", text: buttonText }
-              ]
-            });
-          }
-        } else payload.template.components = [
-          {
-            type: "body",
-            parameters: templateVariables.map((val) => {
-              if (typeof val === 'object' && val !== null) {
-                // Soporta tanto posicional como nombrado si Meta lo requiere
-                return {
-                  type: "text",
-                  text: String(val.value || val.text || "")
-                };
-              }
-              return { type: "text", text: String(val) };
-            })
-          }
-        ];
-      }
-    } else {
-      payload.type = "text";
-      payload.text = { body: message };
-    }
-
-    options.body = JSON.stringify(payload);
-    options.headers = {
-      ...options.headers,
-      "Authorization": `Bearer ${waToken}`
-    };
-
-    // Intentar con plantilla primero (si está presente)
-    let firstRes, firstText;
-    try {
-      firstRes = await fetchWithTimeout(fetchUrl, options);
-      firstText = await firstRes.text();
-    } catch (e: any) {
-      console.error("WhatsApp Fetch Network Error:", e);
-      return { success: false, error: "Network/Timeout error: " + e.message };
-    }
-    let firstData;
-    try { firstData = JSON.parse(firstText); } catch (e) { firstData = {}; }
-
-    if (!firstRes.ok) {
-      // Si el error es por parámetros del template (#132000) o template no encontrado (#132001)
-      // intentamos enviar como MENSAJE DE TEXTO PLANO como fallback.
-      const isParamError = firstData.error?.code === 132000 || firstData.error?.code === 132001;
-
-      if (templateName && isParamError) {
-        console.warn(`[WhatsApp] Fallo con plantilla "${templateName}" (${firstData.error?.message}). Reintentando como texto plano...`);
-        payload = {
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: cleanPhone,
-          type: "text",
-          text: { body: message }
-        };
-        options.body = JSON.stringify(payload);
-        const retryRes = await fetchWithTimeout(fetchUrl, options);
-        const retryText = await retryRes.text();
-        try {
-          const retryData = JSON.parse(retryText);
-          if (retryRes.ok) return { success: true, ...retryData };
-          return { success: false, error: retryData.error?.message || "Error en reintento texto plano" };
-        } catch (e) {
-          return { success: false, error: "Error de red en reintento: " + retryText.substring(0, 50) };
-        }
-      }
-
-      let errorMsg = firstData.error?.message || "Error interaccionando con Meta WhatsApp API";
-      if (firstData.error?.code === 131047) {
-        errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente te haya enviado un mensaje primero en las últimas 24 hrs para poder enviarle texto libre. Debes usar plantillas (templates) pre-aprobadas para iniciar la conversación.";
-      } else if (firstData.error?.code === 131026) {
-        errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
-      } else if (firstData.error?.code === 131030) {
-        errorMsg = "IMPORTANTE: Modo de Prueba (Sandbox). Meta está bloqueando el mensaje porque este número de teléfono no fue autorizado. Debes ir a https://developers.facebook.com/, seleccionar tu App, ir a WhatsApp, y agregar este número al 'Test phone numbers' (Destinatarios de prueba) o agregar cuenta de pago.";
-      } else if (firstData.error?.error_subcode === 33 || firstData.error?.code === 100) {
-        errorMsg = "Error: El 'Phone Number ID' (ID de Número) ingresado en la configuración es incorrecto. Asegúrate de usar el identificador numérico que proporciona Meta, NO uses tu número de teléfono real ni el Identificador de la cuenta de WhatsApp.";
-      } else if (firstData.error?.code === 190) {
-        if (firstData.error?.error_subcode === 460) {
-          errorMsg = "Error de Sesión Expirada (Meta Code 190 / Subcode 460). El Token de WhatsApp configurado (de 243 caracteres) ha sido INVALIDADO por Meta, usualmente porque cambiaste la contraseña de tu cuenta de Facebook o por razones de seguridad de Meta. Debes ingresar a Meta Business Suite, ir a Usuarios del Sistema, generar un NUEVO token de acceso y guardarlo en tu configuración.";
-        } else {
-          errorMsg = "Token de Acceso Inválido, Expirado o no Autorizado (Meta Code 190). Asegúrate de generar un nuevo token permanente de Usuario del Sistema con los permisos 'whatsapp_business_messaging' y 'whatsapp_business_management'.";
-        }
-      } else if (errorMsg.includes("Authentication")) {
-        errorMsg = "Error de Autenticación de Meta. Revisa que el Token de WhatsApp (EAAG...) esté correcto en tu archivo .env o configuraciones (sin comillas adicionales). Verifica que tenga el permiso 'whatsapp_business_messaging'. (Token configurado en su ambiente mide " + waToken.length + " caracteres).";
-      }
-      return { success: false, error: errorMsg, data: firstData };
-    }
-
-    return { success: true, ...firstData };
-    // Si es WATI:
-  } else if (waUrl.includes("wati")) {
-    // WATI Session Message format
-    fetchUrl = `${waUrl}/api/v1/sendSessionMessage/${cleanPhone}?messageText=${encodeURIComponent(message)}`;
-    options.headers = {
-      ...options.headers,
-      "Authorization": `Bearer ${waToken}`
-    };
-  } else {
-    // General Evolution/Z-API format assumption
-    options.body = JSON.stringify({ number: cleanPhone, text: message });
-    options.headers = {
-      ...options.headers,
-      "apikey": waToken,
-      "Authorization": `Bearer ${waToken}`
-    };
-  }
-
-  let wpRes, resText;
-  try {
-    wpRes = await fetchWithTimeout(fetchUrl, options);
-    console.log(`WhatsApp API [${wpRes.status}] calling ${fetchUrl}`);
-    resText = await wpRes.text();
-  } catch (e: any) {
-    console.error("WhatsApp generic API network error:", e);
-    return { success: false, error: "Network/Timeout error: " + e.message };
-  }
-
-  let data;
-  try {
-    data = JSON.parse(resText);
-  } catch (e) {
-    data = { error: { message: "Error parsing WhatsApp response: " + resText.substring(0, 100) } };
-  }
-
-  if (!wpRes.ok) {
-    console.error("WhatsApp API Raw Error Response:", resText);
-    let errorMsg = data.error?.message || data.message || "Error de la API de WhatsApp";
-    if (data.error?.code === 131047) {
-      errorMsg = "Regla de 24 horas: WhatsApp requiere que el cliente haya enviado un mensaje primero en las últimas 24 hrs. Debe usar plantillas para enviar fuera del límite.";
-    }
-    if (data.error?.code === 131026) {
-      errorMsg = "Número de destinatario inválido o no está registrado en WhatsApp.";
-    }
-    if (data.error?.code === 131030) {
-      errorMsg = "El número de teléfono receptor no está en la lista de permitidos. Estás usando una cuenta de WhatsApp en modo de prueba (Sandbox). Debes agregar este número de teléfono como 'número de prueba autorizado' en el panel de desarrolladores de Facebook (Meta Developer Console) para poder enviarle mensajes, o cambiar la cuenta a producción.";
-    }
-    throw new Error(errorMsg);
-  }
-
-  return { success: true, apiResponse: data };
-}
-
-app.post("/api/whatsapp/send", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { phone, message, templateName, templateLanguage = "es_MX", templateVariables } = req.body;
-  try {
-    const result = await internalSendWhatsApp(phone, message, templateName, templateLanguage, templateVariables);
-    if (!result.success && !result.mock) {
-      return res.status(400).json({ error: result.error || "Error al enviar mensaje de WhatsApp", details: result });
-    }
-    res.json(result);
-  } catch (err: any) {
-    console.error("WhatsApp API Error:", err);
-    res.status(500).json({ error: "No se pudo enviar el mensaje", details: err.message, stack: err.stack });
-  }
-}));
-
-// === WHATSAPP CONFIG BACKUP ENDPOINTS ===
-app.get("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  try {
-    const { data, error } = await localDb.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
-    if (data && data.photo) {
-      res.json(JSON.parse(data.photo));
-    } else {
-      res.json({ waToken: '', waPhoneId: '', waUrl: '' });
-    }
-  } catch (e) {
-    res.json({ waToken: '', waPhoneId: '', waUrl: '' });
-  }
-}));
-
-app.post("/api/whatsapp/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { waToken, waPhoneId, waUrl } = req.body;
-  try {
-    const { data: existing } = await localDb.from('users').select('id').eq('id', 'sys-whatsapp-config').single();
-    const payloadStr = JSON.stringify({ waToken, waPhoneId, waUrl });
-
-    if (existing) {
-      await localDb.from('users').update({ photo: payloadStr }).eq('id', 'sys-whatsapp-config');
-    } else {
-      await localDb.from('users').insert([{
-        id: 'sys-whatsapp-config',
-        name: 'WhatsApp Config',
-        email: 'system-whatsapp@agricovet.com',
-        role: 'system',
-        phone: '',
-        password: '',
-        photo: payloadStr
-      }]);
-    }
-    res.json({ success: true });
-  } catch (e: any) {
-    console.error("Error saving WhatsApp config:", e);
-    res.status(500).json({ error: e.message });
-  }
-}));
-
-// ========================================
-// BOT WHATSAPP INTEGRATION (Abonos & Folios Bidireccional backed by PostgreSQL Local for Cloud / Serverless)
-const MAX_PENDING_AGE_MS = 120 * 1000; // 2 minutos máximo de vigencia
-
-async function savePendingBoleta(phone: string, data: any) {
-  try {
-    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
-    const recordId = 'bot-boleta-' + phone;
-    await localDb.from('users').upsert({
-      id: recordId,
-      name: 'Pending Boleta',
-      email: `${recordId}@bot.local`,
-      role: 'system',
-      phone: phone,
-      password: '',
-      photo: payload
-    });
-  } catch (e) {
-    console.warn("Could not save pending boleta to PostgreSQL Local:", e);
-  }
-}
-
-async function popPendingBoleta(phone: string) {
-  try {
-    const now = Date.now();
-    const recordId = 'bot-boleta-' + phone;
-    const { data: direct } = await localDb.from('users').select('*').eq('id', recordId).single();
-    if (direct && direct.photo) {
-      try {
-        const parsed = JSON.parse(direct.photo);
-        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await localDb.from('users').delete().eq('id', recordId);
-          return parsed;
-        }
-      } catch (e) { }
-    }
-    const { data: recent } = await localDb.from('users').select('*').ilike('id', 'bot-boleta-%');
-    if (recent && recent.length > 0) {
-      for (const r of recent) {
-        if (r.photo) {
-          try {
-            const parsed = JSON.parse(r.photo);
-            if (now - (parsed.timestamp || 0) < 60000) {
-              await localDb.from('users').delete().eq('id', r.id);
-              return parsed;
-            }
-          } catch (e) { }
-        }
-      }
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-async function savePendingFolio(phone: string, data: any) {
-  try {
-    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
-    const recordId = 'bot-folio-' + phone;
-    await localDb.from('users').upsert({
-      id: recordId,
-      name: 'Pending Folio',
-      email: `${recordId}@bot.local`,
-      role: 'system',
-      phone: phone,
-      password: '',
-      photo: payload
-    });
-  } catch (e) {
-    console.warn("Could not save pending folio to PostgreSQL Local:", e);
-  }
-}
-
-async function popPendingFolio(phone: string) {
-  try {
-    const now = Date.now();
-    const recordId = 'bot-folio-' + phone;
-    const { data: direct } = await localDb.from('users').select('*').eq('id', recordId).single();
-    if (direct && direct.photo) {
-      try {
-        const parsed = JSON.parse(direct.photo);
-        if (now - (parsed.timestamp || 0) < MAX_PENDING_AGE_MS) {
-          await localDb.from('users').delete().eq('id', recordId);
-          return parsed;
-        }
-      } catch (e) { }
-    }
-    const { data: recent } = await localDb.from('users').select('*').ilike('id', 'bot-folio-%');
-    if (recent && recent.length > 0) {
-      for (const r of recent) {
-        if (r.photo) {
-          try {
-            const parsed = JSON.parse(r.photo);
-            if (now - (parsed.timestamp || 0) < 60000) {
-              await localDb.from('users').delete().eq('id', r.id);
-              return parsed;
-            }
-          } catch (e) { }
-        }
-      }
-    }
-  } catch (e) { }
-  return null;
-}
-
-async function waitForPendingBoleta(phone: string, maxWaitMs = 6000): Promise<any> {
-  const startTime = Date.now();
-  let boleta = await popPendingBoleta(phone);
-  if (boleta) return boleta;
-
-  while (Date.now() - startTime < maxWaitMs) {
-    await new Promise(r => setTimeout(r, 400));
-    boleta = await popPendingBoleta(phone);
-    if (boleta) return boleta;
-  }
-
-  return null;
-}
-
-async function findInvoiceByFolio(folioInput: string, clientHint?: string) {
-  const cleanFolio = String(folioInput || '').replace(/^#/, '').trim();
-  if (!cleanFolio || cleanFolio === 'S/N') return null;
-
-  // 1. Exact match on 'folio' column
-  const { data: byFolio } = await localDb.from("invoices")
-    .select("*")
-    .eq('folio', cleanFolio);
-
-  if (byFolio && byFolio.length > 0) {
-    if (byFolio.length > 1 && clientHint) {
-      const hint = clientHint.toLowerCase().trim();
-      const best = byFolio.find(inv => inv.clientName && inv.clientName.toLowerCase().includes(hint));
-      if (best) return best;
-    }
-    return byFolio[0];
-  }
-
-  // 2. Exact match in notes with FOLIO:<cleanFolio>
-  const { data: byNotes } = await localDb.from("invoices")
-    .select("*")
-    .ilike('notes', `%FOLIO:${cleanFolio}%`);
-
-  if (byNotes && byNotes.length > 0) return byNotes[0];
-
-  // 3. Exact match on 'id' column
-  const { data: byId } = await localDb.from("invoices")
-    .select("*")
-    .eq('id', cleanFolio);
-
-  if (byId && byId.length > 0) return byId[0];
-
-  // 4. Exact prefix match on id (e.g. INV-831-...)
-  const { data: byPrefix } = await localDb.from("invoices")
-    .select("*")
-    .ilike('id', `INV-${cleanFolio}-%`);
-
-  if (byPrefix && byPrefix.length > 0) return byPrefix[0];
-
-  // 5. Fallback: Search by clientHint if provided
-  if (clientHint && clientHint.length > 3) {
-    const { data: byClient } = await localDb.from("invoices")
-      .select("*")
-      .ilike('clientName', `%${clientHint}%`)
-      .order('date', { ascending: false })
-      .limit(5);
-
-    if (byClient && byClient.length > 0) {
-      const withBalance = byClient.find(inv => (parseFloat(inv.totalAmount || 0) - parseFloat(inv.paidAmount || 0)) > 0);
-      if (withBalance) return withBalance;
-      return byClient[0];
-    }
-  }
-
-  return null;
-}
-
-// ENDPOINT: Procesar Boleta de Imagen (o con Folio incluido)
-app.post("/api/bot/abono-folio", asyncHandler(async (req: any, res: any) => {
-  const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
-  let cleanFolio = String(folio || '').replace(/^#/, '').trim();
-  const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
-  let numAmount = parseFloat(amount || 0);
-  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
-
-  let receiptUrl = null;
-  if (receiptBase64 && String(receiptBase64).trim() !== '') {
-    try {
-      const buffer = Buffer.from(String(receiptBase64).replace(/^data:image\/[a-z]+;base64,/, ''), 'base64');
-      const fileName = `boletas/boleta-bot-${cleanPhone}-${Date.now()}.jpg`;
-      const { error: uploadError } = await localDb.storage
-        .from('productos')
-        .upload(fileName, buffer, {
-          contentType: 'image/jpeg',
-          upsert: true
-        });
-
-      if (!uploadError) {
-        const { data: publicUrlData } = localDb.storage
-          .from('productos')
-          .getPublicUrl(fileName);
-        receiptUrl = publicUrlData.publicUrl;
-      } else {
-        receiptUrl = `data:image/jpeg;base64,${receiptBase64}`;
-      }
-    } catch (err) {
-      console.error("Error guardando imagen de boleta de bot:", err);
-    }
-  }
-
-  // Si no vino folio en este mensaje, verificar si ya había un folio en espera enviado por texto antes
-  let matchedPendingFolio = null;
-  if (!cleanFolio || cleanFolio === 'S/N') {
-    matchedPendingFolio = await popPendingFolio(cleanPhone);
-    if (matchedPendingFolio && matchedPendingFolio.folio) {
-      cleanFolio = matchedPendingFolio.folio;
-      console.log(`[Bot Abono] Se asoció boleta de ${numAmount} con folio previo #${cleanFolio} para ${cleanPhone}`);
-    }
-  }
-
-  // Si aún no hay folio, guardar la boleta en espera de que el usuario mande el texto
-  if (!cleanFolio || cleanFolio === 'S/N') {
-    await savePendingBoleta(cleanPhone, {
-      amount: numAmount,
-      noBoleta: noBoleta || 'S/N',
-      banco: banco || 'S/N',
-      receiptUrl: receiptUrl,
-      sellerName: sellerName || '',
-      notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
-    });
-    console.log(`[Bot Abono] Boleta guardada en espera de folio para teléfono ${cleanPhone} (Monto: Q. ${numAmount}, Boleta: ${noBoleta})`);
-    return res.json({
-      success: false,
-      pending: true,
-      message: "Boleta recibida y guardada a la espera de folio",
-      amount: numAmount,
-      noBoleta: noBoleta,
-      banco: banco,
-      receiptUrl: receiptUrl
-    });
-  }
-
-  const invoice = await findInvoiceByFolio(cleanFolio, cliente || matchedPendingFolio?.cliente || sellerName);
-  if (!invoice) {
-    await savePendingBoleta(cleanPhone, {
-      amount: numAmount,
-      noBoleta: noBoleta || 'S/N',
-      banco: banco || 'S/N',
-      receiptUrl: receiptUrl,
-      sellerName: sellerName || '',
-      notes: notes || `Boleta: ${noBoleta || 'S/N'} - Banco: ${banco || 'S/N'}`
-    });
-    return res.json({ success: false, message: `No se encontró ninguna factura con el folio #${cleanFolio}` });
-  }
-
-  // Limpiar colas de este teléfono
-  await popPendingBoleta(cleanPhone);
-  await popPendingFolio(cleanPhone);
-
-  let currentPaid = parseFloat(invoice.paidAmount || 0);
-  let total = parseFloat(invoice.totalAmount || 0);
-  let newPaid = currentPaid + (numAmount > 0 ? numAmount : 0);
-  let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
-
-  await localDb.from("invoices").update({
-    paidAmount: newPaid,
-    status: newStatus
-  }).eq('id', invoice.id);
-
-  const paymentNotes = notes || matchedPendingFolio?.notes || `Abono registrado por Bot WhatsApp (Boleta: ${noBoleta || 'S/N'}, Banco: ${banco || 'S/N'})`;
-
-  if (numAmount > 0) {
-    try {
-      await safeInsertPayment({
-        id: `PAY-BOT-${Date.now()}`,
-        invoiceId: invoice.id,
-        amount: numAmount,
-        date: new Date().toISOString(),
-        receiptUrl: receiptUrl || null,
-        notes: paymentNotes
-      });
-    } catch (payErr) {
-      console.warn("Error guardando pago en tabla payments:", payErr);
-    }
-  }
-
-  const remaining = Math.max(0, total - newPaid);
-  const isFullyPaid = remaining <= 0.01;
-
-  return res.json({
-    success: true,
-    folio: invoice.folio || invoice.id,
-    invoiceId: invoice.id,
-    clientName: invoice.clientName || 'Cliente',
-    totalAmount: total,
-    paidAmount: newPaid,
-    balance: remaining,
-    remainingBalance: remaining,
-    isFullyPaid,
-    receiptUrl
-  });
-}));
-
-// ENDPOINT: Procesar Folio por Texto
-app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req: any, res: any) => {
-  const folioParam = req.params?.folio || req.query?.folio || req.body?.folio;
-  const { amount, sellerPhone, notes, cliente } = { ...req.query, ...req.body };
-  const cleanFolio = String(folioParam || '').replace(/^#/, '').trim();
-  const cleanPhone = String(sellerPhone || '').replace(/\D/g, '') || 'default';
-
-  if (!cleanFolio || cleanFolio === 'S/N') {
-    return res.json({ success: false, message: "No se especificó folio válido" });
-  }
-
-  const invoice = await findInvoiceByFolio(cleanFolio, cliente);
-  if (!invoice) {
-    return res.json({ success: false, message: `Folio #${cleanFolio} no encontrado` });
-  }
-
-  // Esperar hasta 6s por si la imagen de la boleta se está procesando simultáneamente
-  const pending = await waitForPendingBoleta(cleanPhone, 6000);
-  let numAmount = parseFloat(amount || 0);
-  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
-  let receiptUrl = null;
-  let boletaNotes = notes ? decodeURIComponent(notes) : '';
-
-  if (pending) {
-    if (numAmount <= 0 && pending.amount > 0) {
-      numAmount = pending.amount;
-    }
-    receiptUrl = pending.receiptUrl;
-    if (!boletaNotes) {
-      boletaNotes = `Abono asignado por Bot WhatsApp (Boleta: ${pending.noBoleta || 'S/N'}, Banco: ${pending.banco || 'S/N'})`;
-    }
-  }
-
-  let currentPaid = parseFloat(invoice.paidAmount || 0);
-  let total = parseFloat(invoice.totalAmount || 0);
-
-  // Si NO hay monto explícito ni boleta pendiente encontrada:
-  // NO autoliquidar a ciegas. Guardar folio en espera de la imagen.
-  if (numAmount <= 0) {
-    await savePendingFolio(cleanPhone, {
-      folio: cleanFolio,
-      cliente: cliente || invoice.clientName,
-      notes: boletaNotes || notes || '',
-      invoiceId: invoice.id
-    });
-    console.log(`[Bot Folio] Folio #${cleanFolio} guardado en espera de la imagen de boleta para ${cleanPhone}`);
-
-    const remaining = Math.max(0, total - currentPaid);
-    return res.json({
-      success: true,
-      pendingImage: true,
-      folio: invoice.folio || invoice.id,
-      invoiceId: invoice.id,
-      clientName: invoice.clientName || 'Cliente',
-      totalAmount: total,
-      paidAmount: currentPaid,
-      balance: remaining,
-      isFullyPaid: remaining <= 0.01,
-      message: `Folio #${cleanFolio} registrado. Esperando la imagen de la boleta para abonar.`
-    });
-  }
-
-  // Si sí hay monto o boleta vinculada:
-  let newPaid = currentPaid + numAmount;
-  let newStatus = newPaid >= (total - 0.01) ? 'paid' : (invoice.status === 'despachado' ? 'despachado' : 'pending');
-
-  await localDb.from("invoices").update({ paidAmount: newPaid, status: newStatus }).eq('id', invoice.id);
-
-  if (numAmount > 0) {
-    try {
-      await safeInsertPayment({
-        id: `PAY-BOT-${Date.now()}`,
-        invoiceId: invoice.id,
-        amount: numAmount,
-        date: new Date().toISOString(),
-        receiptUrl: receiptUrl || null,
-        notes: boletaNotes || notes || `Abono asignado por Bot WhatsApp`
-      });
-    } catch (e) {
-      console.warn("Error guardando pago en payments:", e);
-    }
-  }
-
-  // Limpiar folios y boletas pendientes de este teléfono
-  await popPendingFolio(cleanPhone);
-  await popPendingBoleta(cleanPhone);
-
-  const remaining = Math.max(0, total - newPaid);
-  const isFullyPaid = remaining <= 0.01;
-
-  return res.json({
-    success: true,
-    folio: invoice.folio || invoice.id,
-    invoiceId: invoice.id,
-    clientName: invoice.clientName || 'Cliente',
-    totalAmount: total,
-    paidAmount: newPaid,
-    balance: remaining,
-    remainingBalance: remaining,
-    isFullyPaid,
-    receiptUrl
-  });
-}));
-
-// ========================================
-// DESPACHO AUTOMÁTICO DE PEDIDO/FACTURA EN PDF A WHATSAPP (BOT & N8N)
-// HABILITADO EXCLUSIVAMENTE PARA HERBERT ARGUETA (CÓDIGO 1521)
-// ========================================
-app.post('/api/bot/send-order-document', asyncHandler(async (req: any, res: any) => {
-  const { invoice, pdfBase64, fileName, caption, recipientPhone, sellerPhone, isTest } = req.body || {};
-
-  if (!pdfBase64) {
-    return res.status(400).json({ ok: false, error: 'pdfBase64 es requerido' });
-  }
-
-  // 1. Identificar vendedor y verificar si es Herbert Argueta (código 1521)
-  let dbSeller: any = null;
-  const rawSellerVal = String(invoice?.sellerId || invoice?.sellerCode || req.user?.sellerCode || req.user?.id || '').trim();
-  if (rawSellerVal) {
-    try {
-      if (pgPool) {
-        const uRes = await pgPool.query(
-          `SELECT id, name, email, phone, "sellerCode" FROM users 
-           WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
-          [rawSellerVal]
-        );
-        if (uRes.rows[0]) dbSeller = uRes.rows[0];
-      }
-    } catch (e) {}
-  }
-
-  const sellerCode = String(invoice?.sellerCode || dbSeller?.sellerCode || req.user?.sellerCode || '').trim();
-  const sellerName = String(invoice?.sellerName || dbSeller?.name || req.user?.name || '').trim();
-  const sellerId = String(invoice?.sellerId || dbSeller?.id || req.user?.id || '').trim();
-  const sellerEmail = String(req.body?.sellerEmail || dbSeller?.email || req.user?.email || '').trim().toLowerCase();
-
-  const isHerbertArgueta = 
-    sellerCode === '1521' ||
-    sellerId === '1521' ||
-    sellerId === 'u_1780870803300' ||
-    sellerName.toLowerCase().includes('herbert') ||
-    sellerEmail === 'gruasytransportesali@gmail.com';
-
-  const isTestUser = Boolean(isTest || req.user?.email === 'seseffff942@gmail.com');
-
-  // REGLA ESTRICTA: Habilitado únicamente para Herbert Argueta (código 1521) o pruebas de Emanuel
-  if (!isHerbertArgueta && !isTestUser) {
-    console.log(`[Bot Despacho Pedido] Omitido: El despacho automático está habilitado únicamente para Herbert Argueta (código 1521). Vendedor recibido: "${sellerName || sellerId || sellerCode}"`);
-    return res.json({
-      ok: true,
-      skipped: true,
-      message: 'Despacho omitido: activo únicamente para Herbert Argueta (código 1521)'
-    });
-  }
-
-  // Determinar teléfono destino:
-  // - Para Herbert Argueta: Su número oficial 50241323037 (o el registrado en BD)
-  // - Para pruebas de Emanuel Lima: 50248234048
-  let targetPhone = '';
-  if (isHerbertArgueta) {
-    targetPhone = dbSeller?.phone || sellerPhone || '50241323037';
-  } else if (isTestUser) {
-    targetPhone = '50248234048';
-  } else {
-    targetPhone = recipientPhone || sellerPhone || '50241323037';
-  }
-
-  let cleanPhone = String(targetPhone).replace(/\D/g, '');
-  if (cleanPhone.length === 8) cleanPhone = '502' + cleanPhone;
-  if (!cleanPhone || cleanPhone.length < 8) cleanPhone = '50241323037';
-
-  const docName = fileName || `pedido-${invoice?.folio || invoice?.id || Date.now()}.pdf`;
-  const defaultCaption = caption || `📄 *NUEVO PEDIDO REGISTRADO - AGRICOVET* 🇬🇹\n━━━━━━━━━━━━━━━━━━━━\n` +
-    `👤 *Cliente:* ${invoice?.client || invoice?.clientName || 'C/F'}\n` +
-    `🔖 *Folio:* #${invoice?.folio || invoice?.id || 'S/N'}\n` +
-    `💰 *Total:* Q. ${Number(invoice?.totalAmount ?? invoice?.total ?? 0).toFixed(2)}\n` +
-    `💼 *Vendedor:* ${sellerName || 'Herbert Argueta (1521)'}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `📎 _Adjunto documento PDF con el detalle completo del pedido._`;
-
-  console.log(`[Bot Despacho Pedido] [Herbert Argueta: ${isHerbertArgueta}] Enviando ${docName} a ${cleanPhone}...`);
-
-  // Paso A: Disparar al webhook de n8n para trazabilidad y workflows de n8n
-  let n8nSuccess = false;
-  const n8nEndpoints = [
-    'http://localhost:5678/webhook/pedidos-documentos',
-    'http://n8n:5678/webhook/pedidos-documentos',
-    'http://185.166.39.49:5678/webhook/pedidos-documentos'
-  ];
-
-  for (const n8nUrl of n8nEndpoints) {
-    try {
-      const n8nRes = await fetch(n8nUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: cleanPhone,
-          media: pdfBase64,
-          fileName: docName,
-          caption: defaultCaption,
-          invoice
-        })
-      });
-      if (n8nRes.ok) {
-        console.log(`[Bot Despacho Pedido] ✅ Documento recibido y procesado por n8n webhook (${n8nUrl})`);
-        n8nSuccess = true;
-        break;
-      }
-    } catch (n8nErr) {}
-  }
-
-  // Paso B: SOLO si n8n no estuvo disponible, enviar como fallback directo a Evolution API
-  let evoResult: any = { ok: n8nSuccess };
-  if (!n8nSuccess) {
-    console.log(`[Bot Despacho Pedido] n8n no respondió, utilizando fallback directo a Evolution API...`);
-    evoResult = await sendWhatsAppEvolutionMedia({
-      phone: cleanPhone,
-      mediaBase64: pdfBase64,
-      fileName: docName,
-      caption: defaultCaption,
-      mimeType: 'application/pdf',
-      mediaType: 'document'
-    });
-  }
-
-  return res.json({
-    ok: n8nSuccess || evoResult.ok,
-    targetPhone: cleanPhone,
-    sellerCode,
-    isHerbertArgueta,
-    n8nStatus: n8nSuccess ? 'sent' : 'failed',
-    evoStatus: evoResult.status || (n8nSuccess ? 200 : (evoResult.ok ? 201 : 500))
-  });
-}));
-// ========================================
-
-// WHATSAPP WEBHOOK ENDPOINTS
-app.get('/api/whatsapp/webhook', (req: any, res: any) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode && token) {
-    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED');
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
-  } else {
-    res.status(400).send("Bad Request");
-  }
-});
-
-app.post('/api/whatsapp/webhook', (req: any, res: any) => {
-  const body = req.body;
-  if (body.object) {
-    console.log("=== WHATSAPP WEBHOOK RECEIVED ===");
-    console.log(JSON.stringify(body, null, 2));
-    console.log("=================================");
-    res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
-  }
-});
-
-// GEMINI AI SERVICE
-let geminiClient: any = null;
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.trim() === "" || apiKey === "TU_API_KEY_AQUI") {
-    throw new Error("GEMINI_API_KEY no configurada. Agrega tu API key propia para habilitar las funcionalidades de Inteligencia Artificial.");
-  }
-  if (!geminiClient) {
-    geminiClient = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-  }
-  return geminiClient;
-}
-
-app.post("/api/gemini/chat", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { message, history = [] } = req.body;
-
-  if (!message || message.trim() === "") {
-    return res.status(400).json({ error: "El mensaje es requerido." });
-  }
-
-  try {
-    const client = getGeminiClient();
-
-    // Intentar cargar productos del inventario actual para contextualizar la IA
-    let productsContext = "";
-    try {
-      const { data: products } = await localDb.from("products").select("name, category, price").limit(40);
-      if (products && products.length > 0) {
-        productsContext = `Inventario actual de Agricovet:\n` +
-          products.map((p: any) => `- ${p.name} (${p.category}): Q${parseFloat(p.price || 0).toFixed(2)}`).join("\n") + "\n\n";
-      }
-    } catch (dbErr) {
-      productsContext = "Agricovet vende medicamentos veterinarios, agroquímicos y alimentos de avindustrias.\n\n";
-    }
-
-    const systemInstruction = `Eres el "Asistente Inteligente de Agricovet", una IA integrada en el sistema de gestión agrícola y veterinaria.
-Puedes ayudar a los vendedores y administradores con las siguientes tareas:
-1. Recomendar productos del inventario y responder dudas técnicas de dosificación o uso.
-2. Usar la herramienta "check_inventory_quantity" cuando te pregunten sobre el stock, existencia o cantidad disponible de algún producto en específico. NUNCA inventes o deduzcas la cantidad; SIEMPRE usa la herramienta para validar con la base de datos real.
-3. Ayudar a redactar recordatorios amables de pago o cobros para enviar por WhatsApp a clientes con saldo pendiente. Expresa soluciones educadas con montos y plazos claros.
-4. Brindar pautas generales rápidas sobre salud animal (mascotas, vacas, aves) o manejo de plagas agrícolas con base en la oferta de Agricovet.
-
-Información útil sobre la moneda: El Quetzal (Q) es la moneda de Guatemala.
-Proporciona respuestas concisas, profesionales, amables y formateadas de manera agradable con Markdown (negritas, viñetas, etc.).
-
-${productsContext}`;
-
-    const formattedHistory = history.map((h: any) => ({
-      role: h.role === 'user' ? 'user' : 'model',
-      parts: [{ text: h.content }]
-    }));
-
-    const checkInventoryQuantity = {
-      name: "check_inventory_quantity",
-      description: "Busca la cantidad de productos en inventario y precio buscando por el nombre del producto directamente en la base de datos",
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          product_name: {
-            type: Type.STRING,
-            description: "El nombre o parte del nombre del producto a buscar"
-          }
-        },
-        required: ["product_name"]
-      }
-    };
-
-    const chatModelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
-    let response: any = null;
-    let lastChatErr: any = null;
-
-    for (const modelName of chatModelsToTry) {
-      try {
-        const chatObj = client.chats.create({
-          model: modelName,
-          config: {
-            systemInstruction,
-            tools: [{ functionDeclarations: [checkInventoryQuantity] }]
-          },
-          history: formattedHistory
-        });
-
-        response = await chatObj.sendMessage({ message });
-
-        if (response.functionCalls && response.functionCalls.length > 0) {
-          const call = response.functionCalls[0];
-          if (call.name === "check_inventory_quantity") {
-            const product_name = (call.args as any).product_name;
-            const { data } = await localDb.from('products').select('*').ilike('name', `%${product_name}%`).limit(10);
-
-            let dbResultMsg = "";
-            if (data && data.length > 0) {
-              dbResultMsg = data.map((p: any) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join('; ');
-            } else {
-              dbResultMsg = "No se encontró ningún producto con ese nombre.";
-            }
-
-            response = await chatObj.sendMessage({
-              message: [{
-                functionResponse: {
-                  id: call.id,
-                  name: call.name,
-                  response: { result: dbResultMsg }
-                }
-              }]
-            });
-          }
-        }
-
-        if (response && response.text) {
-          break;
-        }
-      } catch (chatErr: any) {
-        lastChatErr = chatErr;
-        console.warn(`Gemini chat with model ${modelName} failed: ${chatErr?.message}. Trying fallback...`);
-      }
-    }
-
-    if (!response) {
-      throw lastChatErr || new Error("No se pudo obtener respuesta de Gemini.");
-    }
-
-    res.json({ reply: response.text });
-  } catch (err: any) {
-    console.error("Gemini API Error details:", err);
-    if (err.message && (err.message.includes("GEMINI_API_KEY") || err.message.includes("API key not found") || err.message.includes("API_KEY_INVALID"))) {
-      return res.status(400).json({
-        error: "API Key de Gemini no configurada",
-        details: "Para habilitar el soporte de IA en Agricovet, por favor ingresa tu API Key propia en el archivo .env o en la configuración de secretos."
-      });
-    }
-    res.status(500).json({ error: "Error al comunicarse con la IA", details: err.message });
-  }
-}));
-
-app.post("/api/products/bulk-generate-descriptions", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { data: products } = await localDb.from("products").select("id, name, category").is("description", null);
-
-  if (!products || products.length === 0) {
-    return res.json({ message: "No hay productos sin descripción." });
-  }
-
-  let generatedCount = 0;
-  const productsToProcess = products; // Process all of them since we aren't using the API for everything
-
-  // Import the logic from a helper (expanded implementation for the server side)
-  const getLocalDescription = (name: string, category: string) => {
-    const n = (name || "").toLowerCase();
-    const c = (category || "").toLowerCase();
-
-    const KNOWLEDGE: Record<string, string> = {
-      "Oxitetraciclina": "**Composición:** Oxitetraciclina Clorhidrato. \n**Uso:** Antibiótico de amplio espectro contra bacterias Gram(+) y Gram(-). \n**Dosis:** 10-20 mg/kg de peso vivo vía IM profunda o IV lenta. \n**Precauciones:** No usar en animales con hipersensibilidad a tetraciclinas. Tiempo de retiro en carne: 28 días.",
-      "Ivermectina": "**Composición:** Ivermectina al 1% o 4%. \n**Uso:** Endectocida para el control de parásitos internos (nematodos) y externos (garrapatas, ácaros). \n**Dosis:** 1 ml por cada 50 kg de peso (1%) o según concentración. SC únicamente. \n**Precauciones:** No administrar en vacas en lactancia cuya leche se destine a consumo humano.",
-      "Complejo B": "**Composición:** Vitaminas B1, B2, B6, B12 y Niacinamida. \n**Uso:** Reconstituyente vitamínico para estados de debilidad, anemia y estrés. \n**Dosis:** 5-10 ml en animales grandes, 1-2 ml en pequeños. Vía IM o SC. \n**Precauciones:** Mantener en lugar fresco y protegido de la luz solar.",
-      "Glifosato": "**Composición:** Glifosato (Sal isopropilamina). \n**Uso:** Herbicida sistémico no selectivo para el control de malezas anuales y perennes. \n**Dosis:** 1.5 a 3.0 litros por hectárea según la densidad de maleza. \n**Precauciones:** Evitar la deriva hacia cultivos deseados. Usar equipo de protección completo.",
-      "Paraquat": "**Composición:** Dicloruro de Paraquat. \n**Uso:** Herbicida de contacto para quema rápida de malezas. \n**Dosis:** 1.5 a 2.0 litros por manzana con suficiente agua. \n**Precauciones:** Altamente tóxico. No inhalar. Almacenar bajo llave lejos de alimentos.",
-      "Urea": "**Composición:** Nitrógeno 46%. \n**Uso:** Fertilizante nitrogenado para promover el crecimiento vegetativo y verdor del cultivo. \n**Dosis:** Según análisis de suelo, generalmente 2-4 quintales por manzana. \n**Precauciones:** Incorporar al suelo inmediatamente después de aplicar para evitar volatilización.",
-      "Triple 15": "**Composición:** Nitrógeno 15%, Fósforo 15%, Potasio 15%. \n**Uso:** Fertilizante completo para mantenimiento nutritivo balanceado en diversos cultivos. \n**Dosis:** Aplicar en la zona de goteo de la planta según edad y requerimiento técnico. \n**Precauciones:** Distanciar del tallo principal para evitar quemaduras radiculares.",
-      "Alimento Crecimiento": "**Composición:** Mezcla balanceada de cereales, proteínas vegetales y minerales. \n**Uso:** Alimentación completa para la etapa de desarrollo acelerado en aves o cerdos. \n**Dosis:** Suministrar a voluntad (ad-libitum) asegurando agua limpia constante. \n**Precauciones:** Almacenar sobre tarimas en lugar seco para evitar hongos y micotoxinas.",
-      "Vacuna Newcastle": "**Composición:** Virus vivo atenuado (Cepa LaSota). \n**Uso:** Inmunización activa contra la enfermedad de Newcastle en aves. \n**Dosis:** Una gota vía ocular o nasal, o mediante el agua de bebida según edad. \n**Precauciones:** Mantener estrictamente la cadena de frío (2-8°C). Vacunar solo animales sanos.",
-      "Cipermetrina": "**Composición:** Cipermetrina Concentrado Emulsionable. \n**Uso:** Insecticida y acaricida de amplio espectro por contacto e ingestión. \n**Dosis:** Diluir 1 ml por cada litro de agua para pulverización en instalaciones o ganado. \n**Precauciones:** Producto moderadamente tóxico. No contaminar fuentes de agua.",
-      "Amoxicilina": "**Composición:** Amoxicilina Trihidrato. \n**Uso:** Antibiótico bactericida para infecciones respiratorias, urogenitales y cutáneas. \n**Dosis:** 15 mg/kg cada 24 horas por 3 a 5 días. \n**Precauciones:** Puede causar trastornos gastrointestinales leves en algunos ejemplares.",
-      "Multivitamínico": "**Composición:** Vitaminas A, D3, E, B12, Aminoácidos y Minerales. \n**Uso:** Estimulante del apetito y mejora de la conversión alimenticia. \n**Dosis:** 1-5 ml según especie y peso. IM. \n**Precauciones:** Agitar bien antes de usar. No exceder la dosis recomendada.",
-      "Desinfectante Instrumental": "**Composición:** Amonio Cuaternario o Glutaraldehído. \n**Uso:** Sanitización de equipos veterinarios, jeringas y áreas de ordeño. \n**Dosis:** Dilución al 1:500 o 1:1000 según carga orgánica existente. \n**Precauciones:** Evitar contacto directo con ojos y mucosas. No ingerir.",
-      "Electrolitos": "**Composición:** Sodio, Potasio, Cloro, Magnesio y Dextrosa. \n**Uso:** Rehidratación oral para animales con diarrea o agotamiento por calor. \n**Dosis:** Disolver un sobre en 20 litros de agua de bebida. \n**Precauciones:** Preparar diariamente para asegurar la estabilidad de los componentes.",
-      "Calcio Inyectable": "**Composición:** Borogluconato de Calcio al 25%. \n**Uso:** Tratamiento de fiebre de leche (hipocalcenia) y deficiencias de calcio. \n**Dosis:** 250-500 ml vía IV lenta en vacas adultas. \n**Precauciones:** Administrar a temperatura corporal. Vigilar ritmo cardíaco durante aplicación."
-    };
-
-    if (n.includes('oxitetra') || n.includes('tecnimicina') || n.includes('oxiplus') || n.includes('oxi')) return KNOWLEDGE["Oxitetraciclina"];
-    if (n.includes('penici') || n.includes('tilosin') || n.includes('broximici') || n.includes('trimsulfa') || n.includes('tigent')) return KNOWLEDGE["Amoxicilina"];
-    if (n.includes('iverplus') || n.includes('ivermect') || n.includes('albendazol') || n.includes('lombrifin') || n.includes('vermimax')) return KNOWLEDGE["Ivermectina"];
-    if (n.includes('vitamina') || n.includes('complejo b') || n.includes('vita b12') || n.includes('vitel') || n.includes('proteizoo') || n.includes('instavit')) return KNOWLEDGE["Complejo B"];
-    if (n.includes('multivita') || n.includes('multipack') || n.includes('reconstituyente')) return KNOWLEDGE["Multivitamínico"];
-    if (n.includes('glifosato') || n.includes('revolver') || n.includes('sementhal') || n.includes('torban') || n.includes('cegar')) return KNOWLEDGE["Glifosato"];
-    if (n.includes('terraquat') || n.includes('duplexone') || n.includes('paraquat')) return KNOWLEDGE["Paraquat"];
-    if (n.includes('nitróg') || n.includes('urea') || n.includes('fertilizante')) return KNOWLEDGE["Urea"];
-    if (n.includes('15-15-15') || n.includes('foliar plus') || c.includes('abono')) return KNOWLEDGE["Triple 15"];
-    if (n.includes('alimento') || n.includes('crecimiento') || n.includes('engorde')) return KNOWLEDGE["Alimento Crecimiento"];
-    if (n.includes('vacuna') || n.includes('newcastle') || n.includes('cepa')) return KNOWLEDGE["Vacuna Newcastle"];
-    if (n.includes('cipermetr') || n.includes('nuvan') || n.includes('insecticida') || n.includes('blindage') || n.includes('pikudo')) return KNOWLEDGE["Cipermetrina"];
-    if (n.includes('electro') || n.includes('chemiestress')) return KNOWLEDGE["Electrolitos"];
-    if (n.includes('calcio') || n.includes('borogl')) return KNOWLEDGE["Calcio Inyectable"];
-    if (n.includes('matagusano') || n.includes('curabichera') || n.includes('jabón pet') || n.includes('shampoo')) return KNOWLEDGE["Desinfectante Instrumental"];
-
-    return `**Uso:** Producto especializado para el sector ${c.includes('agrícola') ? 'agrícola' : 'veterinario'}. \n**Recomendación:** El artículo "${name}" ha sido seleccionado por Agricovet por su comprobada eficiencia. Se recomienda leer la etiqueta completa y ajustar la dosis según las necesidades específicas de su producción o animal. \n**Precauciones:** Almacenar en un lugar seco y fuera del alcance de los niños. Consulte a su asesor técnico de Agricovet para un plan de manejo integral.`;
-  };
-
-  for (const product of productsToProcess) {
-    try {
-      const description = getLocalDescription(product.name, product.category);
-      await localDb.from("products").update({ description }).eq("id", product.id);
-      generatedCount++;
-    } catch (err) {
-      console.error(`Error updating ${product.name}:`, err);
-    }
-  }
-
-  res.json({
-    success: true,
-    generatedCount,
-    message: `Se actualizaron ${generatedCount} productos rápidamente usando la base de datos de Agricovet.`
-  });
-}));
-
-// ======== FACTURA ELECTRONICA (FEL) ========
-// La logica vive en fel/servicio.ts. Estos endpoints solo exponen consulta,
-// configuracion y el disparo de la certificacion.
-
-// Configuracion del emisor. Incluye que campos faltan por llenar.
-app.get("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (_req: any, res: any) => {
-  const config = await felServicio.obtenerConfig(localDb);
-  const { infile_llave_firma, infile_llave_token, ...publica } = (config || {}) as any;
-  res.json({
-    config: publica,
-    // Nunca se devuelven las llaves; solo si ya estan cargadas.
-    credencialesCargadas: !!(infile_llave_firma && infile_llave_token),
-    camposFaltantes: felServicio.configIncompleta(config),
-  });
-}));
-
-app.post("/api/fel/config", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const permitidos = [
-    'nit_emisor', 'nombre_emisor', 'nombre_comercial', 'correo_emisor', 'direccion', 'municipio',
-    'departamento', 'codigo_postal', 'codigo_establecimiento', 'afiliacion_iva',
-    'ambiente', 'infile_usuario', 'infile_llave_firma', 'infile_llave_token',
-    'infile_url', 'tipo_dte_default',
-  ];
-  const cambios: any = {};
-  for (const c of permitidos) {
-    if (req.body[c] !== undefined && req.body[c] !== '') cambios[c] = req.body[c];
-  }
-  if (cambios.ambiente && !['pruebas', 'produccion'].includes(cambios.ambiente)) {
-    return res.status(400).json({ error: "El ambiente debe ser 'pruebas' o 'produccion'." });
-  }
-  const config = await felServicio.guardarConfig(localDb, cambios);
-  const { infile_llave_firma, infile_llave_token, ...publica } = config as any;
-  res.json({ config: publica, camposFaltantes: felServicio.configIncompleta(config) });
-}));
-
-// Estado FEL de una factura, con el desglose fiscal ya calculado.
-app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
-  const invoice = facturas && facturas[0];
-  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-  // Un vendedor solo puede ver sus propias facturas.
-  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
-    return res.status(403).json({ error: "No tienes acceso a esta factura" });
-  }
-
-  const documento = await felServicio.obtenerDocumentoPorFactura(localDb, req.params.id);
-  const { totales, advertencias, nitReceptor } = felServicio.prepararDTE(invoice);
-
-  // Datos del emisor para la representacion grafica (factura impresa).
-  const felConfig = await felServicio.obtenerConfig(localDb);
-  const emisor = {
-    nit: felConfig?.nit_emisor ?? '',
-    nombre: felConfig?.nombre_emisor ?? '',
-    nombreComercial: felConfig?.nombre_comercial ?? '',
-    ambiente: felConfig?.ambiente ?? 'pruebas',
-  };
-
-  res.json({
-    documento,
-    estado: documento?.estado ?? 'sin_emitir',
-    nitReceptor,
-    esConsumidorFinal: felServicio.esConsumidorFinal(nitReceptor),
-    emisor,
-    desglose: {
-      montoGravable: totales.totalMontoGravable,
-      montoIva: totales.totalMontoIva,
-      granTotal: totales.granTotal,
-    },
-    advertencias,
-  });
-}));
-
-// Listado para la pantalla de control FEL.
-// Un vendedor solo ve los documentos de sus propias facturas.
-app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req: any, res: any) => {
-  let documentos = await felServicio.listarDocumentos(localDb, {
-    estado: req.query.estado,
-    limite: req.query.limite ? Number(req.query.limite) : 10000,
-  });
-
-  if (req.user.role !== 'admin') {
-    const sellerKeys = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].filter(Boolean);
-    const { data: propias } = await localDb.from("invoices").select("id").in("sellerId", sellerKeys);
-    const permitidas = new Set((propias || []).map((f: any) => f.id));
-    documentos = documentos.filter((d: any) => permitidas.has(d.invoice_id));
-  }
-  const resumen = documentos.reduce((acc: any, d: any) => {
-    acc[d.estado] = (acc[d.estado] || 0) + 1;
-    return acc;
-  }, {});
-  res.json({ documentos, resumen, total: documentos.length });
-}));
-
-// Certifica (o prepara, si aun no hay credenciales de INFILE) una factura.
-app.post("/api/invoices/:id/fel/certificar", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
-  const invoice = facturas && facturas[0];
-  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-  if (invoice.status === 'cancelled' || invoice.status === 'rejected') {
-    return res.status(400).json({ error: "No se puede certificar una factura anulada o rechazada." });
-  }
-
-  // Se pueden ajustar nombre y NIT del receptor antes de emitir; el folio y
-  // la factura interna no se tocan.
-  const receptorBody = req.body?.receptor;
-  const receptor = receptorBody && (receptorBody.nit || receptorBody.nombre)
-    ? { nit: receptorBody.nit, nombre: receptorBody.nombre }
-    : undefined;
-
-  const resultado = await felServicio.certificarFactura(localDb, invoice, {
-    tipoDte: req.body?.tipoDte,
-    receptor,
-  });
-  res.json(resultado);
-}));
-
-// Anula ante SAT un DTE certificado. Tramite fiscal formal: exige motivo.
-app.post("/api/invoices/:id/fel/anular", requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const motivo = String(req.body?.motivo || '').trim();
-  if (motivo.length < 5) {
-    return res.status(400).json({ error: "Indica el motivo de la anulacion (minimo 5 caracteres)." });
-  }
-
-  const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
-  const invoice = facturas && facturas[0];
-  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-
-  try {
-    const resultado = await felServicio.anularFactura(localDb, invoice, motivo);
-
-    // Si SAT acepto la anulacion, la factura del sistema tambien se anula:
-    // un documento fiscal anulado no puede seguir como venta activa. Se
-    // restaura el stock igual que en una anulacion normal.
-    if (resultado.anulado && invoice.status !== 'cancelled' && invoice.status !== 'rejected') {
-      await restaurarStockDeFactura(invoice);
-      await localDb.from("invoices").update({ status: 'cancelled' }).eq('id', invoice.id);
-      invalidateCache("products");
-      invalidateCache("folio_map");
-      (resultado as any).facturaAnulada = true;
-    }
-
-    res.json(resultado);
-  } catch (e: any) {
-    res.status(400).json({ error: e?.message ?? 'No se pudo anular el documento' });
-  }
-}));
-
-// Descarga el XML de un documento FEL (enviado o certificado). Pensado para
-// cuando el certificador pide "mandame el XML para revisar que paso".
-app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { data: facturas } = await localDb.from("invoices").select("id, \"sellerId\"").eq("id", req.params.id);
-  const invoice = facturas && facturas[0];
-  if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
-    return res.status(403).json({ error: "No tienes acceso a esta factura" });
-  }
-
-  const doc: any = await felServicio.obtenerDocumentoPorFactura(localDb, req.params.id);
-  if (!doc) return res.status(404).json({ error: "Esta factura no tiene documento FEL." });
-
-  const tipo = req.query.tipo === 'certificado' ? 'certificado' : 'enviado';
-  let xml: string | null = tipo === 'certificado' ? doc.xml_certificado : doc.xml_enviado;
-  if (!xml) return res.status(404).json({ error: `Esta factura no tiene XML ${tipo}.` });
-
-  // INFILE devuelve el XML certificado en base64; se decodifica al vuelo.
-  if (!xml.trim().startsWith('<')) {
-    try {
-      const decodificado = Buffer.from(xml, 'base64').toString('utf-8');
-      if (decodificado.trim().startsWith('<')) xml = decodificado;
-    } catch { }
-  }
-
-  const nombre = `DTE-${tipo}-${doc.numero_autorizacion || req.params.id}.xml`;
-  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
-  res.send(xml);
-}));
-
-// Consulta el nombre registrado en SAT para un NIT (servicio de INFILE).
-app.get("/api/fel/consulta-nit/:nit", requireAuth, asyncHandler(async (req: any, res: any) => {
-  const config = await felServicio.obtenerConfig(localDb);
-  if (!config?.infile_usuario || !config?.infile_llave_token) {
-    return res.status(400).json({ error: "Las credenciales de INFILE no estan configuradas." });
-  }
-  const resultado = await infileApi.consultarNit(req.params.nit, {
-    usuario: config.infile_usuario,
-    llaveToken: config.infile_llave_token,
-  });
-  res.json(resultado);
-}));
-
-// ======== RECIBOS DE CAJA ENDPOINTS ========
-const RECIBOS_CAJA_FILE = path.join(process.cwd(), 'recibos_caja_local.json');
-const DELETED_RECIBOS_FILE = path.join(process.cwd(), 'deleted_recibos_ids.json');
-
-function readDeletedReciboIds(): Set<string> {
-  try {
-    if (fs.existsSync(DELETED_RECIBOS_FILE)) {
-      const raw = fs.readFileSync(DELETED_RECIBOS_FILE, 'utf-8');
-      const list = JSON.parse(raw);
-      return new Set(Array.isArray(list) ? list : []);
-    }
-  } catch (e) {
-    console.warn("Could not read deleted_recibos_ids file:", e);
-  }
-  return new Set();
-}
-
-function addDeletedReciboId(id: string) {
-  try {
-    const set = readDeletedReciboIds();
-    set.add(id);
-    fs.writeFileSync(DELETED_RECIBOS_FILE, JSON.stringify(Array.from(set), null, 2));
-  } catch (e) {
-    console.warn("Could not save to deleted_recibos_ids file:", e);
-  }
-}
-
-function readLocalRecibosCaja(): any[] {
-  try {
-    if (fs.existsSync(RECIBOS_CAJA_FILE)) {
-      const raw = fs.readFileSync(RECIBOS_CAJA_FILE, 'utf-8');
-      return JSON.parse(raw) || [];
-    }
-  } catch (e) {
-    console.warn("Could not read local recibos_caja file:", e);
-  }
-  return [];
-}
-
-function saveLocalReciboCaja(recibo: any) {
-  try {
-    const list = readLocalRecibosCaja();
-    list.unshift(recibo);
-    fs.writeFileSync(RECIBOS_CAJA_FILE, JSON.stringify(list, null, 2));
-  } catch (e) {
-    console.warn("Could not save to local recibos_caja file:", e);
-  }
-}
-
-app.get('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
-  try {
-    const { data, error } = await localDb.from('recibos_caja')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && Array.isArray(data)) {
-      const filtered = data.filter((r: any) =>
-        r.observaciones !== '[ELIMINADO]' &&
-        !r.observaciones?.includes('[ELIMINADO]') &&
-        r.cliente_nombre !== '[ELIMINADO]' &&
-        !r.cliente_nombre?.includes('[ELIMINADO]')
-      );
-      return res.json(filtered);
-    }
-  } catch (e) {
-    console.warn("PostgreSQL Local recibos_caja query fallback:", e);
-  }
-
-  const localList = readLocalRecibosCaja();
-  const resultList = localList.filter((r: any) =>
-    !r.observaciones?.includes('[ELIMINADO]') &&
-    !r.cliente_nombre?.includes('[ELIMINADO]')
-  );
-  res.json(resultList);
-}));
-
-app.post('/api/recibos-caja', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const {
-    cliente_nombre,
-    cliente_nit,
-    cliente_codigo,
-    cantidad_letras,
-    facturas,
-    cheques,
-    efectivo_total,
-    monto_total,
-    observaciones,
-    cajero_nombre,
-    fecha
-  } = req.body;
-
-  if (!cliente_nombre || cliente_nombre.trim() === '') {
-    return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
-  }
-
-  const localList = readLocalRecibosCaja();
-  const nextSeq = localList.length + 152;
-  const folioStr = `P Nº ${String(nextSeq).padStart(6, '0')}`;
-
-  const newRecibo = {
-    id: crypto.randomUUID(),
-    folio: folioStr,
-    numero_secuencial: nextSeq,
-    fecha: fecha || new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-    cliente_nombre: cliente_nombre.trim(),
-    cliente_nit: cliente_nit || 'CF',
-    cliente_codigo: cliente_codigo || '',
-    cantidad_letras: cantidad_letras || 'Cero quetzales',
-    facturas: Array.isArray(facturas) ? facturas : [],
-    cheques: Array.isArray(cheques) ? cheques : [],
-    efectivo_total: Number(efectivo_total) || 0,
-    monto_total: Number(monto_total) || 0,
-    observaciones: observaciones || '',
-    cajero_nombre: cajero_nombre || 'CAJERO RECEPTOR',
-    created_at: new Date().toISOString()
-  };
-
-  try {
-    const { data, error } = await localDb.from('recibos_caja')
-      .insert([newRecibo])
-      .select();
-
-    if (!error && data && data[0]) {
-      saveLocalReciboCaja(data[0]);
-      invalidateCache("recibos_caja");
-      return res.status(201).json(data[0]);
-    }
-  } catch (e) {
-    console.warn("PostgreSQL Local insert recibo_caja fallback to local file:", e);
-  }
-
-  saveLocalReciboCaja(newRecibo);
-  invalidateCache("recibos_caja");
-  res.status(201).json(newRecibo);
-}));
-
-// DELETE recibo de caja — solo admins
-app.delete('/api/recibos-caja/:id', requireAuth, requireAdmin, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).json({ error: 'ID del recibo es obligatorio' });
-
-  // Soft-delete via UPDATE (PostgreSQL Local RLS blocks DELETE, and is_deleted column doesn't exist)
-  // Mark observaciones and cliente_nombre as '[ELIMINADO]' — this is the ONLY method that works
-  const { data: updated, error: updateErr } = await localDb.from('recibos_caja')
-    .update({
-      observaciones: '[ELIMINADO]',
-      cliente_nombre: '[ELIMINADO]'
-    })
-    .eq('id', id)
-    .select();
-
-  if (updateErr) {
-    console.error("PostgreSQL Local UPDATE recibo_caja error:", updateErr);
-    return res.status(500).json({ error: 'Error al eliminar el recibo en la base de datos', details: updateErr.message });
-  }
-
-  if (!updated || updated.length === 0) {
-    return res.status(404).json({ error: 'Recibo no encontrado' });
-  }
-
-  console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
-  invalidateCache("recibos_caja");
-  res.json({ success: true, message: 'Recibo eliminado correctamente' });
-}));
-
-// ======== COTIZACIONES / QUOTATIONS ENDPOINTS ========
-app.get('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-  try {
-    const { sellerId } = req.query;
-    let query = localDb.from('quotations').select('*').order('date', { ascending: false });
-    if (sellerId && req.user.role !== 'admin') {
-      query = query.or(`sellerId.eq.${sellerId},sellerName.ilike.%${sellerId}%`);
-    }
-    const { data, error } = await query;
-    if (!error && Array.isArray(data)) {
-      return res.json(data);
-    }
-  } catch (err: any) {
-    console.warn("PostgreSQL Local quotations fetch error:", err?.message || err);
-  }
-  res.json([]);
-}));
-
-app.get('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  const { data, error } = await localDb.from('quotations').select('*').eq('id', id).single();
-  if (error || !data) {
-    return res.status(404).json({ error: 'Cotización no encontrada' });
-  }
-  res.json(data);
-}));
-
-app.post('/api/quotations', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { client, nit, phone, address, items, notes, validityDays, date, sellerId, sellerName } = req.body;
-  if (!client || !items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Cliente y al menos un producto son requeridos' });
-  }
-
-  // Calcular correlativo de folio (COT-0001)
-  const { data: allQuotes } = await localDb.from('quotations').select('folioNumber').order('folioNumber', { ascending: false }).limit(1);
-  const lastNum = (allQuotes && allQuotes[0]?.folioNumber) || 0;
-  const nextNum = lastNum + 1;
-  const folioStr = `COT-${String(nextNum).padStart(4, '0')}`;
-
-  const totalAmount = items.reduce((sum: number, it: any) => sum + (Number(it.total) || (Number(it.quantity) * Number(it.price))), 0);
-  const quoteDate = date || new Date().toISOString();
-  const days = validityDays || 15;
-  const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-
-  const newQuote = {
-    id: `COT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-    folio: folioStr,
-    folioNumber: nextNum,
-    sellerId: sellerId || req.user.email || req.user.id,
-    sellerName: sellerName || req.user.name,
-    client: client.trim(),
-    nit: nit?.trim() || 'CF',
-    phone: phone?.trim() || '',
-    address: address?.trim() || '',
-    items,
-    totalAmount,
-    status: 'pendiente',
-    date: quoteDate,
-    validityDays: days,
-    validUntil,
-    notes: notes?.trim() || '',
-    convertedInvoiceId: null,
-    convertedInvoiceFolio: null
-  };
-
-  const { data, error } = await localDb.from('quotations').insert([newQuote]).select().single();
-  if (error) {
-    throw new Error(error.message);
-  }
-  invalidateCache("quotations");
-  res.status(201).json(data || newQuote);
-}));
-
-app.put('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  const updates = req.body;
-  const { data, error } = await localDb.from('quotations').update(updates).eq('id', id).select().single();
-  if (error) throw new Error(error.message);
-  invalidateCache("quotations");
-  res.json(data);
-}));
-
-app.delete('/api/quotations/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  const { error } = await localDb.from('quotations').delete().eq('id', id);
-  if (error) throw new Error(error.message);
-  invalidateCache("quotations");
-  res.json({ success: true });
-}));
-
-app.post('/api/quotations/:id/convert-to-sale', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  const { data: quote, error: qErr } = await localDb.from('quotations').select('*').eq('id', id).single();
-  if (qErr || !quote) return res.status(404).json({ error: 'Cotización no encontrada' });
-
-  await localDb.from('quotations').update({
-    status: 'convertida',
-    updated_at: new Date().toISOString()
-  }).eq('id', id);
-
-  invalidateCache("quotations");
-  res.json({ success: true, quotation: quote });
-}));
-
-// ======== RECIBOS CONFORMES ENDPOINTS ========
-app.get('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, res: any) => {
-  try {
-    const { data, error } = await localDb.from('recibos_conformes').select('*').order('created_at', { ascending: false });
-    if (!error && Array.isArray(data)) return res.json(data);
-  } catch (err: any) {
-    console.warn("Error fetching recibos_conformes:", err?.message || err);
-  }
-  res.json([]);
-}));
-
-app.get('/api/recibos-conformes/invoice/:id', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { id } = req.params;
-  try {
-    const { data, error } = await localDb.from('recibos_conformes').select('*').eq('invoice_id', id).order('created_at', { ascending: false }).limit(1);
-    if (!error && Array.isArray(data) && data.length > 0) {
-      return res.json(data[0]);
-    }
-  } catch (err: any) {
-    console.warn("Error fetching recibo by invoice id:", err?.message || err);
-  }
-  res.json(null);
-}));
-
-app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, res: any) => {
-  const { invoice_id, folio, receiver_name, receiver_dpi, receiver_phone, receiver_relationship, delivery_location, delivery_notes, delivered_by, delivery_date, include_prices, signature_data, pdf_url, created_by } = req.body;
-  if (!invoice_id) {
-    return res.status(400).json({ error: 'invoice_id es requerido' });
-  }
-  // Usar UUID v4 válido para cumplir con la columna UUID en PostgreSQL
-  const isValidUuid = (val: any) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(val || '').trim());
-  const effectiveId = (req.body?.id && isValidUuid(req.body.id)) ? req.body.id : crypto.randomUUID();
-
-  const payload: any = {
-    id: effectiveId,
-    invoice_id: String(invoice_id),
-    folio: String(folio || ''),
-    receiver_name: receiver_name || null,
-    receiver_dpi: receiver_dpi || null,
-    receiver_phone: receiver_phone || null,
-    receiver_relationship: receiver_relationship || null,
-    delivery_location: delivery_location || null,
-    delivery_notes: delivery_notes || null,
-    delivered_by: delivered_by || 'Piloto / Asesor',
-    delivery_date: delivery_date || new Date().toISOString(),
-    include_prices: include_prices !== false,
-    signature_data: signature_data || null,
-    pdf_url: pdf_url || null,
-    created_by: created_by || req.user?.name || null
-  };
-
-  // Si ya existe un recibo previo para esta factura, actualizarlo limpiamente
-  try {
-    const { data: existing } = await localDb.from('recibos_conformes').select('id').eq('invoice_id', String(invoice_id)).limit(1);
-    if (existing && Array.isArray(existing) && existing.length > 0) {
-      const existingId = existing[0].id;
-      const updatePayload = { ...payload };
-      delete updatePayload.id;
-      const { data: updated, error: updateErr } = await localDb.from('recibos_conformes').update(updatePayload).eq('id', existingId).select().single();
-      if (!updateErr && updated) {
-        invalidateCache("recibos_conformes");
-        return res.json(updated);
-      }
-    }
-  } catch (checkErr) {
-    console.warn("Check existing recibo_conforme:", checkErr);
-  }
-
-  const { data, error } = await localDb.from('recibos_conformes').insert([payload]).select().single();
-  if (error) {
-    return res.status(500).json({ error: error.message || 'Error al guardar Recibo Conforme' });
-  }
-  invalidateCache("recibos_conformes");
-  res.json(data);
-}));
-
-// ======== DESCARGA TEMPORAL PARA APK / WEBVIEW Y COMPATIBILIDAD MÓVIL ========
-const tempDownloadStore = new Map<string, { buffer: Buffer; filename: string; mimeType: string; expires: number }>();
-
-// Limpieza periódica de archivos temporales cada 3 minutos
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, item] of tempDownloadStore.entries()) {
-    if (item.expires < now) {
-      tempDownloadStore.delete(id);
-    }
-  }
-}, 180000);
-
-app.post('/api/download-temp', express.json({ limit: '20mb' }), (req: any, res: any) => {
-  try {
-    const { filename, mimeType, base64 } = req.body;
-    if (!filename || !base64) {
-      return res.status(400).json({ error: 'filename y base64 son requeridos' });
-    }
-    const token = crypto.randomBytes(16).toString('hex');
-    const rawBase64 = base64.includes(',') ? base64.substring(base64.indexOf(',') + 1) : base64;
-    const buffer = Buffer.from(rawBase64, 'base64');
-    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
-    const rawMime = String(mimeType || 'application/pdf').toLowerCase().trim();
-    const safeMimeType = (rawMime.includes('html') || rawMime.includes('javascript') || rawMime.includes('script'))
-      ? 'application/octet-stream'
-      : (mimeType || 'application/pdf');
-
-    if (tempDownloadStore.size >= 25) {
-      const oldestKey = tempDownloadStore.keys().next().value;
-      if (oldestKey) tempDownloadStore.delete(oldestKey);
-    }
-
-    tempDownloadStore.set(token, {
-      buffer,
-      filename: safeFilename,
-      mimeType: safeMimeType,
-      expires: Date.now() + 180000 // 3 minutos de vigencia
-    });
-    return res.json({ url: `/api/download-temp/${token}/${encodeURIComponent(safeFilename)}` });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Error guardando descarga temporal' });
-  }
-});
-
-app.get('/api/download-temp/:token/:filename?', (req: any, res: any) => {
-  const { token } = req.params;
-  const item = tempDownloadStore.get(token);
-  if (!item || item.expires < Date.now()) {
-    if (item) tempDownloadStore.delete(token);
-    return res.status(404).send('Enlace de descarga expirado. Por favor, vuelve a presionar Descargar en la aplicación.');
-  }
-
-  res.setHeader('Content-Type', item.mimeType);
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
-  res.setHeader('Content-Length', item.buffer.length.toString());
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  return res.end(item.buffer);
-});
-
-// Global Error Handler for API routes
-app.use((err: any, req: any, res: any, next: any) => {
-  const isProduction = process.env.NODE_ENV === "production";
-
-  if (!isProduction) {
-    console.error("Global API Error:", err);
-  } else {
-    // In production, avoid logging full stack trace or sensitive DB errors, keeping a minimal log.
-    console.error("Global API Error occurred:", err.message);
-  }
-
-  // Return the actual error message so we can trace production errors directly in the app UI
-  res.status(500).json({
-    error: err.message || "Error interno del servidor"
-  });
-});
-
-// ======== RUTA DEDICADA PARA DESCARGAR APK ANDROID (.apk) ========
-app.get(['/agricovet-live.apk', '/agricovet.apk', '/*.apk'], (req, res) => {
-  const reqFilename = path.basename(req.path) || 'agricovet-live.apk';
-  const candidatePaths = [
-    path.join(process.cwd(), reqFilename),
-    path.join(process.cwd(), 'dist', reqFilename),
-    path.join(process.cwd(), 'public', reqFilename),
-    path.join(process.cwd(), 'agricovet-live.apk'),
-    path.join(process.cwd(), 'agricovet.apk'),
-    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
-    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release-unsigned.apk'),
-    path.join(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
-  ];
-
-  for (const candidate of candidatePaths) {
-    if (fs.existsSync(candidate)) {
-      try {
-        const stat = fs.statSync(candidate);
-        if (stat.isFile() && stat.size > 100000) {
-          console.log(`[APK Download] Sirviendo APK real desde: ${candidate} (${stat.size} bytes)`);
-          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-          res.setHeader('Content-Disposition', `attachment; filename="${reqFilename}"`);
-          res.setHeader('Content-Length', stat.size.toString());
-          return res.sendFile(path.resolve(candidate));
-        }
-      } catch (err) {
-        console.error('[APK Download] Error leyendo archivo APK:', candidate, err);
-      }
-    }
-  }
-
-  console.warn(`[APK Download] No se encontró archivo APK físico para: ${reqFilename}`);
-  return res.status(404).json({
-    error: 'Archivo APK no encontrado en el servidor VPS',
-    message: `No se encontró el archivo ${reqFilename} en el disco del VPS. Coloque el archivo .apk en la raíz del proyecto para descargarlo.`
-  });
-});
-
-export default app;
-
-async function startServer() {
-  console.log("Starting server script...");
-  const PORT = Number(process.env.PORT) || 2300;
-  console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
-  // ======== VITE MIDDLEWARE / SPA ========
-  if (process.env.NODE_ENV !== "production") {
-    console.log("Initializing Vite middleware server...");
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    console.log("Vite server created, attaching middlewares...");
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use((req, res, next) => {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-      next();
-    });
-    app.use(express.static(distPath, { maxAge: 0, etag: false, lastModified: false }));
-    app.get('*', (req, res) => {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
-  if (!process.env.VERCEL) {
-    httpServer.listen(PORT as number, "0.0.0.0", async () => {
-      console.log(`Server running on http://localhost:${PORT} (WebSockets & Realtime active)`);
-
-      // One-time migration to ensure all clients have a code
-      try {
-        // Try to add sellerCode column if it doesn't exist
-        try {
-          await localDb.rpc('exec_sql', { sql: 'ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;' });
-          await localDb.rpc('exec_sql', { sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS "sellerCode" TEXT;' });
-          await localDb.rpc('exec_sql', { sql: 'CREATE TABLE IF NOT EXISTS public.login_tokens (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, token TEXT NOT NULL, "createdAt" TEXT NOT NULL, "usedAt" TEXT, "expiresAt" TEXT);' });
-        } catch (e) {
-          // If RPC doesn't exist or fails, we just log it and proceed with fallback in GET
-          console.warn("Could not run migrations via RPC:", e);
-        }
-
-        const clients = readLocalClients();
-        const missingCodes = clients.filter(c => !c.clientCode || c.clientCode.trim() === '');
-        if (missingCodes.length > 0) {
-          console.log(`Migrating ${missingCodes.length} clients to have codes...`);
-          const usedCodes = new Set(clients.map(c => c.clientCode).filter(Boolean));
-          for (const client of missingCodes) {
-            let code = '';
-            let unique = false;
-            let attempts = 0;
-            while (!unique && attempts < 100) {
-              code = Math.floor(1000 + Math.random() * 9000).toString();
-              if (!usedCodes.has(code)) unique = true;
-              attempts++;
-            }
-            if (unique) {
-              client.clientCode = code;
-              usedCodes.add(code);
-              updateLocalClient(client.id, { clientCode: code });
-              try {
-                await localDb.from("clients").update({ clientCode: code }).eq("id", client.id);
-              } catch (e) { }
-            }
-          }
-          console.log("Migration completed.");
-          invalidateCache("clients");
-        }
-
-        // One-time migration to ensure all users have a sellerCode
-        let usersData: any[] = [];
-        try {
-          const { data: users, error } = await localDb.from("users").select("*");
-          if (error) {
-            if (error.message && error.message.includes("fetch failed")) {
-              console.warn("PostgreSQL Local connection unavailable for user migration.");
-            } else {
-              console.error("Could not fetch users for migration, possibly missing column:", error.message);
-            }
-          } else {
-            usersData = users || [];
-          }
-        } catch (e: any) {
-          console.warn("Users select failed in migration:", e?.message || e);
-        }
-
-        const missingUserCodes = usersData.filter((u: any) => !isSystemRecord(u) && (!u.sellerCode || u.sellerCode.trim() === ''));
-        if (missingUserCodes.length > 0) {
-          console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
-          const usedUserCodes = new Set(usersData.map((u: any) => u.sellerCode).filter(Boolean));
-          for (const u of missingUserCodes) {
-            let code = '';
-            let unique = false;
-            let attempts = 0;
-            while (!unique && attempts < 100) {
-              code = Math.floor(1000 + Math.random() * 9000).toString();
-              if (!usedUserCodes.has(code)) unique = true;
-              attempts++;
-            }
-            if (unique) {
-              try {
-                await localDb.from("users").update({ sellerCode: code }).eq('id', u.id);
-                usedUserCodes.add(code);
-              } catch (upErr) {
-                console.error(`Failed to update sellerCode for user ${u.id}:`, upErr);
-              }
-            }
-          }
-          console.log("User migration completed.");
-        }
-      } catch (err) {
-        console.error("Migration error:", err);
-      }
-    });
-  }
-}
-
-// Only auto-start when executed directly as main script (not imported in serverless / Vercel)
-const isDirectRun = !process.env.VERCEL && (
-  (typeof process.argv[1] === 'string' && (
-    process.argv[1].endsWith('server.cjs') ||
-    process.argv[1].endsWith('server.ts') ||
-    process.argv[1].endsWith('server.js')
-  ))
-);
-
-if (isDirectRun) {
-  startServer();
-}
+        salesBySeller[inv.se
+... [truncated for diff preview]
