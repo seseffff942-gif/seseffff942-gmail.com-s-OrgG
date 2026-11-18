@@ -1668,6 +1668,7 @@ export function generateConsignacionReceiptHtml(data: {
   notes?: string;
   date: string;
   createdBy: string;
+  signature_data?: string | null;
   items: Array<{
     productId: string;
     productName: string;
@@ -1793,7 +1794,12 @@ export function generateConsignacionReceiptHtml(data: {
     <div>
       <div class="sig-line">Entrega Bodega (Emisor)</div>
     </div>
-    <div>
+    <div style="text-align: center;">
+      ${data.signature_data ? `
+        <div style="height: 60px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 4px;">
+          <img src="${data.signature_data}" alt="Firma Receptor" style="max-height: 58px; max-width: 200px; object-fit: contain;" />
+        </div>
+      ` : `<div style="height: 60px;"></div>`}
       <div class="sig-line">Recibe a Consignación</div>
     </div>
   </div>

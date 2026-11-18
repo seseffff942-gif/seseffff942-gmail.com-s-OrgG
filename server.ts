@@ -118,8 +118,20 @@ if (pgPool) {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs (created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON public.audit_logs (category);
+    CREATE TABLE IF NOT EXISTS public.consignaciones (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      reason TEXT,
+      notes TEXT,
+      items JSONB NOT NULL,
+      signature_data TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_consignaciones_created_at ON public.consignaciones (created_at DESC);
   `).then(() => {
-    console.log("[DB] ✅ Tablas public.fcm_tokens, public.push_subscriptions y public.audit_logs verificadas en PostgreSQL");
+    console.log("[DB] ✅ Tablas public.fcm_tokens, public.push_subscriptions, public.audit_logs y public.consignaciones verificadas en PostgreSQL");
   }).catch((err: any) => {
     console.warn("[DB] Aviso al verificar tablas de notificaciones/auditoría:", err.message);
   });
@@ -12163,21 +12175,6 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any)
     }
   };
 
-  allInvoices.forEach(inv => {
-    if (matchesTargetDate(inv.date, todayStr)) {
-      if (inv.status !== 'cancelled' && inv.status !== 'rejected') {
-        salesBySeller[inv.sellerId] = (salesBySeller[inv.sellerId] || 0) + (inv.totalAmount || 0);
-      }
-    }
-  });
-
-  const invoicesMap = new Map<string, any>();
-  allInvoices.forEach(inv => {
-    if (inv && inv.id) {
-      invoicesMap.set(inv.id, inv);
-    }
-  });
-
   // Calculate today's payments (based on payment date)
   allPayments.forEach(pay => {
     const payDate = pay.date || '';
@@ -13971,21 +13968,68 @@ app.post(['/api/inventory/reconciliation', '/api/inventory/consignacion'], requi
 
     invalidateCache('products');
 
-    const result = {
-      success: true,
+    const consignacionRecord = {
+      id: crypto.randomUUID(),
       code: consignacionCode,
       recipient: recipient || 'Consignación / Boreal Infraestructura',
       reason: reason || 'Envío de producto a consignación',
       notes: notes || '',
-      date: dateNow,
-      createdBy: req.user?.name || req.user?.email || 'Administración',
-      items: processedItems
+      items: processedItems,
+      signature_data: req.body?.signature_data || null,
+      created_by: req.user?.name || req.user?.email || 'Administración',
+      created_at: dateNow
+    };
+
+    // Guardar en tabla persistente de PostgreSQL
+    try {
+      await localDb.from('consignaciones').insert([consignacionRecord]);
+      invalidateCache('consignaciones');
+    } catch (dbErr: any) {
+      console.warn('[CONSIGNACION] Error insertando registro en DB:', dbErr.message);
+    }
+
+    const result = {
+      success: true,
+      ...consignacionRecord
     };
 
     console.log(`[CONSIGNACION] ✅ Salida registrada con éxito ${consignacionCode}: ${processedItems.length} productos descontados.`);
     res.json(result);
   } finally {
     releaseLocks();
+  }
+}));
+
+// Obtener historial de consignaciones
+app.get('/api/inventory/consignacion', requireAuth, asyncHandler(async (req: any, res: any) => {
+  try {
+    const { data, error } = await localDb.from('consignaciones').select('*').order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      return res.json(data);
+    }
+  } catch (err: any) {
+    console.warn('[CONSIGNACION] Error listando historial:', err.message);
+  }
+  res.json([]);
+}));
+
+// Actualizar firma digital de una consignación existente
+app.put('/api/inventory/consignacion/:id/signature', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { id } = req.params;
+  const { signature_data } = req.body;
+  if (!signature_data) {
+    return res.status(400).json({ error: 'signature_data es requerida' });
+  }
+
+  try {
+    const { data, error } = await localDb.from('consignaciones').update({ signature_data }).eq('id', id).select().single();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    invalidateCache('consignaciones');
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Error al guardar firma' });
   }
 }));
 

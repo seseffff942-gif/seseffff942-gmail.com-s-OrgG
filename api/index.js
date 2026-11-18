@@ -1162,8 +1162,20 @@ if (pgPool) {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs (created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON public.audit_logs (category);
+    CREATE TABLE IF NOT EXISTS public.consignaciones (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      reason TEXT,
+      notes TEXT,
+      items JSONB NOT NULL,
+      signature_data TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_consignaciones_created_at ON public.consignaciones (created_at DESC);
   `).then(() => {
-    console.log("[DB] \u2705 Tablas public.fcm_tokens, public.push_subscriptions y public.audit_logs verificadas en PostgreSQL");
+    console.log("[DB] \u2705 Tablas public.fcm_tokens, public.push_subscriptions, public.audit_logs y public.consignaciones verificadas en PostgreSQL");
   }).catch((err) => {
     console.warn("[DB] Aviso al verificar tablas de notificaciones/auditor\xEDa:", err.message);
   });
@@ -11512,19 +11524,6 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req, res) => {
       return false;
     }
   };
-  allInvoices.forEach((inv) => {
-    if (matchesTargetDate(inv.date, todayStr)) {
-      if (inv.status !== "cancelled" && inv.status !== "rejected") {
-        salesBySeller[inv.sellerId] = (salesBySeller[inv.sellerId] || 0) + (inv.totalAmount || 0);
-      }
-    }
-  });
-  const invoicesMap = /* @__PURE__ */ new Map();
-  allInvoices.forEach((inv) => {
-    if (inv && inv.id) {
-      invoicesMap.set(inv.id, inv);
-    }
-  });
   allPayments.forEach((pay) => {
     const payDate = pay.date || "";
     if (matchesTargetDate(payDate, todayStr)) {
@@ -13005,20 +13004,59 @@ app.post(["/api/inventory/reconciliation", "/api/inventory/consignacion"], requi
       });
     }
     invalidateCache("products");
-    const result = {
-      success: true,
+    const consignacionRecord = {
+      id: crypto.randomUUID(),
       code: consignacionCode,
       recipient: recipient || "Consignaci\xF3n / Boreal Infraestructura",
       reason: reason || "Env\xEDo de producto a consignaci\xF3n",
       notes: notes || "",
-      date: dateNow,
-      createdBy: req.user?.name || req.user?.email || "Administraci\xF3n",
-      items: processedItems
+      items: processedItems,
+      signature_data: req.body?.signature_data || null,
+      created_by: req.user?.name || req.user?.email || "Administraci\xF3n",
+      created_at: dateNow
+    };
+    try {
+      await localDb.from("consignaciones").insert([consignacionRecord]);
+      invalidateCache("consignaciones");
+    } catch (dbErr) {
+      console.warn("[CONSIGNACION] Error insertando registro en DB:", dbErr.message);
+    }
+    const result = {
+      success: true,
+      ...consignacionRecord
     };
     console.log(`[CONSIGNACION] \u2705 Salida registrada con \xE9xito ${consignacionCode}: ${processedItems.length} productos descontados.`);
     res.json(result);
   } finally {
     releaseLocks();
+  }
+}));
+app.get("/api/inventory/consignacion", requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const { data, error } = await localDb.from("consignaciones").select("*").order("created_at", { ascending: false });
+    if (!error && Array.isArray(data)) {
+      return res.json(data);
+    }
+  } catch (err) {
+    console.warn("[CONSIGNACION] Error listando historial:", err.message);
+  }
+  res.json([]);
+}));
+app.put("/api/inventory/consignacion/:id/signature", requireAuth, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { signature_data } = req.body;
+  if (!signature_data) {
+    return res.status(400).json({ error: "signature_data es requerida" });
+  }
+  try {
+    const { data, error } = await localDb.from("consignaciones").update({ signature_data }).eq("id", id).select().single();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    invalidateCache("consignaciones");
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Error al guardar firma" });
   }
 }));
 var tempDownloadStore = /* @__PURE__ */ new Map();

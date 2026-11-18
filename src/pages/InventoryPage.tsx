@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet, ArrowUpRight, Printer } from 'lucide-react';
-import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT, printHtml, generateConsignacionReceiptHtml } from '../utils';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet, ArrowUpRight, Printer, PenTool, History } from 'lucide-react';
+import SignaturePad from '../components/SignaturePad';
+import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT, printHtml, generateConsignacionReceiptHtml, formatDateSafe } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -37,11 +38,17 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
 
   // Estados para Módulo de Consignación de Productos
   const [showReconciliationModal, setShowReconciliationModal] = useState(false);
+  const [reconciliationTab, setReconciliationTab] = useState<'create' | 'history'>('create');
+  const [consignacionesList, setConsignacionesList] = useState<any[]>([]);
+  const [loadingConsignaciones, setLoadingConsignaciones] = useState(false);
   const [reconciliationRecipient, setReconciliationRecipient] = useState('Boreal Infraestructura y Equipos');
   const [reconciliationReason, setReconciliationReason] = useState('Envío de producto a consignación');
   const [reconciliationNotes, setReconciliationNotes] = useState('');
   const [reconciliationItems, setReconciliationItems] = useState<Array<{ product: Product; quantity: number }>>([]);
   const [reconciliationSearch, setReconciliationSearch] = useState('');
+  const [reconciliationSignature, setReconciliationSignature] = useState<string | null>(null);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
+  const [signingConsignacionId, setSigningConsignacionId] = useState<string | null>(null);
   const [isSubmittingReconciliation, setIsSubmittingReconciliation] = useState(false);
   const [lastReconciliationResult, setLastReconciliationResult] = useState<any | null>(null);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
@@ -1082,8 +1089,16 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       setReconciliationReason('Envío de producto a consignación');
                       setReconciliationNotes('');
                       setReconciliationSearch('');
+                      setReconciliationSignature(null);
+                      setSigningConsignacionId(null);
                       setLastReconciliationResult(null);
+                      setReconciliationTab('create');
                       setShowReconciliationModal(true);
+                      // Cargar historial
+                      setLoadingConsignaciones(true);
+                      api.getConsignaciones().then(data => {
+                        setConsignacionesList(data || []);
+                      }).finally(() => setLoadingConsignaciones(false));
                     }}
                     className="flex items-center justify-center gap-1.5 h-11 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-sky-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
                     title="Mandar producto a consignación (descuenta stock sin crear venta ni consumir folio)"
@@ -1163,9 +1178,163 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                 </button>
               </div>
 
+              {/* Pestañas: Nueva Salida vs Historial */}
+              <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-2 gap-2">
+                <button
+                  onClick={() => {
+                    setReconciliationTab('create');
+                    setLastReconciliationResult(null);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 pb-2.5 px-3 font-bold text-xs border-b-2 transition-all cursor-pointer",
+                    reconciliationTab === 'create'
+                      ? "border-sky-700 text-sky-800"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  <Plus size={14} />
+                  <span>Nueva Consignación</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setReconciliationTab('history');
+                    setLoadingConsignaciones(true);
+                    api.getConsignaciones().then(data => {
+                      setConsignacionesList(data || []);
+                    }).finally(() => setLoadingConsignaciones(false));
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 pb-2.5 px-3 font-bold text-xs border-b-2 transition-all cursor-pointer",
+                    reconciliationTab === 'history'
+                      ? "border-sky-700 text-sky-800"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  <History size={14} />
+                  <span>Historial de Consignaciones ({consignacionesList.length})</span>
+                </button>
+              </div>
+
               {/* Contenido / Pasos */}
               <div className="p-5 overflow-y-auto space-y-4 flex-1">
-                {lastReconciliationResult ? (
+                {reconciliationTab === 'history' ? (
+                  /* VISTA DE HISTORIAL */
+                  <div className="space-y-3">
+                    {loadingConsignaciones ? (
+                      <div className="py-12 text-center text-slate-400">
+                        <RotateCw size={24} className="animate-spin mx-auto mb-2 text-sky-700" />
+                        <p className="text-xs font-bold">Cargando historial...</p>
+                      </div>
+                    ) : consignacionesList.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <History size={32} className="mx-auto mb-2 opacity-40 text-slate-500" />
+                        <p className="text-xs font-bold text-slate-600">Aún no hay consignaciones registradas</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Usa la pestaña "Nueva Consignación" para crear la primera.</p>
+                      </div>
+                    ) : (
+                      consignacionesList.map((cons: any) => {
+                        const itemsArr = Array.isArray(cons.items) ? cons.items : [];
+                        const totalUnits = itemsArr.reduce((acc: number, it: any) => acc + (Number(it.quantity) || 0), 0);
+                        return (
+                          <div key={cons.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100/60 transition-colors space-y-2.5">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-black text-xs text-sky-800 bg-sky-100 px-2 py-0.5 rounded-md">
+                                    {cons.code}
+                                  </span>
+                                  <span className="font-bold text-xs text-slate-800">
+                                    {cons.recipient}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  {cons.created_at ? formatDateSafe(cons.created_at) : ''} · Por: <span className="font-semibold text-slate-700">{cons.created_by}</span>
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className="inline-block text-[11px] font-black text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                                  {totalUnits} uds
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Resumen de items */}
+                            <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 text-[11px] text-slate-700 space-y-1">
+                              {itemsArr.map((it: any, i: number) => (
+                                <div key={i} className="flex justify-between">
+                                  <span className="font-medium truncate pr-2">• {it.productName}</span>
+                                  <span className="font-bold text-sky-800 shrink-0">{it.quantity} uds</span>
+                                </div>
+                              ))}
+                              {cons.notes && (
+                                <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-100 italic">
+                                  Nota: {cons.notes}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Acciones: Firma y Comprobante */}
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                              <div className="flex items-center gap-2">
+                                {cons.signature_data ? (
+                                  <div className="flex items-center gap-1.5 text-emerald-700 text-[11px] font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                                    <Check size={12} />
+                                    <span>Firmado</span>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setSigningConsignacionId(cons.id);
+                                      setShowSignaturePad(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                                  >
+                                    <PenTool size={12} />
+                                    <span>Firmar con el dedo</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                {cons.signature_data && (
+                                  <button
+                                    onClick={() => {
+                                      setSigningConsignacionId(cons.id);
+                                      setShowSignaturePad(true);
+                                    }}
+                                    className="px-2.5 py-1 text-slate-600 hover:text-slate-800 bg-white border border-slate-200 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                                    title="Modificar firma"
+                                  >
+                                    Cambiar firma
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const html = generateConsignacionReceiptHtml({
+                                      code: cons.code,
+                                      recipient: cons.recipient,
+                                      reason: cons.reason || 'Envío de producto a consignación',
+                                      notes: cons.notes,
+                                      date: cons.created_at,
+                                      createdBy: cons.created_by,
+                                      signature_data: cons.signature_data,
+                                      items: itemsArr
+                                    });
+                                    printHtml(html);
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1 bg-sky-700 hover:bg-sky-800 text-white rounded-lg text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                                >
+                                  <Printer size={12} />
+                                  <span>Imprimir</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : lastReconciliationResult ? (
                   /* Vista de Éxito y Comprobante */
                   <div className="text-center py-4 space-y-4">
                     <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-inner">
@@ -1348,12 +1517,67 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         </div>
                       )}
                     </div>
+
+                    {/* Firma Digital en Pantalla (Móvil / Dedo) */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          <PenTool size={13} className="text-sky-700" />
+                          <span>Firma de Quien Recibe en Pantalla (Opcional)</span>
+                        </label>
+                        {reconciliationSignature && (
+                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1">
+                            <Check size={11} />
+                            <span>Firma lista</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {reconciliationSignature ? (
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                          <div className="h-14 w-40 bg-white border border-slate-200 rounded-lg p-1 flex items-center justify-center">
+                            <img src={reconciliationSignature} alt="Firma" className="max-h-full max-w-full object-contain" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSigningConsignacionId(null);
+                                setShowSignaturePad(true);
+                              }}
+                              className="text-xs font-bold text-sky-800 hover:underline text-left cursor-pointer"
+                            >
+                              Volver a firmar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setReconciliationSignature(null)}
+                              className="text-[11px] font-semibold text-rose-600 hover:underline text-left cursor-pointer"
+                            >
+                              Quitar firma
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSigningConsignacionId(null);
+                            setShowSignaturePad(true);
+                          }}
+                          className="w-full py-2.5 px-3 bg-sky-50 hover:bg-sky-100/70 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <PenTool size={14} />
+                          <span>Firmar con el dedo desde el teléfono</span>
+                        </button>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
 
               {/* Footer con Acciones */}
-              {!lastReconciliationResult && (
+              {!lastReconciliationResult && reconciliationTab === 'create' && (
                 <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
                   <div className="text-[11px] text-slate-500">
                     <span className="font-bold text-slate-700">Aviso:</span> Se rebajará el stock físico directamente.
@@ -1389,10 +1613,11 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
 
                         try {
                           setIsSubmittingReconciliation(true);
-                          const result = await api.createProductReconciliation({
+                          const result = await api.createProductConsignacion({
                             recipient: reconciliationRecipient.trim(),
                             reason: reconciliationReason.trim(),
                             notes: reconciliationNotes.trim(),
+                            signature_data: reconciliationSignature,
                             items: reconciliationItems.map(it => ({
                               productId: it.product.id,
                               quantity: it.quantity
@@ -1402,6 +1627,8 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           setLastReconciliationResult(result);
                           // Recargar inventario para actualizar stocks visibles
                           loadData();
+                          // Actualizar lista en historial
+                          api.getConsignaciones().then(data => setConsignacionesList(data || []));
                         } catch (err: any) {
                           alert(err.message || 'Error al procesar salida a consignación.');
                         } finally {
@@ -1422,6 +1649,34 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               )}
             </div>
           </div>
+        )}
+
+        {/* Modal de Firma en Pantalla para Consignación */}
+        {showSignaturePad && (
+          <SignaturePad
+            title="Firma de Recibido a Consignación"
+            onSave={async (dataUrl) => {
+              if (signingConsignacionId) {
+                // Firmando un comprobante existente en el historial
+                try {
+                  await api.updateConsignacionSignature(signingConsignacionId, dataUrl);
+                  setConsignacionesList(prev => prev.map(c => c.id === signingConsignacionId ? { ...c, signature_data: dataUrl } : c));
+                  alert('Firma guardada correctamente en el comprobante.');
+                } catch (e: any) {
+                  alert(e.message || 'Error al guardar firma.');
+                }
+                setSigningConsignacionId(null);
+              } else {
+                // Firmando antes de crear la nueva consignación
+                setReconciliationSignature(dataUrl);
+              }
+              setShowSignaturePad(false);
+            }}
+            onClose={() => {
+              setShowSignaturePad(false);
+              setSigningConsignacionId(null);
+            }}
+          />
         )}
 
         {showAddModal && (

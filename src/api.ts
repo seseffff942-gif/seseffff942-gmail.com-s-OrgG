@@ -2611,6 +2611,7 @@ export const api = {
     recipient: string;
     reason: string;
     notes?: string;
+    signature_data?: string | null;
     items: Array<{ productId: string; variantId?: string; quantity: number }>;
   }): Promise<any> => {
     const res = await fetchWithAuth('/api/inventory/consignacion', {
@@ -2621,6 +2622,30 @@ export const api = {
     const resData = await safeJson(res);
     if (!res.ok) {
       throw new Error(resData?.error || `Error al procesar salida a consignación (${res.status})`);
+    }
+    return resData;
+  },
+
+  getConsignaciones: async (): Promise<any[]> => {
+    try {
+      const res = await fetchWithAuth('/api/inventory/consignacion');
+      const data = await safeJson(res);
+      if (res.ok && Array.isArray(data)) return data;
+    } catch (err) {
+      console.warn('Error fetching consignaciones:', err);
+    }
+    return [];
+  },
+
+  updateConsignacionSignature: async (id: string, signature_data: string): Promise<any> => {
+    const res = await fetchWithAuth(`/api/inventory/consignacion/${encodeURIComponent(id)}/signature`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signature_data })
+    });
+    const resData = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(resData?.error || 'Error al guardar firma de consignación');
     }
     return resData;
   },
