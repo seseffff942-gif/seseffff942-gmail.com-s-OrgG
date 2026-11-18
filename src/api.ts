@@ -2595,14 +2595,32 @@ export const api = {
     notes?: string;
     items: Array<{ productId: string; variantId?: string; quantity: number }>;
   }): Promise<any> => {
-    const res = await fetchWithAuth('/api/inventory/reconciliation', {
+    const res = await fetchWithAuth('/api/inventory/consignacion', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
     const resData = await safeJson(res);
     if (!res.ok) {
-      throw new Error(resData?.error || `Error al procesar salida a conciliación (${res.status})`);
+      throw new Error(resData?.error || `Error al procesar salida a consignación (${res.status})`);
+    }
+    return resData;
+  },
+
+  createProductConsignacion: async (data: {
+    recipient: string;
+    reason: string;
+    notes?: string;
+    items: Array<{ productId: string; variantId?: string; quantity: number }>;
+  }): Promise<any> => {
+    const res = await fetchWithAuth('/api/inventory/consignacion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const resData = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(resData?.error || `Error al procesar salida a consignación (${res.status})`);
     }
     return resData;
   },

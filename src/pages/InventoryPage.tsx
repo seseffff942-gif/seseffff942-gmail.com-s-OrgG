@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
 import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet, ArrowUpRight, Printer } from 'lucide-react';
-import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT, printHtml, generateConciliacionReceiptHtml } from '../utils';
+import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT, printHtml, generateConsignacionReceiptHtml } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -35,10 +35,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedProductQR, setSelectedProductQR] = useState<Product | null>(null);
 
-  // Estados para Módulo de Conciliación de Productos
+  // Estados para Módulo de Consignación de Productos
   const [showReconciliationModal, setShowReconciliationModal] = useState(false);
-  const [reconciliationRecipient, setReconciliationRecipient] = useState('Conciliación / Auditoría');
-  const [reconciliationReason, setReconciliationReason] = useState('Salida de producto para revisión y conciliación');
+  const [reconciliationRecipient, setReconciliationRecipient] = useState('Boreal Infraestructura y Equipos');
+  const [reconciliationReason, setReconciliationReason] = useState('Envío de producto a consignación');
   const [reconciliationNotes, setReconciliationNotes] = useState('');
   const [reconciliationItems, setReconciliationItems] = useState<Array<{ product: Product; quantity: number }>>([]);
   const [reconciliationSearch, setReconciliationSearch] = useState('');
@@ -1078,18 +1078,18 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   <button
                     onClick={() => {
                       setReconciliationItems([]);
-                      setReconciliationRecipient('Conciliación / Auditoría');
-                      setReconciliationReason('Envío a conciliación de producto');
+                      setReconciliationRecipient('Boreal Infraestructura y Equipos');
+                      setReconciliationReason('Envío de producto a consignación');
                       setReconciliationNotes('');
                       setReconciliationSearch('');
                       setLastReconciliationResult(null);
                       setShowReconciliationModal(true);
                     }}
                     className="flex items-center justify-center gap-1.5 h-11 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-sky-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
-                    title="Mandar producto a conciliación (descuenta stock sin crear venta ni consumir folio)"
+                    title="Mandar producto a consignación (descuenta stock sin crear venta ni consumir folio)"
                   >
                     <ArrowUpRight size={16} />
-                    <span>CONCILIACIÓN</span>
+                    <span>CONSIGNACIÓN</span>
                   </button>
 
                   <button
@@ -1140,7 +1140,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         </div>
 
         {/* Add Product Modal */}
-        {/* Modal de Conciliación de Productos */}
+        {/* Modal de Consignación de Productos */}
         {showReconciliationModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
             <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
@@ -1151,7 +1151,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     <ArrowUpRight size={22} />
                   </div>
                   <div>
-                    <h3 className="font-black text-lg text-slate-800 leading-tight">Mandar a Conciliación</h3>
+                    <h3 className="font-black text-lg text-slate-800 leading-tight">Mandar a Consignación</h3>
                     <p className="text-xs text-slate-500 font-medium">Rebaja de stock sin venta ni consumo de folios</p>
                   </div>
                 </div>
@@ -1172,10 +1172,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       <CheckCircle size={36} />
                     </div>
                     <div>
-                      <h4 className="text-xl font-black text-slate-800">¡Salida Registrada con Éxito!</h4>
+                      <h4 className="text-xl font-black text-slate-800">¡Salida a Consignación Registrada con Éxito!</h4>
                       <p className="text-sm font-bold text-sky-700 mt-1">Código: {lastReconciliationResult.code}</p>
                       <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                        Los productos han sido descontados directamente del stock central. Puedes imprimir el comprobante oficial a continuación.
+                        Los productos han sido descontados directamente del stock central. Puedes imprimir el comprobante oficial de consignación a continuación.
                       </p>
                     </div>
 
@@ -1192,7 +1192,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     <div className="flex gap-2 justify-center pt-2">
                       <button
                         onClick={() => {
-                          const html = generateConciliacionReceiptHtml(lastReconciliationResult);
+                          const html = generateConsignacionReceiptHtml(lastReconciliationResult);
                           printHtml(html);
                         }}
                         className="flex items-center gap-2 px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
@@ -1216,7 +1216,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Destino / Recibe *</label>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Destino / Consignatario *</label>
                         <input
                           type="text"
                           value={reconciliationRecipient}
@@ -1231,7 +1231,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           type="text"
                           value={reconciliationReason}
                           onChange={(e) => setReconciliationReason(e.target.value)}
-                          placeholder="Ej. Envío para conciliación de producto"
+                          placeholder="Ej. Envío de producto a consignación"
                           className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 font-semibold text-slate-800 outline-none"
                         />
                       </div>
@@ -1251,7 +1251,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     {/* Buscador de productos para agregar */}
                     <div className="pt-2 border-t border-slate-100">
                       <label className="text-[11px] font-bold text-slate-700 block mb-1.5 flex items-center justify-between">
-                        <span>Agregar Producto a Conciliar</span>
+                        <span>Agregar Producto a Consignación</span>
                         <span className="text-[10px] text-slate-400 font-normal">Escribe para buscar</span>
                       </label>
                       <div className="relative">
@@ -1369,7 +1369,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       disabled={isSubmittingReconciliation || reconciliationItems.length === 0}
                       onClick={async () => {
                         if (!reconciliationRecipient.trim()) {
-                          alert('Por favor ingresa el destino o destinatario de la conciliación.');
+                          alert('Por favor ingresa el destino o destinatario de la consignación.');
                           return;
                         }
                         if (reconciliationItems.length === 0) {
@@ -1383,7 +1383,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           }
                         }
 
-                        if (!confirm(`¿Confirmas la salida de ${reconciliationItems.reduce((acc, it) => acc + it.quantity, 0)} unidades a conciliación?\n\nSe descontarán de inventario sin generar folio fiscal.`)) {
+                        if (!confirm(`¿Confirmas la salida de ${reconciliationItems.reduce((acc, it) => acc + it.quantity, 0)} unidades a consignación?\n\nSe descontarán de inventario sin generar folio fiscal.`)) {
                           return;
                         }
 
@@ -1403,7 +1403,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                           // Recargar inventario para actualizar stocks visibles
                           loadData();
                         } catch (err: any) {
-                          alert(err.message || 'Error al procesar salida a conciliación.');
+                          alert(err.message || 'Error al procesar salida a consignación.');
                         } finally {
                           setIsSubmittingReconciliation(false);
                         }

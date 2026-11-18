@@ -12917,10 +12917,10 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
   invalidateCache("recibos_conformes");
   res.json(data);
 }));
-app.post("/api/inventory/reconciliation", requireAuth, asyncHandler(async (req, res) => {
+app.post(["/api/inventory/reconciliation", "/api/inventory/consignacion"], requireAuth, asyncHandler(async (req, res) => {
   const { recipient, reason, notes, items } = req.body;
   if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Debes incluir al menos un producto para mandar a conciliaci\xF3n." });
+    return res.status(400).json({ error: "Debes incluir al menos un producto para mandar a consignaci\xF3n." });
   }
   for (const it of items) {
     if (!it.productId || !it.quantity || parseFloat(it.quantity) <= 0) {
@@ -12955,7 +12955,7 @@ app.post("/api/inventory/reconciliation", requireAuth, asyncHandler(async (req, 
     }
     const processedItems = [];
     const dateNow = (/* @__PURE__ */ new Date()).toISOString();
-    const reconciliationCode = `CONC-${Date.now().toString().slice(-6)}`;
+    const consignacionCode = `CONS-${Date.now().toString().slice(-6)}`;
     for (const it of items) {
       const { data: prods } = await localDb.from("products").select("*").eq("id", it.productId);
       const prod = prods[0];
@@ -12979,14 +12979,14 @@ app.post("/api/inventory/reconciliation", requireAuth, asyncHandler(async (req, 
           await localDb.from("products").update({ stock: newStock }).eq("id", prod.id);
         }
         recordAuditLog({
-          action: "STOCK_DEDUCTED_CONCILIACION",
+          action: "STOCK_DEDUCTED_CONSIGNACION",
           category: "stock",
           entity_type: "product",
           entity_id: prod.id,
           entity_name: prod.name,
-          description: `Descuento de bodega por salida a Conciliaci\xF3n (${reconciliationCode}): -${reqQty} uds de "${prod.name}${variantName}". Destino: ${recipient || "Conciliaci\xF3n"}. Previo: ${prevStock}, Nuevo: ${newStock}`,
+          description: `Descuento de bodega por salida a Consignaci\xF3n (${consignacionCode}): -${reqQty} uds de "${prod.name}${variantName}". Destino: ${recipient || "Consignaci\xF3n"}. Previo: ${prevStock}, Nuevo: ${newStock}`,
           previous_data: { stock: prevStock },
-          new_data: { stock: newStock, quantityDeducted: reqQty, recipient, reason, reconciliationCode },
+          new_data: { stock: newStock, quantityDeducted: reqQty, recipient, reason, consignacionCode },
           user_id: req.user?.id,
           user_email: req.user?.email,
           user_name: req.user?.name || req.user?.email,
@@ -13007,15 +13007,15 @@ app.post("/api/inventory/reconciliation", requireAuth, asyncHandler(async (req, 
     invalidateCache("products");
     const result = {
       success: true,
-      code: reconciliationCode,
-      recipient: recipient || "Conciliaci\xF3n / Auditor\xEDa",
-      reason: reason || "Env\xEDo a conciliaci\xF3n de producto",
+      code: consignacionCode,
+      recipient: recipient || "Consignaci\xF3n / Boreal Infraestructura",
+      reason: reason || "Env\xEDo de producto a consignaci\xF3n",
       notes: notes || "",
       date: dateNow,
       createdBy: req.user?.name || req.user?.email || "Administraci\xF3n",
       items: processedItems
     };
-    console.log(`[CONCILIACION] \u2705 Salida registrada con \xE9xito ${reconciliationCode}: ${processedItems.length} productos descontados.`);
+    console.log(`[CONSIGNACION] \u2705 Salida registrada con \xE9xito ${consignacionCode}: ${processedItems.length} productos descontados.`);
     res.json(result);
   } finally {
     releaseLocks();

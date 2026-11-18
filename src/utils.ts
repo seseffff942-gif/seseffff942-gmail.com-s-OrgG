@@ -1661,7 +1661,7 @@ export interface ReciboConformeOptions {
   deliveryDate?: string;
 }
 
-export function generateConciliacionReceiptHtml(data: {
+export function generateConsignacionReceiptHtml(data: {
   code: string;
   recipient: string;
   reason: string;
@@ -1717,7 +1717,7 @@ export function generateConciliacionReceiptHtml(data: {
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Comprobante de Conciliación - ${data.code}</title>
+  <title>Comprobante de Envío a Consignación - ${data.code}</title>
   <style>
     @page { size: letter portrait; margin: 12mm 15mm; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 20px; font-size: 13px; line-height: 1.4; }
@@ -1746,7 +1746,7 @@ export function generateConciliacionReceiptHtml(data: {
       </div>
     </div>
     <div style="text-align: right;">
-      <div class="badge">Salida por Conciliación</div>
+      <div class="badge">Salida por Consignación</div>
       <div style="margin-top: 6px; font-size: 18px; font-weight: 900; color: #0f172a; font-family: monospace;">${data.code}</div>
       <div style="font-size: 11px; color: #64748b; margin-top: 2px;">(No genera venta / Sin folio fiscal)</div>
     </div>
@@ -1756,8 +1756,8 @@ export function generateConciliacionReceiptHtml(data: {
     <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
       <tr>
         <td style="width: 50%; vertical-align: top; padding-right: 15px;">
-          <p style="margin: 0 0 6px 0;"><strong>Destino / Destinatario:</strong> <span style="color: #0b4d2c; font-weight: 800; font-size: 13.5px;">${data.recipient}</span></p>
-          <p style="margin: 0 0 6px 0;"><strong>Motivo de Conciliación:</strong> <span>${data.reason}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>Destino / Recibe (Consignatario):</strong> <span style="color: #0b4d2c; font-weight: 800; font-size: 13.5px;">${data.recipient}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>Motivo de Salida:</strong> <span>${data.reason}</span></p>
           ${data.notes ? `<p style="margin: 0;"><strong>Observaciones:</strong> <span>${data.notes}</span></p>` : ''}
         </td>
         <td style="width: 50%; vertical-align: top; border-left: 1px solid #cbd5e1; padding-left: 15px;">
@@ -1769,7 +1769,7 @@ export function generateConciliacionReceiptHtml(data: {
     </table>
   </div>
 
-  <h3 style="margin: 20px 0 8px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #334155; font-weight: 800;">Detalle de Productos Descontados del Stock</h3>
+  <h3 style="margin: 20px 0 8px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #334155; font-weight: 800;">Detalle de Productos Enviados a Consignación</h3>
   <table class="table-data">
     <thead>
       <tr>
@@ -1786,7 +1786,7 @@ export function generateConciliacionReceiptHtml(data: {
   </table>
 
   <div style="margin-top: 15px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; font-size: 11.5px; color: #065f46;">
-    <strong>Constancia Oficial:</strong> Los productos detallados anteriormente fueron rebajados con éxito del inventario central para su respectiva conciliación/revisión sin consumir correlativo de folios de venta ni alterar estadísticas de facturación.
+    <strong>Constancia Oficial de Consignación:</strong> Los productos detallados anteriormente fueron rebajados con éxito del inventario central para su entrega en modalidad de consignación sin generar venta inmediata ni consumir correlativo de folios tributarios.
   </div>
 
   <div class="signatures">
@@ -1794,7 +1794,7 @@ export function generateConciliacionReceiptHtml(data: {
       <div class="sig-line">Entrega Bodega (Emisor)</div>
     </div>
     <div>
-      <div class="sig-line">Recibe para Conciliación</div>
+      <div class="sig-line">Recibe a Consignación</div>
     </div>
   </div>
 </body>
