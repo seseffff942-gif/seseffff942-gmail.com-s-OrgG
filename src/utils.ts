@@ -1661,6 +1661,147 @@ export interface ReciboConformeOptions {
   deliveryDate?: string;
 }
 
+export function generateConciliacionReceiptHtml(data: {
+  code: string;
+  recipient: string;
+  reason: string;
+  notes?: string;
+  date: string;
+  createdBy: string;
+  items: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    unitPrice?: number;
+    previousStock?: number;
+    newStock?: number;
+  }>;
+}): string {
+  const logoUrl = getAppLogoBase64();
+  const formatGT = (num: number | string | undefined) => {
+    const n = Number(num);
+    return isNaN(n) ? '0.00' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const formattedDate = new Date(data.date).toLocaleDateString('es-GT', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const totalUnits = data.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+
+  const itemsRows = data.items.map((it, idx) => `
+    <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+      <td style="padding: 10px 14px; font-weight: 700; color: #0f172a; font-size: 13px;">${idx + 1}</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #1e293b; font-weight: 600;">
+        ${it.productName}
+      </td>
+      <td style="padding: 10px 14px; text-align: center; font-weight: 800; color: #0b4d2c; font-size: 14px;">
+        ${it.quantity}
+      </td>
+      <td style="padding: 10px 14px; text-align: center; font-size: 12px; color: #64748b;">
+        ${it.previousStock !== undefined ? it.previousStock : '-'}
+      </td>
+      <td style="padding: 10px 14px; text-align: center; font-size: 12px; font-weight: 700; color: #2563eb;">
+        ${it.newStock !== undefined ? it.newStock : '-'}
+      </td>
+    </tr>
+  `).join('');
+
+  return `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Comprobante de Conciliación - ${data.code}</title>
+  <style>
+    @page { size: letter portrait; margin: 12mm 15mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 20px; font-size: 13px; line-height: 1.4; }
+    .header-box { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0b4d2c; padding-bottom: 16px; margin-bottom: 20px; }
+    .badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; }
+    .table-data { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    .table-data th { background: #0b4d2c; color: #ffffff; padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; }
+    .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; }
+    .signatures { display: flex; justify-content: space-between; margin-top: 60px; padding: 0 40px; }
+    .sig-line { width: 220px; border-top: 1.5px solid #0f172a; text-align: center; padding-top: 6px; font-size: 12px; font-weight: 700; color: #334155; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header-box">
+    <div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        ${logoUrl ? `<img src="${logoUrl}" alt="Logo" style="height: 52px; object-fit: contain;" />` : ''}
+        <div>
+          <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #0b4d2c; letter-spacing: -0.5px;">AGRICOVET DE GUATEMALA</h1>
+          <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b; font-weight: 600;">Control y Movimiento Interno de Bodega</p>
+        </div>
+      </div>
+    </div>
+    <div style="text-align: right;">
+      <div class="badge">Salida por Conciliación</div>
+      <div style="margin-top: 6px; font-size: 18px; font-weight: 900; color: #0f172a; font-family: monospace;">${data.code}</div>
+      <div style="font-size: 11px; color: #64748b; margin-top: 2px;">(No genera venta / Sin folio fiscal)</div>
+    </div>
+  </div>
+
+  <div class="info-card">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+      <tr>
+        <td style="width: 50%; vertical-align: top; padding-right: 15px;">
+          <p style="margin: 0 0 6px 0;"><strong>Destino / Destinatario:</strong> <span style="color: #0b4d2c; font-weight: 800; font-size: 13.5px;">${data.recipient}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>Motivo de Conciliación:</strong> <span>${data.reason}</span></p>
+          ${data.notes ? `<p style="margin: 0;"><strong>Observaciones:</strong> <span>${data.notes}</span></p>` : ''}
+        </td>
+        <td style="width: 50%; vertical-align: top; border-left: 1px solid #cbd5e1; padding-left: 15px;">
+          <p style="margin: 0 0 6px 0;"><strong>Fecha y Hora de Salida:</strong> <span>${formattedDate}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>Autorizado / Emitido por:</strong> <span>${data.createdBy}</span></p>
+          <p style="margin: 0;"><strong>Total Unidades Descontadas:</strong> <span style="font-weight: 900; color: #0b4d2c; font-size: 14px;">${totalUnits} uds</span></p>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <h3 style="margin: 20px 0 8px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #334155; font-weight: 800;">Detalle de Productos Descontados del Stock</h3>
+  <table class="table-data">
+    <thead>
+      <tr>
+        <th style="width: 40px;">#</th>
+        <th>Descripción del Producto</th>
+        <th style="text-align: center; width: 100px;">Cantidad Salida</th>
+        <th style="text-align: center; width: 100px;">Stock Anterior</th>
+        <th style="text-align: center; width: 100px;">Nuevo Stock</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsRows}
+    </tbody>
+  </table>
+
+  <div style="margin-top: 15px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; font-size: 11.5px; color: #065f46;">
+    <strong>Constancia Oficial:</strong> Los productos detallados anteriormente fueron rebajados con éxito del inventario central para su respectiva conciliación/revisión sin consumir correlativo de folios de venta ni alterar estadísticas de facturación.
+  </div>
+
+  <div class="signatures">
+    <div>
+      <div class="sig-line">Entrega Bodega (Emisor)</div>
+    </div>
+    <div>
+      <div class="sig-line">Recibe para Conciliación</div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
 export function generateReciboConformeHtml(invoice: any, options: ReciboConformeOptions = {}): string {
   if (!invoice) return '<h1>No hay datos de venta para generar el recibo</h1>';
 

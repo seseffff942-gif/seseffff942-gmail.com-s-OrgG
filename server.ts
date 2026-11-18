@@ -13867,6 +13867,128 @@ app.post('/api/recibos-conformes', requireAuth, asyncHandler(async (req: any, re
   res.json(data);
 }));
 
+// ======== REGISTRO DE SALIDA POR CONCILIACIÓN (SIN VENTA, SIN FOLIO, DESCUENTO REAL DE STOCK) ========
+app.post('/api/inventory/reconciliation', requireAuth, asyncHandler(async (req: any, res: any) => {
+  const { recipient, reason, notes, items } = req.body;
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Debes incluir al menos un producto para mandar a conciliación.' });
+  }
+
+  // Validar cantidades positivas
+  for (const it of items) {
+    if (!it.productId || !it.quantity || parseFloat(it.quantity) <= 0) {
+      return res.status(400).json({ error: 'Todos los productos deben tener una cantidad válida mayor a 0.' });
+    }
+  }
+
+  // Mutex para concurrencia sobre stock
+  const releaseLocks = await acquireStockLocks(items.map((i: any) => i.productId));
+
+  try {
+    // 1. Verificar stock disponible
+    for (const it of items) {
+      const { data: prods, error: pErr } = await localDb.from('products').select('*').eq('id', it.productId);
+      if (pErr || !prods || prods.length === 0) {
+        return res.status(404).json({ error: `Producto no encontrado en inventario (ID: ${it.productId})` });
+      }
+      const prod = prods[0];
+      if (!prod.is_external) {
+        let avail = parseFloat(prod.stock || 0);
+        if (it.variantId && prod.variants) {
+          const v = prod.variants.find((vr: any) => vr.id === it.variantId);
+          if (v && v.stock !== undefined) avail = parseFloat(v.stock || 0);
+        }
+        const reqQty = parseFloat(it.quantity);
+        if (avail < reqQty) {
+          return res.status(400).json({
+            error: `Stock insuficiente para "${prod.name}". En bodega quedan ${avail} y solicitaste transferir ${reqQty}.`,
+            productId: prod.id,
+            productName: prod.name,
+            availableStock: avail,
+            requested: reqQty
+          });
+        }
+      }
+    }
+
+    // 2. Procesar deducción de stock
+    const processedItems: any[] = [];
+    const dateNow = new Date().toISOString();
+    const reconciliationCode = `CONC-${Date.now().toString().slice(-6)}`;
+
+    for (const it of items) {
+      const { data: prods } = await localDb.from('products').select('*').eq('id', it.productId);
+      const prod = prods![0];
+      const reqQty = parseFloat(it.quantity);
+      let prevStock = parseFloat(prod.stock || 0);
+      let newStock = prevStock;
+      let variantName = '';
+
+      if (!prod.is_external) {
+        if (it.variantId && prod.variants) {
+          const vars = [...prod.variants];
+          const vIdx = vars.findIndex((vr: any) => vr.id === it.variantId);
+          if (vIdx !== -1) {
+            prevStock = parseFloat(vars[vIdx].stock || 0);
+            newStock = Math.max(0, prevStock - reqQty);
+            vars[vIdx] = { ...vars[vIdx], stock: newStock };
+            variantName = ` (${vars[vIdx].color || ''} ${vars[vIdx].size || ''})`.trim();
+            await localDb.from('products').update({ variants: vars }).eq('id', prod.id);
+          }
+        } else {
+          newStock = Math.max(0, prevStock - reqQty);
+          await localDb.from('products').update({ stock: newStock }).eq('id', prod.id);
+        }
+
+        // Auditoría
+        recordAuditLog({
+          action: 'STOCK_DEDUCTED_CONCILIACION',
+          category: 'stock',
+          entity_type: 'product',
+          entity_id: prod.id,
+          entity_name: prod.name,
+          description: `Descuento de bodega por salida a Conciliación (${reconciliationCode}): -${reqQty} uds de "${prod.name}${variantName}". Destino: ${recipient || 'Conciliación'}. Previo: ${prevStock}, Nuevo: ${newStock}`,
+          previous_data: { stock: prevStock },
+          new_data: { stock: newStock, quantityDeducted: reqQty, recipient, reason, reconciliationCode },
+          user_id: req.user?.id,
+          user_email: req.user?.email,
+          user_name: req.user?.name || req.user?.email,
+          user_role: req.user?.role,
+          ip_address: req.ip
+        }).catch(() => {});
+      }
+
+      processedItems.push({
+        productId: prod.id,
+        productName: `${prod.name}${variantName}`,
+        quantity: reqQty,
+        unitPrice: prod.price || 0,
+        previousStock: prevStock,
+        newStock: newStock
+      });
+    }
+
+    invalidateCache('products');
+
+    const result = {
+      success: true,
+      code: reconciliationCode,
+      recipient: recipient || 'Conciliación / Auditoría',
+      reason: reason || 'Envío a conciliación de producto',
+      notes: notes || '',
+      date: dateNow,
+      createdBy: req.user?.name || req.user?.email || 'Administración',
+      items: processedItems
+    };
+
+    console.log(`[CONCILIACION] ✅ Salida registrada con éxito ${reconciliationCode}: ${processedItems.length} productos descontados.`);
+    res.json(result);
+  } finally {
+    releaseLocks();
+  }
+}));
+
 // ======== DESCARGA TEMPORAL PARA APK / WEBVIEW Y COMPATIBILIDAD MÓVIL ========
 const tempDownloadStore = new Map<string, { buffer: Buffer; filename: string; mimeType: string; expires: number }>();
 

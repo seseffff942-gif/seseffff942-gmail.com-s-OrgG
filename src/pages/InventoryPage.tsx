@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { Product, User, Offer } from '../types';
 import QRCode from 'react-qr-code';
-import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet } from 'lucide-react';
-import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT } from '../utils';
+import { Search, Edit2, Upload, Plus, Image as ImageIcon, X, Tag, CheckCircle, Sparkles, Package, Users, Trash2, FileText, Info, ExternalLink, Layers, RotateCw, Filter, Stethoscope, Sprout, Wrench, Shield, AlertCircle, Globe, Download, QrCode, Briefcase, EyeOff, Eye, CheckSquare, Square, RotateCcw, Check, ShieldAlert, AlertTriangle, Percent, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flame, Lightbulb, ArrowRight, ArrowDownRight, Compass, FileSpreadsheet, ArrowUpRight, Printer } from 'lucide-react';
+import { cn, consumeQuickSearch, doesNotNeedStock, isCriticalStock, isTecunProduct, isFiatProduct, calculateSlowMovingProducts, SlowMovingProduct, normalizeSearchText, descargarExcel, QUICK_SEARCH_EVENT, printHtml, generateConciliacionReceiptHtml } from '../utils';
 import { GeminiLogo, GeminiAssistant } from '../components/GeminiAssistant';
 import { OfficeInventory } from '../components/OfficeInventory';
 import { motion } from 'motion/react';
@@ -34,6 +34,16 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedProductQR, setSelectedProductQR] = useState<Product | null>(null);
+
+  // Estados para Módulo de Conciliación de Productos
+  const [showReconciliationModal, setShowReconciliationModal] = useState(false);
+  const [reconciliationRecipient, setReconciliationRecipient] = useState('Conciliación / Auditoría');
+  const [reconciliationReason, setReconciliationReason] = useState('Salida de producto para revisión y conciliación');
+  const [reconciliationNotes, setReconciliationNotes] = useState('');
+  const [reconciliationItems, setReconciliationItems] = useState<Array<{ product: Product; quantity: number }>>([]);
+  const [reconciliationSearch, setReconciliationSearch] = useState('');
+  const [isSubmittingReconciliation, setIsSubmittingReconciliation] = useState(false);
+  const [lastReconciliationResult, setLastReconciliationResult] = useState<any | null>(null);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [newProductName, setNewProductName] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('Agroquímicos');
@@ -1064,13 +1074,32 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               </button>
 
               {user.role === 'admin' && (
-                <button
-                  onClick={handleOpenAddModal}
-                  className="flex items-center justify-center gap-1.5 h-11 px-6 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-emerald-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
-                >
-                  <Plus size={16} />
-                  <span>NUEVO PRODUCTO</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      setReconciliationItems([]);
+                      setReconciliationRecipient('Conciliación / Auditoría');
+                      setReconciliationReason('Envío a conciliación de producto');
+                      setReconciliationNotes('');
+                      setReconciliationSearch('');
+                      setLastReconciliationResult(null);
+                      setShowReconciliationModal(true);
+                    }}
+                    className="flex items-center justify-center gap-1.5 h-11 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-sky-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
+                    title="Mandar producto a conciliación (descuenta stock sin crear venta ni consumir folio)"
+                  >
+                    <ArrowUpRight size={16} />
+                    <span>CONCILIACIÓN</span>
+                  </button>
+
+                  <button
+                    onClick={handleOpenAddModal}
+                    className="flex items-center justify-center gap-1.5 h-11 px-6 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-emerald-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
+                  >
+                    <Plus size={16} />
+                    <span>NUEVO PRODUCTO</span>
+                  </button>
+                </>
               )}
             </div>
 
@@ -1111,6 +1140,290 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         </div>
 
         {/* Add Product Modal */}
+        {/* Modal de Conciliación de Productos */}
+        {showReconciliationModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-sky-50/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-700 text-white flex items-center justify-center shadow-md shadow-sky-900/20">
+                    <ArrowUpRight size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-lg text-slate-800 leading-tight">Mandar a Conciliación</h3>
+                    <p className="text-xs text-slate-500 font-medium">Rebaja de stock sin venta ni consumo de folios</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowReconciliationModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Contenido / Pasos */}
+              <div className="p-5 overflow-y-auto space-y-4 flex-1">
+                {lastReconciliationResult ? (
+                  /* Vista de Éxito y Comprobante */
+                  <div className="text-center py-4 space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-inner">
+                      <CheckCircle size={36} />
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-black text-slate-800">¡Salida Registrada con Éxito!</h4>
+                      <p className="text-sm font-bold text-sky-700 mt-1">Código: {lastReconciliationResult.code}</p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                        Los productos han sido descontados directamente del stock central. Puedes imprimir el comprobante oficial a continuación.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-left max-h-48 overflow-y-auto text-xs space-y-1.5">
+                      <p className="font-black text-slate-600 uppercase tracking-wider text-[10px] mb-1">Productos Descontados:</p>
+                      {lastReconciliationResult.items?.map((it: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-200/60 last:border-0">
+                          <span className="font-bold text-slate-800">{it.productName}</span>
+                          <span className="font-black text-sky-700">-{it.quantity} uds (Quedan: {it.newStock})</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2 justify-center pt-2">
+                      <button
+                        onClick={() => {
+                          const html = generateConciliacionReceiptHtml(lastReconciliationResult);
+                          printHtml(html);
+                        }}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Printer size={16} />
+                        <span>IMPRIMIR COMPROBANTE</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowReconciliationModal(false);
+                          setLastReconciliationResult(null);
+                        }}
+                        className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Formulario de Salida */
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Destino / Recibe *</label>
+                        <input
+                          type="text"
+                          value={reconciliationRecipient}
+                          onChange={(e) => setReconciliationRecipient(e.target.value)}
+                          placeholder="Ej. Boreal Infraestructura y Equipos"
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 font-semibold text-slate-800 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Motivo / Razón *</label>
+                        <input
+                          type="text"
+                          value={reconciliationReason}
+                          onChange={(e) => setReconciliationReason(e.target.value)}
+                          placeholder="Ej. Envío para conciliación de producto"
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 font-semibold text-slate-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 block mb-1">Observaciones / Notas (Opcional)</label>
+                      <input
+                        type="text"
+                        value={reconciliationNotes}
+                        onChange={(e) => setReconciliationNotes(e.target.value)}
+                        placeholder="Detalles adicionales o número de guía externa..."
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 font-semibold text-slate-800 outline-none"
+                      />
+                    </div>
+
+                    {/* Buscador de productos para agregar */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1.5 flex items-center justify-between">
+                        <span>Agregar Producto a Conciliar</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Escribe para buscar</span>
+                      </label>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                        <input
+                          type="text"
+                          value={reconciliationSearch}
+                          onChange={(e) => setReconciliationSearch(e.target.value)}
+                          placeholder="Buscar por nombre de producto..."
+                          className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-sky-500 outline-none font-semibold text-slate-800"
+                        />
+                      </div>
+
+                      {/* Lista de sugerencias */}
+                      {reconciliationSearch.trim().length > 1 && (
+                        <div className="mt-1 border border-slate-200 bg-white rounded-xl shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-100">
+                          {products
+                            .filter(p => !p.is_external && normalizeSearchText(p.name).includes(normalizeSearchText(reconciliationSearch)))
+                            .slice(0, 8)
+                            .map(prod => (
+                              <button
+                                key={prod.id}
+                                onClick={() => {
+                                  if (reconciliationItems.some(i => i.product.id === prod.id)) {
+                                    alert('Este producto ya fue agregado.');
+                                    return;
+                                  }
+                                  setReconciliationItems([...reconciliationItems, { product: prod, quantity: 1 }]);
+                                  setReconciliationSearch('');
+                                }}
+                                className="w-full text-left p-2.5 hover:bg-sky-50 flex items-center justify-between transition-colors text-xs cursor-pointer"
+                              >
+                                <div>
+                                  <span className="font-bold text-slate-800 block">{prod.name}</span>
+                                  <span className="text-[10px] text-slate-500 font-medium">Categoría: {prod.category}</span>
+                                </div>
+                                <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
+                                  Stock: {prod.stock}
+                                </span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tabla de Productos Seleccionados */}
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-700 mb-1.5 flex justify-between">
+                        <span>Productos Seleccionados ({reconciliationItems.length})</span>
+                        <span className="text-[10px] text-sky-700 font-bold">
+                          Total unidades: {reconciliationItems.reduce((acc, it) => acc + (it.quantity || 0), 0)}
+                        </span>
+                      </p>
+
+                      {reconciliationItems.length === 0 ? (
+                        <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
+                          No has seleccionado ningún producto aún. Usa el buscador de arriba.
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {reconciliationItems.map((item, idx) => (
+                            <div key={item.product.id} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-slate-800 truncate">{item.product.name}</p>
+                                <p className="text-[10px] text-slate-500">Disponible: {item.product.stock} uds</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[10px] font-bold text-slate-500">Cantidad:</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={item.product.stock}
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                                    const next = [...reconciliationItems];
+                                    next[idx].quantity = val;
+                                    setReconciliationItems(next);
+                                  }}
+                                  className="w-16 p-1 text-center font-black text-sky-800 bg-white border border-slate-200 rounded-lg outline-none"
+                                />
+                                <button
+                                  onClick={() => {
+                                    setReconciliationItems(reconciliationItems.filter((_, i) => i !== idx));
+                                  }}
+                                  className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Eliminar de la lista"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Footer con Acciones */}
+              {!lastReconciliationResult && (
+                <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                  <div className="text-[11px] text-slate-500">
+                    <span className="font-bold text-slate-700">Aviso:</span> Se rebajará el stock físico directamente.
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowReconciliationModal(false)}
+                      className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      disabled={isSubmittingReconciliation || reconciliationItems.length === 0}
+                      onClick={async () => {
+                        if (!reconciliationRecipient.trim()) {
+                          alert('Por favor ingresa el destino o destinatario de la conciliación.');
+                          return;
+                        }
+                        if (reconciliationItems.length === 0) {
+                          alert('Agrega al menos un producto.');
+                          return;
+                        }
+                        for (const it of reconciliationItems) {
+                          if (it.quantity > it.product.stock) {
+                            alert(`Stock insuficiente para "${it.product.name}". En bodega quedan ${it.product.stock} uds.`);
+                            return;
+                          }
+                        }
+
+                        if (!confirm(`¿Confirmas la salida de ${reconciliationItems.reduce((acc, it) => acc + it.quantity, 0)} unidades a conciliación?\n\nSe descontarán de inventario sin generar folio fiscal.`)) {
+                          return;
+                        }
+
+                        try {
+                          setIsSubmittingReconciliation(true);
+                          const result = await api.createProductReconciliation({
+                            recipient: reconciliationRecipient.trim(),
+                            reason: reconciliationReason.trim(),
+                            notes: reconciliationNotes.trim(),
+                            items: reconciliationItems.map(it => ({
+                              productId: it.product.id,
+                              quantity: it.quantity
+                            }))
+                          });
+
+                          setLastReconciliationResult(result);
+                          // Recargar inventario para actualizar stocks visibles
+                          loadData();
+                        } catch (err: any) {
+                          alert(err.message || 'Error al procesar salida a conciliación.');
+                        } finally {
+                          setIsSubmittingReconciliation(false);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-5 py-2 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+                    >
+                      {isSubmittingReconciliation ? (
+                        <RotateCw size={14} className="animate-spin" />
+                      ) : (
+                        <ArrowUpRight size={14} />
+                      )}
+                      <span>CONFIRMAR SALIDA Y GENERAR COMPROBANTE</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {showAddModal && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-[2rem] shadow-2xl shadow-teal-900/10 w-full max-w-md overflow-hidden flex flex-col max-h-[90vh] border border-slate-100">

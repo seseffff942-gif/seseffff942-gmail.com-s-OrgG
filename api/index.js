@@ -7506,50 +7506,6 @@ async function checkAndDispatchDailySales(options) {
       });
     }
   } else {
-    const fieldSellers = userStatsList.filter(
-      (s) => s.sellerEmail === "gruasytransportesali@gmail.com" || s.sellerEmail === "jerickottoniel@gmail.com"
-    );
-    for (const stat of fieldSellers) {
-      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
-        continue;
-      }
-      payloadsToDispatch.push({
-        recipientName: stat.sellerDisplayName,
-        recipientEmail: stat.sellerEmail,
-        recipientPhone: stat.sellerPhoneClean,
-        payload: {
-          fecha: todayLabel,
-          corte,
-          tipoCorte: esCierre ? "cierre" : "mediodia",
-          tipoReporte: esCierre ? "cierre" : "mediodia",
-          tipo: esCierre ? "cierre" : "mediodia",
-          esCierre,
-          hora: corte,
-          horaCorte: corte,
-          corteHora: corte,
-          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
-          vendedor: stat.sellerDisplayName,
-          nombreDestinatario: stat.sellerDisplayName,
-          email: stat.sellerEmail,
-          numero: stat.sellerPhoneClean,
-          telefono: stat.sellerPhoneClean,
-          cantidadVendida: stat.cantidadVendida,
-          cantidadFaltante: stat.cantidadFaltante,
-          alcanzoMeta: stat.alcanzoMeta,
-          umbral: SALES_THRESHOLD,
-          cantidadFacturas: stat.cantidadFacturas,
-          destinatarios: [{
-            nombreDestinatario: stat.sellerDisplayName,
-            telefono: stat.sellerPhoneClean,
-            numero: stat.sellerPhoneClean,
-            email: stat.sellerEmail,
-            rol: stat.seller.role || "seller"
-          }],
-          ventas: stat.ventas,
-          logoBase64: getLogoTiBase64()
-        }
-      });
-    }
     const herbertData = userStatsList.find((s) => s.sellerEmail === "gruasytransportesali@gmail.com");
     const erickData = userStatsList.find((s) => s.sellerEmail === "jerickottoniel@gmail.com");
     const emanuelData = userStatsList.find((s) => s.sellerEmail === "seseffff942@gmail.com");
@@ -7580,24 +7536,24 @@ async function checkAndDispatchDailySales(options) {
 Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas del d\xEDa (*${todayLabel}*):
 
 \u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
-\u{1F4C4} *Facturas Totales Hoy:* ${totalFacturasGeneral} factura(s)
+\u{1F4C4} *Ventas / Facturas Totales Hoy:* ${totalFacturasGeneral} venta(s)
 \u{1F3AF} *Meta Diaria por Asesor:* Q. ${SALES_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \u{1F465} *DETALLE POR ASESOR:*
 
 1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
-  \u25AB\uFE0F Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))
+  \u25AB\uFE0F Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} venta(s))
   \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
 
-2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor):
-  \u25AB\uFE0F Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))
+2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor #8363):
+  \u25AB\uFE0F Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} venta(s))
   \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
 `;
       if (emanuelVendio) {
         textoConsolidado += `
 \u2B50 *Emanuel Lima (Ventas Propias):*
-  \u25AB\uFE0F Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))
+  \u25AB\uFE0F Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} venta(s))
   \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas hoy en sistema
 `;
       }
@@ -7640,6 +7596,50 @@ Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas del d\xE
             rol: "admin"
           }],
           ventas: [],
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+    const fieldSellers = userStatsList.filter(
+      (s) => s.sellerEmail === "gruasytransportesali@gmail.com" || s.sellerEmail === "jerickottoniel@gmail.com"
+    );
+    for (const stat of fieldSellers) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del D\xEDa (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod\xEDa (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
           logoBase64: getLogoTiBase64()
         }
       });
@@ -7878,6 +7878,103 @@ async function checkAndDispatchWeeklySales(options) {
   const alcanzoMetaEquipo = totalGeneral >= metaSemanalEquipo;
   const porcentajeEquipo = metaSemanalEquipo > 0 ? (totalGeneral / metaSemanalEquipo * 100).toFixed(1) : "100.0";
   const payloadsToDispatch = [];
+  for (const adm of adminRecipients) {
+    if (targetSellerEmailsList && !targetSellerEmailsList.includes(adm.email.toLowerCase())) {
+      continue;
+    }
+    const cleanPhone = formatTelefonoDestinatario(adm.phone);
+    if (!cleanPhone) continue;
+    let textoConsolidado = alcanzoMetaEquipo ? `\u{1F3C6} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*
+\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C8} *Super\xE1vit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F525} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
+
+` : `\u{1F4CA} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*
+\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C9} *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C8} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
+
+`;
+    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F465} *RESUMEN Y CANTIDAD DE VENTAS POR ASESOR:*
+
+1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
+  \u25AB\uFE0F Ventas Realizadas: *${herbertFacturas} venta(s)*
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+  \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${herbertPct}%)
+
+2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor #8363):
+  \u25AB\uFE0F Ventas Realizadas: *${erickFacturas} venta(s)*
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+  \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${erickPct}%)
+`;
+    if (emanuelVendio) {
+      textoConsolidado += `
+\u2B50 *Emanuel Lima (Ventas Propias):*
+  \u25AB\uFE0F Ventas Realizadas: *${emanuelFacturas} venta(s)*
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+  \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas en sistema esta semana
+`;
+    }
+    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
+    payloadsToDispatch.push({
+      recipientName: adm.name,
+      recipientEmail: adm.email,
+      recipientPhone: cleanPhone,
+      isConsolidado: true,
+      payload: {
+        fecha: todayLabel,
+        corte: "semanal",
+        tipoCorte: "semanal",
+        tipoReporte: "semanal",
+        tipo: "semanal",
+        esSemanal: true,
+        esConsolidado: true,
+        hora: "17:00",
+        horaCorte: "17:00",
+        corteHora: "17:00",
+        titulo: `Cierre Semanal Consolidado - ${adm.name}`,
+        vendedor: adm.name,
+        nombreDestinatario: adm.name,
+        email: adm.email,
+        numero: cleanPhone,
+        telefono: cleanPhone,
+        cantidadVendida: totalGeneral,
+        cantidadFaltante: faltanteEquipo,
+        alcanzoMeta: alcanzoMetaEquipo,
+        superavit: superavitEquipo,
+        umbral: metaSemanalEquipo,
+        metaSemanal: metaSemanalEquipo,
+        cantidadFacturas: totalFacturasGeneral,
+        porcentajeCumplimiento: porcentajeEquipo,
+        mensaje: textoConsolidado,
+        textoWhatsApp: textoConsolidado,
+        caption: textoConsolidado,
+        destinatarios: [{
+          nombreDestinatario: adm.name,
+          telefono: cleanPhone,
+          numero: cleanPhone,
+          email: adm.email,
+          rol: "admin"
+        }],
+        ventas: [],
+        logoBase64: getLogoTiBase64()
+      }
+    });
+  }
   for (const stat of sellerStats) {
     if (targetSellerEmailsList && !targetSellerEmailsList.includes(stat.email)) {
       continue;
@@ -7966,105 +8063,6 @@ ${stat.detalleVentas ? "\u{1F4CB} *DETALLE DE VENTAS DE LA SEMANA:*\n" + stat.de
       }
     });
   }
-  for (const adm of adminRecipients) {
-    if (targetSellerEmailsList && !targetSellerEmailsList.includes(adm.email.toLowerCase())) {
-      continue;
-    }
-    const cleanPhone = formatTelefonoDestinatario(adm.phone);
-    if (!cleanPhone) continue;
-    let textoConsolidado = alcanzoMetaEquipo ? `\u{1F3C6} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (S\xC1BADO 5:00 PM)* \u{1F3E2}
-\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
-
-\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
-\u{1F4C4} *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)
-\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4C8} *Super\xE1vit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
-\u{1F525} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
-
-` : `\u{1F4CA} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (S\xC1BADO 5:00 PM)* \u{1F3E2}
-\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
-
-\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
-\u{1F4C4} *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)
-\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4C9} *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
-\u{1F4C8} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
-
-`;
-    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-\u{1F465} *DETALLE POR ASESOR:*
-
-1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
-  \u25AB\uFE0F Total Vendido Semana: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))
-  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-  \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${herbertPct}%)
-
-2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor #8363):
-  \u25AB\uFE0F Total Vendido Semana: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))
-  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-  \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${erickPct}%)
-`;
-    if (emanuelVendio) {
-      textoConsolidado += `
-\u2B50 *Emanuel Lima (Ventas Propias):*
-  \u25AB\uFE0F Total Vendido Semana: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))
-  \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas en sistema esta semana
-`;
-    } else {
-      textoConsolidado += `
-\u2B50 *Emanuel Lima (Ventas Propias):*
-  \u25AB\uFE0F Sin ventas directas registradas esta semana (Q. 0.00)
-`;
-    }
-    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
-    payloadsToDispatch.push({
-      recipientName: adm.name,
-      recipientEmail: adm.email,
-      recipientPhone: cleanPhone,
-      isConsolidado: true,
-      payload: {
-        fecha: todayLabel,
-        corte: "semanal",
-        tipoCorte: "semanal",
-        tipoReporte: "semanal",
-        tipo: "semanal",
-        esSemanal: true,
-        esConsolidado: true,
-        hora: "17:00",
-        horaCorte: "17:00",
-        corteHora: "17:00",
-        titulo: `Cierre Semanal Consolidado - ${adm.name}`,
-        vendedor: adm.name,
-        nombreDestinatario: adm.name,
-        email: adm.email,
-        numero: cleanPhone,
-        telefono: cleanPhone,
-        cantidadVendida: totalGeneral,
-        cantidadFaltante: faltanteEquipo,
-        alcanzoMeta: alcanzoMetaEquipo,
-        superavit: superavitEquipo,
-        umbral: metaSemanalEquipo,
-        metaSemanal: metaSemanalEquipo,
-        cantidadFacturas: totalFacturasGeneral,
-        porcentajeCumplimiento: porcentajeEquipo,
-        mensaje: textoConsolidado,
-        textoWhatsApp: textoConsolidado,
-        caption: textoConsolidado,
-        destinatarios: [{
-          nombreDestinatario: adm.name,
-          telefono: cleanPhone,
-          numero: cleanPhone,
-          email: adm.email,
-          rol: "admin"
-        }],
-        ventas: [],
-        logoBase64: getLogoTiBase64()
-      }
-    });
-  }
   const allReports = [];
   const results = [];
   for (let i = 0; i < payloadsToDispatch.length; i++) {
@@ -8114,6 +8112,10 @@ Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la se
   };
 }
 function initAutoDailySalesCron() {
+  if (process.platform === "win32" && process.env.FORCE_LOCAL_CRON !== "true") {
+    console.log("[AUTO-SALES-CRON] \u{1F515} Cron autom\xE1tico desactivado en entorno local Windows (evita enviar plantillas con 0 desde base de datos local).");
+    return;
+  }
   console.log("[AUTO-SALES-CRON] \u23F0 Programador autom\xE1tico activo para cortes de 12:00 PM y 5:00 PM (Guatemala).");
   setInterval(async () => {
     try {
@@ -8132,8 +8134,13 @@ function initAutoDailySalesCron() {
         const corteKey = `${todayDateStr}_12:00`;
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
-          console.log(`[AUTO-SALES-CRON] \u{1F55B} Disparando corte autom\xE1tico de las 12:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "12:00", isAutomatedCron: true });
+          if (gtNow.getDay() === 6) {
+            console.log(`[AUTO-SALES-CRON] \u{1F3C1} S\xE1bado 12:00 PM detectado. Omitiendo corte diario de mediod\xEDa en 0 y disparando RESUMEN SEMANAL CONSOLIDADO para ${todayDateStr}`);
+            await checkAndDispatchWeeklySales({ isAutomatedCron: true });
+          } else {
+            console.log(`[AUTO-SALES-CRON] \u{1F55B} Disparando corte autom\xE1tico de las 12:00 PM para ${todayDateStr}`);
+            await checkAndDispatchDailySales({ corteHora: "12:00", isAutomatedCron: true });
+          }
         }
       }
       if (hour === 17 && minute === 0) {
@@ -12909,6 +12916,110 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
   }
   invalidateCache("recibos_conformes");
   res.json(data);
+}));
+app.post("/api/inventory/reconciliation", requireAuth, asyncHandler(async (req, res) => {
+  const { recipient, reason, notes, items } = req.body;
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "Debes incluir al menos un producto para mandar a conciliaci\xF3n." });
+  }
+  for (const it of items) {
+    if (!it.productId || !it.quantity || parseFloat(it.quantity) <= 0) {
+      return res.status(400).json({ error: "Todos los productos deben tener una cantidad v\xE1lida mayor a 0." });
+    }
+  }
+  const releaseLocks = await acquireStockLocks(items.map((i) => i.productId));
+  try {
+    for (const it of items) {
+      const { data: prods, error: pErr } = await localDb.from("products").select("*").eq("id", it.productId);
+      if (pErr || !prods || prods.length === 0) {
+        return res.status(404).json({ error: `Producto no encontrado en inventario (ID: ${it.productId})` });
+      }
+      const prod = prods[0];
+      if (!prod.is_external) {
+        let avail = parseFloat(prod.stock || 0);
+        if (it.variantId && prod.variants) {
+          const v = prod.variants.find((vr) => vr.id === it.variantId);
+          if (v && v.stock !== void 0) avail = parseFloat(v.stock || 0);
+        }
+        const reqQty = parseFloat(it.quantity);
+        if (avail < reqQty) {
+          return res.status(400).json({
+            error: `Stock insuficiente para "${prod.name}". En bodega quedan ${avail} y solicitaste transferir ${reqQty}.`,
+            productId: prod.id,
+            productName: prod.name,
+            availableStock: avail,
+            requested: reqQty
+          });
+        }
+      }
+    }
+    const processedItems = [];
+    const dateNow = (/* @__PURE__ */ new Date()).toISOString();
+    const reconciliationCode = `CONC-${Date.now().toString().slice(-6)}`;
+    for (const it of items) {
+      const { data: prods } = await localDb.from("products").select("*").eq("id", it.productId);
+      const prod = prods[0];
+      const reqQty = parseFloat(it.quantity);
+      let prevStock = parseFloat(prod.stock || 0);
+      let newStock = prevStock;
+      let variantName = "";
+      if (!prod.is_external) {
+        if (it.variantId && prod.variants) {
+          const vars = [...prod.variants];
+          const vIdx = vars.findIndex((vr) => vr.id === it.variantId);
+          if (vIdx !== -1) {
+            prevStock = parseFloat(vars[vIdx].stock || 0);
+            newStock = Math.max(0, prevStock - reqQty);
+            vars[vIdx] = { ...vars[vIdx], stock: newStock };
+            variantName = ` (${vars[vIdx].color || ""} ${vars[vIdx].size || ""})`.trim();
+            await localDb.from("products").update({ variants: vars }).eq("id", prod.id);
+          }
+        } else {
+          newStock = Math.max(0, prevStock - reqQty);
+          await localDb.from("products").update({ stock: newStock }).eq("id", prod.id);
+        }
+        recordAuditLog({
+          action: "STOCK_DEDUCTED_CONCILIACION",
+          category: "stock",
+          entity_type: "product",
+          entity_id: prod.id,
+          entity_name: prod.name,
+          description: `Descuento de bodega por salida a Conciliaci\xF3n (${reconciliationCode}): -${reqQty} uds de "${prod.name}${variantName}". Destino: ${recipient || "Conciliaci\xF3n"}. Previo: ${prevStock}, Nuevo: ${newStock}`,
+          previous_data: { stock: prevStock },
+          new_data: { stock: newStock, quantityDeducted: reqQty, recipient, reason, reconciliationCode },
+          user_id: req.user?.id,
+          user_email: req.user?.email,
+          user_name: req.user?.name || req.user?.email,
+          user_role: req.user?.role,
+          ip_address: req.ip
+        }).catch(() => {
+        });
+      }
+      processedItems.push({
+        productId: prod.id,
+        productName: `${prod.name}${variantName}`,
+        quantity: reqQty,
+        unitPrice: prod.price || 0,
+        previousStock: prevStock,
+        newStock
+      });
+    }
+    invalidateCache("products");
+    const result = {
+      success: true,
+      code: reconciliationCode,
+      recipient: recipient || "Conciliaci\xF3n / Auditor\xEDa",
+      reason: reason || "Env\xEDo a conciliaci\xF3n de producto",
+      notes: notes || "",
+      date: dateNow,
+      createdBy: req.user?.name || req.user?.email || "Administraci\xF3n",
+      items: processedItems
+    };
+    console.log(`[CONCILIACION] \u2705 Salida registrada con \xE9xito ${reconciliationCode}: ${processedItems.length} productos descontados.`);
+    res.json(result);
+  } finally {
+    releaseLocks();
+  }
 }));
 var tempDownloadStore = /* @__PURE__ */ new Map();
 setInterval(() => {

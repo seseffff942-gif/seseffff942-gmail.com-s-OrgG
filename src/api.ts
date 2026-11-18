@@ -2589,6 +2589,24 @@ export const api = {
     return null;
   },
 
+  createProductReconciliation: async (data: {
+    recipient: string;
+    reason: string;
+    notes?: string;
+    items: Array<{ productId: string; variantId?: string; quantity: number }>;
+  }): Promise<any> => {
+    const res = await fetchWithAuth('/api/inventory/reconciliation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const resData = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(resData?.error || `Error al procesar salida a conciliación (${res.status})`);
+    }
+    return resData;
+  },
+
   // ESTADO DE BASE DE DATOS LOCAL POSTGRESQL
   isNeonMode: (): boolean => {
     return true;
