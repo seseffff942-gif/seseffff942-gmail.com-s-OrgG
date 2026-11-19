@@ -939,7 +939,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             </div>
 
             {/* Refresh and Add Product Controls */}
-            <div className={cn("flex w-full lg:w-auto items-center justify-end gap-2.5", inventoryViewMode === 'office' ? 'hidden' : '')}>
+            <div className={cn("grid grid-cols-2 sm:flex sm:w-auto w-full items-center justify-end gap-2", inventoryViewMode === 'office' ? 'hidden' : '')}>
               <button
                 onClick={() => {
                   let csv = "Producto,Categoría,Stock,Precio (Q)\n";
@@ -985,7 +985,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   link.click();
                   document.body.removeChild(link);
                 }}
-                className="flex items-center justify-center gap-1.5 h-11 px-4 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
+                className="hidden sm:flex items-center justify-center gap-1.5 h-10 px-3 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
                 title="Descargar Inventario (CSV para Gemini)"
               >
                 <Download size={14} />
@@ -1063,7 +1063,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                     alert("No se pudo generar el archivo Excel.");
                   }
                 }}
-                className="flex items-center justify-center gap-1.5 h-11 px-4 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
+                className="hidden sm:flex items-center justify-center gap-1.5 h-10 px-3 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
                 title="Descargar Inventario (Excel/CSV)"
               >
                 <Download size={14} />
@@ -1073,7 +1073,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <button
                 onClick={() => loadData()}
                 disabled={loading}
-                className="flex items-center justify-center gap-1.5 h-11 px-4 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
+                className="hidden sm:flex items-center justify-center gap-1.5 h-10 px-3 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white shrink-0"
                 title="Actualizar datos"
               >
                 <RotateCw size={14} className={cn(loading && "animate-spin text-[#0b4d2c]")} />
@@ -1100,18 +1100,18 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         setConsignacionesList(data || []);
                       }).finally(() => setLoadingConsignaciones(false));
                     }}
-                    className="flex items-center justify-center gap-1.5 h-11 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-sky-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
-                    title="Mandar producto a consignación (descuenta stock sin crear venta ni consumir folio)"
+                    className="flex items-center justify-center gap-1.5 h-10 px-3 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto"
+                    title="Mandar producto a consignación"
                   >
-                    <ArrowUpRight size={16} />
+                    <ArrowUpRight size={15} />
                     <span>CONSIGNACIÓN</span>
                   </button>
 
                   <button
                     onClick={handleOpenAddModal}
-                    className="flex items-center justify-center gap-1.5 h-11 px-6 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-black tracking-wider transition-all shadow-md hover:shadow-lg shadow-emerald-950/20 active:scale-95 whitespace-nowrap cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 h-10 px-4 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto"
                   >
-                    <Plus size={16} />
+                    <Plus size={15} />
                     <span>NUEVO PRODUCTO</span>
                   </button>
                 </>
