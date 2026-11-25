@@ -223,9 +223,15 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
   });
   const getEditStockKey = (productId: string, variantId?: string) =>
     variantId ? `${productId}::${variantId}` : productId;
-  const getEffectiveMaxStock = (productId: string, baseStock: number, variantId?: string) => {
+  const getEffectiveMaxStock = (productId: string, baseStock: number, variantId?: string, productName?: string) => {
     if (!editingInvoiceId) return baseStock;
-    return baseStock + (editingOriginalQtyMap[getEditStockKey(productId, variantId)] || 0);
+    const key = getEditStockKey(productId, variantId);
+    let orig = editingOriginalQtyMap[key] || 0;
+    if (!orig && productName) {
+      const cleanName = productName.replace(/\s*\(\s*Bonificación\s*\)/gi, '').trim().toLowerCase();
+      orig = editingOriginalQtyMap[cleanName] || 0;
+    }
+    return baseStock + orig;
   };
   const [isEditingAddress, setIsEditingAddress] = useState(false);
 
@@ -409,19 +415,28 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         for (const rawItem of parsedItems) {
           const rId = rawItem.productId || rawItem.product?.id || rawItem.id;
           const rVarId = rawItem.variantId || rawItem.variant?.id;
+          const rName = (rawItem.productName || rawItem.product?.name || rawItem.name || '').replace(/\s*\(\s*Bonificación\s*\)/gi, '').trim().toLowerCase();
+          const qVal = Number(rawItem.quantity) || 0;
           if (rId) {
             const k = getEditStockKey(String(rId), rVarId ? String(rVarId) : undefined);
-            origQtyMap[k] = (origQtyMap[k] || 0) + (Number(rawItem.quantity) || 0);
+            origQtyMap[k] = (origQtyMap[k] || 0) + qVal;
+          }
+          if (rName) {
+            origQtyMap[rName] = (origQtyMap[rName] || 0) + qVal;
           }
         }
         setEditingOriginalQtyMap(origQtyMap);
 
+        const activeProdsList = (products && products.length > 0) ? products : prodsList;
+
         setCart(parsedItems.map((i: any) => {
            const pId = i.productId || i.product?.id || i.id;
            const pName = i.productName || i.product?.name || i.name || 'Producto';
-           const liveProd = prodsList.find((prod: any) => 
+           const cleanPName = pName.replace(/\s*\(\s*Bonificación\s*\)/gi, '').trim().toLowerCase();
+           const liveProd = activeProdsList.find((prod: any) => 
              (prod.id && pId && prod.id === pId) || 
-             (prod.name && pName && prod.name.trim().toLowerCase() === pName.trim().toLowerCase())
+             (prod.name && prod.name.trim().toLowerCase() === cleanPName) ||
+             (prod.name && prod.name.trim().toLowerCase() === pName.trim().toLowerCase())
            );
            const prodPrice = i.originalPrice !== undefined ? Number(i.originalPrice) : (i.product?.price !== undefined ? Number(i.product.price) : (Number(i.price) || (Number(liveProd?.price) || 0)));
            const variantObj = i.variant || (i.color || i.size || i.variantId ? { id: i.variantId || '', color: i.color || '', size: i.size || '' } : undefined);
@@ -674,14 +689,14 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
         const liveProd = products.find(p => p.id === item.product.id || p.name?.trim().toLowerCase() === (item.product.name || '').trim().toLowerCase());
         const currentStock = liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(item.product.stock) || 0);
         const baseMaxStock = variantStock !== undefined ? variantStock : currentStock;
-        const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id);
+        const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id, item.product.name);
         const productForBreakdown = {
           ...item.product,
           stock: currentStock,
           category: liveProd?.category || item.product.category
         };
 
-        if (newQ > maxStock && !doesNotNeedStock(productForBreakdown)) {
+        if (newQ > maxStock && !doesNotNeedStock(productForBreakdown) && !(editingInvoiceId && user?.role === 'admin')) {
            if (isTecunProduct(productForBreakdown)) {
               const tecunBreakdown = calculateTecunStockBreakdown(productForBreakdown, newQ);
               setErrorMsg(`"${item.product.name}" (TECÚN): En bodega hay ${tecunBreakdown.fromWarehouse} uds. Se solicitarán ${tecunBreakdown.toOrderFromCompany} uds a la empresa.`);
@@ -972,16 +987,23 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            effectivePrice = (price * i.appliedCustomOffer.buyQty) / (i.appliedCustomOffer.buyQty + i.appliedCustomOffer.freeQty);
         }
 
-        const preservedOffer = Boolean(i.appliedCustomOffer || (i as any).isOfferApplied || (i as any).isBonus);
+        const isBonusItem = Boolean((i as any).isBonus || ((i as any).isOfferApplied && effectivePrice === 0) || effectivePrice === 0 || (i.product.name && i.product.name.toLowerCase().includes('bonificación')));
+        const cleanBase = (i.product.name || '')
+          .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, '')
+          .replace(/\s*\(\s*Gratis\s*\)/gi, '')
+          .replace(/\s*\(\s*Bonificación\s*\)/gi, '')
+          .trim();
+        const finalProdName = isBonusItem ? `${cleanBase} (Bonificación)` : cleanBase;
+        const preservedOffer = Boolean(i.appliedCustomOffer || (i as any).isOfferApplied || isBonusItem);
         const preservedAuthorized = Boolean((i as any).isAuthorized || (editingInvoiceId && user?.role === 'admin'));
         return [{
           productId: i.product.id,
-          productName: i.product.name,
+          productName: finalProdName,
           quantity: i.quantity,
           price: effectivePrice,
           suggestedPrice: i.suggestedPrice,
           isOfferApplied: preservedOffer,
-          isBonus: Boolean((i as any).isBonus),
+          isBonus: isBonusItem,
           isAuthorized: preservedAuthorized,
           isPriceAlert: !preservedOffer && !preservedAuthorized && (price < i.product.price - 0.001),
           variantId: i.variant?.id || (i as any).variantId,
@@ -1273,10 +1295,12 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
       if (item.variant?.id && item.product.variants) {
         variantStock = item.product.variants.find(v => v.id === item.variant?.id)?.stock;
       }
-      const baseMaxStock = variantStock !== undefined ? variantStock : item.product.stock;
-      const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id);
+      const liveProd = products.find(p => p.id === item.product.id || p.name?.trim().toLowerCase() === (item.product.name || '').replace(/\s*\(\s*Bonificación\s*\)/gi, '').trim().toLowerCase());
+      const currentStock = liveProd?.stock !== undefined ? Number(liveProd.stock) : (Number(item.product.stock) || 0);
+      const baseMaxStock = variantStock !== undefined ? variantStock : currentStock;
+      const maxStock = getEffectiveMaxStock(item.product.id, baseMaxStock, item.variant?.id, item.product.name);
 
-      if (item.quantity > maxStock && !doesNotNeedStock(item.product)) {
+      if (item.quantity > maxStock && !doesNotNeedStock(item.product) && !(editingInvoiceId && user?.role === 'admin')) {
         if (isTecunProduct(item.product) || isFiatProduct(item.product)) {
           item.requiresAuth = true;
         } else {

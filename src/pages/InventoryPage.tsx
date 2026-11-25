@@ -225,18 +225,30 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
   } | null>(null);
 
   const categories = useMemo(() => {
-    const defaultCats = ['Veterinaria', 'Agroquímicos', 'Semillas', 'Herramientas', 'TECUN', 'FIAT', 'Otros'];
-    const uniqueCats = products.map(p => p.category).filter(Boolean) as string[];
-    return ['Todos', ...Array.from(new Set([...defaultCats, ...uniqueCats]))];
+    const catMap = new Map<string, number>();
+    products.forEach(p => {
+      let rawCat = (p.category || '').trim();
+      if (!rawCat) return;
+      if (rawCat.toUpperCase() === 'TECUN') rawCat = 'TECUN';
+      if (rawCat.toUpperCase() === 'FIAT') rawCat = 'FIAT';
+      catMap.set(rawCat, (catMap.get(rawCat) || 0) + 1);
+    });
+
+    const sortedCats = Array.from(catMap.keys()).sort((a, b) => {
+      if (a === 'AGRICOVET') return -1;
+      if (b === 'AGRICOVET') return 1;
+      if (a === 'TECUN') return -1;
+      if (b === 'TECUN') return 1;
+      return a.localeCompare(b);
+    });
+
+    return ['Todos', ...sortedCats];
   }, [products]);
 
   const getCategoryIcon = (categoryName: string) => {
     switch (categoryName) {
       case 'Todos': return Layers;
-      case 'Veterinaria': return Stethoscope;
-      case 'Agroquímicos': return Shield;
-      case 'Semillas': return Sprout;
-      case 'Herramientas': return Wrench;
+      case 'AGRICOVET': return Package;
       case 'TECUN': return Briefcase;
       case 'FIAT': return Briefcase;
       default: return Tag;
@@ -709,9 +721,9 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
     return products.filter(p => {
       const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.category || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'Todos' || 
-        (selectedCategory === 'FIAT' ? (p.category === 'FIAT' || isFiatProduct(p)) :
-         selectedCategory === 'TECUN' ? (p.category === 'TECUN' || isTecunProduct(p)) :
-         p.category === selectedCategory);
+        (selectedCategory === 'FIAT' ? ((p.category || '').toUpperCase() === 'FIAT' || isFiatProduct(p)) :
+         selectedCategory === 'TECUN' ? ((p.category || '').toUpperCase() === 'TECUN' || isTecunProduct(p)) :
+         (p.category || '').trim().toLowerCase() === selectedCategory.toLowerCase());
       const cost = Number(p.costPrice ?? (p as any).cost_price) || 0;
       const price = Number(p.price) || 0;
       const matchesZeroMargin = !filterZeroMarginOnly || (cost > 0 && price <= cost);
@@ -860,10 +872,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         
         {/* Search, Actions & Category Filter Panel */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4 transition-all">
-          <div className="flex flex-col 2xl:flex-row gap-3 sm:gap-4 items-stretch 2xl:items-center justify-between">
+          <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-stretch xl:items-center justify-between">
             
             {/* Search & View Mode Toggle Group */}
-            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1 min-w-0">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center shrink-0">
               {/* Search Input */}
               <div className={cn("relative w-full sm:w-64 md:w-72 lg:w-80 shrink-0", inventoryViewMode === 'office' ? 'invisible hidden sm:block' : '')}>
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -877,34 +889,32 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               </div>
 
               {/* Vista Toggle / View Mode Segmented Bar */}
-              <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 w-full sm:w-auto justify-center overflow-x-auto">
+              <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 w-auto justify-center">
                 <button
                   type="button"
                   onClick={() => setInventoryViewMode('grid')}
                   className={cn(
-                    "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                    "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
                     inventoryViewMode === 'grid' 
                       ? "bg-white text-[#0b4d2c] shadow-sm" 
                       : "text-slate-500 hover:text-slate-800"
                   )}
                 >
                   <Layers size={13} />
-                  <span className="hidden xs:inline">MOSAICOS</span>
-                  <span className="xs:hidden">MOS.</span>
+                  <span>MOSAICOS</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setInventoryViewMode('list')}
                   className={cn(
-                    "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                    "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
                     inventoryViewMode === 'list' 
                       ? "bg-white text-[#0b4d2c] shadow-sm" 
                       : "text-slate-500 hover:text-slate-800"
                   )}
                 >
                   <FileText size={13} />
-                  <span className="hidden xs:inline">LISTADO</span>
-                  <span className="xs:hidden">LIST.</span>
+                  <span>LISTADO</span>
                 </button>
                 {user.role === 'admin' && (
                   <>
@@ -912,29 +922,27 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                       type="button"
                       onClick={() => setInventoryViewMode('valuation')}
                       className={cn(
-                        "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                        "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
                         inventoryViewMode === 'valuation' 
                           ? "bg-[#0b4d2c] text-white shadow-sm animate-pulse-once" 
                           : "text-slate-500 hover:text-slate-800"
                       )}
                     >
                       <Package size={13} />
-                      <span className="hidden xs:inline">VALORACIÓN</span>
-                      <span className="xs:hidden">VAL.</span>
+                      <span>VALORACIÓN</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setInventoryViewMode('office')}
                       className={cn(
-                        "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                        "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
                         inventoryViewMode === 'office' 
                           ? "bg-blue-800 text-white shadow-sm animate-pulse-once" 
                           : "text-slate-500 hover:text-blue-800"
                       )}
                     >
                       <Briefcase size={13} />
-                      <span className="hidden xs:inline">OFICINA Y EQUIPO</span>
-                      <span className="xs:hidden">OFI.</span>
+                      <span>OFICINA</span>
                     </button>
                   </>
                 )}
@@ -942,7 +950,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
             </div>
 
             {/* Refresh and Add Product Controls */}
-            <div className={cn("grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-end gap-2 w-full 2xl:w-auto", inventoryViewMode === 'office' ? 'hidden' : '')}>
+            <div className={cn("flex flex-wrap items-center justify-end gap-2 w-full xl:w-auto shrink-0", inventoryViewMode === 'office' ? 'hidden' : '')}>
               <button
                 onClick={() => {
                   let csv = "Producto,Categoría,Stock,Precio (Q)\n";
@@ -1131,10 +1139,10 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               const countOfCat = cat === 'Todos' 
                 ? products.length 
                 : (cat === 'FIAT'
-                    ? products.filter(p => p.category === 'FIAT' || isFiatProduct(p)).length
+                    ? products.filter(p => (p.category || '').toUpperCase() === 'FIAT' || isFiatProduct(p)).length
                     : (cat === 'TECUN'
-                        ? products.filter(p => p.category === 'TECUN' || isTecunProduct(p)).length
-                        : products.filter(p => p.category === cat).length));
+                        ? products.filter(p => (p.category || '').toUpperCase() === 'TECUN' || isTecunProduct(p)).length
+                        : products.filter(p => (p.category || '').trim().toLowerCase() === cat.toLowerCase()).length));
               return (
                 <button
                   key={cat}

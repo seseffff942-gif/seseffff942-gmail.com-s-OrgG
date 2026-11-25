@@ -560,7 +560,7 @@ export const DEFAULT_PRINT_TEMPLATE = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <base href="{{origin}}/" />
   <style>
-    @page { size: A4; margin: 14mm 15mm; }
+    @page { size: letter; margin: 8mm 10mm; }
     * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; }
     @media print {
       body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -1229,9 +1229,12 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       };
       const variantStr = getVariantString(item);
       const subtotalVal = item.total !== undefined && item.total !== null ? Number(item.total) : (Number(item.quantity || 0) * Number(item.price || 0));
-      const cleanProdName = (item.productName || '')
+      let cleanProdName = (item.productName || '')
         .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)')
         .replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)');
+      if ((subtotalVal === 0 || Number(item.price || 0) === 0 || item.isBonus) && !cleanProdName.includes('(Bonificación)')) {
+        cleanProdName += ' (Bonificación)';
+      }
       return '<tr>' +
         '<td class="col-producto notranslate" translate="no">' + cleanProdName + variantStr + '</td>' +
         '<td class="col-cant">' + formatGT(item.quantity || 0) + '</td>' +
@@ -1406,6 +1409,9 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
           .replace(/\*/g, '')
           .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)')
           .replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)');
+        if ((Number(item.price || 0) === 0 || item.isBonus) && !finalProductName.includes('(Bonificación)')) {
+          finalProductName += ' (Bonificación)';
+        }
         if (variantInfo && !loopBody.includes('variantInfo')) {
           finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
         }
@@ -2627,16 +2633,12 @@ export function planificarPaginasItems(
   o: { pageHeight: number; preTableTop: number; theadH: number; safety: number }
 ): number[][] {
   const paginas: number[][] = [[]];
-  // La primera pagina arranca ya ocupada por el encabezado del documento
-  // (emisor, cliente…) mas el encabezado de la tabla.
   let usado = o.preTableTop + o.theadH;
 
   for (let i = 0; i < alturas.length; i++) {
     const h = alturas[i];
     const disponible = o.pageHeight - usado - o.safety;
     const actual = paginas[paginas.length - 1];
-    // Si la fila no cabe y la pagina ya tiene al menos una fila, se abre una
-    // pagina nueva que arranca solo con el encabezado de tabla repetido.
     if (actual.length > 0 && h > disponible) {
       paginas.push([]);
       usado = o.theadH;
@@ -2649,74 +2651,76 @@ export function planificarPaginasItems(
 }
 
 /**
- * Toma el HTML compilado y, midiendo las alturas reales en el navegador,
- * reparte la tabla de items en varias tablas (una por pagina) repitiendo el
- * <thead> en cada una. Devuelve el HTML ya paginado. Si no encuentra la tabla
- * de items o cabe todo, devuelve el HTML sin cambios.
+ * Paginación inteligente ejecutada DIRECTAMENTE dentro del iframe de renderizado.
+ * Con todas las fuentes, estilos y cajas CSS reales ya calculadas por el navegador.
  */
-function paginarItemsParaPdf(
-  html: string,
-  geometria: { contentWidthIn: number; contentHeightIn: number }
-): string {
-  const PX_POR_PULGADA = 96;
-  const anchoPx = geometria.contentWidthIn * PX_POR_PULGADA;
+function paginarItemsEnIframe(doc: Document, pageHeightPx: number) {
+  const tabla = doc.querySelector('table.items') as HTMLTableElement | null;
+  if (!tabla) return;
+  const thead = tabla.querySelector('thead');
+  const tbody = tabla.querySelector('tbody');
+  const filas = tbody ? (Array.from(tbody.querySelectorAll('tr')) as HTMLTableRowElement[]) : [];
+  if (!thead || !tbody || filas.length === 0) return;
 
-  const cont = document.createElement('div');
-  cont.style.cssText = `position:absolute; left:-99999px; top:0; width:${anchoPx}px; visibility:hidden;`;
-  cont.innerHTML = html;
-  document.body.appendChild(cont);
-
-  try {
-    const tabla = cont.querySelector('table.items') as HTMLTableElement | null;
-    const thead = tabla?.querySelector('thead');
-    const filas = tabla ? Array.from(tabla.querySelectorAll('tbody > tr')) as HTMLElement[] : [];
-    if (!tabla || !thead || filas.length === 0) return html;
-
-    const contTop = cont.getBoundingClientRect().top;
-    const tablaRect = tabla.getBoundingClientRect();
-    // La altura de una pagina en px de layout: el mismo ancho en px equivale al
-    // ancho de contenido del PDF, asi que la regla de tres da la altura util.
-    const pageHeight = (geometria.contentHeightIn / geometria.contentWidthIn) * anchoPx;
-    const preTableTop = tablaRect.top - contTop;
-    const theadH = (thead as HTMLElement).offsetHeight;
-    const alturas = filas.map((f) => f.getBoundingClientRect().height);
-
-    const paginas = planificarPaginasItems(alturas, {
-      pageHeight, preTableTop, theadH, safety: 10,
-    });
-
-    // Los items caben en una sola tabla: no hay <thead> que repetir, y el
-    // cierre lo reparte html2pdf con las reglas de page-break del CSS.
-    if (paginas.length <= 1) return html;
-
-    const theadHTML = thead.outerHTML;
-    const filasHTML = filas.map((f) => f.outerHTML);
-    const parent = tabla.parentNode!;
-    const marcador = document.createComment('items-paginados');
-    parent.insertBefore(marcador, tabla);
-    tabla.remove();
-
-    const nuevoSalto = () => {
-      const pb = document.createElement('div');
-      pb.className = 'html2pdf__page-break';
-      pb.style.pageBreakBefore = 'always';
-      return pb;
-    };
-
-    paginas.forEach((indices, idx) => {
-      if (idx > 0) parent.insertBefore(nuevoSalto(), marcador);
-      const tbl = document.createElement('table');
-      tbl.className = 'items';
-      tbl.innerHTML = theadHTML + '<tbody>' + indices.map((i) => filasHTML[i]).join('') + '</tbody>';
-      parent.insertBefore(tbl, marcador);
-    });
-
-    parent.removeChild(marcador);
-
-    return cont.innerHTML;
-  } finally {
-    document.body.removeChild(cont);
+  // Si todo el documento ya cabe perfectamente en 1 página, no partir nada
+  const totalH = Math.max(doc.body.getBoundingClientRect().height, doc.body.scrollHeight);
+  if (totalH <= pageHeightPx) {
+    return;
   }
+
+  const bodyTop = doc.body.getBoundingClientRect().top;
+  const tablaRect = tabla.getBoundingClientRect();
+  const preTableH = tablaRect.top - bodyTop;
+  const theadH = thead.getBoundingClientRect().height || 35;
+  const filaAlturas = filas.map((f) => f.getBoundingClientRect().height || 35);
+
+  // Margen de seguridad cómodo (35px) para garantizar que NUNCA una página se desborde al rasterizar
+  const safety = 35;
+  const maxPage1H = pageHeightPx - preTableH - safety;
+  const maxOtherPageH = pageHeightPx - theadH - safety;
+
+  const paginas: number[][] = [[]];
+  let disponible = maxPage1H;
+
+  for (let i = 0; i < filaAlturas.length; i++) {
+    const h = filaAlturas[i];
+    const actual = paginas[paginas.length - 1];
+
+    if (actual.length > 0 && h > disponible) {
+      paginas.push([]);
+      disponible = maxOtherPageH;
+    }
+
+    paginas[paginas.length - 1].push(i);
+    disponible -= h;
+  }
+
+  // Si todos los items cupieron en la primera página:
+  if (paginas.length <= 1) {
+    return;
+  }
+
+  const theadHTML = thead.outerHTML;
+  const filasHTML = filas.map((f) => f.outerHTML);
+  const parent = tabla.parentNode!;
+  const marcador = doc.createComment('items-paginados');
+  parent.insertBefore(marcador, tabla);
+  tabla.remove();
+
+  paginas.forEach((indices, idx) => {
+    if (idx > 0) {
+      const pb = doc.createElement('div');
+      pb.className = 'html2pdf__page-break';
+      pb.style.cssText = 'page-break-before: always; height: 1px; margin: 0; padding: 0;';
+      parent.insertBefore(pb, marcador);
+    }
+    const tbl = doc.createElement('table');
+    tbl.className = 'items';
+    tbl.innerHTML = theadHTML + '<tbody>' + indices.map((i) => filasHTML[i]).join('') + '</tbody>';
+    parent.insertBefore(tbl, marcador);
+  });
+
+  parent.removeChild(marcador);
 }
 
 const PDF_ESCALA = 2;           // 2x para que el texto no salga pixelado
@@ -2783,7 +2787,11 @@ export async function pdfBlobDesdeElemento(
     let desde = limites[i];
     const hasta = limites[i + 1];
     while (desde < hasta) {
-      const alto = Math.min(pxPorPagina, hasta - desde);
+      let alto = Math.min(pxPorPagina, hasta - desde);
+      // Evitar crear páginas residuales casi vacías si el desborde es mínimo
+      if (hasta - desde > pxPorPagina && (hasta - desde - pxPorPagina) < 140) {
+        alto = hasta - desde;
+      }
       if (alto < 1) break;
 
       const trozo = document.createElement('canvas');
@@ -2816,22 +2824,15 @@ export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): 
   const formato = opciones.formato ?? 'letter';
   const margenIn = opciones.margenIn ?? 0.3;
   const { ancho: anchoPagIn, alto: altoPagIn } = PDF_FORMATOS[formato];
-
-  let htmlFinal = html;
-  try {
-    htmlFinal = paginarItemsParaPdf(html, {
-      contentWidthIn: anchoPagIn - 2 * margenIn,
-      contentHeightIn: altoPagIn - 2 * margenIn,
-    });
-  } catch (e) {
-    console.error('No se pudo paginar la tabla de items; se genera sin paginar:', e);
-  }
+  const anchoUtilIn = anchoPagIn - 2 * margenIn;
+  const altoUtilIn = altoPagIn - 2 * margenIn;
+  const anchoRenderPx = opciones.anchoRenderPx ?? 800;
 
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.top = '0';
   iframe.style.left = '0';
-  iframe.style.width = `${opciones.anchoRenderPx ?? 800}px`;
+  iframe.style.width = `${anchoRenderPx}px`;
   iframe.style.height = '1000px';
   iframe.style.zIndex = '-99999';
   iframe.style.opacity = '0.01';
@@ -2843,11 +2844,20 @@ export async function generarPdfBlob(html: string, opciones: OpcionesPdf = {}): 
   if (!doc) throw new Error('No se pudo crear iframe de renderizado');
 
   doc.open();
-  doc.write(htmlFinal);
+  doc.write(html);
   doc.close();
 
   try {
     await convertAllImagesToBase64(doc.body);
+    // Pausa breve para garantizar que layout y estilos del iframe estén calculados
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Altura de 1 página en píxeles de renderizado del iframe
+    const pageHeightPx = (altoUtilIn / anchoUtilIn) * anchoRenderPx;
+
+    // Paginar la tabla directamente en el DOM real del iframe
+    paginarItemsEnIframe(doc, pageHeightPx);
+
     const scrollHeight = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
     iframe.style.height = `${scrollHeight}px`;
     return await pdfBlobDesdeElemento(doc.body, opciones);

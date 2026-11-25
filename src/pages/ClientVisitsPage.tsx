@@ -7,11 +7,11 @@ import { MarkClientModal } from '../components/MarkClientModal';
 import { RegisterVisitModal } from '../components/RegisterVisitModal';
 import { VisitDetailModal } from '../components/VisitDetailModal';
 import { ClientSalesTrackingPage } from './ClientSalesTrackingPage';
-import { 
-  MapPin, Navigation, Compass, Calendar, Clock, 
-  Users, CheckCircle2, AlertTriangle, RefreshCw, 
-  Search, Filter, ExternalLink, Phone, Building2, 
-  DollarSign, ShoppingCart, UserPlus, Package, 
+import {
+  MapPin, Navigation, Compass, Calendar, Clock,
+  Users, CheckCircle2, AlertTriangle, RefreshCw,
+  Search, Filter, ExternalLink, Phone, Building2,
+  DollarSign, ShoppingCart, UserPlus, Package,
   ClipboardCheck, Sparkles, ChevronRight, ArrowUpRight, ArrowRight, TrendingUp, AlertCircle, Plus, Layers, Activity,
   Download, FileSpreadsheet, Check, Shield, ShieldAlert, ArrowDownRight, Tag, Share2,
   Route, Milestone, Timer, Car, Repeat, Flag, Hourglass, Trash2, Play, History, CheckCircle, Image as ImageIcon,
@@ -132,7 +132,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
             ...fresh,
             timestamp: Date.now()
           }));
-        } catch (e) {}
+        } catch (e) { }
         setIsGpsLoading(false);
       },
       (error) => {
@@ -279,7 +279,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       if (clientsData && clientsData.length > 0) {
         try {
           localStorage.setItem('offline_clients_map', JSON.stringify(clientsData));
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setClients(clientsData || []);
@@ -300,7 +300,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
           .then(res => {
             if (res?.clients) setSalesTrackingClients(res.clients);
           })
-          .catch(() => {});
+          .catch(() => { });
       }
     } catch (e) {
       console.error('Error loading visits data:', e);
@@ -311,7 +311,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
           if (cachedClients) {
             setClients(JSON.parse(cachedClients));
           }
-        } catch (cacheErr) {}
+        } catch (cacheErr) { }
       }
     } finally {
       setLoading(false);
@@ -346,7 +346,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         if (q.length > 0 && navigator.onLine) {
           handleSyncOfflineVisits();
         }
-      } catch (e) {}
+      } catch (e) { }
     };
     refreshOfflineQueueAndSync();
     window.addEventListener('online', handleSyncOfflineVisits);
@@ -367,9 +367,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               ...fresh,
               timestamp: Date.now()
             }));
-          } catch (e) {}
+          } catch (e) { }
         },
-        () => {},
+        () => { },
         { enableHighAccuracy: true, maximumAge: 15000 }
       );
     }
@@ -465,7 +465,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   const handleVisitRegistered = (newVisit: ClientVisit) => {
     setVisits(prev => [newVisit, ...prev.filter(v => v.id !== newVisit.id)]);
-    getOfflineVisitQueue().then(setOfflineVisitsQueue).catch(() => {});
+    getOfflineVisitQueue().then(setOfflineVisitsQueue).catch(() => { });
     loadData(true);
   };
 
@@ -739,7 +739,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     }
 
     const map = new Map<string, { id: string; name: string; email?: string; todayVisits: number; totalVisits: number }>();
-    
+
     // Add registered sellers/team members
     teamUsers.filter(u => u.role === 'seller' || u.role === 'admin').forEach(u => {
       const id = u.id || u.email || u.name;
@@ -804,7 +804,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       const cNameKey = String(client.name || '').trim().toLowerCase();
       const cCodeKey = String(client.clientCode || '').trim().toLowerCase();
       const lastVisit = map.get(cIdKey) || map.get(cNameKey) || (cCodeKey ? map.get(cCodeKey) : undefined);
-      const daysElapsed = lastVisit 
+      const daysElapsed = lastVisit
         ? getDiffCalendarDaysGT(lastVisit.createdAt, todayGT)
         : null;
 
@@ -822,9 +822,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         const dLat = ((client.latitude - currentLocation.latitude) * Math.PI) / 180;
         const dLon = ((client.longitude - currentLocation.longitude) * Math.PI) / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos((currentLocation.latitude * Math.PI) / 180) * 
-                  Math.cos((client.latitude * Math.PI) / 180) * 
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          Math.cos((currentLocation.latitude * Math.PI) / 180) *
+          Math.cos((client.latitude * Math.PI) / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distanceKm = Math.round(R * c * 10) / 10;
       }
@@ -863,7 +863,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         const sEmail = targetSeller?.email?.toLowerCase() || '';
         const sName = targetSeller?.name?.toLowerCase() || '';
 
-        const matchesSeller = 
+        const matchesSeller =
           isClientOfSeller(c, targetSeller) ||
           (c.sellerId && c.sellerId.toLowerCase() === sId) ||
           (c.geotaggedBy && (c.geotaggedBy.toLowerCase() === sName || c.geotaggedBy.toLowerCase() === sId)) ||
@@ -877,11 +877,11 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
       if (term) {
         const matches = normalizeSearchText(c.name || '').includes(term) ||
-                        normalizeSearchText(c.clientCode || '').includes(term) ||
-                        normalizeSearchText(c.phone || '').includes(term) ||
-                        normalizeSearchText(c.address || '').includes(term) ||
-                        normalizeSearchText(c.locationAddress || '').includes(term) ||
-                        normalizeSearchText(c.companyName || '').includes(term);
+          normalizeSearchText(c.clientCode || '').includes(term) ||
+          normalizeSearchText(c.phone || '').includes(term) ||
+          normalizeSearchText(c.address || '').includes(term) ||
+          normalizeSearchText(c.locationAddress || '').includes(term) ||
+          normalizeSearchText(c.companyName || '').includes(term);
         if (!matches) return false;
       }
 
@@ -938,9 +938,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
       if (term) {
         const matchesTerm = normalizeSearchText(v.clientName || '').includes(term) ||
-                            normalizeSearchText(v.clientCode || '').includes(term) ||
-                            normalizeSearchText(v.sellerName || '').includes(term) ||
-                            normalizeSearchText(v.notes || '').includes(term);
+          normalizeSearchText(v.clientCode || '').includes(term) ||
+          normalizeSearchText(v.sellerName || '').includes(term) ||
+          normalizeSearchText(v.notes || '').includes(term);
         if (!matchesTerm) return false;
       }
       return true;
@@ -978,7 +978,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       .map(([date, count]) => ({
         date,
         count,
-        label: isTodayGuatemala(date) 
+        label: isTodayGuatemala(date)
           ? `📅 ${fechaDDMMYYYY(date)} (Hoy • ${count} ${count === 1 ? 'cliente' : 'clientes'})`
           : `📅 ${fechaDDMMYYYY(date)} (${count} ${count === 1 ? 'cliente' : 'clientes'})`
       }));
@@ -987,7 +987,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
   // Distinct seller routes for admin route dashboard & seller history
   const distinctSellerRoutes = useMemo(() => {
     // 1. Process all explicit routes from database and state (sorted latest first)
-    const sortedExplicit = [...sellerRoutes].sort((a, b) => 
+    const sortedExplicit = [...sellerRoutes].sort((a, b) =>
       new Date(b.startedAt || b.createdAt || 0).getTime() - new Date(a.startedAt || a.createdAt || 0).getTime()
     );
     const seenActiveSellers = new Set<string>();
@@ -998,7 +998,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       const stops = scopedVisits.filter(v => {
         if (v.routeId) return v.routeId === r.id;
         const vDate = diaGuatemala(v.createdAt);
-        const matchSeller = v.sellerId === r.sellerId || 
+        const matchSeller = v.sellerId === r.sellerId ||
           (r.sellerEmail && v.sellerEmail?.toLowerCase() === r.sellerEmail.toLowerCase()) ||
           (r.sellerName && v.sellerName?.toLowerCase() === r.sellerName.toLowerCase());
         return matchSeller && vDate === datePart;
@@ -1079,9 +1079,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
       // If an explicit route session already exists for this seller/date (whether completed or active), NEVER synthesize a duplicate active route
       if (
-        coveredSessions.has(key) || 
-        coveredSessions.has(nameKey) || 
-        (todayKey && coveredSessions.has(todayKey)) || 
+        coveredSessions.has(key) ||
+        coveredSessions.has(nameKey) ||
+        (todayKey && coveredSessions.has(todayKey)) ||
         (todayNameKey && coveredSessions.has(todayNameKey))
       ) {
         return;
@@ -1250,8 +1250,8 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   // Comprehensive Route & Time Audit Analysis (Admin Route Tracer)
   const routeAnalysis = useMemo(() => {
-    const effectiveSeller = activeTab === 'routes' 
-      ? routeSellerId 
+    const effectiveSeller = activeTab === 'routes'
+      ? routeSellerId
       : (selectedSellerFilter !== 'all' ? selectedSellerFilter : routeSellerId);
 
     // Determine the exact target date for the route
@@ -1281,7 +1281,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     // Filter scoped visits strictly belonging to this targetDate and seller
     const filtered = scopedVisits.filter(v => {
       if (!v.latitude || !v.longitude || isNaN(v.latitude) || isNaN(v.longitude)) return false;
-      
+
       // Strict date match using Guatemala calendar date (never mix days!)
       const vDate = diaGuatemala(v.createdAt);
       if (vDate !== targetDate) return false;
@@ -1328,9 +1328,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         const dLat = ((v.latitude - prev.latitude) * Math.PI) / 180;
         const dLon = ((v.longitude - prev.longitude) * Math.PI) / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos((prev.latitude * Math.PI) / 180) * 
-                  Math.cos((v.latitude * Math.PI) / 180) * 
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          Math.cos((prev.latitude * Math.PI) / 180) *
+          Math.cos((v.latitude * Math.PI) / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distFromPrevKm = Math.round(R * c * 10) / 10;
         totalDistanceKm += distFromPrevKm;
@@ -1403,7 +1403,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       if (dateList.length > 1) {
         const sorted = dateList.map(d => new Date(d).getTime()).sort((a, b) => a - b);
         for (let i = 1; i < sorted.length; i++) {
-          const days = (sorted[i] - sorted[i-1]) / (1000 * 60 * 60 * 24);
+          const days = (sorted[i] - sorted[i - 1]) / (1000 * 60 * 60 * 24);
           if (days >= 1) {
             cycleDiffsSum += days;
             cycleCount++;
@@ -1488,12 +1488,12 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     }
   };
 
-  const userClients = user.role === 'seller' 
+  const userClients = user.role === 'seller'
     ? clients.filter(c => isClientOfSeller(c, user))
     : clients;
   const geotaggedCount = userClients.filter(c => c.latitude && c.longitude).length;
   const geotaggedPercentage = userClients.length > 0 ? Math.round((geotaggedCount / userClients.length) * 100) : 0;
-  
+
   const todayVisits = scopedVisits.filter(v => isTodayGuatemala(v.createdAt));
   const todayVisitedClientsCount = new Set(todayVisits.map(v => v.clientId || v.clientName)).size;
   const todayTotalVisitsCount = todayVisits.length;
@@ -1521,9 +1521,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
     const cId = String(selectedVisitForDetail.clientId || '').trim();
     const cName = String(selectedVisitForDetail.clientName || '').trim().toLowerCase();
     const cCode = String(selectedVisitForDetail.clientCode || '').trim().toLowerCase();
-    return clients.find(c => 
-      String(c.id) === cId || 
-      (c.name && c.name.trim().toLowerCase() === cName) || 
+    return clients.find(c =>
+      String(c.id) === cId ||
+      (c.name && c.name.trim().toLowerCase() === cName) ||
       (c.clientCode && c.clientCode.trim().toLowerCase() === cCode)
     ) || null;
   }, [selectedVisitForDetail, clients]);
@@ -1541,7 +1541,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col space-y-6 bg-slate-50/70 min-h-screen pb-24 font-sans">
-      
+
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -1560,7 +1560,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button 
+          <button
             type="button"
             onClick={handleExportExcel}
             className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 active:scale-95 px-3.5 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
@@ -1570,7 +1570,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
             <span>Excel</span>
           </button>
 
-          <button 
+          <button
             type="button"
             onClick={() => setIsMarkModalOpen(true)}
             className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 active:scale-95 px-4 py-3 rounded-xl font-bold transition-all shadow-xs text-xs cursor-pointer"
@@ -1580,7 +1580,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
             <span>Fijar GPS Cliente</span>
           </button>
 
-          <button 
+          <button
             type="button"
             onClick={() => {
               setSelectedClientForVisit(null);
@@ -1674,208 +1674,29 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
         <>
           {/* ACTIVE ROUTE / JORNADA STATUS BANNER */}
           <div className="space-y-2">
-          {myActiveRoute && (
-            <div className="bg-gradient-to-r from-emerald-700/90 to-teal-800/90 border border-emerald-500/30 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
-                  <Car size={16} className="text-white animate-pulse" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
-                      🟢 En Ruta Activa
-                    </span>
-                    <span className="text-xs font-black text-white truncate">
-                      👤 {user.role === 'admin' ? `Mi Ruta (Administrador: ${user.name || 'Tú'})` : `Mi Ruta (${user.name || myActiveRoute.sellerName || 'Asesor'})`}
-                    </span>
-                    <span className="text-[11px] text-emerald-200 font-medium">
-                      · 🕒 {myActiveRoute.startedAt ? new Date(myActiveRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
-                    </span>
+            {myActiveRoute && (
+              <div className="bg-gradient-to-r from-emerald-700/90 to-teal-800/90 border border-emerald-500/30 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                    <Car size={16} className="text-white animate-pulse" />
                   </div>
-                  <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
-                    📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt) && (v.routeId === myActiveRoute.id || v.sellerId === myActiveRoute.sellerId || (myActiveRoute.sellerName && v.sellerName?.toLowerCase() === myActiveRoute.sellerName.toLowerCase()))).length} clientes visitados hoy en esta ruta
-                  </p>
-                  <p className="text-[10px] text-amber-200 font-semibold mt-0.5 flex items-center gap-1">
-                    <span>⏰ Recuerda presionar &quot;🏁 Finalizar Ruta&quot; al terminar tu jornada (cierre automático a las 10:00 PM).</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                <button
-                  type="button"
-                  onClick={() => handleInspectActiveRoute(myActiveRoute)}
-                  className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Route size={13} />
-                  <span>Ver Recorrido</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const elapsedMs = myActiveRoute?.startedAt ? (Date.now() - new Date(myActiveRoute.startedAt).getTime()) : 999999;
-                    if (elapsedMs < 60000) {
-                      if (!window.confirm("⚠️ Tu ruta fue iniciada hace menos de un minuto. ¿Deseas cancelarla o cerrarla de todos modos?")) {
-                        return;
-                      }
-                    }
-                    setRouteToFinish(myActiveRoute);
-                    setShowFinishRouteModal(true);
-                  }}
-                  className="px-3 py-1.5 bg-white text-emerald-950 hover:bg-emerald-50 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1"
-                >
-                  <Flag size={13} className="text-emerald-700" />
-                  <span>🏁 Finalizar Ruta</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 2. If Admin and there are TEAM sellers in active route */}
-          {user.role === 'admin' && teamActiveRoutes.length > 0 && (
-            <div className="space-y-1.5">
-              {teamActiveRoutes.map((r) => {
-                const sellerVisitsToday = visits.filter(v => {
-                  if (!isTodayGuatemala(v.createdAt)) return false;
-                  if (v.routeId) {
-                    return v.routeId === r.id;
-                  }
-                  const vSellerId = String(v.sellerId || '').trim();
-                  const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
-                  const vSellerName = String(v.sellerName || '').trim().toLowerCase();
-                  const rSellerId = String(r.sellerId || '').trim();
-                  const rSellerEmail = String(r.sellerEmail || '').trim().toLowerCase();
-                  const rSellerName = String(r.sellerName || '').trim().toLowerCase();
-                  return (
-                    (rSellerId && vSellerId === rSellerId) ||
-                    (rSellerEmail && vSellerEmail === rSellerEmail) ||
-                    (rSellerName && vSellerName === rSellerName)
-                  );
-                }).length;
-
-                return (
-                  <div 
-                    key={r.id || r.sellerId} 
-                    className="bg-gradient-to-r from-emerald-900/90 to-teal-950/90 border border-emerald-500/30 text-white px-3.5 py-2 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
-                        <Car size={16} className="text-emerald-300 animate-pulse" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-400 text-emerald-950 uppercase tracking-wider">
-                            🟢 Ruta Activa
-                          </span>
-                          <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded border border-white/15">
-                            👤 Asesor: {r.sellerName || 'Vendedor'}
-                          </span>
-                          <span className="text-[11px] text-emerald-200 font-medium">
-                            · 🕒 Iniciada: {r.startedAt ? new Date(r.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-emerald-200/90 font-medium truncate mt-0.5">
-                          📍 {sellerVisitsToday} {sellerVisitsToday === 1 ? 'cliente visitado' : 'clientes visitados'} hoy en esta ruta
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => handleInspectActiveRoute(r)}
-                        className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Route size={13} />
-                        <span>Ver Recorrido</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRouteToFinish(r);
-                          setShowFinishRouteModal(true);
-                        }}
-                        className="px-2.5 py-1.5 bg-white/10 hover:bg-rose-500/20 text-rose-200 hover:text-white border border-white/10 hover:border-rose-400/30 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                        title="Finalizar ruta de este asesor"
-                      >
-                        <Flag size={12} className="text-rose-400" />
-                        <span>Finalizar</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {!myActiveRoute && (
-                <div className="flex items-center justify-between text-xs px-3 py-1 text-slate-400 bg-slate-900/60 rounded-lg border border-slate-800/80">
-                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-                    <Shield size={12} className="text-teal-400" />
-                    <span>Supervisión activa ({teamActiveRoutes.length} {teamActiveRoutes.length === 1 ? 'asesor en campo' : 'asesores en campo'})</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleStartRoute}
-                    disabled={isStartingRoute}
-                    className="px-2.5 py-1 bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
-                  >
-                    <Car size={12} />
-                    <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta (Admin)'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 3. If NO active routes at all */}
-          {!myActiveRoute && teamActiveRoutes.length === 0 && (
-            user.role === 'seller' ? (
-              <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
-                    <Car size={16} className="text-slate-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                        ⚪ Sin Jornada en Curso
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-300 text-emerald-950 uppercase tracking-wider">
+                        🟢 En Ruta Activa
                       </span>
-                      <span className="text-[11px] font-bold text-slate-300">
-                        · 👤 Asesor: {user.name || 'Tú'}
+                      <span className="text-xs font-black text-white truncate">
+                        👤 {user.role === 'admin' ? `Mi Ruta (Administrador: ${user.name || 'Tú'})` : `Mi Ruta (${user.name || myActiveRoute.sellerName || 'Asesor'})`}
+                      </span>
+                      <span className="text-[11px] text-emerald-200 font-medium">
+                        · 🕒 {myActiveRoute.startedAt ? new Date(myActiveRoute.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 font-medium">
-                      Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
+                    <p className="text-[11px] text-emerald-100 font-medium truncate mt-0.5">
+                      📍 {scopedVisits.filter(v => isTodayGuatemala(v.createdAt) && (v.routeId === myActiveRoute.id || v.sellerId === myActiveRoute.sellerId || (myActiveRoute.sellerName && v.sellerName?.toLowerCase() === myActiveRoute.sellerName.toLowerCase()))).length} clientes visitados hoy en esta ruta
                     </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleStartRoute}
-                  disabled={isStartingRoute}
-                  className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0 self-end sm:self-center"
-                >
-                  <Car size={13} />
-                  <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
-                    <Route size={16} className="text-teal-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-black text-teal-400 uppercase tracking-wider">
-                        🛡️ Panel de Rutas (Administración)
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-400">
-                        · ⚪ Sin rutas activas en campo hoy
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 font-medium">
-                      Supervisa dónde inician y cierran ruta tus vendedores, o inicia tu propia jornada si sales a visitas.
+                    <p className="text-[10px] text-amber-200 font-semibold mt-0.5 flex items-center gap-1">
+                      <span>⏰ Recuerda presionar &quot;🏁 Finalizar Ruta&quot; al terminar tu jornada en terreno.</span>
                     </p>
                   </div>
                 </div>
@@ -1883,285 +1704,464 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveTab('routes');
-                      const el = document.getElementById('routes-tab-control');
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                    onClick={() => handleInspectActiveRoute(myActiveRoute)}
+                    className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
                   >
-                    <Navigation size={12} className="text-teal-400" />
-                    <span>Ver Rutas</span>
+                    <Route size={13} />
+                    <span>Ver Recorrido</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const elapsedMs = myActiveRoute?.startedAt ? (Date.now() - new Date(myActiveRoute.startedAt).getTime()) : 999999;
+                      if (elapsedMs < 60000) {
+                        if (!window.confirm("⚠️ Tu ruta fue iniciada hace menos de un minuto. ¿Deseas cancelarla o cerrarla de todos modos?")) {
+                          return;
+                        }
+                      }
+                      setRouteToFinish(myActiveRoute);
+                      setShowFinishRouteModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-white text-emerald-950 hover:bg-emerald-50 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1"
+                  >
+                    <Flag size={13} className="text-emerald-700" />
+                    <span>🏁 Finalizar Ruta</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 2. If Admin and there are TEAM sellers in active route */}
+            {user.role === 'admin' && teamActiveRoutes.length > 0 && (
+              <div className="space-y-1.5">
+                {teamActiveRoutes.map((r) => {
+                  const sellerVisitsToday = visits.filter(v => {
+                    if (!isTodayGuatemala(v.createdAt)) return false;
+                    if (v.routeId) {
+                      return v.routeId === r.id;
+                    }
+                    const vSellerId = String(v.sellerId || '').trim();
+                    const vSellerEmail = String(v.sellerEmail || '').trim().toLowerCase();
+                    const vSellerName = String(v.sellerName || '').trim().toLowerCase();
+                    const rSellerId = String(r.sellerId || '').trim();
+                    const rSellerEmail = String(r.sellerEmail || '').trim().toLowerCase();
+                    const rSellerName = String(r.sellerName || '').trim().toLowerCase();
+                    return (
+                      (rSellerId && vSellerId === rSellerId) ||
+                      (rSellerEmail && vSellerEmail === rSellerEmail) ||
+                      (rSellerName && vSellerName === rSellerName)
+                    );
+                  }).length;
+
+                  return (
+                    <div
+                      key={r.id || r.sellerId}
+                      className="bg-gradient-to-r from-emerald-900/90 to-teal-950/90 border border-emerald-500/30 text-white px-3.5 py-2 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                          <Car size={16} className="text-emerald-300 animate-pulse" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-400 text-emerald-950 uppercase tracking-wider">
+                              🟢 Ruta Activa
+                            </span>
+                            <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded border border-white/15">
+                              👤 Asesor: {r.sellerName || 'Vendedor'}
+                            </span>
+                            <span className="text-[11px] text-emerald-200 font-medium">
+                              · 🕒 Iniciada: {r.startedAt ? new Date(r.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-emerald-200/90 font-medium truncate mt-0.5">
+                            📍 {sellerVisitsToday} {sellerVisitsToday === 1 ? 'cliente visitado' : 'clientes visitados'} hoy en esta ruta
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleInspectActiveRoute(r)}
+                          className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Route size={13} />
+                          <span>Ver Recorrido</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRouteToFinish(r);
+                            setShowFinishRouteModal(true);
+                          }}
+                          className="px-2.5 py-1.5 bg-white/10 hover:bg-rose-500/20 text-rose-200 hover:text-white border border-white/10 hover:border-rose-400/30 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                          title="Finalizar ruta de este asesor"
+                        >
+                          <Flag size={12} className="text-rose-400" />
+                          <span>Finalizar</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!myActiveRoute && (
+                  <div className="flex items-center justify-between text-xs px-3 py-1 text-slate-400 bg-slate-900/60 rounded-lg border border-slate-800/80">
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                      <Shield size={12} className="text-teal-400" />
+                      <span>Supervisión activa ({teamActiveRoutes.length} {teamActiveRoutes.length === 1 ? 'asesor en campo' : 'asesores en campo'})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleStartRoute}
+                      disabled={isStartingRoute}
+                      className="px-2.5 py-1 bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                    >
+                      <Car size={12} />
+                      <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta (Admin)'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. If NO active routes at all */}
+            {!myActiveRoute && teamActiveRoutes.length === 0 && (
+              user.role === 'seller' ? (
+                <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                      <Car size={16} className="text-slate-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          ⚪ Sin Jornada en Curso
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-300">
+                          · 👤 Asesor: {user.name || 'Tú'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        Inicia tu ruta antes de salir a campo, o se iniciará automáticamente con tu primera visita registrada.
+                      </p>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
                     onClick={handleStartRoute}
                     disabled={isStartingRoute}
-                    className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                    className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0 self-end sm:self-center"
                   >
                     <Car size={13} />
-                    <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta'}</span>
+                    <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Ruta de Hoy'}</span>
                   </button>
                 </div>
+              ) : (
+                <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                      <Route size={16} className="text-teal-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-black text-teal-400 uppercase tracking-wider">
+                          🛡️ Panel de Rutas (Administración)
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-400">
+                          · ⚪ Sin rutas activas en campo hoy
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        Supervisa dónde inician y cierran ruta tus vendedores, o inicia tu propia jornada si sales a visitas.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('routes');
+                        const el = document.getElementById('routes-tab-control');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                    >
+                      <Navigation size={12} className="text-teal-400" />
+                      <span>Ver Rutas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStartRoute}
+                      disabled={isStartingRoute}
+                      className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5"
+                    >
+                      <Car size={13} />
+                      <span>{isStartingRoute ? 'Iniciando...' : '▶️ Iniciar Mi Ruta'}</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+
+          {/* METRICS ROW */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">
+            {/* Card 1 */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Visitas de Hoy</span>
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <Calendar size={16} />
+                </div>
               </div>
-            )
-          )}
-        </div>
-
-      {/* METRICS ROW */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5">
-        {/* Card 1 */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Visitas de Hoy</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-              <Calendar size={16} />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <h4 className="text-3xl font-black text-slate-950">{todayVisitedClientsCount}</h4>
-              <span className="text-xs font-bold text-slate-500">
-                {todayVisitedClientsCount === 1 ? 'cliente visitado' : 'clientes visitados'}
-              </span>
-            </div>
-            <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
-              <Sparkles size={12} /> {todayTotalVisitsCount} {todayTotalVisitsCount === 1 ? 'parada registrada' : 'paradas registradas'}
-            </p>
-          </div>
-
-          {sellersTodayList.length > 0 && (
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
-              {sellersTodayList.map(s => (
-                <span key={s.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-teal-50 text-teal-900 border border-teal-100">
-                  👤 {s.name}: <span className="text-teal-700 font-black">{s.clientCount} {s.clientCount === 1 ? 'cliente' : 'clientes'}</span> ({s.visitsCount} {s.visitsCount === 1 ? 'parada' : 'paradas'})
-                </span>
-              ))}
-            </div>
-          )}
-        </motion.div>
-
-        {/* Card 2 */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.05 }}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Clientes con GPS</span>
-            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
-              <MapPin size={16} />
-            </div>
-          </div>
-          <h4 className="text-2xl font-black text-slate-950">
-            {geotaggedCount} <span className="text-sm font-semibold text-slate-400">/ {userClients.length}</span>
-          </h4>
-          <p className="text-xs text-teal-600 mt-1 font-semibold">
-            {geotaggedPercentage}% de cobertura fijada
-          </p>
-        </motion.div>
-
-        {/* Card 3 */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.1 }}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Radar &gt;15 Días</span>
-            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
-<AlertTriangle size={16} />
-            </div>
-          </div>
-          <h4 className="text-2xl font-black text-rose-600">{urgentClientsCount}</h4>
-          <p className="text-xs text-rose-500 mt-1 font-semibold">
-            Requieren atención prioritaria
-          </p>
-        </motion.div>
-      </div>
-
-      {/* MAP & ROUTE TRACER SECTION */}
-      <div id="client-visits-map-section" className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-1">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg">
-              <Route size={18} />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-slate-900 font-manrope flex items-center gap-2">
-                <span>Rutas GPS & Auditoría de Tiempos</span>
-                {isRouteTraceActive && routeAnalysis.stops.length > 0 && (
-                  <span className="text-[10px] font-bold bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full">
-                    {routeAnalysis.stops.length} Paradas Trazadas
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <h4 className="text-3xl font-black text-slate-950">{todayVisitedClientsCount}</h4>
+                  <span className="text-xs font-bold text-slate-500">
+                    {todayVisitedClientsCount === 1 ? 'cliente visitado' : 'clientes visitados'}
                   </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-500 font-medium">Trazado secuencial de ruta y cálculo de tiempos en terreno</p>
-            </div>
+                </div>
+                <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
+                  <Sparkles size={12} /> {todayTotalVisitsCount} {todayTotalVisitsCount === 1 ? 'parada registrada' : 'paradas registradas'}
+                </p>
+              </div>
+
+              {sellersTodayList.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
+                  {sellersTodayList.map(s => (
+                    <span key={s.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-teal-50 text-teal-900 border border-teal-100">
+                      👤 {s.name}: <span className="text-teal-700 font-black">{s.clientCount} {s.clientCount === 1 ? 'cliente' : 'clientes'}</span> ({s.visitsCount} {s.visitsCount === 1 ? 'parada' : 'paradas'})
+                    </span>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+
+            {/* Card 2 */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: 0.05 }}
+              className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Clientes con GPS</span>
+                <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
+                  <MapPin size={16} />
+                </div>
+              </div>
+              <h4 className="text-2xl font-black text-slate-950">
+                {geotaggedCount} <span className="text-sm font-semibold text-slate-400">/ {userClients.length}</span>
+              </h4>
+              <p className="text-xs text-teal-600 mt-1 font-semibold">
+                {geotaggedPercentage}% de cobertura fijada
+              </p>
+            </motion.div>
+
+            {/* Card 3 */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: 0.1 }}
+              className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Radar &gt;15 Días</span>
+                <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                  <AlertTriangle size={16} />
+                </div>
+              </div>
+              <h4 className="text-2xl font-black text-rose-600">{urgentClientsCount}</h4>
+              <p className="text-xs text-rose-500 mt-1 font-semibold">
+                Requieren atención prioritaria
+              </p>
+            </motion.div>
           </div>
 
-          {/* Route Tracing Controls (Admin / Supervisors vs Seller) */}
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            {user.role === 'admin' ? (
-              availableSellers.length > 0 && (
+          {/* MAP & ROUTE TRACER SECTION */}
+          <div id="client-visits-map-section" className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-1">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg">
+                  <Route size={18} />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900 font-manrope flex items-center gap-2">
+                    <span>Rutas GPS & Auditoría de Tiempos</span>
+                    {isRouteTraceActive && routeAnalysis.stops.length > 0 && (
+                      <span className="text-[10px] font-bold bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full">
+                        {routeAnalysis.stops.length} Paradas Trazadas
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">Trazado secuencial de ruta y cálculo de tiempos en terreno</p>
+                </div>
+              </div>
+
+              {/* Route Tracing Controls (Admin / Supervisors vs Seller) */}
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                {user.role === 'admin' ? (
+                  availableSellers.length > 0 && (
+                    <select
+                      value={routeSellerId}
+                      onChange={(e) => {
+                        setRouteSellerId(e.target.value);
+                        if (e.target.value !== 'all' && !isRouteTraceActive) {
+                          setIsRouteTraceActive(true);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs"
+                      title="Filtrar ruta por asesor"
+                    >
+                      <option value="all">👤 Todos los Asesores</option>
+                      {availableSellers.map(s => (
+                        <option key={s.id} value={s.id}>
+                          👤 {s.name} {s.todayVisits > 0 ? `(${s.todayVisits} hoy)` : `(${s.totalVisits} visitas)`}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                ) : (
+                  <div className="px-3 py-1.5 bg-teal-50 border border-teal-200 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                    <span>👤 Mi Ruta: {user.name || 'Asesor'}</span>
+                  </div>
+                )}
+
                 <select
-                  value={routeSellerId}
+                  value={routeDate}
                   onChange={(e) => {
-                    setRouteSellerId(e.target.value);
+                    setRouteDate(e.target.value);
                     if (e.target.value !== 'all' && !isRouteTraceActive) {
                       setIsRouteTraceActive(true);
                     }
                   }}
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs"
-                  title="Filtrar ruta por asesor"
+                  title="Seleccionar fecha de la ruta"
                 >
-                  <option value="all">👤 Todos los Asesores</option>
-                  {availableSellers.map(s => (
-                    <option key={s.id} value={s.id}>
-                      👤 {s.name} {s.todayVisits > 0 ? `(${s.todayVisits} hoy)` : `(${s.totalVisits} visitas)`}
+                  <option value="all">📅 Toda la Trayectoria</option>
+                  {availableVisitDates.map(d => (
+                    <option key={d.date} value={d.date}>
+                      {d.label}
                     </option>
                   ))}
                 </select>
-              )
-            ) : (
-              <div className="px-3 py-1.5 bg-teal-50 border border-teal-200 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs">
-                <span>👤 Mi Ruta: {user.name || 'Asesor'}</span>
+
+                <button
+                  type="button"
+                  onClick={handleToggleRouteTrace}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95",
+                    isRouteTraceActive
+                      ? "bg-teal-600 text-white hover:bg-teal-700 shadow-teal-600/10 ring-2 ring-teal-500/30"
+                      : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                  title="Activar o desactivar trazado de línea de ruta en el mapa"
+                >
+                  <Route size={14} />
+                  <span>{isRouteTraceActive ? '🛣️ Ocultar Ruta' : '🛣️ Trazar Ruta'}</span>
+                </button>
               </div>
-            )}
+            </div>
 
-            <select
-              value={routeDate}
-              onChange={(e) => {
-                setRouteDate(e.target.value);
-                if (e.target.value !== 'all' && !isRouteTraceActive) {
-                  setIsRouteTraceActive(true);
-                }
+            <ClientVisitsMap
+              clients={userClients}
+              visits={scopedVisits}
+              currentLocation={currentLocation}
+              currentUser={user}
+              onSelectClientForVisit={handleSelectClientForVisit}
+              onOpenMarkClientModal={() => {
+                setSelectedClientForMark(null);
+                setIsMarkModalOpen(true);
               }}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-2xs"
-              title="Seleccionar fecha de la ruta"
-            >
-              <option value="all">📅 Toda la Trayectoria</option>
-              {availableVisitDates.map(d => (
-                <option key={d.date} value={d.date}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
+              onOpenRegisterVisitModal={() => {
+                setSelectedClientForVisit(null);
+                setIsRegisterModalOpen(true);
+              }}
+              onRefreshGps={requestLocation}
+              isGpsLoading={isGpsLoading}
+              routeSellerId={routeSellerId}
+              routeDate={routeDate}
+              isRouteTraceActive={isRouteTraceActive}
+              onOpenMarkClientModalForClient={(c) => {
+                setSelectedClientForMark(c);
+                setIsMarkModalOpen(true);
+              }}
+              onClearClientLocation={handleClearClientLocation}
+              sellerRoutes={sellerRoutes}
+              activeRoute={activeRoute}
+              focusLocation={focusLocation}
+            />
 
-            <button
-              type="button"
-              onClick={handleToggleRouteTrace}
-              className={cn(
-                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95",
-                isRouteTraceActive 
-                  ? "bg-teal-600 text-white hover:bg-teal-700 shadow-teal-600/10 ring-2 ring-teal-500/30" 
-                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-              )}
-              title="Activar o desactivar trazado de línea de ruta en el mapa"
-            >
-              <Route size={14} />
-              <span>{isRouteTraceActive ? '🛣️ Ocultar Ruta' : '🛣️ Trazar Ruta'}</span>
-            </button>
+            {/* Route Metrics Summary Strip */}
+            {isRouteTraceActive && routeAnalysis.stops.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-teal-950 text-white p-3.5 sm:p-4 rounded-2xl shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border border-teal-800/40"
+              >
+                <div className="space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
+                    <Timer size={12} /> Jornada en Ruta
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-white">
+                    {routeAnalysis.totalDurationMins >= 60
+                      ? `${Math.floor(routeAnalysis.totalDurationMins / 60)}h ${routeAnalysis.totalDurationMins % 60}m`
+                      : `${routeAnalysis.totalDurationMins} min`}
+                  </p>
+                  <p className="text-[10px] text-teal-200 truncate">
+                    {routeAnalysis.firstStopAt ? new Date(routeAnalysis.firstStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} - {routeAnalysis.isOngoing ? 'En curso' : (routeAnalysis.lastStopAt ? new Date(routeAnalysis.lastStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
+                    <Car size={12} /> Distancia Total
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-white">
+                    {routeAnalysis.totalDistanceKm} <span className="text-xs font-semibold text-teal-300">km</span>
+                  </p>
+                  <p className="text-[10px] text-teal-200">
+                    {routeAnalysis.stops.length} Checkpoints GPS
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
+                    <Clock size={12} /> Tiempo / Parada
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-white">
+                    ~{routeAnalysis.avgTimeBetweenStopsMins} <span className="text-xs font-semibold text-teal-300">min</span>
+                  </p>
+                  <p className="text-[10px] text-teal-200">
+                    Promedio entre puntos
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
+                    <Repeat size={12} /> Ciclo de Retorno
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-white">
+                    Cada {routeAnalysis.returnCycleDays} <span className="text-xs font-semibold text-teal-300">días</span>
+                  </p>
+                  <p className="text-[10px] text-teal-200">
+                    Frecuencia de repetición
+                  </p>
+                </div>
+              </motion.div>
+            )}
           </div>
-        </div>
-
-        <ClientVisitsMap
-          clients={userClients}
-          visits={scopedVisits}
-          currentLocation={currentLocation}
-          currentUser={user}
-          onSelectClientForVisit={handleSelectClientForVisit}
-          onOpenMarkClientModal={() => {
-            setSelectedClientForMark(null);
-            setIsMarkModalOpen(true);
-          }}
-          onOpenRegisterVisitModal={() => {
-            setSelectedClientForVisit(null);
-            setIsRegisterModalOpen(true);
-          }}
-          onRefreshGps={requestLocation}
-          isGpsLoading={isGpsLoading}
-          routeSellerId={routeSellerId}
-          routeDate={routeDate}
-          isRouteTraceActive={isRouteTraceActive}
-          onOpenMarkClientModalForClient={(c) => {
-            setSelectedClientForMark(c);
-            setIsMarkModalOpen(true);
-          }}
-          onClearClientLocation={handleClearClientLocation}
-          sellerRoutes={sellerRoutes}
-          activeRoute={activeRoute}
-          focusLocation={focusLocation}
-        />
-
-        {/* Route Metrics Summary Strip */}
-        {isRouteTraceActive && routeAnalysis.stops.length > 0 && (
-          <motion.div 
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-teal-950 text-white p-3.5 sm:p-4 rounded-2xl shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border border-teal-800/40"
-          >
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
-                <Timer size={12} /> Jornada en Ruta
-              </span>
-              <p className="text-base sm:text-lg font-black text-white">
-                {routeAnalysis.totalDurationMins >= 60
-                  ? `${Math.floor(routeAnalysis.totalDurationMins / 60)}h ${routeAnalysis.totalDurationMins % 60}m`
-                  : `${routeAnalysis.totalDurationMins} min`}
-              </p>
-              <p className="text-[10px] text-teal-200 truncate">
-                {routeAnalysis.firstStopAt ? new Date(routeAnalysis.firstStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} - {routeAnalysis.isOngoing ? 'En curso' : (routeAnalysis.lastStopAt ? new Date(routeAnalysis.lastStopAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
-              </p>
-            </div>
-
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
-                <Car size={12} /> Distancia Total
-              </span>
-              <p className="text-base sm:text-lg font-black text-white">
-                {routeAnalysis.totalDistanceKm} <span className="text-xs font-semibold text-teal-300">km</span>
-              </p>
-              <p className="text-[10px] text-teal-200">
-                {routeAnalysis.stops.length} Checkpoints GPS
-              </p>
-            </div>
-
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
-                <Clock size={12} /> Tiempo / Parada
-              </span>
-              <p className="text-base sm:text-lg font-black text-white">
-                ~{routeAnalysis.avgTimeBetweenStopsMins} <span className="text-xs font-semibold text-teal-300">min</span>
-              </p>
-              <p className="text-[10px] text-teal-200">
-                Promedio entre puntos
-              </p>
-            </div>
-
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase font-bold text-teal-300 flex items-center gap-1">
-                <Repeat size={12} /> Ciclo de Retorno
-              </span>
-              <p className="text-base sm:text-lg font-black text-white">
-                Cada {routeAnalysis.returnCycleDays} <span className="text-xs font-semibold text-teal-300">días</span>
-              </p>
-              <p className="text-[10px] text-teal-200">
-                Frecuencia de repetición
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </div>
-    </>
-  )}
+        </>
+      )}
 
       {/* CONTROL & SUPERVISION TABS */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
@@ -2366,7 +2366,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
             ) : (
               clientPortfolioWithStatus.map((client) => {
                 const hasGps = client.latitude && client.longitude;
-                const mapsLink = hasGps 
+                const mapsLink = hasGps
                   ? `https://www.google.com/maps/dir/?api=1&destination=${client.latitude},${client.longitude}`
                   : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address || client.name)}`;
                 const wazeLink = hasGps
@@ -2447,8 +2447,8 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
                       {/* Commercial Analytics Strip (Lealtad, Promedio de Compra, Frecuencia) */}
                       {(() => {
-                        const sInfo = clientSalesMap.get(String(client.id).toLowerCase().trim()) 
-                          || (client.clientCode ? clientSalesMap.get(String(client.clientCode).toLowerCase().trim()) : null) 
+                        const sInfo = clientSalesMap.get(String(client.id).toLowerCase().trim())
+                          || (client.clientCode ? clientSalesMap.get(String(client.clientCode).toLowerCase().trim()) : null)
                           || clientSalesMap.get(normalizeSearchText(client.name));
                         if (!sInfo) return null;
 
@@ -2459,8 +2459,8 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                                 <span className={cn(
                                   "px-2 py-0.5 rounded-full font-bold text-[10px] flex items-center gap-1 border",
                                   sInfo.daysSinceLastPurchase <= 15 ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                                  sInfo.daysSinceLastPurchase <= 45 ? "bg-amber-50 text-amber-700 border-amber-200" :
-                                  "bg-rose-50 text-rose-700 border-rose-200"
+                                    sInfo.daysSinceLastPurchase <= 45 ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                      "bg-rose-50 text-rose-700 border-rose-200"
                                 )}>
                                   {sInfo.daysSinceLastPurchase <= 15 ? '🟢 Compra Frecuente' : sInfo.daysSinceLastPurchase <= 45 ? '🟡 Compra Moderada' : '🔴 Cliente En Riesgo'}
                                 </span>
@@ -2731,8 +2731,8 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                               key={r.key}
                               className={cn(
                                 "p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group",
-                                isSelected 
-                                  ? "bg-teal-50/90 border-teal-500 ring-2 ring-teal-500/20 shadow-sm" 
+                                isSelected
+                                  ? "bg-teal-50/90 border-teal-500 ring-2 ring-teal-500/20 shadow-sm"
                                   : "bg-white hover:bg-slate-50/80 border-slate-200/80 hover:border-slate-300"
                               )}
                             >
@@ -2874,17 +2874,17 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 {routeAnalysis.stops.map((stop, idx) => {
                   const isFirst = idx === 0;
                   const isLast = idx === routeAnalysis.stops.length - 1;
-                  const stopColorClass = isFirst 
-                    ? "bg-emerald-600 text-white" 
-                    : isLast 
-                      ? "bg-amber-600 text-white" 
+                  const stopColorClass = isFirst
+                    ? "bg-emerald-600 text-white"
+                    : isLast
+                      ? "bg-amber-600 text-white"
                       : "bg-teal-700 text-white";
 
                   const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.latitude},${stop.longitude}`;
                   const wazeUrl = `https://waze.com/ul?ll=${stop.latitude},${stop.longitude}&navigate=yes`;
 
                   return (
-                    <motion.div 
+                    <motion.div
                       key={stop.id}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -3072,7 +3072,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
 
                       <div className="flex items-center gap-2 self-end md:self-center shrink-0">
                         {visit.photoUrl && (
-                          <button 
+                          <button
                             type="button"
                             onClick={() => setSelectedVisitForDetail(visit)}
                             className="w-11 h-11 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-2xs hover:scale-105 transition-transform cursor-pointer"
@@ -3130,7 +3130,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {stats?.sellerRankings && stats.sellerRankings.length > 0 ? (
                   stats.sellerRankings.map((seller, idx) => (
-                    <div 
+                    <div
                       key={seller.sellerId}
                       className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-teal-300 transition-all shadow-xs space-y-3"
                     >
@@ -3220,9 +3220,9 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                       {/* Photo Thumbnail Box */}
                       <div className="w-full h-40 rounded-xl bg-slate-900 overflow-hidden relative border border-slate-100 flex items-center justify-center">
                         {visit.photoUrl ? (
-                          <img 
-                            src={visit.photoUrl} 
-                            alt={visit.clientName} 
+                          <img
+                            src={visit.photoUrl}
+                            alt={visit.clientName}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                         ) : (
@@ -3322,7 +3322,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
       {/* FINALIZAR RUTA MODAL */}
       {showFinishRouteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4"
@@ -3334,7 +3334,7 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
             {(() => {
               const targetToClose = routeToFinish || activeRoute;
               const targetSeller = targetToClose?.sellerName || user.name || 'Asesor';
-              const targetStops = targetToClose 
+              const targetStops = targetToClose
                 ? scopedVisits.filter(v => v.routeId === targetToClose.id || (v.sellerId === targetToClose.sellerId && isTodayGuatemala(v.createdAt))).length
                 : scopedVisits.filter(v => isTodayGuatemala(v.createdAt)).length;
               return (
@@ -3493,21 +3493,20 @@ export function ClientVisitsPage({ user, isMobile, initialTab }: ClientVisitsPag
                 type="button"
                 onClick={handleFinishRoute}
                 disabled={isFinishingRoute || isAcquiringClosingGps || !closingGps}
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${
-                  !closingGps || isAcquiringClosingGps
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${!closingGps || isAcquiringClosingGps
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
                     : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 cursor-pointer'
-                }`}
+                  }`}
                 title={!closingGps ? 'Debes obtener coordenadas GPS reales para finalizar la ruta' : 'Confirmar y archivar'}
               >
                 <Flag size={14} />
                 <span>
-                  {isFinishingRoute 
-                    ? 'Finalizando...' 
-                    : isAcquiringClosingGps 
-                      ? 'Buscando GPS...' 
-                      : !closingGps 
-                        ? 'Bloqueado: Requiere GPS' 
+                  {isFinishingRoute
+                    ? 'Finalizando...'
+                    : isAcquiringClosingGps
+                      ? 'Buscando GPS...'
+                      : !closingGps
+                        ? 'Bloqueado: Requiere GPS'
                         : 'Confirmar y Archivar'}
                 </span>
               </button>
