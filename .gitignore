@@ -38,5 +38,7 @@ _git_push.cjs
 .chrome-live-session/
 .chrome-shots-session/
 *.pptx
+*.xlsx
+public/*.apk
 scratch/
 scripts-archivo/historico/

@@ -100,9 +100,18 @@ public class MainActivity extends BridgeActivity {
             WebView webView = getBridge().getWebView();
             webView.evaluateJavascript(
                 "(function() { " +
-                "  if (typeof window.__handleAndroidBackButton === 'function') { " +
-                "    return window.__handleAndroidBackButton(); " +
-                "  } " +
+                "  try { " +
+                "    if (typeof window.__handleAndroidBackButton === 'function') { " +
+                "      return Boolean(window.__handleAndroidBackButton()); " +
+                "    } " +
+                "    var closeBtn = document.querySelector('[id*=\"close\"], button[title*=\"Cerrar\"], button[aria-label*=\"Cerrar\"]'); " +
+                "    if (closeBtn && closeBtn.offsetParent !== null) { closeBtn.click(); return true; } " +
+                "    var h = (window.location.hash || '').replace('#', '').split('?')[0]; " +
+                "    if (h && h !== 'home' && h !== 'login') { " +
+                "      window.location.hash = 'home'; " +
+                "      return true; " +
+                "    } " +
+                "  } catch (e) {} " +
                 "  return false; " +
                 "})()",
                 result -> {

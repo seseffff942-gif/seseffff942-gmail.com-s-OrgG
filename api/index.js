@@ -4526,7 +4526,13 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   if (pgPool) {
     try {
       const res2 = await pgPool.query(`
-        SELECT * FROM public.client_visits 
+        SELECT 
+          id, "clientId", client_id, "clientName", client_name, "clientCode", client_code,
+          "companyName", company_name, "sellerId", seller_id, "sellerName", seller_name,
+          "sellerEmail", seller_email, latitude, longitude, accuracy, "distanceMeters", distance_meters,
+          "visitType", visit_type, notes, "routeId", route_id, "createdAt", created_at,
+          (photo_url IS NOT NULL OR "photoUrl" IS NOT NULL OR has_photo IS TRUE OR "hasPhoto" IS TRUE) as has_photo
+        FROM public.client_visits 
         ORDER BY created_at DESC NULLS LAST, "createdAt" DESC NULLS LAST;
       `);
       if (res2.rows && res2.rows.length > 0) {
@@ -9461,7 +9467,7 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         }
         const itemPrice = item.price !== void 0 ? parseFloat(item.price) : product.price;
         const isExemptFromStock = isExemptFromStockBlock(product, item);
-        const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== void 0 || item.tecunToOrder !== void 0;
+        const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || doesNotNeedStock(product) || item.fiatToOrder !== void 0 || item.tecunToOrder !== void 0;
         let currentStock = parseFloat(product.stock || 0);
         let variantObj = null;
         let newStock = currentStock;
@@ -9557,7 +9563,8 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
         const prevStockVal = !product.is_external ? currentStock : 999999;
         const newStockVal = !product.is_external ? newStock : 999999;
         const baseName = variantObj ? `${product.name} (${variantObj.color || ""} ${variantObj.size || ""})`.trim() : item.productName || product.name;
-        const finalProductName = item.isBonus && !baseName.includes("Bonificaci\xF3n") ? `${baseName} (Bonificaci\xF3n / Gratis)` : baseName;
+        const cleanBaseName = baseName.replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, " (Bonificaci\xF3n)").replace(/\s*\(\s*Gratis\s*\)/gi, " (Bonificaci\xF3n)");
+        const finalProductName = item.isBonus && !cleanBaseName.includes("Bonificaci\xF3n") ? `${cleanBaseName} (Bonificaci\xF3n)` : cleanBaseName;
         processedItems.push({
           ...item,
           price: itemPrice,
@@ -9953,7 +9960,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
       const { data: pData } = await localDb.from("products").select("stock, name, category, is_external, variants").eq("id", prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
-      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
+      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p) || doesNotNeedStock(p);
       const isExemptProd = isExemptFromStockBlock(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
@@ -9967,7 +9974,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
               error: `Stock insuficiente para agregar ${Math.abs(netDiff)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curVarStock}).`
             });
           }
-          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
+          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: Math.max(0, rawVarStock) };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
@@ -9980,7 +9987,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
             error: `Stock insuficiente para agregar ${Math.abs(changes.total)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curProdStock}).`
           });
         }
-        await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq("id", prodId);
+        await localDb.from("products").update({ stock: Math.max(0, rawStock) }).eq("id", prodId);
       }
     }
   } finally {

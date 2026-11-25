@@ -788,7 +788,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Stock en Bodega</span>
               <h3 className="text-xl sm:text-2xl font-black text-slate-800 leading-none">
                 <span className="notranslate" translate="no">{products.reduce((acc, p) => {
-                  if (p.is_external || doesNotNeedStock(p)) return acc;
+                  if (p.is_external) return acc;
                   if (p.variants && p.variants.length > 0) {
                     return acc + p.variants.reduce((vAcc, v) => vAcc + Math.max(0, Number(v.stock !== undefined ? v.stock : p.stock || 0)), 0);
                   }
@@ -860,86 +860,89 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
         
         {/* Search, Actions & Category Filter Panel */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4 transition-all">
-          <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 items-center justify-between">
+          <div className="flex flex-col 2xl:flex-row gap-3 sm:gap-4 items-stretch 2xl:items-center justify-between">
             
-            {/* Search Input */}
-            <div className={cn("relative w-full lg:max-w-xs flex-1", inventoryViewMode === 'office' ? 'invisible hidden lg:block' : '')}>
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                type="text"
-                placeholder="Buscar insumo, marca o SKU..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 text-xs sm:text-sm font-semibold outline-none focus:border-[#0b4d2c] focus:bg-white transition-all shadow-inner"
-              />
-            </div>
+            {/* Search & View Mode Toggle Group */}
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1 min-w-0">
+              {/* Search Input */}
+              <div className={cn("relative w-full sm:w-64 md:w-72 lg:w-80 shrink-0", inventoryViewMode === 'office' ? 'invisible hidden sm:block' : '')}>
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="Buscar insumo, marca o SKU..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 text-xs sm:text-sm font-semibold outline-none focus:border-[#0b4d2c] focus:bg-white transition-all shadow-inner"
+                />
+              </div>
 
-            {/* Vista Toggle / View Mode Segmented Bar */}
-            <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 w-full sm:w-auto justify-center">
-              <button
-                type="button"
-                onClick={() => setInventoryViewMode('grid')}
-                className={cn(
-                  "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
-                  inventoryViewMode === 'grid' 
-                    ? "bg-white text-[#0b4d2c] shadow-sm" 
-                    : "text-slate-500 hover:text-slate-800"
+              {/* Vista Toggle / View Mode Segmented Bar */}
+              <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 w-full sm:w-auto justify-center overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setInventoryViewMode('grid')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                    inventoryViewMode === 'grid' 
+                      ? "bg-white text-[#0b4d2c] shadow-sm" 
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  <Layers size={13} />
+                  <span className="hidden xs:inline">MOSAICOS</span>
+                  <span className="xs:hidden">MOS.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInventoryViewMode('list')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                    inventoryViewMode === 'list' 
+                      ? "bg-white text-[#0b4d2c] shadow-sm" 
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  <FileText size={13} />
+                  <span className="hidden xs:inline">LISTADO</span>
+                  <span className="xs:hidden">LIST.</span>
+                </button>
+                {user.role === 'admin' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryViewMode('valuation')}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                        inventoryViewMode === 'valuation' 
+                          ? "bg-[#0b4d2c] text-white shadow-sm animate-pulse-once" 
+                          : "text-slate-500 hover:text-slate-800"
+                      )}
+                    >
+                      <Package size={13} />
+                      <span className="hidden xs:inline">VALORACIÓN</span>
+                      <span className="xs:hidden">VAL.</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryViewMode('office')}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0",
+                        inventoryViewMode === 'office' 
+                          ? "bg-blue-800 text-white shadow-sm animate-pulse-once" 
+                          : "text-slate-500 hover:text-blue-800"
+                      )}
+                    >
+                      <Briefcase size={13} />
+                      <span className="hidden xs:inline">OFICINA Y EQUIPO</span>
+                      <span className="xs:hidden">OFI.</span>
+                    </button>
+                  </>
                 )}
-              >
-                <Layers size={13} />
-                <span className="hidden xs:inline">MOSAICOS</span>
-                <span className="xs:hidden">MOS.</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setInventoryViewMode('list')}
-                className={cn(
-                  "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
-                  inventoryViewMode === 'list' 
-                    ? "bg-white text-[#0b4d2c] shadow-sm" 
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-              >
-                <FileText size={13} />
-                <span className="hidden xs:inline">LISTADO</span>
-                <span className="xs:hidden">LIST.</span>
-              </button>
-              {user.role === 'admin' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setInventoryViewMode('valuation')}
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
-                      inventoryViewMode === 'valuation' 
-                        ? "bg-[#0b4d2c] text-white shadow-sm animate-pulse-once" 
-                        : "text-slate-500 hover:text-slate-805"
-                    )}
-                  >
-                    <Package size={13} />
-                    <span className="hidden xs:inline">VALORACIÓN</span>
-                    <span className="xs:hidden">VAL.</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInventoryViewMode('office')}
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5",
-                      inventoryViewMode === 'office' 
-                        ? "bg-blue-800 text-white shadow-sm animate-pulse-once" 
-                        : "text-slate-500 hover:text-blue-800"
-                    )}
-                  >
-                    <Briefcase size={13} />
-                    <span className="hidden xs:inline">OFICINA Y EQUIPO</span>
-                    <span className="xs:hidden">OFI.</span>
-                  </button>
-                </>
-              )}
+              </div>
             </div>
 
             {/* Refresh and Add Product Controls */}
-            <div className={cn("grid grid-cols-2 sm:flex sm:w-auto w-full items-center justify-end gap-2", inventoryViewMode === 'office' ? 'hidden' : '')}>
+            <div className={cn("grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-end gap-2 w-full 2xl:w-auto", inventoryViewMode === 'office' ? 'hidden' : '')}>
               <button
                 onClick={() => {
                   let csv = "Producto,Categoría,Stock,Precio (Q)\n";
@@ -1100,19 +1103,19 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                         setConsignacionesList(data || []);
                       }).finally(() => setLoadingConsignaciones(false));
                     }}
-                    className="flex items-center justify-center gap-1.5 h-10 px-3 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto"
+                    className="flex items-center justify-center gap-1.5 h-10 px-3 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto min-w-0"
                     title="Mandar producto a consignación"
                   >
-                    <ArrowUpRight size={15} />
-                    <span>CONSIGNACIÓN</span>
+                    <ArrowUpRight size={15} className="shrink-0" />
+                    <span className="truncate">CONSIGNACIÓN</span>
                   </button>
 
                   <button
                     onClick={handleOpenAddModal}
-                    className="flex items-center justify-center gap-1.5 h-10 px-4 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto"
+                    className="flex items-center justify-center gap-1.5 h-10 px-3 sm:px-4 bg-[#0b4d2c] hover:bg-[#083a21] text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer w-full sm:w-auto min-w-0"
                   >
-                    <Plus size={15} />
-                    <span>NUEVO PRODUCTO</span>
+                    <Plus size={15} className="shrink-0" />
+                    <span className="truncate">NUEVO PRODUCTO</span>
                   </button>
                 </>
               )}
@@ -2826,7 +2829,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
               
               if (p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
-                  const vStock = v.stock !== undefined ? v.stock : (p.stock || 0);
+                  const vStock = Math.max(0, Number(v.stock !== undefined ? v.stock : (p.stock || 0)));
                   const vPrice = v.price || p.price || 0;
                   totalStock += vStock;
                   if (!isIncubadora && vStock > 0) {
@@ -2835,7 +2838,7 @@ export function InventoryPage({ user, isMobile }: InventoryPageProps) {
                   }
                 });
               } else {
-                const pStock = p.stock || 0;
+                const pStock = Math.max(0, Number(p.stock || 0));
                 const pPrice = p.price || 0;
                 totalStock += pStock;
                 if (!isIncubadora && pStock > 0) {

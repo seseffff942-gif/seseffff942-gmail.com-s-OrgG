@@ -947,7 +947,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
            if (freeQty > 0) {
               resItems.push({
                 productId: i.product.id,
-                productName: `${i.product.name} (Bonificación / Gratis)`,
+                productName: `${i.product.name} (Bonificación)`,
                 quantity: freeQty,
                 price: 0,
                 suggestedPrice: 0,
@@ -2648,7 +2648,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                         />
                      </div>
                      <div>
-                        <label className="text-[10px] font-extrabold text-emerald-800/80 block uppercase tracking-wider mb-1">Gratis (Cant.)</label>
+                        <label className="text-[10px] font-extrabold text-emerald-800/80 block uppercase tracking-wider mb-1">Bonificación (Cant.)</label>
                         <input 
                            type="number" 
                            min="1" 
@@ -2726,11 +2726,11 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                     />
                     <div className="text-left flex-1">
                       <label htmlFor="splitBonusCheckbox" className="text-xs font-black text-[#0b4d2c] block cursor-pointer">
-                        Desglosar gratis a Q0.00 en factura
+                        Desglosar bonificación a Q0.00 en factura
                       </label>
                       <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">
                         {customOfferSplitBonus 
-                          ? `En factura: ${customOfferBuy || 0} al precio normal (${formatMoney(parseFloat(customOfferUnitPrice) || selectedProduct?.price || 0)}) + ${customOfferFree || 0} a Q0.00 (Gratis)` 
+                          ? `En factura: ${customOfferBuy || 0} al precio normal (${formatMoney(parseFloat(customOfferUnitPrice) || selectedProduct?.price || 0)}) + ${customOfferFree || 0} a Q0.00 (Bonificación)` 
                           : `En factura: Las ${(parseInt(customOfferBuy)||0) + (parseInt(customOfferFree)||0)} unidades salen a precio unitario promedio prorrateado`}
                       </p>
                     </div>
@@ -2743,7 +2743,7 @@ export function SalesPage({ user, isMobile }: SalesPageProps) {
                       let totalPrice = parseFloat(modalPrice);
                       
                       if (isNaN(buyQty) || buyQty < 1) return alert("Cantidad 'Paga' inválida");
-                      if (isNaN(freeQty) || freeQty < 1) return alert("Cantidad 'Gratis' inválida");
+                      if (isNaN(freeQty) || freeQty < 1) return alert("Cantidad 'Bonificación' inválida");
 
                       if (selectedProduct?.variants && selectedProduct.variants.length > 0) {
                         if (!selectedVariantId) {

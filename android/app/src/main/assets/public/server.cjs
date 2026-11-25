@@ -32,10 +32,14 @@ __export(server_exports, {
   activeDatabaseMode: () => activeDatabaseMode,
   app: () => app,
   default: () => server_default,
+  emitRealtimeSync: () => emitRealtimeSync,
+  enqueueSaleTask: () => enqueueSaleTask,
   fetchGlobalDbModeFromDb: () => fetchGlobalDbModeFromDb,
   getDiaGuatemala: () => getDiaGuatemala,
   getGlobalDbMode: () => getGlobalDbMode,
   getGlobalMaintenanceMode: () => getGlobalMaintenanceMode,
+  httpServer: () => httpServer,
+  io: () => io,
   isClientOfSeller: () => isClientOfSeller,
   isDbActive: () => isDbActive,
   isNeonActive: () => isNeonActive,
@@ -45,12 +49,15 @@ __export(server_exports, {
   pgPool: () => pgPool,
   queryDb: () => queryDb,
   queryNeon: () => queryNeon,
+  recordAuditLog: () => recordAuditLog,
   setGlobalDbMode: () => setGlobalDbMode,
   setGlobalMaintenanceMode: () => setGlobalMaintenanceMode
 });
 module.exports = __toCommonJS(server_exports);
 var import_config = require("dotenv/config");
+var import_http = __toESM(require("http"), 1);
 var import_express = __toESM(require("express"), 1);
+var import_socket = require("socket.io");
 var import_compression = __toESM(require("compression"), 1);
 var import_path2 = __toESM(require("path"), 1);
 var import_multer = __toESM(require("multer"), 1);
@@ -477,9 +484,10 @@ async function obtenerDocumentoPorFactura(db, invoiceId) {
   return data && data.length ? data[0] : null;
 }
 async function listarDocumentos(db, filtros = {}) {
-  let q = db.from("fel_documentos").select("*").order("creado_en", { ascending: false });
+  let q = db.from("fel_documentos").select("*");
   if (filtros.estado) q = q.eq("estado", filtros.estado);
-  q = q.limit(filtros.limite ?? 200);
+  q = q.order("creado_en", { ascending: false, nullsFirst: false });
+  if (filtros.limite) q = q.limit(filtros.limite);
   const { data, error } = await q;
   if (error) throw new Error(`No se pudieron listar los documentos FEL: ${error.message}`);
   return data || [];
@@ -499,7 +507,7 @@ async function certificarFactura(db, invoice, opciones = {}) {
   const nitOverride = (opciones.receptor?.nit ?? "").toString().trim();
   const nombreOverride = (opciones.receptor?.nombre ?? "").toString().trim();
   const nitReceptorFinal = nitOverride || nitReceptor;
-  const nombreReceptorFinal = nombreOverride || invoice.client || "Consumidor Final";
+  const nombreReceptorFinal = nombreOverride || invoice.client || invoice.clientName || "Consumidor Final";
   if (nitOverride && !esConsumidorFinal(nitOverride)) {
     const i = advertencias.findIndex((a) => a.includes("consumidor final (CF)"));
     if (i >= 0) advertencias.splice(i, 1);
@@ -530,6 +538,7 @@ async function certificarFactura(db, invoice, opciones = {}) {
     receptor_nit: nitReceptorFinal || "CF",
     receptor_nombre: nombreReceptorFinal,
     intentos: (existente?.intentos ?? 0) + 1,
+    creado_en: existente?.creado_en ?? (/* @__PURE__ */ new Date()).toISOString(),
     actualizado_en: (/* @__PURE__ */ new Date()).toISOString()
   };
   const credenciales = {
@@ -557,7 +566,7 @@ async function certificarFactura(db, invoice, opciones = {}) {
         codigoEstablecimiento: config.codigo_establecimiento,
         afiliacionIva: config.afiliacion_iva
       },
-      { nit: nitReceptorFinal || "CF", nombre: nombreReceptorFinal, direccion: invoice.address, correo: invoice.email || invoice.clientEmail },
+      { nit: nitReceptorFinal || "CF", nombre: nombreReceptorFinal, direccion: invoice.address || invoice.deliveryAddress, correo: invoice.email || invoice.clientEmail },
       totales,
       {
         tipo: tipoDte === "FCAM" ? "FCAM" : "FACT",
@@ -657,7 +666,7 @@ async function anularFactura(db, invoice, motivo) {
   const xmlAnulacion = construirXmlAnulacion({
     numeroAutorizacion: documento.numero_autorizacion,
     nitEmisor: config?.nit_emisor ?? "",
-    nitReceptor: extraerNit(invoice) || "CF",
+    nitReceptor: documento.receptor_nit || extraerNit(invoice) || "CF",
     // OJO: debe ser la fecha que SAT registro al CERTIFICAR (la devuelve el
     // certificador), no la fecha de la factura del sistema. La factura suele
     // guardarse a medianoche UTC, que en hora de Guatemala cae el dia
@@ -702,13 +711,12 @@ var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
 function cleanCol(col) {
   const trimmed = col.trim();
-  if (trimmed === "*" || trimmed.includes("(") || trimmed.includes(" AS ") || trimmed.includes(" as ")) {
-    return trimmed;
+  if (trimmed === "*") {
+    return "*";
   }
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed;
-  }
-  return `"${trimmed.replace(/"/g, "")}"`;
+  const raw = trimmed.replace(/"/g, "").trim();
+  const safe = raw.replace(/[^a-zA-Z0-9_]/g, "");
+  return safe ? `"${safe}"` : "*";
 }
 function parseColumns(cols) {
   if (!cols || cols.trim() === "*" || cols.trim() === "") return "*";
@@ -804,14 +812,14 @@ var LocalQueryBuilder = class {
     return this;
   }
   is(column, value) {
-    if (value === null) {
+    if (value === null || typeof value === "string" && value.toLowerCase() === "null") {
       this.conditions.push({ sql: `${cleanCol(column)} IS NULL` });
     } else if (value === false) {
       this.conditions.push({ sql: `(${cleanCol(column)} IS FALSE OR ${cleanCol(column)} IS NULL)` });
     } else if (value === true) {
       this.conditions.push({ sql: `${cleanCol(column)} IS TRUE` });
     } else {
-      this.conditions.push({ sql: `${cleanCol(column)} IS ${value}` });
+      this.conditions.push({ sql: `${cleanCol(column)} = $PARAM`, val: value });
     }
     return this;
   }
@@ -819,31 +827,25 @@ var LocalQueryBuilder = class {
     if (!filterString || typeof filterString !== "string") return this;
     const parts = filterString.split(",").map((p) => p.trim()).filter(Boolean);
     const orSqlParts = [];
+    const vals = [];
+    const opMap = {
+      eq: "=",
+      ilike: "ILIKE",
+      like: "LIKE",
+      neq: "!="
+    };
     for (const part of parts) {
-      if (part.includes(".eq.")) {
-        const [c, val] = part.split(".eq.");
-        this.conditions.push({ sql: `_OR_DUMMY_`, val });
-        orSqlParts.push(`${cleanCol(c)} = $PARAM`);
-      } else if (part.includes(".ilike.")) {
-        const [c, val] = part.split(".ilike.");
-        this.conditions.push({ sql: `_OR_DUMMY_`, val });
-        orSqlParts.push(`${cleanCol(c)} ILIKE $PARAM`);
-      } else if (part.includes(".like.")) {
-        const [c, val] = part.split(".like.");
-        this.conditions.push({ sql: `_OR_DUMMY_`, val });
-        orSqlParts.push(`${cleanCol(c)} LIKE $PARAM`);
-      } else if (part.includes(".neq.")) {
-        const [c, val] = part.split(".neq.");
-        this.conditions.push({ sql: `_OR_DUMMY_`, val });
-        orSqlParts.push(`${cleanCol(c)} != $PARAM`);
+      const m = part.match(/^([a-zA-Z0-9_"]+)\.(eq|ilike|like|neq)\.(.+)$/);
+      if (m) {
+        const [, c, op, val] = m;
+        const sqlOp = opMap[op];
+        if (sqlOp) {
+          orSqlParts.push(`${cleanCol(c)} ${sqlOp} $PARAM`);
+          vals.push(val);
+        }
       }
     }
     if (orSqlParts.length > 0) {
-      const vals = [];
-      for (let i = 0; i < orSqlParts.length; i++) {
-        const dummy = this.conditions.pop();
-        if (dummy?.val !== void 0) vals.unshift(dummy.val);
-      }
       this.conditions.push({
         sql: `(${orSqlParts.join(" OR ")})`,
         val: vals
@@ -864,12 +866,14 @@ var LocalQueryBuilder = class {
     return this;
   }
   limit(count) {
-    this.limitCount = count;
+    this.limitCount = Math.max(0, Math.floor(Number(count) || 0));
     return this;
   }
   range(from, to) {
-    this.offsetCount = Math.max(0, from);
-    this.limitCount = Math.max(0, to - from + 1);
+    const safeFrom = Math.max(0, Math.floor(Number(from) || 0));
+    const safeTo = Math.max(0, Math.floor(Number(to) || 0));
+    this.offsetCount = safeFrom;
+    this.limitCount = Math.max(0, Math.floor(Number(safeTo - safeFrom + 1) || 0));
     return this;
   }
   single() {
@@ -917,10 +921,10 @@ var LocalQueryBuilder = class {
         }
         let limitOffset = "";
         if (this.limitCount !== void 0) {
-          limitOffset += ` LIMIT ${this.limitCount}`;
+          limitOffset += ` LIMIT ${Math.max(0, Math.floor(Number(this.limitCount) || 0))}`;
         }
         if (this.offsetCount !== void 0) {
-          limitOffset += ` OFFSET ${this.offsetCount}`;
+          limitOffset += ` OFFSET ${Math.max(0, Math.floor(Number(this.offsetCount) || 0))}`;
         }
         queryText = `SELECT ${this.selectCols} FROM public."${this.table}"${where}${order}${limitOffset};`;
       } else if (this.op === "insert") {
@@ -1011,7 +1015,7 @@ var LocalQueryBuilder = class {
 var LocalStorageBucket = class {
   constructor(baseDir, bucketName) {
     this.baseDir = baseDir;
-    this.bucketName = bucketName;
+    this.bucketName = bucketName.replace(/[^a-zA-Z0-9_-]/g, "") || "default";
   }
   getBucketPath() {
     const dir = import_path.default.join(this.baseDir, this.bucketName);
@@ -1020,11 +1024,22 @@ var LocalStorageBucket = class {
     }
     return dir;
   }
+  resolveSafeFilePath(fileName) {
+    const cleanFileName = String(fileName || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    const segments = cleanFileName.split("/");
+    if (!cleanFileName || segments.some((seg) => seg === ".." || seg === "." || seg === "")) {
+      throw new Error("Ruta de archivo inv\xE1lida (Path Traversal bloqueado)");
+    }
+    const bucketDir = import_path.default.resolve(this.getBucketPath());
+    const filePath = import_path.default.resolve(bucketDir, cleanFileName);
+    if (!filePath.startsWith(bucketDir + import_path.default.sep)) {
+      throw new Error("Ruta de archivo inv\xE1lida (Path Traversal bloqueado)");
+    }
+    return { filePath, cleanFileName };
+  }
   async upload(fileName, buffer, options) {
     try {
-      const bucketDir = this.getBucketPath();
-      const cleanFileName = fileName.replace(/^[\/\\]+/, "");
-      const filePath = import_path.default.join(bucketDir, cleanFileName);
+      const { filePath, cleanFileName } = this.resolveSafeFilePath(fileName);
       const fileDir = import_path.default.dirname(filePath);
       if (!import_fs.default.existsSync(fileDir)) {
         import_fs.default.mkdirSync(fileDir, { recursive: true });
@@ -1037,15 +1052,13 @@ var LocalStorageBucket = class {
     }
   }
   getPublicUrl(fileName) {
-    const cleanFileName = fileName.replace(/^[\/\\]+/, "");
+    const cleanFileName = String(fileName || "").replace(/\\/g, "/").replace(/^\/+/, "").split("/").filter((seg) => seg && seg !== "." && seg !== "..").join("/");
     const publicUrl = `/storage/v1/object/public/${this.bucketName}/${cleanFileName}`;
     return { data: { publicUrl } };
   }
   async download(fileName) {
     try {
-      const bucketDir = this.getBucketPath();
-      const cleanFileName = fileName.replace(/^[\/\\]+/, "");
-      const filePath = import_path.default.join(bucketDir, cleanFileName);
+      const { filePath } = this.resolveSafeFilePath(fileName);
       if (!import_fs.default.existsSync(filePath)) {
         return { data: null, error: new Error("File not found") };
       }
@@ -1075,11 +1088,12 @@ var LocalStorage = class {
   }
   async createBucket(name, _options) {
     try {
-      const bucketDir = import_path.default.join(this.baseDir, name);
+      const bucketName = name.replace(/[^a-zA-Z0-9_-]/g, "") || "default";
+      const bucketDir = import_path.default.join(this.baseDir, bucketName);
       if (!import_fs.default.existsSync(bucketDir)) {
         import_fs.default.mkdirSync(bucketDir, { recursive: true });
       }
-      return { data: { name }, error: null };
+      return { data: { name: bucketName }, error: null };
     } catch (err) {
       return { data: null, error: err };
     }
@@ -1139,7 +1153,7 @@ var pgPool = new import_pg.default.Pool({
   connectionTimeoutMillis: 5e3
 });
 var neonPool = pgPool;
-console.log(`[DB] \u2705 Conectado a PostgreSQL Local: ${pgDbUrl}`);
+console.log(`[DB] \u2705 Conectado a PostgreSQL Local: ${pgDbUrl.replace(/:([^:@]+)@/, ":***@")}`);
 var localDb = createLocalDb({
   pool: pgPool,
   storageDir: import_path2.default.join(process.cwd(), "storage")
@@ -1148,18 +1162,58 @@ if (pgPool) {
   pgPool.query(`
     CREATE TABLE IF NOT EXISTS public.fcm_tokens (
       token TEXT PRIMARY KEY,
+      user_id TEXT,
+      role TEXT,
+      email TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS user_id TEXT;
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS role TEXT;
+    ALTER TABLE public.fcm_tokens ADD COLUMN IF NOT EXISTS email TEXT;
+
     CREATE TABLE IF NOT EXISTS public.push_subscriptions (
       id TEXT PRIMARY KEY,
       endpoint TEXT UNIQUE NOT NULL,
       keys JSONB,
+      user_id TEXT,
+      role TEXT,
+      email TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS user_id TEXT;
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS role TEXT;
+    ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS email TEXT;
+
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerId" TEXT;
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS seller_id TEXT;
+    ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "sellerName" TEXT;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "isProspect" BOOLEAN DEFAULT false;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS is_prospect BOOLEAN DEFAULT false;
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS "clientType" TEXT DEFAULT 'regular';
+    ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS client_type TEXT DEFAULT 'regular';
+    CREATE TABLE IF NOT EXISTS public.audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      category TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      entity_name TEXT,
+      description TEXT NOT NULL,
+      previous_data JSONB,
+      new_data JSONB,
+      user_id TEXT,
+      user_email TEXT,
+      user_name TEXT,
+      user_role TEXT,
+      ip_address TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON public.audit_logs (category);
   `).then(() => {
-    console.log("[DB] \u2705 Tablas public.fcm_tokens y public.push_subscriptions verificadas en PostgreSQL");
+    console.log("[DB] \u2705 Tablas public.fcm_tokens, public.push_subscriptions y public.audit_logs verificadas en PostgreSQL");
   }).catch((err) => {
-    console.warn("[DB] Aviso al verificar tablas de notificaciones:", err.message);
+    console.warn("[DB] Aviso al verificar tablas de notificaciones/auditor\xEDa:", err.message);
   });
 }
 var PANIC_STATE_FILE = import_path2.default.join(process.cwd(), "panic_state.json");
@@ -1228,13 +1282,19 @@ async function getGlobalMaintenanceMode() {
 async function setGlobalMaintenanceMode(enabled) {
   globalMaintenanceCache = { enabled, timestamp: Date.now() };
   try {
+    await queryNeon(`CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());`);
     await queryNeon(`
-      CREATE TABLE IF NOT EXISTS public.system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW());
       INSERT INTO public.system_config (key, value, updated_at) 
       VALUES ('maintenance_mode', $1, NOW()) 
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
     `, [enabled ? "true" : "false"]);
     console.log(`[GLOBAL MAINTENANCE] Estado actualizado en base de datos: ${enabled ? "ACTIVADO" : "DESACTIVADO"}`);
+    try {
+      if (typeof emitRealtimeSync === "function") {
+        emitRealtimeSync("maintenance", { maintenance: enabled });
+      }
+    } catch (errSync) {
+    }
   } catch (e) {
     console.error("Error guardando maintenance_mode en base de datos:", e.message);
   }
@@ -1457,6 +1517,29 @@ var imageFilter = (req, file, cb) => {
 };
 var upload = (0, import_multer.default)({ storage, fileFilter: imageFilter, limits: { fileSize: 20 * 1024 * 1024 } });
 var app = (0, import_express.default)();
+var httpServer = import_http.default.createServer(app);
+var io = new import_socket.Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+  },
+  pingTimeout: 3e4,
+  pingInterval: 15e3,
+  transports: ["websocket", "polling"]
+});
+function emitRealtimeSync(entity, data) {
+  try {
+    if (io) {
+      io.emit("sync", { entity, data, timestamp: Date.now() });
+    }
+  } catch (err) {
+    console.warn("[Socket.IO] Error al emitir realtime sync:", err);
+  }
+}
+io.on("connection", (socket) => {
+  socket.on("disconnect", () => {
+  });
+});
 app.set("trust proxy", 1);
 app.use((0, import_compression.default)());
 app.use(import_express.default.json({ limit: "10mb" }));
@@ -1479,6 +1562,34 @@ app.use((req, res, next) => {
     req.url = req.url.replace("/api/api/", "/api/");
   }
   next();
+});
+app.use(async (req, res, next) => {
+  const reqPath = (req.path || "").toLowerCase();
+  if (!reqPath.startsWith("/api") || reqPath === "/api/login" || reqPath === "/api/auth/login" || reqPath === "/api/auth/me" || reqPath === "/api/panic/status" || reqPath === "/api/system/maintenance" || reqPath.startsWith("/api/admin/maintenance") || reqPath.startsWith("/api/download-temp") || reqPath.startsWith("/api/bot/") || reqPath === "/api/whatsapp/webhook" || reqPath === "/api/app-logo" || reqPath === "/api/health" || reqPath === "/api/webhooks") {
+    return next();
+  }
+  try {
+    const isMaint = await getGlobalMaintenanceMode();
+    if (!isMaint) return next();
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.substring(7);
+      try {
+        const decoded = import_jsonwebtoken.default.verify(token, JWT_SECRET);
+        if (decoded?.email?.toLowerCase() === "seseffff942@gmail.com" || decoded?.id === "u1b" || decoded?.role === "admin") {
+          return next();
+        }
+      } catch (e) {
+      }
+    }
+    return res.status(503).json({
+      error: "Sistema en mantenimiento programado",
+      maintenance: true,
+      message: "El sistema se encuentra temporalmente restringido por labores de mantenimiento t\xE9cnico. Solo el administrador principal tiene acceso."
+    });
+  } catch (errMaint) {
+    return next();
+  }
 });
 app.get("/api/webhooks", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -1548,8 +1659,9 @@ var apiLimiter = (0, import_express_rate_limit.default)({
 });
 var loginLimiter = (0, import_express_rate_limit.default)({
   windowMs: 15 * 60 * 1e3,
-  max: 10,
-  // Limit each IP to 10 login requests per window
+  max: 60,
+  // Limit each IP to 60 login requests per window
+  skip: (req) => req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1",
   message: { error: "Demasiados intentos de inicio de sesi\xF3n. Por favor intenta en 15 minutos." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -1557,6 +1669,7 @@ var loginLimiter = (0, import_express_rate_limit.default)({
 });
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", loginLimiter);
+app.use("/api/login", loginLimiter);
 var storageLocalPath = import_path2.default.join(process.cwd(), "storage");
 if (!import_fs2.default.existsSync(storageLocalPath)) {
   import_fs2.default.mkdirSync(storageLocalPath, { recursive: true });
@@ -1586,6 +1699,7 @@ var invalidateCache = (key) => {
   Object.keys(memoryCache).forEach((k) => {
     if (k === key || k.startsWith(key)) delete memoryCache[k];
   });
+  emitRealtimeSync(key);
 };
 async function getFolioMap(forceRefresh = false) {
   if (!forceRefresh) {
@@ -1758,6 +1872,49 @@ var requireAdmin = (req, res, next) => {
   }
   next();
 };
+var optionalAuth = async (req, res, next) => {
+  let token = null;
+  const authHeader = req.headers.authorization || req.headers.Authorization || req.headers["x-authorization"] || req.headers["x-access-token"];
+  if (authHeader && typeof authHeader === "string") {
+    token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+  if (!token) return next();
+  try {
+    const payload = import_jsonwebtoken.default.verify(token, JWT_SECRET);
+    let user = null;
+    if (isNeonActive() && neonPool) {
+      try {
+        const rows = await queryNeon("SELECT * FROM public.users WHERE id = $1", [payload.id]);
+        if (rows && rows.length > 0) user = rows[0];
+      } catch (neErr) {
+      }
+    }
+    if (!user) {
+      try {
+        const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
+        if (users && users.length > 0) user = users[0];
+      } catch (dbErr) {
+      }
+    }
+    if (!user) {
+      user = initialDb.users.find((u) => u.id === payload.id);
+    }
+    if (user) {
+      req.user = user;
+    }
+  } catch (e) {
+  }
+  next();
+};
+var requireAuthOrLocal = async (req, res, next) => {
+  const ip = String(req.ip || req.socket?.remoteAddress || "");
+  const host = String(req.hostname || req.headers.host || "");
+  const isLocalOrCron = ip === "127.0.0.1" || ip === "::1" || ip.includes("127.0.0.1") || ip.includes("172.") || ip.includes("10.") || ip.includes("192.168.") || host.startsWith("localhost") || host.startsWith("127.0.0.1") || Boolean(req.headers["x-vercel-cron"]);
+  if (isLocalOrCron) return next();
+  return requireAuth(req, res, next);
+};
 var doesNotNeedStock = (product) => {
   if (!product) return false;
   const nameLower = (product.name || "").toLowerCase();
@@ -1767,6 +1924,49 @@ var doesNotNeedStock = (product) => {
   }
   const keywords = ["bebedero", "comedero", "puya", "arete", "aretes"];
   return keywords.some((keyword) => nameLower.includes(keyword) || categoryLower.includes(keyword));
+};
+var isTecunProduct = (product) => {
+  if (!product) return false;
+  const nameL = (product.name || "").toLowerCase().trim();
+  const catL = (product.category || "").toLowerCase().trim();
+  if (catL.includes("tecun") || catL.includes("tec\xFAn") || nameL.includes("tecun") || nameL.includes("tec\xFAn")) {
+    return true;
+  }
+  const tecunKeywords = [
+    "paraquat",
+    "yerbatron",
+    "2,4d",
+    "2.4d",
+    "2 4d",
+    "24d",
+    "killer 36",
+    "nocaut",
+    "poter 90",
+    "glufosin",
+    "cpf 48",
+    "cpf 2dp",
+    "titan 80",
+    "semevin",
+    "vereta",
+    "certero",
+    "cipermetrina 25",
+    "vayego",
+    "blindage"
+  ];
+  return tecunKeywords.some((keyword) => nameL.includes(keyword));
+};
+var isFiatProduct = (product) => {
+  if (!product) return false;
+  const nameL = (product.name || "").toLowerCase().trim();
+  const catL = (product.category || "").toLowerCase().trim();
+  return catL === "fiat" || catL.includes("fiat") || nameL.includes("fiat");
+};
+var isExemptFromStockBlock = (product, item) => {
+  if (!product) return false;
+  if (doesNotNeedStock(product)) return true;
+  if (isFiatProduct(product) || isTecunProduct(product)) return true;
+  if (item && (item.fiatToOrder !== void 0 || item.tecunToOrder !== void 0)) return true;
+  return false;
 };
 var is100gProduct = (product) => {
   if (!product) return false;
@@ -1796,6 +1996,13 @@ var isCriticalStock = (product, currentStock) => {
   const threshold = getCriticalStockThreshold(product);
   return stock <= threshold;
 };
+var salesProcessingQueue = Promise.resolve();
+function enqueueSaleTask(task) {
+  const next = salesProcessingQueue.then(task, task);
+  salesProcessingQueue = next.catch(() => {
+  });
+  return next;
+}
 var stockLockMap = /* @__PURE__ */ new Map();
 async function acquireStockLocks(productIds) {
   const validIds = Array.from(new Set(productIds.filter((id) => Boolean(id)))).sort();
@@ -1820,8 +2027,30 @@ async function acquireStockLocks(productIds) {
     }
   };
 }
+function isInvoiceOwnerOrAdmin(user, invoice) {
+  if (!user) return false;
+  const role = String(user.role || "").trim().toLowerCase();
+  if (role === "admin" || role === "due\xF1o" || role === "dueno" || role === "ceo" || role === "owner") return true;
+  if (String(user.email || "").trim().toLowerCase() === "seseffff942@gmail.com") return true;
+  const invSeller = String(invoice?.sellerId || "").trim().toLowerCase();
+  if (!invSeller) return false;
+  const candidates = [user.email, user.id, user.sellerCode, user.name].map((s) => String(s || "").trim().toLowerCase()).filter(Boolean);
+  return candidates.includes(invSeller);
+}
+function getEffectiveDeductedQty(item) {
+  if (!item) return 0;
+  if (item.stockDeducted !== void 0 && item.stockDeducted !== null) {
+    return Math.max(0, parseFloat(item.stockDeducted) || 0);
+  }
+  if (item.previousStock !== void 0 && item.newStock !== void 0 && Number(item.previousStock) !== 999999) {
+    return Math.max(0, (parseFloat(item.previousStock) || 0) - (parseFloat(item.newStock) || 0));
+  }
+  return Math.max(0, (parseFloat(item.quantity) || 0) - (parseFloat(item.fiatToOrder) || 0) - (parseFloat(item.tecunToOrder) || 0));
+}
 async function restaurarStockDeFactura(invoice) {
   for (const item of invoice.items || []) {
+    const qtyToRestore = getEffectiveDeductedQty(item);
+    if (qtyToRestore <= 0) continue;
     const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq("id", item.productId);
     const product = prods?.[0];
     if (product && !product.is_external) {
@@ -1835,17 +2064,256 @@ async function restaurarStockDeFactura(invoice) {
       }
       if (variantObj && variantObj.stock !== void 0) {
         const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
+        variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + qtyToRestore };
         const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
         if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
       } else {
-        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
+        const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + qtyToRestore }).eq("id", item.productId);
         if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
       }
     }
   }
 }
 var asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+async function recordAuditLog(entry) {
+  const id = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const logItem = {
+    id,
+    action: entry.action,
+    category: entry.category,
+    entity_type: entry.entity_type,
+    entity_id: entry.entity_id || null,
+    entity_name: entry.entity_name || null,
+    description: entry.description,
+    previous_data: entry.previous_data ?? null,
+    new_data: entry.new_data ?? null,
+    user_id: entry.user_id || "system",
+    user_email: entry.user_email || "sistema@agricovet.com",
+    user_name: entry.user_name || "Sistema",
+    user_role: entry.user_role || "system",
+    ip_address: entry.ip_address || "",
+    created_at: now
+  };
+  if (pgPool) {
+    try {
+      await pgPool.query(
+        `INSERT INTO public.audit_logs 
+        (id, action, category, entity_type, entity_id, entity_name, description, previous_data, new_data, user_id, user_email, user_name, user_role, ip_address, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          logItem.id,
+          logItem.action,
+          logItem.category,
+          logItem.entity_type,
+          logItem.entity_id,
+          logItem.entity_name,
+          logItem.description,
+          logItem.previous_data ? JSON.stringify(logItem.previous_data) : null,
+          logItem.new_data ? JSON.stringify(logItem.new_data) : null,
+          logItem.user_id,
+          logItem.user_email,
+          logItem.user_name,
+          logItem.user_role,
+          logItem.ip_address,
+          logItem.created_at
+        ]
+      );
+    } catch (dbErr) {
+      console.warn("[AUDIT] Error guardando en PostgreSQL public.audit_logs:", dbErr.message);
+    }
+  }
+  try {
+    const localAuditPath = import_path2.default.join(process.cwd(), "audit_logs_local.json");
+    let localLogs = [];
+    if (import_fs2.default.existsSync(localAuditPath)) {
+      try {
+        localLogs = JSON.parse(import_fs2.default.readFileSync(localAuditPath, "utf8"));
+      } catch (e) {
+        localLogs = [];
+      }
+    }
+    localLogs.unshift(logItem);
+    if (localLogs.length > 5e3) localLogs = localLogs.slice(0, 5e3);
+    import_fs2.default.writeFileSync(localAuditPath, JSON.stringify(localLogs, null, 2), "utf8");
+  } catch (fsErr) {
+    console.warn("[AUDIT] Error guardando en audit_logs_local.json:", fsErr.message);
+  }
+  try {
+    if (typeof emitRealtimeSync === "function") {
+      emitRealtimeSync("audit_logs", logItem);
+    }
+  } catch (e) {
+  }
+  return logItem;
+}
+app.get("/api/admin/audit-logs", requireAuth, asyncHandler(async (req, res) => {
+  const email = (req.user?.email || "").toLowerCase().trim();
+  const role = (req.user?.role || "").toLowerCase().trim();
+  const isOwner = email === "seseffff942@gmail.com";
+  const isAdmin = role === "admin";
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ error: "Acceso exclusivo para el Due\xF1o / Administrador Maestro" });
+  }
+  const { category, search, dateFrom, dateTo, limit = "200", offset = "0" } = req.query;
+  const parsedLimit = Math.min(Math.max(parseInt(limit) || 200, 1), 1e3);
+  const parsedOffset = Math.max(parseInt(offset) || 0, 0);
+  let logs = [];
+  let total = 0;
+  if (pgPool) {
+    try {
+      const whereClauses = [];
+      const params = [];
+      if (category && category !== "all" && category !== "todos") {
+        params.push(category);
+        whereClauses.push(`category = $${params.length}`);
+      }
+      if (search && search.trim()) {
+        params.push(`%${search.trim()}%`);
+        const pIndex = params.length;
+        whereClauses.push(`(
+          entity_name ILIKE $${pIndex} OR 
+          description ILIKE $${pIndex} OR 
+          user_name ILIKE $${pIndex} OR 
+          user_email ILIKE $${pIndex} OR 
+          action ILIKE $${pIndex}
+        )`);
+      }
+      if (dateFrom) {
+        params.push(dateFrom);
+        whereClauses.push(`created_at >= $${params.length}`);
+      }
+      if (dateTo) {
+        params.push(dateTo);
+        whereClauses.push(`created_at <= $${params.length}`);
+      }
+      const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(" AND ") : "";
+      const countRes = await pgPool.query(`SELECT COUNT(*) as cnt FROM public.audit_logs${whereSql}`, params);
+      total = parseInt(countRes.rows[0]?.cnt || "0");
+      const selectParams = [...params, parsedLimit, parsedOffset];
+      const rowsRes = await pgPool.query(
+        `SELECT * FROM public.audit_logs${whereSql} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        selectParams
+      );
+      logs = rowsRes.rows;
+    } catch (e) {
+      console.warn("[AUDIT] Error consultando PostgreSQL:", e.message);
+    }
+  }
+  if (logs.length === 0) {
+    try {
+      const localAuditPath = import_path2.default.join(process.cwd(), "audit_logs_local.json");
+      if (import_fs2.default.existsSync(localAuditPath)) {
+        let allLocal = JSON.parse(import_fs2.default.readFileSync(localAuditPath, "utf8"));
+        if (category && category !== "all" && category !== "todos") {
+          allLocal = allLocal.filter((l) => l.category === category);
+        }
+        if (search && search.trim()) {
+          const s = search.toLowerCase().trim();
+          allLocal = allLocal.filter(
+            (l) => (l.entity_name || "").toLowerCase().includes(s) || (l.description || "").toLowerCase().includes(s) || (l.user_name || "").toLowerCase().includes(s) || (l.user_email || "").toLowerCase().includes(s) || (l.action || "").toLowerCase().includes(s)
+          );
+        }
+        total = allLocal.length;
+        logs = allLocal.slice(parsedOffset, parsedOffset + parsedLimit);
+      }
+    } catch (e) {
+    }
+  }
+  let stats = {
+    totalLogs: total,
+    logs24h: 0,
+    totalStock: 0,
+    totalClientes: 0,
+    totalVentas: 0,
+    totalRutas: 0,
+    totalSeguridad: 0
+  };
+  if (pgPool) {
+    try {
+      const statRes = await pgPool.query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as logs_24h,
+          COUNT(*) FILTER (WHERE category = 'stock') as total_stock,
+          COUNT(*) FILTER (WHERE category = 'clientes') as total_clientes,
+          COUNT(*) FILTER (WHERE category = 'ventas') as total_ventas,
+          COUNT(*) FILTER (WHERE category = 'rutas') as total_rutas,
+          COUNT(*) FILTER (WHERE category = 'seguridad') as total_seguridad
+        FROM public.audit_logs
+      `);
+      if (statRes.rows[0]) {
+        const r = statRes.rows[0];
+        stats = {
+          totalLogs: parseInt(r.total || "0"),
+          logs24h: parseInt(r.logs_24h || "0"),
+          totalStock: parseInt(r.total_stock || "0"),
+          totalClientes: parseInt(r.total_clientes || "0"),
+          totalVentas: parseInt(r.total_ventas || "0"),
+          totalRutas: parseInt(r.total_rutas || "0"),
+          totalSeguridad: parseInt(r.total_seguridad || "0")
+        };
+      }
+    } catch (e) {
+    }
+  }
+  if (stats.totalLogs === 0) {
+    try {
+      const localAuditPath = import_path2.default.join(process.cwd(), "audit_logs_local.json");
+      if (import_fs2.default.existsSync(localAuditPath)) {
+        const all = JSON.parse(import_fs2.default.readFileSync(localAuditPath, "utf8"));
+        const now = Date.now();
+        stats = {
+          totalLogs: all.length,
+          logs24h: all.filter((l) => now - new Date(l.created_at || l.createdAt).getTime() < 864e5).length,
+          totalStock: all.filter((l) => l.category === "stock").length,
+          totalClientes: all.filter((l) => l.category === "clientes").length,
+          totalVentas: all.filter((l) => l.category === "ventas").length,
+          totalRutas: all.filter((l) => l.category === "rutas").length,
+          totalSeguridad: all.filter((l) => l.category === "seguridad").length
+        };
+      }
+    } catch (e) {
+    }
+  }
+  const mappedLogs = logs.map((l) => ({
+    id: l.id,
+    action: l.action,
+    category: l.category,
+    entityType: l.entity_type || l.entityType,
+    entityId: l.entity_id || l.entityId,
+    entityName: l.entity_name || l.entityName,
+    description: l.description,
+    previousData: typeof l.previous_data === "string" ? JSON.parse(l.previous_data) : l.previous_data || l.previousData,
+    newData: typeof l.new_data === "string" ? JSON.parse(l.new_data) : l.new_data || l.newData,
+    userId: l.user_id || l.userId,
+    userEmail: l.user_email || l.userEmail,
+    userName: l.user_name || l.userName,
+    userRole: l.user_role || l.userRole,
+    ipAddress: l.ip_address || l.ipAddress,
+    createdAt: l.created_at || l.createdAt
+  }));
+  res.json({ logs: mappedLogs, stats });
+}));
+app.post("/api/admin/audit-logs/record", requireAuth, asyncHandler(async (req, res) => {
+  const { action, category, entity_type, entity_id, entity_name, description, previous_data, new_data } = req.body;
+  const logItem = await recordAuditLog({
+    action: action || "CUSTOM_ACTION",
+    category: category || "sistema",
+    entity_type: entity_type || "system",
+    entity_id: entity_id || null,
+    entity_name: entity_name || null,
+    description: description || "Acci\xF3n registrada por el sistema",
+    previous_data,
+    new_data,
+    user_id: req.user?.id || "unknown",
+    user_email: req.user?.email || "unknown",
+    user_name: req.user?.name || req.user?.email || "Usuario",
+    user_role: req.user?.role || "user",
+    ip_address: req.ip || req.headers["x-forwarded-for"] || ""
+  });
+  res.json({ success: true, log: logItem });
+}));
 app.post("/api/admin/seed", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { force } = req.body;
   await seedDatabase(!!force);
@@ -1934,6 +2402,40 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       WHERE role = 'seller' OR role = 'admin'
       ORDER BY name
     `);
+    const GENERIC_WORDS = /* @__PURE__ */ new Set([
+      "agro",
+      "agroveterinaria",
+      "veterinaria",
+      "agropecuaria",
+      "agroservicios",
+      "agroservicio",
+      "servicios",
+      "servicio",
+      "distribuidora",
+      "distribuciones",
+      "comercial",
+      "comercializadora",
+      "sociedad",
+      "anonima",
+      "copropiedad",
+      "tienda",
+      "finca",
+      "granja",
+      "insumos",
+      "productos",
+      "importadora",
+      "de",
+      "del",
+      "la",
+      "el",
+      "los",
+      "las",
+      "y",
+      "en",
+      "para",
+      "con",
+      "sa"
+    ]);
     const clientData = clientRows.map((c) => {
       let lat = c.latitude !== null && c.latitude !== void 0 && !isNaN(Number(c.latitude)) ? parseFloat(c.latitude) : null;
       let lng = c.longitude !== null && c.longitude !== void 0 && !isNaN(Number(c.longitude)) ? parseFloat(c.longitude) : null;
@@ -1959,6 +2461,16 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
           }
         }
       }
+      const normName = normalizeText(c.name);
+      const normCompany = normalizeText(c.companyName);
+      const nameWords = normName.split(/\s+/).filter((w) => w.length >= 3);
+      const distinctiveNameWords = nameWords.filter((w) => !GENERIC_WORDS.has(w));
+      const companyWords = normCompany.split(/\s+/).filter((w) => w.length >= 3);
+      const distinctiveCompanyWords = companyWords.filter((w) => !GENERIC_WORDS.has(w));
+      const rawSegments = [
+        ...c.name ? c.name.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : [],
+        ...c.companyName ? c.companyName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3) : []
+      ];
       return {
         ...c,
         latitude: lat,
@@ -1966,15 +2478,20 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
         geotaggedAt,
         geotaggedBy,
         locationAddress,
-        normName: normalizeText(c.name),
-        normCompany: normalizeText(c.companyName),
-        nameWords: normalizeText(c.name).split(" ").filter((w) => w.length > 2)
+        normName,
+        normCompany,
+        distinctiveNameWords,
+        distinctiveCompanyWords,
+        segments: Array.from(new Set(rawSegments))
       };
     });
     const salesByClientId = /* @__PURE__ */ new Map();
     for (const inv of invoiceRows) {
-      const invNorm = normalizeText(inv.clientName);
+      const rawInvName = inv.clientName || "";
+      const invNorm = normalizeText(rawInvName);
       if (!invNorm) continue;
+      const invWordSet = new Set(invNorm.split(/\s+/));
+      const invSegments = rawInvName.split(/[-–—/]+/).map((s) => normalizeText(s)).filter((s) => s.length >= 3);
       const saleObj = {
         id: inv.id,
         folio: inv.folio,
@@ -1990,26 +2507,42 @@ app.get("/api/admin/client-sales-tracking", requireAuth, requireAdmin, asyncHand
       for (const c of clientData) {
         let score = 0;
         if (c.normName && invNorm === c.normName) {
-          score = 100;
-        } else if (c.normName && (invNorm.startsWith(c.normName) || invNorm.includes(c.normName))) {
-          score = 80;
-        } else if (c.nameWords.length > 0) {
-          const matchedWords = c.nameWords.filter((w) => invNorm.includes(w));
-          if (matchedWords.length >= 2) {
-            score = 70 + matchedWords.length * 2;
-          } else if (matchedWords.length === 1 && c.nameWords.length === 1) {
-            score = 50;
+          score = 200;
+        } else if (c.normCompany && invNorm === c.normCompany) {
+          score = 190;
+        }
+        if (score < 180) {
+          for (const invSeg of invSegments) {
+            if (!invSeg) continue;
+            if (c.normCompany && invSeg === c.normCompany) {
+              score = Math.max(score, 160);
+            } else if (c.normName && invSeg === c.normName) {
+              score = Math.max(score, 160);
+            } else {
+              for (const cSeg of c.segments) {
+                if (invSeg === cSeg) {
+                  score = Math.max(score, 140);
+                } else if (invSeg.length >= 6 && (invSeg.includes(cSeg) || cSeg.includes(invSeg))) {
+                  score = Math.max(score, 110);
+                }
+              }
+            }
           }
         }
-        if (c.normCompany && invNorm.includes(c.normCompany)) {
-          score += score > 0 ? 25 : 15;
+        const matchedDistName = c.distinctiveNameWords.filter((w) => invWordSet.has(w));
+        const matchedDistCompany = c.distinctiveCompanyWords.filter((w) => invWordSet.has(w));
+        const totalDist = Array.from(/* @__PURE__ */ new Set([...matchedDistName, ...matchedDistCompany]));
+        if (totalDist.length >= 2) {
+          score = Math.max(score, 90 + totalDist.length * 10);
+        } else if (totalDist.length === 1 && (c.distinctiveNameWords.length === 1 || c.distinctiveCompanyWords.length === 1)) {
+          score = Math.max(score, 75);
         }
         if (score > bestScore) {
           bestScore = score;
           bestClient = c;
         }
       }
-      if (bestClient && bestScore >= 40) {
+      if (bestClient && bestScore >= 70) {
         if (!salesByClientId.has(bestClient.id)) {
           salesByClientId.set(bestClient.id, []);
         }
@@ -2258,10 +2791,15 @@ async function getPushSubscriptions() {
   }
   return Array.from(map.values());
 }
-async function savePushSubscription(subscription) {
+async function savePushSubscription(subscription, user) {
   const current = readPushSubscriptions();
   const filtered = current.filter((sub) => sub.endpoint !== subscription.endpoint);
-  filtered.push(subscription);
+  filtered.push({
+    ...subscription,
+    user_id: user?.id || null,
+    role: user?.role || null,
+    email: user?.email || null
+  });
   savePushSubscriptions(filtered);
   try {
     const subId = Buffer.from(subscription.endpoint).toString("base64").substring(0, 100);
@@ -2269,6 +2807,9 @@ async function savePushSubscription(subscription) {
       id: subId,
       endpoint: subscription.endpoint,
       subscription,
+      user_id: user?.id || null,
+      role: user?.role || null,
+      email: user?.email || null,
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
     }], { onConflict: "id" });
   } catch (err) {
@@ -2316,7 +2857,7 @@ async function getFcmTokens() {
   }
   return Array.from(tokenSet);
 }
-async function registerFcmToken(token) {
+async function registerFcmToken(token, user) {
   if (!token || typeof token !== "string") return;
   const cleanToken = token.trim();
   if (!cleanToken) return;
@@ -2328,25 +2869,58 @@ async function registerFcmToken(token) {
   if (pgPool) {
     try {
       await pgPool.query(
-        "INSERT INTO public.fcm_tokens (token, updated_at) VALUES ($1, NOW()) ON CONFLICT (token) DO UPDATE SET updated_at = NOW();",
-        [cleanToken]
+        `INSERT INTO public.fcm_tokens (token, user_id, role, email, updated_at) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         ON CONFLICT (token) DO UPDATE 
+         SET user_id = COALESCE($2, public.fcm_tokens.user_id), 
+             role = COALESCE($3, public.fcm_tokens.role), 
+             email = COALESCE($4, public.fcm_tokens.email), 
+             updated_at = NOW();`,
+        [cleanToken, user?.id || null, user?.role || null, user?.email || null]
       );
-      console.log(`[FCM] \u{1F4F2} Token registrado exitosamente en DB: ${cleanToken.substring(0, 16)}...`);
+      console.log(`[FCM] \u{1F4F2} Token registrado exitosamente en DB (${user?.role || "an\xF3nimo"}): ${cleanToken.substring(0, 16)}...`);
     } catch (e) {
       console.warn("[FCM] Error saving token to pgPool:", e.message);
     }
   }
 }
-async function broadcastPushNotification(title, message, url = "/") {
+async function broadcastPushNotification(title, message, url = "/", meta) {
   const config = readWarehouseConfig();
   if (config.isSilentModeActive) {
     console.log(`[Push Notification - SILENT MODE] Bypassed: "${title}" - "${message}"`);
     return;
   }
-  const subs = await getPushSubscriptions();
+  const notifType = String(meta?.type || "").toLowerCase();
+  const notifSellerId = meta?.sellerId ? String(meta.sellerId).toLowerCase().trim() : null;
+  const isInventory = notifType === "restock" || notifType === "out_of_stock" || notifType === "low_stock" || notifType === "price_changed" || notifType.includes("stock") || notifType.includes("inventory") || title.toLowerCase().includes("stock") || title.toLowerCase().includes("agotado") || title.toLowerCase().includes("precio");
+  const isVisit = notifType.includes("visit") || title.toLowerCase().includes("visita");
+  const isStrictTargetOnly = notifType === "route_reminder";
+  const allSubs = await getPushSubscriptions();
+  let targetSubs = allSubs;
+  if (!isInventory) {
+    if (isStrictTargetOnly && notifSellerId) {
+      targetSubs = allSubs.filter((s) => {
+        const uId = String(s.user_id || "").toLowerCase();
+        const uEmail = String(s.email || "").toLowerCase();
+        return notifSellerId === uId || notifSellerId === uEmail;
+      });
+    } else if (isVisit) {
+      targetSubs = allSubs.filter((s) => !s.role || s.role === "admin");
+    } else {
+      targetSubs = allSubs.filter((s) => {
+        if (!s.role || s.role === "admin") return true;
+        if (s.role === "seller" && notifSellerId) {
+          const uId = String(s.user_id || "").toLowerCase();
+          const uEmail = String(s.email || "").toLowerCase();
+          return notifSellerId === uId || notifSellerId === uEmail;
+        }
+        return false;
+      });
+    }
+  }
   const payload = JSON.stringify({ title, message, url });
-  if (subs.length > 0) {
-    const promises = subs.map(async (sub) => {
+  if (targetSubs.length > 0) {
+    const promises = targetSubs.map(async (sub) => {
       try {
         await import_web_push.default.sendNotification(sub, payload, {
           headers: {
@@ -2364,14 +2938,48 @@ async function broadcastPushNotification(title, message, url = "/") {
       }
     });
     await Promise.allSettled(promises);
-    console.log(`[Push Notification] Web push broadcasted to ${subs.length} devices: "${title}"`);
+    console.log(`[Push Notification] Web push broadcasted to ${targetSubs.length} devices: "${title}"`);
   }
-  const fcmTokens = await getFcmTokens();
-  if (fcmTokens.length > 0 && firebaseAdminApp) {
+  let targetFcmTokens = [];
+  if (pgPool) {
+    try {
+      const res = await pgPool.query("SELECT token, user_id, role, email FROM public.fcm_tokens;");
+      if (res && Array.isArray(res.rows)) {
+        if (isInventory) {
+          targetFcmTokens = res.rows.map((r) => r.token);
+        } else if (isStrictTargetOnly && notifSellerId) {
+          targetFcmTokens = res.rows.filter((r) => {
+            const uId = String(r.user_id || "").toLowerCase();
+            const uEmail = String(r.email || "").toLowerCase();
+            return notifSellerId === uId || notifSellerId === uEmail;
+          }).map((r) => r.token);
+        } else if (isVisit) {
+          targetFcmTokens = res.rows.filter((r) => !r.role || r.role === "admin").map((r) => r.token);
+        } else {
+          targetFcmTokens = res.rows.filter((r) => {
+            if (!r.role || r.role === "admin") return true;
+            if (r.role === "seller" && notifSellerId) {
+              const uId = String(r.user_id || "").toLowerCase();
+              const uEmail = String(r.email || "").toLowerCase();
+              return notifSellerId === uId || notifSellerId === uEmail;
+            }
+            return false;
+          }).map((r) => r.token);
+        }
+      }
+    } catch (e) {
+    }
+  }
+  if (targetFcmTokens.length === 0) {
+    if (isInventory || isVisit) {
+      targetFcmTokens = await getFcmTokens();
+    }
+  }
+  if (targetFcmTokens.length > 0 && firebaseAdminApp) {
     try {
       const messaging = import_firebase_admin.default.messaging(firebaseAdminApp);
       const fcmResponse = await messaging.sendEachForMulticast({
-        tokens: fcmTokens,
+        tokens: targetFcmTokens,
         notification: {
           title: title || "Agricovet",
           body: message || ""
@@ -2394,12 +3002,12 @@ async function broadcastPushNotification(title, message, url = "/") {
           url: String(url || "/")
         }
       });
-      console.log(`[FCM Android Push] \u{1F4F2} Enviado a ${fcmTokens.length} dispositivos nativos. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
+      console.log(`[FCM Android Push] \u{1F4F2} Enviado a ${targetFcmTokens.length} dispositivos nativos filtrados. Exitosos: ${fcmResponse.successCount}, Fallidos: ${fcmResponse.failureCount}`);
       if (fcmResponse.failureCount > 0) {
         const failedTokens = [];
         fcmResponse.responses.forEach((resp, idx) => {
           if (!resp.success && (resp.error?.code === "messaging/invalid-registration-token" || resp.error?.code === "messaging/registration-token-not-registered")) {
-            failedTokens.push(fcmTokens[idx]);
+            failedTokens.push(targetFcmTokens[idx]);
           }
         });
         if (failedTokens.length > 0) {
@@ -2416,9 +3024,9 @@ async function broadcastPushNotification(title, message, url = "/") {
     } catch (fcmErr) {
       console.error("[FCM Android Push] Error:", fcmErr.message || fcmErr);
     }
-  } else if (!firebaseAdminApp && fcmTokens.length > 0) {
-    console.warn(`[FCM Android Push] \u26A0\uFE0F Se tienen ${fcmTokens.length} tokens pero Firebase Admin no est\xE1 conectado.`);
-  } else if (fcmTokens.length === 0) {
+  } else if (!firebaseAdminApp && targetFcmTokens.length > 0) {
+    console.warn(`[FCM Android Push] \u26A0\uFE0F Se tienen ${targetFcmTokens.length} tokens pero Firebase Admin no est\xE1 conectado.`);
+  } else if (targetFcmTokens.length === 0) {
     console.log(`[FCM Android Push] \u2139\uFE0F No hay tokens nativos registrados para enviar multicast.`);
   }
 }
@@ -2453,6 +3061,10 @@ async function createNotification(type, title, message, extra = {}) {
     product_id: extra.productId || extra.product_id || null,
     invoiceId: extra.invoiceId || extra.invoice_id || null,
     invoice_id: extra.invoiceId || extra.invoice_id || null,
+    sellerId: extra.sellerId || extra.seller_id || null,
+    seller_id: extra.sellerId || extra.seller_id || null,
+    sellerName: extra.sellerName || extra.seller_name || null,
+    seller_name: extra.sellerName || extra.seller_name || null,
     ...extra
   };
   try {
@@ -2474,18 +3086,32 @@ async function createNotification(type, title, message, extra = {}) {
       productId: ntf.productId,
       product_id: ntf.product_id,
       invoiceId: ntf.invoiceId,
-      invoice_id: ntf.invoice_id
+      invoice_id: ntf.invoice_id,
+      sellerId: ntf.sellerId,
+      seller_id: ntf.seller_id,
+      sellerName: ntf.sellerName
     };
     await localDb.from("notifications").insert([payload]);
   } catch (err) {
     console.warn("Error inserting notification into PostgreSQL Local:", err);
   }
   try {
-    await broadcastPushNotification(title, message, "/");
+    await broadcastPushNotification(title, message, "/", {
+      type,
+      sellerId: ntf.sellerId
+    });
   } catch (pushErr) {
     console.warn("Error broadcasting push notification:", pushErr);
   }
-  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}"`);
+  try {
+    if (io) {
+      io.emit("notification", ntf);
+      emitRealtimeSync("notifications", ntf);
+    }
+  } catch (sockErr) {
+    console.warn("[Socket.IO] Error emitiendo notification:", sockErr);
+  }
+  console.log(`[Notification Created] Type: ${type}, Title: "${title}", Message: "${message}", Seller: ${ntf.sellerId || "Global"}`);
   return ntf;
 }
 var CLIENTS_FILE = import_path2.default.join(process.cwd(), "clients_local.json");
@@ -2536,7 +3162,7 @@ function findMatchingClient(list, name, companyName, nit, clientCode, includeDel
     const cCode = (c.clientCode || c.client_code || "").trim();
     const cNit = normNit(c.nit);
     if (targetCode && cCode && targetCode === cCode) return true;
-    if (targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit) return true;
+    if (targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit && cName === normName) return true;
     if (cName && normName && cName === normName) return true;
     return false;
   }) || null;
@@ -2571,7 +3197,7 @@ function deduplicateClients(clientsList) {
       const eNit = normNit(existing.nit);
       if (cId && eId && cId.toLowerCase() === eId.toLowerCase()) return true;
       if (cCode && eCode && cCode === eCode) return true;
-      if (cNit && eNit && cNit !== "CF" && cNit !== "CONSUMIDORFINAL" && cNit === eNit) return true;
+      if (cNit && eNit && cNit !== "CF" && cNit !== "CONSUMIDORFINAL" && cNit === eNit && cName === eName) return true;
       if (cName && eName && cName === eName) return true;
       return false;
     });
@@ -2619,7 +3245,7 @@ function updateLocalClient(id, updates, oldData) {
     const cNit = normNit(c.nit);
     const idMatch = targetId && cId && targetId.toLowerCase() === cId.toLowerCase();
     const codeMatch = newCode && cCode && newCode === cCode || oldCode && cCode && oldCode === cCode;
-    const nitMatch = targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit;
+    const nitMatch = targetNit && targetNit !== "CF" && targetNit !== "CONSUMIDORFINAL" && cNit === targetNit && (cName === newName || normCName === newName || cName === oldName || normCName === oldName);
     const nameMatch = newName && (cName === newName || normCName === newName) || oldName && (cName === oldName || normCName === oldName);
     if (idMatch || codeMatch || nitMatch || nameMatch) {
       updated = true;
@@ -2762,81 +3388,53 @@ async function safeInsertClient(clientData) {
     const { error } = await localDb.from("clients").insert([clientData]);
     if (!error) return true;
     console.warn("Primary PostgreSQL Local client insert failed, trying fallbacks:", error.message);
-    const payload = {
+    const isProsp = clientData.isProspect === true || clientData.clientType === "prospect";
+    const fallbackPayload = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || "",
       phone: clientData.phone || "",
       address: clientData.address || "",
       companyName: clientData.companyName || "",
-      company_name: clientData.companyName || "",
-      createdAt: clientData.createdAt || clientData.created_at,
-      created_at: clientData.createdAt || clientData.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+      createdAt: clientData.createdAt || clientData.created_at || (/* @__PURE__ */ new Date()).toISOString(),
       sellerId: clientData.sellerId || "",
-      seller_id: clientData.sellerId || "",
       clientCode: clientData.clientCode,
       isBlocked: clientData.isBlocked || false,
       latitude: clientData.latitude,
       longitude: clientData.longitude,
       locationAddress: clientData.locationAddress,
-      location_address: clientData.locationAddress,
       geotaggedAt: clientData.geotaggedAt,
-      geotagged_at: clientData.geotaggedAt,
       geotaggedBy: clientData.geotaggedBy,
-      geotagged_by: clientData.geotaggedBy,
-      isProspect: clientData.isProspect || false,
-      is_prospect: clientData.isProspect || false,
-      clientType: clientData.clientType || (clientData.isProspect ? "prospect" : "regular"),
-      client_type: clientData.clientType || (clientData.isProspect ? "prospect" : "regular")
+      isProspect: isProsp,
+      is_prospect: isProsp,
+      clientType: isProsp ? "prospect" : clientData.clientType || "regular",
+      client_type: isProsp ? "prospect" : clientData.clientType || "regular"
     };
-    const { error: errorWithFallbacks } = await localDb.from("clients").insert([payload]);
-    if (!errorWithFallbacks) return true;
-    console.warn("Casing fallback client insert failed, retrying with column exclusions:", errorWithFallbacks.message);
-    let prunedPayload = { ...payload };
-    let needsRetry = false;
-    const errMsg = errorWithFallbacks.message;
-    if (errMsg.includes("isProspect") || errMsg.includes("is_prospect") || errMsg.includes("clientType") || errMsg.includes("client_type")) {
-      delete prunedPayload.isProspect;
-      delete prunedPayload.is_prospect;
-      delete prunedPayload.clientType;
-      delete prunedPayload.client_type;
-      needsRetry = true;
-    }
-    if (errMsg.includes("sellerId") || errMsg.includes('column "sellerId"') || errMsg.includes("schema cache")) {
-      delete prunedPayload.sellerId;
-      needsRetry = true;
-    }
-    if (errMsg.includes("seller_id") || errMsg.includes('column "seller_id"')) {
-      delete prunedPayload.seller_id;
-      needsRetry = true;
-    }
-    if (errMsg.includes("createdAt") || errMsg.includes('column "createdAt"')) {
-      delete prunedPayload.createdAt;
-      needsRetry = true;
-    }
-    if (errMsg.includes("created_at") || errMsg.includes('column "created_at"')) {
-      delete prunedPayload.created_at;
-      needsRetry = true;
-    }
-    if (errMsg.includes("companyName") || errMsg.includes('column "companyName"')) {
-      delete prunedPayload.companyName;
-      needsRetry = true;
-    }
-    if (errMsg.includes("company_name") || errMsg.includes('column "company_name"')) {
-      delete prunedPayload.company_name;
-      needsRetry = true;
-    }
-    if (needsRetry) {
-      const { error: retryError } = await localDb.from("clients").insert([prunedPayload]);
+    Object.keys(fallbackPayload).forEach((k) => {
+      if (fallbackPayload[k] === void 0) delete fallbackPayload[k];
+    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { error: retryError } = await localDb.from("clients").insert([fallbackPayload]);
       if (!retryError) return true;
-      console.warn("Client pruned insert failed:", retryError.message);
+      const errMsg = retryError.message || "";
+      const match = errMsg.match(/column\s+"?([^"\s»]+)"?|columna\s+«([^»]+)»/i);
+      const missingCol = match?.[1] || match?.[2];
+      if (missingCol && Object.prototype.hasOwnProperty.call(fallbackPayload, missingCol)) {
+        delete fallbackPayload[missingCol];
+        continue;
+      }
+      console.warn("Client fallback insert failed:", errMsg);
+      break;
     }
     const bareClient = {
       id: clientData.id,
       name: clientData.name,
       nit: clientData.nit || "",
       phone: clientData.phone || "",
-      address: clientData.address || ""
+      address: clientData.address || "",
+      sellerId: clientData.sellerId || "",
+      isProspect: isProsp,
+      clientType: isProsp ? "prospect" : "regular"
     };
     const { error: bareError } = await localDb.from("clients").insert([bareClient]);
     if (!bareError) return true;
@@ -3135,6 +3733,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
     const code = c.clientCode || c.client_code || c.clientcode || "";
     const id = c.id;
     const hasExplicitNullGps = c.latitude === null || c.longitude === null;
+    const isProspectVal = c.isProspect === true || c.is_prospect === true || c.clientType === "prospect" || c.client_type === "prospect";
+    const clientTypeVal = isProspectVal ? "prospect" : c.clientType || c.client_type || "regular";
     const dbFormatted = {
       id,
       sellerId: c.sellerId || c.seller_id || c.sellerid || "",
@@ -3144,6 +3744,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
       phone: c.phone || "",
       address: c.address || "",
       clientCode: code,
+      isProspect: isProspectVal,
+      clientType: clientTypeVal,
       hasExplicitNullGps,
       latitude: !hasExplicitNullGps && c.latitude !== void 0 && c.latitude !== null && !isNaN(Number(c.latitude)) ? Number(c.latitude) : !hasExplicitNullGps && c.lat !== void 0 && c.lat !== null && !isNaN(Number(c.lat)) ? Number(c.lat) : void 0,
       longitude: !hasExplicitNullGps && c.longitude !== void 0 && c.longitude !== null && !isNaN(Number(c.longitude)) ? Number(c.longitude) : !hasExplicitNullGps && c.lng !== void 0 && c.lng !== null && !isNaN(Number(c.lng)) ? Number(c.lng) : !hasExplicitNullGps && c.long !== void 0 && c.long !== null && !isNaN(Number(c.long)) ? Number(c.long) : void 0,
@@ -3179,6 +3781,8 @@ app.get("/api/clients", requireAuth, asyncHandler(async (req, res) => {
         nit: dbObj.nit || c.nit,
         sellerId: dbObj.sellerId || c.sellerId,
         clientCode: dbObj.clientCode || c.clientCode,
+        isProspect: dbObj.isProspect !== void 0 ? dbObj.isProspect : c.isProspect !== void 0 ? c.isProspect : false,
+        clientType: dbObj.clientType || c.clientType || "regular",
         latitude: isClearedGps ? void 0 : dbObj.latitude !== void 0 ? dbObj.latitude : c.latitude !== void 0 && c.latitude !== null ? Number(c.latitude) : void 0,
         longitude: isClearedGps ? void 0 : dbObj.longitude !== void 0 ? dbObj.longitude : c.longitude !== void 0 && c.longitude !== null ? Number(c.longitude) : void 0,
         locationAddress: isClearedGps ? "" : dbObj.locationAddress || c.locationAddress || "",
@@ -3236,11 +3840,37 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   const esConsumidorFinal2 = nitNuevo === "" || nitNuevo === "CF" || nitNuevo === "CONSUMIDORFINAL";
   if (!esConsumidorFinal2) {
     const yaExiste = [...existingList, ...localList].find(
-      (c) => c && normalizarNit(c.nit) === nitNuevo
+      (c) => c && normalizarNit(c.nit) === nitNuevo && c.name?.trim().toLowerCase() === nameToSave.toLowerCase()
     );
     if (yaExiste) {
-      return res.status(409).json({
-        error: `Ya existe un cliente registrado con el NIT ${nit}: "${yaExiste.name}". No se puede duplicar.`,
+      console.log(`Cliente ya existe con NIT ${nit} y nombre "${yaExiste.name}" (ID: ${yaExiste.id}). Reutilizando cliente existente.`);
+      const updates = {};
+      if (!yaExiste.phone && phone) updates.phone = phone;
+      if (!yaExiste.address && address) updates.address = address;
+      if (!yaExiste.companyName && companyToSave) updates.companyName = companyToSave;
+      if (latitude !== void 0 && longitude !== void 0) {
+        updates.latitude = Number(latitude);
+        updates.longitude = Number(longitude);
+        updates.locationAddress = locationAddress || address || "";
+        updates.geotaggedAt = geotaggedAt || (/* @__PURE__ */ new Date()).toISOString();
+        updates.geotaggedBy = req.user?.name || req.user?.email || "";
+      }
+      if (Object.keys(updates).length > 0) {
+        updateLocalClient(yaExiste.id, updates);
+        try {
+          await localDb.from("clients").update(updates).eq("id", yaExiste.id);
+        } catch (e) {
+        }
+      }
+      return res.json({
+        success: true,
+        client: {
+          ...yaExiste,
+          ...updates,
+          nit: yaExiste.nit || nit || "",
+          phone: yaExiste.phone || phone || "",
+          address: yaExiste.address || address || ""
+        },
         clienteExistente: { id: yaExiste.id, name: yaExiste.name, nit: yaExiste.nit }
       });
     }
@@ -3377,12 +4007,27 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
     console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
+  recordAuditLog({
+    action: clientData.clientCode?.startsWith("GT-") || clientData.name.toLowerCase().includes("prueba") ? "CLIENT_CREATED_TEST" : "CLIENT_CREATED",
+    category: "clientes",
+    entity_type: "client",
+    entity_id: clientData.id,
+    entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ""}`,
+    description: `Cliente "${clientData.name}" creado con c\xF3digo ${clientData.clientCode || "N/A"}${clientData.latitude ? " y coordenadas GPS fijadas" : ""}`,
+    new_data: clientData,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true, client: clientData });
 }));
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
   invalidateCache("clients");
   const { id } = req.params;
-  const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, oldName, oldClientCode, oldNit } = req.body;
+  const { name, companyName, nit, phone, address, sellerId, clientCode, isBlocked, isProspect, clientType, oldName, oldClientCode, oldNit } = req.body;
   const updates = {};
   if (name !== void 0) updates.name = name;
   if (companyName !== void 0) updates.companyName = companyName;
@@ -3392,6 +4037,8 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
   if (sellerId !== void 0 && req.user?.role !== "seller") updates.sellerId = sellerId;
   if (clientCode !== void 0) updates.clientCode = clientCode;
   if (isBlocked !== void 0) updates.isBlocked = isBlocked;
+  if (isProspect !== void 0) updates.isProspect = isProspect;
+  if (clientType !== void 0) updates.clientType = clientType;
   updateLocalClient(id, updates, { oldName, oldClientCode, oldNit });
   try {
     const snakeUpdates = {};
@@ -3403,6 +4050,14 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
     if (updates.sellerId !== void 0) snakeUpdates.seller_id = updates.sellerId;
     if (updates.clientCode !== void 0) snakeUpdates.client_code = updates.clientCode;
     if (updates.isBlocked !== void 0) snakeUpdates.is_blocked = updates.isBlocked;
+    if (updates.isProspect !== void 0) {
+      snakeUpdates.is_prospect = updates.isProspect;
+      snakeUpdates.isProspect = updates.isProspect;
+    }
+    if (updates.clientType !== void 0) {
+      snakeUpdates.client_type = updates.clientType;
+      snakeUpdates.clientType = updates.clientType;
+    }
     let updatedInDb = false;
     try {
       const res1 = await localDb.from("clients").update(updates).eq("id", id).select("*");
@@ -3469,6 +4124,22 @@ app.put("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
         }
       }
     }
+    recordAuditLog({
+      action: "CLIENT_UPDATED",
+      category: "clientes",
+      entity_type: "client",
+      entity_id: String(id),
+      entity_name: updates.name || oldName || `Cliente ${id}`,
+      description: `Cliente "${updates.name || oldName || id}" actualizado (${Object.keys(updates).join(", ")})`,
+      previous_data: { oldName, oldClientCode, oldNit },
+      new_data: updates,
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
     invalidateCache("clients");
     res.json({ success: true, client: { id, ...updates } });
   } catch (e) {
@@ -3590,6 +4261,21 @@ app.delete("/api/clients/:id", requireAuth, asyncHandler(async (req, res) => {
         console.warn("[Delete Client Neon Warning]:", neonErr.message);
       }
     }
+    recordAuditLog({
+      action: "CLIENT_DELETED",
+      category: "clientes",
+      entity_type: "client",
+      entity_id: idStr,
+      entity_name: targetName || idStr,
+      description: `Cliente "${targetName || idStr}" (${targetCode || "Sin c\xF3digo"}) eliminado permanentemente`,
+      previous_data: { id: idStr, name: targetName, clientCode: targetCode, companyName: targetCompany, nit: targetNit },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
     invalidateCache("clients");
     res.json({ success: true, message: "Cliente eliminado correctamente." });
   } catch (e) {
@@ -3757,6 +4443,22 @@ app.put("/api/clients/:id/location", requireAuth, asyncHandler(async (req, res) 
   } catch (e) {
     console.warn("Could not update local client location:", e);
   }
+  recordAuditLog({
+    action: "CLIENT_GPS_PINNED",
+    category: "rutas",
+    entity_type: "client",
+    entity_id: String(id),
+    entity_name: existingClient?.name || `Cliente ${id}`,
+    description: `Fijaci\xF3n GPS guardada para "${existingClient?.name || id}": [${latNum}, ${lngNum}]${locationAddress ? ` (${locationAddress})` : ""}`,
+    previous_data: { latitude: existingClient?.latitude, longitude: existingClient?.longitude },
+    new_data: locationUpdates,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   invalidateCache("clients");
   res.json({ success: true, client: { id, ...locationUpdates, sellerId: effectiveSellerId || currentSeller } });
 }));
@@ -3833,6 +4535,20 @@ app.delete("/api/clients/:id/location", requireAuth, asyncHandler(async (req, re
   } catch (e) {
     console.warn("Could not clear local client location:", e);
   }
+  recordAuditLog({
+    action: "CLIENT_GPS_UNPINNED",
+    category: "rutas",
+    entity_type: "client",
+    entity_id: String(id),
+    entity_name: targetName || `Cliente ${id}`,
+    description: `Fijaci\xF3n GPS removida para "${targetName || id}"`,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   invalidateCache("clients");
   res.json({ success: true, message: "Ubicaci\xF3n GPS eliminada con \xE9xito.", client: { id, ...locationUpdates } });
 }));
@@ -4152,19 +4868,14 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   if (activeRoute) {
     const routeGuatemala = getGuatemalaDateString(activeRoute.startedAt || activeRoute.createdAt);
     if (routeGuatemala !== todayGuatemala) {
-      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala}`);
-      activeRoute.status = "completed";
-      activeRoute.finishedAt = nowIso;
-      if (neonPool && activeRoute.id) {
-        try {
-          await neonPool.query(`
-            UPDATE public.seller_routes
-            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
-                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al cambiar de d\xEDa)'
-            WHERE id = $2;
-          `, [nowIso, activeRoute.id]);
-        } catch (e) {
-        }
+      console.log(`[Auto-Close Stale Route] Cerrando jornada anterior de ${activeRoute.sellerName} (${activeRoute.id}) de fecha ${routeGuatemala} y enviando resumen de cierre autom\xE1tico`);
+      try {
+        await closeActiveRouteAndNotify(activeRoute, {
+          isAutoClosed: true,
+          finishedAtIso: getGuatemala10PmIsoForDate(routeGuatemala)
+        });
+      } catch (closeErr) {
+        console.warn("[Auto-Close Stale Route Warning]:", closeErr?.message || closeErr);
       }
       activeRoute = null;
     }
@@ -4195,8 +4906,8 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
         await neonPool.query(`
           UPDATE public.seller_routes
           SET status = 'completed',
-              finished_at = $1,
-              "finishedAt" = $1,
+              finished_at = $1::timestamptz,
+              "finishedAt" = $1::text,
               notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente)'
           WHERE status = 'active'
             AND (
@@ -4213,9 +4924,9 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
             notes, created_at, "createdAt"
           ) VALUES (
             $1, $2, $2, $3, $3, $4, $4,
-            $5, $6, $6, $7, $7, $8, $8,
+            $5, $6::timestamptz, $6::text, $7, $7, $8, $8,
             1, 1, 0, 0, 0, 0,
-            $9, $6, $6
+            $9, $6::timestamptz, $6::text
           ) ON CONFLICT (id) DO UPDATE SET
             total_stops = EXCLUDED.total_stops,
             "totalStops" = EXCLUDED."totalStops";
@@ -4419,8 +5130,31 @@ app.post("/api/visits", requireAuth, asyncHandler(async (req, res) => {
   } catch (err) {
     console.warn("Could not insert visit in PostgreSQL, stored locally:", err?.message || err);
   }
+  recordAuditLog({
+    action: "VISIT_RECORDED",
+    category: "rutas",
+    entity_type: "visit",
+    entity_id: newVisit.id,
+    entity_name: newVisit.clientName || `Cliente ${newVisit.clientId}`,
+    description: `Visita registrada por ${newVisit.sellerName || sellerNameStr} en "${newVisit.clientName}" (${String(newVisit.visitType).toUpperCase()})`,
+    new_data: {
+      visitId: newVisit.id,
+      clientName: newVisit.clientName,
+      visitType: newVisit.visitType,
+      latitude: newVisit.latitude,
+      longitude: newVisit.longitude,
+      sellerName: newVisit.sellerName
+    },
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
+  emitRealtimeSync("client_visits", newVisit);
   res.json({ success: true, visit: newVisit, activeRoute });
-  if (isNewAutoRoute) {
+  if (isNewAutoRoute && !isRouteNotificationExcluded(sellerEmailStr)) {
     console.log(`[WhatsApp Start Route] Notificando inicio de ruta a administradores por primera visita de ${sellerNameStr}`);
     sendStartRouteNotification({
       route: activeRoute,
@@ -4451,6 +5185,21 @@ app.delete("/api/visits/:id", requireAuth, asyncHandler(async (req, res) => {
     saveLocalVisits(filtered);
   } catch (e) {
   }
+  recordAuditLog({
+    action: "VISIT_DELETED",
+    category: "rutas",
+    entity_type: "visit",
+    entity_id: id,
+    entity_name: `Visita ${id}`,
+    description: `Visita checkpoint eliminada por ${req.user?.name || req.user?.email}`,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
+  emitRealtimeSync("client_visits", { deletedId: id });
   res.json({ success: true, message: "Visita eliminada correctamente." });
 }));
 var SELLER_ROUTES_FILE = import_path2.default.join(process.cwd(), "seller_routes_local.json");
@@ -4644,6 +5393,11 @@ app.get("/api/routes/active", requireAuth, asyncHandler(async (req, res) => {
   res.json({ success: true, route: activeRoute || null });
 }));
 var ROUTE_WHATSAPP_AUTO_ENABLED = process.env.ENABLE_AUTO_ROUTE_WHATSAPP !== "false";
+var ROUTE_EXCLUDED_EMAILS = ["seseffff942@gmail.com"];
+function isRouteNotificationExcluded(email) {
+  if (!email) return false;
+  return ROUTE_EXCLUDED_EMAILS.includes(String(email).trim().toLowerCase());
+}
 var ROUTE_WHATSAPP_TEST_PHONE = process.env.WHATSAPP_TEST_PHONE || "50248234048";
 var ROUTE_WHATSAPP_SERGIO_PHONE = process.env.WHATSAPP_SERGIO_PHONE || "50250007840";
 function formatTimeGuatemala(isoString) {
@@ -4689,6 +5443,47 @@ async function sendWhatsAppEvolutionMessage(phone, text) {
   }
   console.warn(`[WhatsApp Route Automation] No se pudo enviar WhatsApp a ${cleanPhone}`);
   return false;
+}
+async function sendWhatsAppEvolutionMedia(params) {
+  let cleanPhone = String(params.phone || "").replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) return { ok: false, error: "N\xFAmero de tel\xE9fono inv\xE1lido" };
+  let rawB64 = params.mediaBase64 || "";
+  if (rawB64.includes(",")) {
+    rawB64 = rawB64.split(",")[1];
+  }
+  const endpoints = [
+    "http://localhost:8080/message/sendMedia/bot-recibos",
+    "http://evolution_api:8080/message/sendMedia/bot-recibos",
+    "http://185.166.39.49:8080/message/sendMedia/bot-recibos"
+  ];
+  const payload = {
+    number: cleanPhone,
+    mediatype: params.mediaType || "document",
+    mimetype: params.mimeType || "application/pdf",
+    caption: params.caption || "",
+    media: rawB64,
+    fileName: params.fileName || "documento.pdf"
+  };
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "apikey": "B6D711FCDE4D4FD5936544120E713976",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        console.log(`[WhatsApp Bot SendMedia] \u2705 Documento "${params.fileName}" enviado a ${cleanPhone} v\xEDa ${url}`);
+        return { ok: true, status: resp.status, endpoint: url };
+      }
+    } catch (err) {
+    }
+  }
+  console.warn(`[WhatsApp Bot SendMedia] \u26A0\uFE0F No se pudo enviar media a ${cleanPhone} en ning\xFAn endpoint`);
+  return { ok: false, error: "No se pudo contactar a Evolution API" };
 }
 async function dispatchRouteToN8nWebhook(payload) {
   const endpoints = [
@@ -4747,6 +5542,10 @@ async function sendStartRouteNotification({
   isTest = false
 }) {
   if (!ROUTE_WHATSAPP_AUTO_ENABLED && !isTest) return;
+  if (isRouteNotificationExcluded(userEmail) && !isTest) {
+    console.log(`[Start Route] \u{1F515} Notificaci\xF3n de inicio de ruta desactivada para ${userEmail} (pruebas).`);
+    return;
+  }
   try {
     let sCode = "";
     let sPhone = "";
@@ -4841,11 +5640,27 @@ async function sendStartRouteNotification({
     console.warn("[WhatsApp Start Route Error]:", err);
   }
 }
-function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits) {
+function buildRouteReminderWhatsAppMessage(sellerName, sellerCode, startedAt, visitsCount) {
+  const fechaStr = formatDateGuatemala(startedAt);
+  const horaInicio = formatTimeGuatemala(startedAt);
+  return `\u23F0 *RECORDATORIO DE RUTA ACTIVA - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\xA1Hola *${sellerName}*! \u{1F44B}
+
+Notamos que tu ruta del d\xEDa *${fechaStr}* iniciada a las *${horaInicio}* a\xFAn permanece *ACTIVA* en el sistema (${visitsCount} ${visitsCount === 1 ? "visita registrada" : "visitas registradas"} hoy).
+
+\u2753 *\xBFNo te has olvidado de cerrar tu ruta?*
+Por favor ingresa a la app en la secci\xF3n *Rutas y Visitas* y presiona el bot\xF3n *"\u{1F3C1} Finalizar Ruta"* para registrar tu cierre de jornada.
+
+\u26A0\uFE0F *Importante:* Si no la cierras manualmente, el sistema la cerrar\xE1 de forma autom\xE1tica a las *10:00 PM* y enviar\xE1 el resumen aclarando que fue terminada autom\xE1ticamente.
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
+}
+function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, visits, isAutoClosed = false) {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
   const horaFin = formatTimeGuatemala(finishedAt);
-  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffMs = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
   const diffHrs = Math.floor(diffMs / (1e3 * 60 * 60));
   const diffMins = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
   const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
@@ -4867,16 +5682,19 @@ function buildFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, fini
    ${tipoIcon} *Raz\xF3n:* ${tipoLabel}${notas}`;
     }).join("\n\n");
   }
-  return `\u{1F3C1} *RESUMEN DE JORNADA & VISITAS - AGRICOVET* \u{1F1EC}\u{1F1F9}
+  const headerTitle = isAutoClosed ? "\u{1F3C1} *RESUMEN DE JORNADA (CERRADA AUTOM\xC1TICAMENTE 10:00 PM) - AGRICOVET* \u{1F1EC}\u{1F1F9}" : "\u{1F3C1} *RESUMEN DE JORNADA & VISITAS - AGRICOVET* \u{1F1EC}\u{1F1F9}";
+  const introBlock = isAutoClosed ? "\u26A0\uFE0F *AVISO:* Tu ruta permanec\xEDa abierta a las 10:00 PM sin cierre manual, por lo que el sistema la finaliz\xF3 autom\xE1ticamente con las visitas registradas del d\xEDa." : "\xA1Muchas gracias por tu entrega, esfuerzo y dedicaci\xF3n en la ruta de hoy!";
+  const estadoCierre = isAutoClosed ? "\n\u{1F916} *Tipo de Cierre:* Terminada autom\xE1ticamente por el sistema (10:00 PM)" : "";
+  return `${headerTitle}
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-\xA1Muchas gracias por tu entrega, esfuerzo y dedicaci\xF3n en la ruta de hoy!
+${introBlock}
 
 \u{1F464} *Asesor:* *${sellerName}*
 \u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
 \u{1F4C5} *Fecha:* ${fechaStr}
 
 \u23F0 *Hora de Inicio de Ruta:* ${horaInicio}
-\u{1F3C1} *Hora Final de Ruta:* ${horaFin}
+\u{1F3C1} *Hora Final de Ruta:* ${horaFin}${estadoCierre}
 \u23F1\uFE0F *Tiempo Total de Ruta:* ${duracionTexto}
 \u{1F4CD} *Total Clientes Visitados:* ${visits.length} visitas realizadas
 
@@ -4888,11 +5706,11 @@ ${visitsList}
 \u{1F31F} *\xA1Excelente trabajo en campo! Gracias por representar con excelencia a Agricovet. \xA1A descansar y feliz retorno a casa!* \u{1F69C}\u{1F4A8}
 \u{1F4CC} _Sistema de Gesti\xF3n & Rutas Comerciales Agricovet_`;
 }
-function buildAdminFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, startLat, startLng, endLat, endLng, visits = [], closureNotes) {
+function buildAdminFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt, finishedAt, startLat, startLng, endLat, endLng, visits = [], closureNotes, isAutoClosed = false) {
   const fechaStr = formatDateGuatemala(startedAt);
   const horaInicio = formatTimeGuatemala(startedAt);
   const horaFin = formatTimeGuatemala(finishedAt);
-  const diffMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const diffMs = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
   const diffHrs = Math.floor(diffMs / (1e3 * 60 * 60));
   const diffMins = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
   const duracionTexto = diffHrs > 0 ? `${diffHrs}h ${diffMins}m` : `${diffMins} min`;
@@ -4903,8 +5721,9 @@ function buildAdminFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt,
    _Coords: (${sLat.toFixed(5)}, ${sLng.toFixed(5)})_` : "";
   const eLat = endLat != null ? parseFloat(String(endLat)) : null;
   const eLng = endLng != null ? parseFloat(String(endLng)) : null;
+  const endGpsLabel = isAutoClosed ? "\u{1F6D1} *\xDAltimo Punto GPS Registrado:*" : "\u{1F6D1} *Punto de Cierre:*";
   const endGps = eLat && eLng && !isNaN(eLat) && !isNaN(eLng) ? `
-\u{1F6D1} *Punto de Cierre:* https://maps.google.com/?q=${eLat},${eLng}
+${endGpsLabel} https://maps.google.com/?q=${eLat},${eLng}
    _Coords: (${eLat.toFixed(5)}, ${eLng.toFixed(5)})_` : "";
   let visitsList = "";
   if (!visits || visits.length === 0) {
@@ -4930,18 +5749,21 @@ function buildAdminFinishRouteWhatsAppMessage(sellerName, sellerCode, startedAt,
   }
   const notasCierre = closureNotes ? `
 
-\u{1F4DD} *Notas de Cierre del Asesor:*
+\u{1F4DD} *Notas de Cierre:*
 "${closureNotes}"` : "";
-  return `\u{1F4CA} *AUDITOR\xCDA DE CIERRE DE RUTA - AGRICOVET* \u{1F1EC}\u{1F1F9}
+  const headerTitle = isAutoClosed ? "\u{1F4CA} *AUDITOR\xCDA DE CIERRE DE RUTA (CIERRE AUTOM\xC1TICO 10:00 PM) - AGRICOVET* \u{1F1EC}\u{1F1F9}" : "\u{1F4CA} *AUDITOR\xCDA DE CIERRE DE RUTA - AGRICOVET* \u{1F1EC}\u{1F1F9}";
+  const introLine = isAutoClosed ? `\u26A0\uFE0F *AVISO AUTOM\xC1TICO:* El asesor *${sellerName}* no cerr\xF3 manualmente su ruta, por lo que fue *terminada autom\xE1ticamente a las 10:00 PM* por el sistema:` : `El asesor *${sellerName}* ha finalizado su jornada comercial:`;
+  const modoCierreLine = isAutoClosed ? "\n\u{1F916} *Estado de Cierre:* Terminada autom\xE1ticamente (10:00 PM - Sin cierre manual)" : "\n\u2705 *Estado de Cierre:* Cerrada manualmente por el asesor";
+  return `${headerTitle}
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-El asesor *${sellerName}* ha finalizado su jornada comercial:
+${introLine}
 
 \u{1F464} *Asesor:* *${sellerName}*
 \u{1F4BC} *C\xF3digo Asesor:* #${sellerCode || "S/C"}
 \u{1F4C5} *Fecha:* ${fechaStr}
 
 \u23F0 *Hora de Salida:* ${horaInicio}${startGps}
-\u{1F3C1} *Hora de Cierre:* ${horaFin}${endGps}
+\u{1F3C1} *Hora de Cierre:* ${horaFin}${modoCierreLine}${endGps}
 \u23F1\uFE0F *Tiempo Total de Jornada:* ${duracionTexto}
 \u{1F4CD} *Total Visitas Realizadas:* ${visits ? visits.length : 0} visitas
 
@@ -4964,30 +5786,46 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
       error: "Ubicaci\xF3n GPS Obligatoria: No se puede iniciar la ruta sin coordenadas GPS reales capturadas por tu dispositivo en este momento."
     });
   }
+  let existingActive = null;
+  if (neonPool) {
+    try {
+      const dbActive = await neonPool.query(`
+        SELECT * FROM public.seller_routes 
+        WHERE status = 'active'
+          AND (
+            ($1 <> '' AND (seller_id = $1 OR "sellerId" = $1)) OR
+            ($2 <> '' AND (seller_email ILIKE $2 OR "sellerEmail" ILIKE $2))
+          )
+        ORDER BY COALESCE(started_at, created_at) DESC
+        LIMIT 1;
+      `, [userId, userEmail]);
+      if (dbActive.rows && dbActive.rows.length > 0) {
+        existingActive = dbActive.rows[0];
+      }
+    } catch (e) {
+    }
+  }
   const routes = readLocalRoutes();
-  const existingActive = routes.find((r) => {
-    if (r.status !== "active") return false;
-    const rSellerId = String(r.sellerId || r.seller_id || "").trim();
-    const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
-    return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
-  });
+  if (!existingActive) {
+    existingActive = routes.find((r) => {
+      if (r.status !== "active") return false;
+      const rSellerId = String(r.sellerId || r.seller_id || "").trim();
+      const rSellerEmail = String(r.sellerEmail || r.seller_email || "").trim().toLowerCase();
+      return userId && rSellerId === userId || userEmail && rSellerEmail === userEmail;
+    });
+  }
   if (existingActive) {
-    const existingDate = getGuatemalaDateString(existingActive.startedAt || existingActive.createdAt);
+    const existingDate = getGuatemalaDateString(existingActive.started_at || existingActive.startedAt || existingActive.created_at || existingActive.createdAt);
     const todayDate = getGuatemalaDateString();
     if (existingDate !== todayDate) {
-      existingActive.status = "completed";
-      existingActive.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
-      saveLocalRoutes(routes);
-      if (neonPool) {
-        try {
-          await neonPool.query(`
-            UPDATE public.seller_routes 
-            SET status = 'completed', finished_at = $1, "finishedAt" = $1,
-                notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente al iniciar nueva ruta)'
-            WHERE id = $2;
-          `, [existingActive.finishedAt, existingActive.id]);
-        } catch (e) {
-        }
+      try {
+        await closeActiveRouteAndNotify(existingActive, {
+          isAutoClosed: true,
+          finishedAtIso: getGuatemala10PmIsoForDate(existingDate),
+          skipWhatsApp: true
+          // No enviar a las 6 o 7 AM del día siguiente resumen de días pasados
+        });
+      } catch (e) {
       }
     } else {
       if ((existingActive.startLatitude == null || existingActive.startLongitude == null) && startLatitude && startLongitude) {
@@ -5006,6 +5844,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
           }
         }
       }
+      console.log(`[Start Route] Asesor ${userName} ya cuenta con una jornada activa de hoy (${existingActive.id}). Reutilizando para evitar duplicados.`);
       return res.json({ success: true, message: "Ya tienes una ruta activa en curso.", route: existingActive });
     }
   }
@@ -5045,8 +5884,8 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
       await neonPool.query(`
         UPDATE public.seller_routes
         SET status = 'completed',
-            finished_at = $1,
-            "finishedAt" = $1,
+            finished_at = $1::timestamptz,
+            "finishedAt" = $1::text,
             notes = COALESCE(notes, '') || ' (Jornada anterior cerrada autom\xE1ticamente)'
         WHERE status = 'active'
           AND (
@@ -5063,9 +5902,9 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
           notes, created_at, "createdAt"
         ) VALUES (
           $1, $2, $2, $3, $3, $4, $4,
-          $5, $6, $6, $7, $7, $8, $8,
+          $5, $6::timestamptz, $6::text, $7, $7, $8, $8,
           0, 0, 0, 0, 0, 0,
-          $9, $6, $6
+          $9, $6::timestamptz, $6::text
         ) ON CONFLICT (id) DO UPDATE SET
           start_latitude = EXCLUDED.start_latitude,
           "startLatitude" = EXCLUDED."startLatitude",
@@ -5087,7 +5926,7 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   try {
-    await localDb.from("seller_routes").insert([{
+    await localDb.from("seller_routes").upsert([{
       id: newRoute.id,
       seller_id: newRoute.sellerId,
       seller_name: newRoute.sellerName,
@@ -5100,11 +5939,11 @@ app.post("/api/routes/start", requireAuth, asyncHandler(async (req, res) => {
       total_distance_km: 0,
       total_duration_mins: 0,
       notes: newRoute.notes
-    }]);
+    }], { onConflict: "id" });
   } catch (e) {
   }
   res.json({ success: true, message: "Ruta iniciada exitosamente.", route: newRoute });
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest || req.body.isTest) {
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(userEmail) || req.body.sendWhatsAppTest || req.body.isTest) {
     sendStartRouteNotification({
       route: newRoute,
       userName,
@@ -5369,7 +6208,8 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
     }]);
   } catch (e) {
   }
-  if (ROUTE_WHATSAPP_AUTO_ENABLED || req.body.sendWhatsAppTest) {
+  const finishEmailCheck = String(targetRoute.sellerEmail || reqSellerEmail || "").trim().toLowerCase();
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !isRouteNotificationExcluded(finishEmailCheck) || req.body.sendWhatsAppTest) {
     (async () => {
       try {
         const targetSellerId = targetRoute.sellerId || reqSellerId;
@@ -5474,8 +6314,14 @@ app.post("/api/routes/:id/finish", requireAuth, asyncHandler(async (req, res) =>
           targetRoute.finishedAt,
           routeVisits
         );
+        const diffMs = Math.max(0, new Date(targetRoute.finishedAt).getTime() - new Date(targetRoute.startedAt).getTime());
+        const durationMins = Math.round(diffMs / 6e4);
+        const stopsCount = (routeVisits || []).length;
+        const isEphemeralCancellation = durationMins < 3 && stopsCount === 0;
         const isTest = Boolean(req.body.sendWhatsAppTest || req.body.isTest);
-        if (isTest) {
+        if (isEphemeralCancellation) {
+          console.log(`[WhatsApp Finish Route] Omitiendo notificaci\xF3n WhatsApp de auditor\xEDa: jornada cancelada o cerrada en menos de 3 min sin paradas (${durationMins} min, ${stopsCount} visitas).`);
+        } else if (isTest) {
           console.log(`[WhatsApp Finish Route] MODO PRUEBA: Despachando a ${ROUTE_WHATSAPP_TEST_PHONE}`);
           const okN8n = await dispatchRouteToN8nWebhook({
             action: "finish_route",
@@ -5653,6 +6499,451 @@ app.post("/api/routes/:id/send-whatsapp-test", requireAuth, asyncHandler(async (
     preview: msg
   });
 }));
+var dispatchedRouteReminderKeys = /* @__PURE__ */ new Set();
+var dispatchedAutoClosedRouteIds = /* @__PURE__ */ new Set();
+function getGuatemala10PmIsoForDate(gtDateStr) {
+  try {
+    if (gtDateStr && /^\d{4}-\d{2}-\d{2}$/.test(gtDateStr)) {
+      return (/* @__PURE__ */ new Date(`${gtDateStr}T22:00:00.000-06:00`)).toISOString();
+    }
+  } catch (e) {
+  }
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+async function resolveRouteVisitsAndSellerContact(routeObj) {
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const routeId = String(routeObj.id || "").trim();
+  const sellerId = String(routeObj.sellerId || routeObj.seller_id || "").trim();
+  const sellerName = String(routeObj.sellerName || routeObj.seller_name || "Asesor").trim();
+  const sellerEmail = String(routeObj.sellerEmail || routeObj.seller_email || "").trim().toLowerCase();
+  const startedAtRaw = routeObj.startedAt || routeObj.started_at || routeObj.createdAt || routeObj.created_at || nowIso;
+  const startedAtIso = startedAtRaw instanceof Date ? startedAtRaw.toISOString() : String(startedAtRaw);
+  const routeDateStr = getGuatemalaDateString(startedAtIso);
+  let routeVisits = [];
+  if (neonPool) {
+    try {
+      const sellerNamePattern = sellerName ? `%${sellerName}%` : "";
+      const vDb = await neonPool.query(`
+        SELECT 
+          id,
+          COALESCE("clientName", client_name) AS "clientName",
+          COALESCE("companyName", company_name) AS "companyName",
+          COALESCE("sellerName", seller_name) AS "sellerName",
+          COALESCE("visitType", visit_type) AS "visitType",
+          notes,
+          latitude,
+          longitude,
+          COALESCE("createdAt", created_at::text) AS "createdAt"
+        FROM public.client_visits
+        WHERE (
+          ($1 <> '' AND (route_id = $1 OR "routeId" = $1))
+          OR (
+            (
+              (created_at IS NOT NULL AND created_at >= ($2 || 'T00:00:00-06:00')::timestamptz AND created_at <= ($2 || 'T23:59:59.999-06:00')::timestamptz)
+              OR ("createdAt" IS NOT NULL AND "createdAt" >= $2 AND "createdAt" <= ($2 || 'T23:59:59'))
+            )
+            AND (
+              ($3 <> '' AND (seller_id = $3 OR "sellerId" = $3)) OR
+              ($4 <> '' AND (seller_name ILIKE $4 OR "sellerName" ILIKE $4))
+            )
+          )
+        )
+        ORDER BY COALESCE(created_at, NOW()) ASC;
+      `, [routeId, routeDateStr, sellerId, sellerNamePattern]);
+      const seenVisits = /* @__PURE__ */ new Set();
+      routeVisits = (vDb.rows || []).filter((v) => {
+        const key = v.id || `${v.clientName}_${v.createdAt}`;
+        if (seenVisits.has(key)) return false;
+        seenVisits.add(key);
+        return true;
+      });
+    } catch (err) {
+      console.warn("[resolveRouteVisitsAndSellerContact SQL Warning]:", err?.message || err);
+    }
+  }
+  if (routeVisits.length === 0) {
+    const localVisits = readLocalVisits();
+    routeVisits = localVisits.filter((v) => {
+      if (routeId && v.routeId === routeId) return true;
+      const vDateStr = getGuatemalaDateString(v.createdAt || v.created_at);
+      if (vDateStr !== routeDateStr) return false;
+      return sellerId && v.sellerId === sellerId || sellerEmail && String(v.sellerEmail || "").toLowerCase() === sellerEmail || sellerName && String(v.sellerName || "").toLowerCase() === sellerName.toLowerCase();
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  let sCode = "";
+  let sPhone = "";
+  try {
+    const { data: allUsers } = await localDb.from("users").select("id, name, email, phone, sellerCode");
+    const foundUser = (allUsers || []).find(
+      (u) => sellerId && String(u.id) === String(sellerId) || sellerEmail && String(u.email || "").toLowerCase() === sellerEmail || sellerName && String(u.name || "").toLowerCase() === sellerName.toLowerCase() || sellerName && (String(u.name || "").toLowerCase().includes(sellerName.toLowerCase()) || sellerName.toLowerCase().includes(String(u.name || "").toLowerCase()))
+    );
+    if (foundUser) {
+      sCode = foundUser.sellerCode || "";
+      sPhone = foundUser.phone || "";
+    }
+  } catch (e) {
+  }
+  if (!sCode) {
+    if (sellerName.toLowerCase().includes("herbert")) sCode = "1521";
+    else if (sellerName.toLowerCase().includes("erick")) sCode = "8363";
+  }
+  if (!sPhone) {
+    if (sellerName.toLowerCase().includes("herbert") || sCode === "1521") {
+      sPhone = "50241323037";
+    } else if (sellerName.toLowerCase().includes("erick") || sCode === "8363") {
+      sPhone = "50254743595";
+    }
+  }
+  const isErickIphone = sellerName.toLowerCase().includes("erick") || sCode === "8363" || sellerEmail === "jerickottoniel@gmail.com" || sellerId === "u_1780897737916";
+  return {
+    routeId,
+    sellerId,
+    sellerName,
+    sellerEmail,
+    startedAtIso,
+    routeDateStr,
+    routeVisits,
+    sellerCode: sCode,
+    sellerPhone: sPhone,
+    isErickIphone
+  };
+}
+async function sendRouteClosureReminderToSeller(routeObj, options) {
+  try {
+    const info = await resolveRouteVisitsAndSellerContact(routeObj);
+    const horaInicio = formatTimeGuatemala(info.startedAtIso);
+    const visitsCount = info.routeVisits.length;
+    if (!info.isErickIphone) {
+      await createNotification(
+        "route_reminder",
+        "\u23F0 \xBFNo te has olvidado de cerrar tu ruta?",
+        `Hola ${info.sellerName}, tu ruta iniciada hoy a las ${horaInicio} sigue abierta (${visitsCount} ${visitsCount === 1 ? "visita" : "visitas"}). Por favor ci\xE9rrala en la app; si no la cierras, se cerrar\xE1 autom\xE1ticamente a las 10:00 PM.`,
+        { sellerId: info.sellerId, sellerEmail: info.sellerEmail, sellerName: info.sellerName }
+      );
+    } else {
+      console.log(`[Route Reminder] Omitiendo notificaci\xF3n Push Android para ${info.sellerName} (iPhone) -> Enviando \xFAnicamente por WhatsApp.`);
+    }
+    const reminderMsg = buildRouteReminderWhatsAppMessage(
+      info.sellerName,
+      info.sellerCode,
+      info.startedAtIso,
+      visitsCount
+    );
+    let cleanSellerPhone = String(info.sellerPhone || "").replace(/\D/g, "");
+    if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+    const targetPhone = options?.isTest ? ROUTE_WHATSAPP_TEST_PHONE : cleanSellerPhone;
+    if (targetPhone) {
+      console.log(`[Route Reminder] Enviando recordatorio de cierre de ruta a ${info.sellerName} (${targetPhone})`);
+      const okN8n = await dispatchRouteToN8nWebhook({
+        action: "route_reminder",
+        sellerName: info.sellerName,
+        sellerCode: info.sellerCode,
+        startedAt: info.startedAtIso,
+        visitsCount,
+        phone: targetPhone,
+        customMessage: reminderMsg
+      });
+      if (!okN8n) {
+        await sendWhatsAppEvolutionMessage(targetPhone, reminderMsg);
+      }
+    }
+    return { success: true, targetPhone, reminderMsg };
+  } catch (err) {
+    console.warn("[Route Reminder Error]:", err?.message || err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+async function closeActiveRouteAndNotify(routeInput, options) {
+  const isAutoClosed = Boolean(options?.isAutoClosed);
+  const info = await resolveRouteVisitsAndSellerContact(routeInput);
+  if (info.routeId && dispatchedAutoClosedRouteIds.has(info.routeId) && !options?.isTest) {
+    return { alreadyClosed: true };
+  }
+  if (info.routeId && !options?.isTest) {
+    dispatchedAutoClosedRouteIds.add(info.routeId);
+  }
+  const finishedAtIso = options?.finishedAtIso || (/* @__PURE__ */ new Date()).toISOString();
+  const startLat = routeInput.startLatitude ?? routeInput.start_latitude ?? (info.routeVisits[0]?.latitude ?? null);
+  const startLng = routeInput.startLongitude ?? routeInput.start_longitude ?? (info.routeVisits[0]?.longitude ?? null);
+  const lastVisitWithGps = [...info.routeVisits].reverse().find((v) => v.latitude != null && v.longitude != null);
+  const endLat = options?.endLat ?? routeInput.endLatitude ?? routeInput.end_latitude ?? (lastVisitWithGps?.latitude ?? startLat ?? null);
+  const endLng = options?.endLng ?? routeInput.endLongitude ?? routeInput.end_longitude ?? (lastVisitWithGps?.longitude ?? startLng ?? null);
+  const startMs = new Date(info.startedAtIso).getTime();
+  const endMs = new Date(finishedAtIso).getTime();
+  const totalDurationMins = Math.max(1, Math.round(Math.max(0, endMs - startMs) / (1e3 * 60)));
+  const totalStops = Math.max(info.routeVisits.length, Number(routeInput.totalStops || routeInput.total_stops || 0));
+  const autoNoteText = "Ruta cerrada autom\xE1ticamente a las 10:00 PM por el sistema (sin cierre manual del asesor).";
+  const finalNotes = options?.notes || (isAutoClosed ? routeInput.notes ? `${routeInput.notes} | ${autoNoteText}` : autoNoteText : routeInput.notes || "Jornada finalizada.");
+  if (neonPool && info.routeId) {
+    try {
+      await neonPool.query(`
+        UPDATE public.seller_routes
+        SET status = 'completed',
+            finished_at = $1::timestamptz,
+            "finishedAt" = $1::text,
+            end_latitude = COALESCE($2, end_latitude),
+            "endLatitude" = COALESCE($2, "endLatitude"),
+            end_longitude = COALESCE($3, end_longitude),
+            "endLongitude" = COALESCE($3, "endLongitude"),
+            total_stops = $4,
+            "totalStops" = $4,
+            total_duration_mins = $5,
+            "totalDurationMins" = $5,
+            notes = $6
+        WHERE id = $7 OR id::text = $7;
+      `, [finishedAtIso, endLat, endLng, totalStops, totalDurationMins, finalNotes, info.routeId]);
+    } catch (dbErr) {
+      console.warn("[closeActiveRouteAndNotify DB Update Warning]:", dbErr?.message || dbErr);
+    }
+  }
+  try {
+    const localRoutes = readLocalRoutes();
+    let updated = false;
+    for (let i = 0; i < localRoutes.length; i++) {
+      if (localRoutes[i].id === info.routeId) {
+        localRoutes[i] = {
+          ...localRoutes[i],
+          status: "completed",
+          finishedAt: finishedAtIso,
+          endLatitude: endLat,
+          endLongitude: endLng,
+          totalStops,
+          totalDurationMins,
+          notes: finalNotes
+        };
+        updated = true;
+      }
+    }
+    if (updated) saveLocalRoutes(localRoutes);
+  } catch (e) {
+  }
+  try {
+    if (info.routeId) {
+      await localDb.from("seller_routes").upsert([{
+        id: info.routeId,
+        seller_id: info.sellerId,
+        seller_name: info.sellerName,
+        seller_email: info.sellerEmail,
+        status: "completed",
+        started_at: info.startedAtIso,
+        finished_at: finishedAtIso,
+        start_latitude: startLat,
+        start_longitude: startLng,
+        end_latitude: endLat,
+        end_longitude: endLng,
+        total_stops: totalStops,
+        total_duration_mins: totalDurationMins,
+        notes: finalNotes
+      }]);
+    }
+  } catch (e) {
+  }
+  if (isAutoClosed && !options?.isTest && !info.isErickIphone) {
+    try {
+      await createNotification(
+        "route_auto_closed",
+        "\u{1F3C1} Ruta cerrada autom\xE1ticamente (10:00 PM)",
+        `La ruta de ${info.sellerName} del ${info.routeDateStr} fue finalizada autom\xE1ticamente a las 10:00 PM (${info.routeVisits.length} visitas registradas).`,
+        { sellerId: info.sellerId, sellerEmail: info.sellerEmail, sellerName: info.sellerName }
+      );
+    } catch (e) {
+    }
+  }
+  const adminSummaryMsg = buildAdminFinishRouteWhatsAppMessage(
+    info.sellerName,
+    info.sellerCode,
+    info.startedAtIso,
+    finishedAtIso,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    info.routeVisits,
+    finalNotes,
+    isAutoClosed
+  );
+  const sellerSummaryMsg = buildFinishRouteWhatsAppMessage(
+    info.sellerName,
+    info.sellerCode,
+    info.startedAtIso,
+    finishedAtIso,
+    info.routeVisits,
+    isAutoClosed
+  );
+  const actionType = isAutoClosed ? "auto_finish_route" : "finish_route";
+  if (options?.isTest) {
+    const okTest = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_TEST_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okTest) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+    }
+    return { success: true, adminSummaryMsg, sellerSummaryMsg };
+  }
+  if (ROUTE_WHATSAPP_AUTO_ENABLED && !options?.skipWhatsApp && !isRouteNotificationExcluded(info.sellerEmail)) {
+    console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Emanuel (${ROUTE_WHATSAPP_TEST_PHONE})`);
+    const okEmanuel = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_TEST_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okEmanuel) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_TEST_PHONE, adminSummaryMsg);
+    }
+    console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) de ${info.sellerName} a Sergio Lima (${ROUTE_WHATSAPP_SERGIO_PHONE})`);
+    const okSergio = await dispatchRouteToN8nWebhook({
+      action: actionType,
+      isAutoClosed,
+      sellerName: info.sellerName,
+      sellerCode: info.sellerCode,
+      startedAt: info.startedAtIso,
+      finishedAt: finishedAtIso,
+      phone: ROUTE_WHATSAPP_SERGIO_PHONE,
+      visits: info.routeVisits,
+      customMessage: adminSummaryMsg
+    });
+    if (!okSergio) {
+      await sendWhatsAppEvolutionMessage(ROUTE_WHATSAPP_SERGIO_PHONE, adminSummaryMsg);
+    }
+    let cleanSellerPhone = String(info.sellerPhone || "").replace(/\D/g, "");
+    if (cleanSellerPhone.length === 8) cleanSellerPhone = "502" + cleanSellerPhone;
+    if (cleanSellerPhone && cleanSellerPhone !== ROUTE_WHATSAPP_TEST_PHONE && cleanSellerPhone !== ROUTE_WHATSAPP_SERGIO_PHONE) {
+      console.log(`[WhatsApp Auto/Finish Route] Enviando resumen (${actionType}) al asesor ${info.sellerName} (${cleanSellerPhone})`);
+      const okSeller = await dispatchRouteToN8nWebhook({
+        action: actionType,
+        isAutoClosed,
+        sellerName: info.sellerName,
+        sellerCode: info.sellerCode,
+        startedAt: info.startedAtIso,
+        finishedAt: finishedAtIso,
+        phone: cleanSellerPhone,
+        visits: info.routeVisits,
+        customMessage: sellerSummaryMsg
+      });
+      if (!okSeller) {
+        await sendWhatsAppEvolutionMessage(cleanSellerPhone, sellerSummaryMsg);
+      }
+    }
+  }
+  return { success: true, adminSummaryMsg, sellerSummaryMsg };
+}
+async function checkActiveRoutesForRemindersAndAutoClosure() {
+  try {
+    const now = /* @__PURE__ */ new Date();
+    const gtOffset = -6 * 60;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 6e4;
+    const gtNow = new Date(utcMs + gtOffset * 6e4);
+    const year = gtNow.getFullYear();
+    const month = String(gtNow.getMonth() + 1).padStart(2, "0");
+    const day = String(gtNow.getDate()).padStart(2, "0");
+    const hour = gtNow.getHours();
+    const minute = gtNow.getMinutes();
+    const todayDateStr = `${year}-${month}-${day}`;
+    const activeMap = /* @__PURE__ */ new Map();
+    if (neonPool) {
+      try {
+        const dbRes = await neonPool.query(`
+          SELECT * FROM public.seller_routes
+          WHERE status = 'active'
+          ORDER BY COALESCE(started_at, created_at) DESC;
+        `);
+        for (const row of dbRes.rows || []) {
+          if (row && row.id) {
+            activeMap.set(String(row.id), {
+              id: row.id,
+              sellerId: row.seller_id || row.sellerId,
+              sellerName: row.seller_name || row.sellerName,
+              sellerEmail: row.seller_email || row.sellerEmail,
+              status: row.status,
+              startedAt: row.started_at ? row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at) : row.startedAt,
+              startLatitude: row.start_latitude ?? row.startLatitude,
+              startLongitude: row.start_longitude ?? row.startLongitude,
+              totalStops: row.total_stops ?? row.totalStops ?? 0,
+              notes: row.notes || "",
+              createdAt: row.created_at ? row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at) : row.createdAt
+            });
+          }
+        }
+      } catch (e) {
+      }
+    }
+    const localRoutes = readLocalRoutes();
+    for (const r of localRoutes) {
+      if (r && r.status === "active" && r.id && !activeMap.has(String(r.id))) {
+        activeMap.set(String(r.id), r);
+      }
+    }
+    if (activeMap.size === 0) return;
+    for (const route of activeMap.values()) {
+      const routeDateStr = getGuatemalaDateString(route.startedAt || route.createdAt);
+      if (routeDateStr < todayDateStr) {
+        if (!dispatchedAutoClosedRouteIds.has(String(route.id))) {
+          console.log(`[AUTO-ROUTE-CRON] \u{1F3C1} Cerrando autom\xE1ticamente ruta rezagada de ${route.sellerName} (${route.id}) de fecha ${routeDateStr}`);
+          await closeActiveRouteAndNotify(route, {
+            isAutoClosed: true,
+            finishedAtIso: getGuatemala10PmIsoForDate(routeDateStr),
+            skipWhatsApp: true
+            // No enviar a las 6 o 7 AM del día siguiente resumen de días pasados
+          });
+        }
+        continue;
+      }
+      if (routeDateStr === todayDateStr) {
+        const routeEmailCheck = String(route.sellerEmail || route.seller_email || "").trim().toLowerCase();
+        const isExcludedFromAlerts = isRouteNotificationExcluded(routeEmailCheck);
+        if (hour === 19 && minute >= 0 && minute <= 14) {
+          const remKey = `${route.id}_${todayDateStr}_19:00`;
+          if (!dispatchedRouteReminderKeys.has(remKey)) {
+            dispatchedRouteReminderKeys.add(remKey);
+            console.log(`[AUTO-ROUTE-CRON] \u23F0 Enviando recordatorio de 7:00 PM a ${route.sellerName} (${route.id})`);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
+          }
+        }
+        if (hour === 20 && minute >= 30 && minute <= 44) {
+          const remKey = `${route.id}_${todayDateStr}_20:30`;
+          if (!dispatchedRouteReminderKeys.has(remKey)) {
+            dispatchedRouteReminderKeys.add(remKey);
+            console.log(`[AUTO-ROUTE-CRON] \u23F0 Enviando recordatorio de 8:30 PM a ${route.sellerName} (${route.id})`);
+            if (!isExcludedFromAlerts) await sendRouteClosureReminderToSeller(route);
+          }
+        }
+        if (hour >= 22) {
+          if (!dispatchedAutoClosedRouteIds.has(String(route.id))) {
+            console.log(`[AUTO-ROUTE-CRON] \u{1F559} 10:00 PM alcanzado. Cerrando autom\xE1ticamente la ruta activa de ${route.sellerName} (${route.id}) y enviando resumen.`);
+            await closeActiveRouteAndNotify(route, {
+              isAutoClosed: true,
+              finishedAtIso: getGuatemala10PmIsoForDate(todayDateStr),
+              skipWhatsApp: isExcludedFromAlerts
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[AUTO-ROUTE-CRON] Error en revisi\xF3n de rutas activas:", err?.message || err);
+  }
+}
+function initAutoRouteClosureCron() {
+  console.log("[AUTO-ROUTE-CRON] \u23F0 Programador activo: Recordatorios de cierre (7:00 PM / 8:30 PM) y Cierre Autom\xE1tico de Ruta a las 10:00 PM (Guatemala).");
+  setInterval(() => {
+    checkActiveRoutesForRemindersAndAutoClosure().catch(() => {
+    });
+  }, 45e3);
+}
 app.get("/api/visits/stats", requireAuth, asyncHandler(async (req, res) => {
   const userRole = req.user?.role;
   const userId = req.user?.id ? String(req.user.id).trim() : "";
@@ -5731,6 +7022,13 @@ app.get("/api/visits/stats", requireAuth, asyncHandler(async (req, res) => {
     recentVisits
   });
 }));
+function isSystemRecord(u) {
+  if (!u) return false;
+  const id = String(u.id || "").toLowerCase();
+  const role = String(u.role || "").toLowerCase();
+  const email = String(u.email || "").toLowerCase();
+  return role === "system" || id.startsWith("sys-") || id.startsWith("system-") || id.startsWith("bot-") || email.endsWith("@bot.local") || email.startsWith("system-");
+}
 app.post("/api/auth/login", asyncHandler(async (req, res) => {
   const { email: identifierInput, password: tokenProvidedInput } = req.body;
   const identifier = (identifierInput || "").trim();
@@ -5818,6 +7116,9 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
       );
     }
   }
+  if (foundUser && isSystemRecord(foundUser)) {
+    foundUser = null;
+  }
   if (!foundUser) {
     return res.status(401).json({ error: "Usuario o C\xF3digo de Vendedor no encontrado en el sistema." });
   }
@@ -5867,7 +7168,7 @@ app.post("/api/auth/login", asyncHandler(async (req, res) => {
   if (!isMatch) {
     return res.status(401).json({ error: "Token de acceso inv\xE1lido, expirado o ya utilizado. Solicita un nuevo token a tu Administrador." });
   }
-  const token = import_jsonwebtoken.default.sign({ id: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: "180d" });
+  const token = import_jsonwebtoken.default.sign({ id: foundUser.id, email: foundUser.email, role: foundUser.role }, JWT_SECRET, { expiresIn: "180d" });
   const userToReturn = { ...foundUser };
   delete userToReturn.password;
   res.json({ user: userToReturn, token });
@@ -5876,7 +7177,7 @@ app.post("/api/admin/generate-token", requireAuth, requireAdmin, asyncHandler(as
   const { userId, expiryHours } = req.body;
   if (!userId) return res.status(400).json({ error: "userId is required" });
   const hours = parseInt(expiryHours) || 24;
-  const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const token = import_crypto.default.randomBytes(3).toString("hex").toUpperCase();
   const id = `lt_${Date.now()}`;
   const expiresAt = /* @__PURE__ */ new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
@@ -5908,6 +7209,7 @@ app.get("/api/auth/me", asyncHandler(async (req, res) => {
   const token = authHeader.split(" ")[1];
   try {
     const payload = import_jsonwebtoken.default.verify(token, JWT_SECRET);
+    const iat = payload.iat ? payload.iat * 1e3 : 0;
     let user = null;
     try {
       const { data: users } = await localDb.from("users").select("*").eq("id", payload.id);
@@ -5920,7 +7222,10 @@ app.get("/api/auth/me", asyncHandler(async (req, res) => {
     if (!user) {
       user = initialDb.users.find((u) => u.id === payload.id);
     }
-    if (!user) return res.status(401).json({ error: "User not found" });
+    if (!user || isSystemRecord(user)) return res.status(401).json({ error: "User not found" });
+    if (user.force_logout_at && new Date(user.force_logout_at).getTime() > iat) {
+      return res.status(401).json({ error: "Tu sesi\xF3n ha sido cerrada por el administrador. Por favor, inicia sesi\xF3n de nuevo." });
+    }
     const userToReturn = { ...user };
     delete userToReturn.password;
     res.json({ user: userToReturn });
@@ -6026,7 +7331,7 @@ function getDiaGuatemala(dateInput) {
   return `${year}-${month}-${day}`;
 }
 async function checkAndDispatchDailySales(options) {
-  const SALES_THRESHOLD = Number(options?.threshold) || 8750;
+  const SALES_THRESHOLD = Number(options?.threshold) || 8350;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
   const sendToWebhook = options?.sendToWebhook !== false;
   const now = /* @__PURE__ */ new Date();
@@ -6044,6 +7349,10 @@ async function checkAndDispatchDailySales(options) {
   const esCierre = corte === "17:00" || hour >= 16;
   const corteKey = `${todayLabel}_${corte}`;
   if (options?.isAutomatedCron) {
+    if (gtNow.getDay() === 0) {
+      console.log(`[AUTO-SALES-CRON] ?? Domingo detectado (${todayLabel}). Omitiendo despacho autom?tico.`);
+      return { success: true, skipped: true, message: "Domingo: no se env?an reportes autom?ticos." };
+    }
     const lockAcquired = await acquireCorteDispatchLock(corteKey);
     if (!lockAcquired) {
       console.log(`[AUTO-SALES-CRON] \u{1F6D1} El corte ${corteKey} YA FUE ENVIADO previamente hoy. Omitiendo despacho para evitar duplicados.`);
@@ -6118,8 +7427,8 @@ async function checkAndDispatchDailySales(options) {
       const email = (u.email || "").toLowerCase().trim();
       const name = (u.name || "").toLowerCase().trim();
       const role = (u.role || "").toLowerCase();
-      if (email.includes("susana") || name.includes("susana")) return false;
-      return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com" || role === "seller" || role === "admin";
+      if (email.includes("susana") || name.includes("susana") || email.includes("agroveterinaria.com") || email.includes("gmsil.com") || /don carlos|marcos g|prueba|test/i.test(name)) return false;
+      return email === "seseffff942@gmail.com" || email === "jerickottoniel@gmail.com" || email === "gruasytransportesali@gmail.com" || email === "limalopez22@gmail.com";
     });
   }
   const uniqueTargetUsers = [];
@@ -6133,24 +7442,18 @@ async function checkAndDispatchDailySales(options) {
   });
   const results = [];
   const allReports = [];
+  const userStatsList = [];
   for (const seller of uniqueTargetUsers) {
     const sellerEmail = (seller.email || "").toLowerCase();
     const sellerIdKeys = [
       sellerEmail,
-      seller.id ? seller.id.toLowerCase() : null,
+      seller.id ? String(seller.id).toLowerCase() : null,
       seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
-      seller.name ? seller.name.toLowerCase() : null
+      seller.name ? String(seller.name).toLowerCase() : null
     ].filter(Boolean);
     const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
     const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
     const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
-    const destinatarios = [{
-      nombreDestinatario: sellerDisplayName,
-      telefono: sellerPhoneClean,
-      numero: sellerPhoneClean,
-      email: seller.email,
-      rol: seller.role || "seller"
-    }].filter((d) => Boolean(d.telefono));
     let cantidadVendida = 0;
     let cantidadFacturas = 0;
     const ventas = [];
@@ -6192,36 +7495,211 @@ async function checkAndDispatchDailySales(options) {
     cantidadVendida = Math.round(cantidadVendida * 100) / 100;
     const cantidadFaltante = Math.max(0, Math.round((SALES_THRESHOLD - cantidadVendida) * 100) / 100);
     const alcanzoMeta = cantidadVendida >= SALES_THRESHOLD;
-    const payload = {
-      fecha: todayLabel,
-      corte,
-      tipoCorte: esCierre ? "cierre" : "mediodia",
-      tipoReporte: esCierre ? "cierre" : "mediodia",
-      tipo: esCierre ? "cierre" : "mediodia",
-      esCierre,
-      hora: corte,
-      horaCorte: corte,
-      corteHora: corte,
-      titulo: esCierre ? `Cierre del D\xEDa (5:00 PM) - ${sellerDisplayName}` : `Corte de Mediod\xEDa (12:00 PM) - ${sellerDisplayName}`,
-      vendedor: sellerDisplayName,
-      nombreDestinatario: sellerDisplayName,
-      email: seller.email,
-      numero: sellerPhoneClean,
-      telefono: sellerPhoneClean,
+    const superavit = Math.max(0, Math.round((cantidadVendida - SALES_THRESHOLD) * 100) / 100);
+    userStatsList.push({
+      seller,
+      sellerEmail,
+      sellerDisplayName,
+      sellerPhoneClean,
       cantidadVendida,
+      cantidadFacturas,
       cantidadFaltante,
       alcanzoMeta,
-      umbral: SALES_THRESHOLD,
-      cantidadFacturas,
-      mensaje: alcanzoMeta ? `\xA1Felicidades ${sellerDisplayName}! Has alcanzado la meta de ventas de hoy con un total de Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} en ${cantidadFacturas} factura(s).` : `Hola ${sellerDisplayName}, corte de las ${corte === "17:00" ? "5:00 PM" : "12:00 PM"}: has vendido Q${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })} hoy (${cantidadFacturas} factura(s)). Te faltan Q${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })} para llegar a la meta de Q${SALES_THRESHOLD.toLocaleString("es-GT")}.`,
-      destinatarios,
-      ventas,
-      logoBase64: getLogoTiBase64()
-    };
+      superavit,
+      ventas
+    });
+  }
+  const isSingleSpecificSeller = Boolean(options?.targetSellerEmail);
+  const payloadsToDispatch = [];
+  if (isSingleSpecificSeller) {
+    for (const stat of userStatsList) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+  } else {
+    const fieldSellers = userStatsList.filter(
+      (s) => s.sellerEmail === "gruasytransportesali@gmail.com" || s.sellerEmail === "jerickottoniel@gmail.com"
+    );
+    for (const stat of fieldSellers) {
+      if (!stat.sellerPhoneClean || !/^502\d{8}$/.test(stat.sellerPhoneClean) || stat.sellerPhoneClean === "50255551234") {
+        continue;
+      }
+      payloadsToDispatch.push({
+        recipientName: stat.sellerDisplayName,
+        recipientEmail: stat.sellerEmail,
+        recipientPhone: stat.sellerPhoneClean,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          titulo: esCierre ? `Cierre del D?a (5:00 PM) - ${stat.sellerDisplayName}` : `Corte de Mediod?a (12:00 PM) - ${stat.sellerDisplayName}`,
+          vendedor: stat.sellerDisplayName,
+          nombreDestinatario: stat.sellerDisplayName,
+          email: stat.sellerEmail,
+          numero: stat.sellerPhoneClean,
+          telefono: stat.sellerPhoneClean,
+          cantidadVendida: stat.cantidadVendida,
+          cantidadFaltante: stat.cantidadFaltante,
+          alcanzoMeta: stat.alcanzoMeta,
+          umbral: SALES_THRESHOLD,
+          cantidadFacturas: stat.cantidadFacturas,
+          destinatarios: [{
+            nombreDestinatario: stat.sellerDisplayName,
+            telefono: stat.sellerPhoneClean,
+            numero: stat.sellerPhoneClean,
+            email: stat.sellerEmail,
+            rol: stat.seller.role || "seller"
+          }],
+          ventas: stat.ventas,
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+    const herbertData = userStatsList.find((s) => s.sellerEmail === "gruasytransportesali@gmail.com");
+    const erickData = userStatsList.find((s) => s.sellerEmail === "jerickottoniel@gmail.com");
+    const emanuelData = userStatsList.find((s) => s.sellerEmail === "seseffff942@gmail.com");
+    const herbertMonto = herbertData?.cantidadVendida || 0;
+    const herbertFacturas = herbertData?.cantidadFacturas || 0;
+    const herbertMeta = herbertMonto >= SALES_THRESHOLD;
+    const herbertDiff = herbertMeta ? herbertMonto - SALES_THRESHOLD : SALES_THRESHOLD - herbertMonto;
+    const erickMonto = erickData?.cantidadVendida || 0;
+    const erickFacturas = erickData?.cantidadFacturas || 0;
+    const erickMeta = erickMonto >= SALES_THRESHOLD;
+    const erickDiff = erickMeta ? erickMonto - SALES_THRESHOLD : SALES_THRESHOLD - erickMonto;
+    const emanuelMonto = emanuelData?.cantidadVendida || 0;
+    const emanuelFacturas = emanuelData?.cantidadFacturas || 0;
+    const emanuelVendio = emanuelMonto > 0;
+    const total2Vendedores = Math.round((herbertMonto + erickMonto) * 100) / 100;
+    const facturas2Vendedores = herbertFacturas + erickFacturas;
+    const totalGeneral = Math.round((total2Vendedores + (emanuelVendio ? emanuelMonto : 0)) * 100) / 100;
+    const totalFacturasGeneral = facturas2Vendedores + (emanuelVendio ? emanuelFacturas : 0);
+    const adminRecipients = [
+      { name: "Emanuel Lima", email: "seseffff942@gmail.com", phone: "50248234048" },
+      { name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50250007840" }
+    ];
+    for (const adm of adminRecipients) {
+      const horaTexto = corte === "17:00" ? "5:00 PM" : "12:00 PM";
+      const tituloHorario = corte === "17:00" ? "CIERRE DEL D\xCDA (5:00 PM)" : "CORTE DE MEDIOD\xCDA (12:00 PM)";
+      let textoConsolidado = `\u{1F4CA} *RESUMEN CONSOLIDADO DE VENTAS - ${tituloHorario}* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas del d\xEDa (*${todayLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Facturas Totales Hoy:* ${totalFacturasGeneral} factura(s)
+\u{1F3AF} *Meta Diaria por Asesor:* Q. ${SALES_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F465} *DETALLE POR ASESOR:*
+
+1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
+  \u25AB\uFE0F Total Vendido: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))
+  \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
+
+2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor):
+  \u25AB\uFE0F Total Vendido: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))
+  \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u26A0\uFE0F *Bajo Meta* (-Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})`}
+`;
+      if (emanuelVendio) {
+        textoConsolidado += `
+\u2B50 *Emanuel Lima (Ventas Propias):*
+  \u25AB\uFE0F Total Vendido: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))
+  \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas hoy en sistema
+`;
+      }
+      textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
+      payloadsToDispatch.push({
+        recipientName: adm.name,
+        recipientEmail: adm.email,
+        recipientPhone: adm.phone,
+        payload: {
+          fecha: todayLabel,
+          corte,
+          tipoCorte: esCierre ? "cierre" : "mediodia",
+          tipoReporte: esCierre ? "cierre" : "mediodia",
+          tipo: esCierre ? "cierre" : "mediodia",
+          esCierre,
+          hora: corte,
+          horaCorte: corte,
+          corteHora: corte,
+          esConsolidado: true,
+          titulo: `Resumen Consolidado (${horaTexto}) - ${adm.name}`,
+          vendedor: adm.name,
+          nombreDestinatario: adm.name,
+          email: adm.email,
+          numero: adm.phone,
+          telefono: adm.phone,
+          cantidadVendida: totalGeneral,
+          cantidadFaltante: 0,
+          alcanzoMeta: true,
+          umbral: SALES_THRESHOLD * 2,
+          cantidadFacturas: totalFacturasGeneral,
+          mensaje: textoConsolidado,
+          textoWhatsApp: textoConsolidado,
+          caption: textoConsolidado,
+          destinatarios: [{
+            nombreDestinatario: adm.name,
+            telefono: adm.phone,
+            numero: adm.phone,
+            email: adm.email,
+            rol: "admin"
+          }],
+          ventas: [],
+          logoBase64: getLogoTiBase64()
+        }
+      });
+    }
+  }
+  for (let i = 0; i < payloadsToDispatch.length; i++) {
+    const item = payloadsToDispatch[i];
+    const { recipientName, recipientEmail, recipientPhone, payload } = item;
     allReports.push(payload);
     let webhookResult = null;
     if (sendToWebhook) {
-      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (${corte}): ${N8N_WEBHOOK_URL}`);
+      console.log(`[AUTO-SALES-CRON] Enviando POST a n8n para ${recipientName} (${corte}) [${recipientPhone}]: ${N8N_WEBHOOK_URL}`);
       try {
         const webhookRes = await fetch(N8N_WEBHOOK_URL, {
           method: "POST",
@@ -6230,23 +7708,22 @@ async function checkAndDispatchDailySales(options) {
         });
         const resText = await webhookRes.text().catch(() => "");
         webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[AUTO-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+        console.log(`[AUTO-SALES-CRON] Respuesta n8n (${recipientName}): HTTP ${webhookRes.status} - ${resText}`);
       } catch (err) {
         webhookResult = { error: err.message, ok: false };
-        console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+        console.error(`[AUTO-SALES-CRON] Error al enviar webhook para ${recipientName}:`, err.message);
       }
-      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
-      if (!isLastSeller) {
-        console.log(`[AUTO-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+      if (i < payloadsToDispatch.length - 1) {
+        console.log(`[AUTO-SALES-CRON] ? Esperando 60 segundos (1 minuto) antes de enviar al siguiente destinatario para proteger el n?mero...`);
         await new Promise((resolve) => setTimeout(resolve, 6e4));
       }
     }
     results.push({
-      vendedor: sellerDisplayName,
-      email: seller.email,
-      telefono: sellerPhoneClean,
-      cantidadVendida,
-      cantidadFacturas,
+      vendedor: recipientName,
+      email: recipientEmail,
+      telefono: recipientPhone,
+      cantidadVendida: payload.cantidadVendida,
+      cantidadFacturas: payload.cantidadFacturas,
       webhookResult,
       payload
     });
@@ -6262,7 +7739,7 @@ async function checkAndDispatchDailySales(options) {
   };
 }
 async function checkAndDispatchWeeklySales(options) {
-  const WEEKLY_THRESHOLD = Number(options?.threshold) || 52500;
+  const WEEKLY_THRESHOLD = Number(options?.threshold) || 5e4;
   const N8N_WEBHOOK_URL = options?.webhookUrl || process.env.N8N_WEBHOOK_URL || "http://185.166.39.49:5678/webhook/ventas-reporte";
   const sendToWebhook = options?.sendToWebhook !== false;
   const now = /* @__PURE__ */ new Date();
@@ -6285,6 +7762,10 @@ async function checkAndDispatchWeeklySales(options) {
   const periodoLabel = `${mDay}/${mMonth}/${mYear} al ${day}/${month}/${year}`;
   const corteKey = `${todayLabel}_semanal`;
   if (options?.isAutomatedCron) {
+    if (gtNow.getDay() !== 6) {
+      console.log(`[AUTO-WEEKLY-SALES-CRON] ?? D?a no v?lido para cierre semanal autom?tico (${todayLabel}, d?a=${gtNow.getDay()}). Omitiendo.`);
+      return { success: true, skipped: true, message: "El cierre semanal autom?tico solo se env?a los s?bados." };
+    }
     const lockAcquired = await acquireCorteDispatchLock(corteKey);
     if (!lockAcquired) {
       console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F6D1} El corte semanal ${corteKey} YA FUE ENVIADO previamente. Omitiendo despacho para evitar duplicados.`);
@@ -6322,49 +7803,55 @@ async function checkAndDispatchWeeklySales(options) {
   }
   const { data: allUsers } = await localDb.from("users").select("id, name, email, role, phone, sellerCode");
   const targetSellerEmailsList = options?.targetSellerEmails && options.targetSellerEmails.length > 0 ? options.targetSellerEmails.map((e) => e.toLowerCase()) : options?.targetSellerEmail ? [options.targetSellerEmail.toLowerCase()] : null;
-  const activeSellers = (allUsers || []).filter((u) => {
+  const adminEmails = ["seseffff942@gmail.com", "limalopez22@gmail.com"];
+  const adminRecipients = [
+    { name: "Emanuel Lima", email: "seseffff942@gmail.com", phone: "50248234048" },
+    { name: "Sergio Lima", email: "limalopez22@gmail.com", phone: "50250007840" }
+  ];
+  const fieldSellers = (allUsers || []).filter((u) => {
     if (!u) return false;
     const email = (u.email || "").toLowerCase();
     const name = (u.name || "").trim();
     if (email === "susyherrera2014@gmail.com" || name === "Susana" || name === "Susana Herrera" || name === "Susy") {
       return false;
     }
-    if (targetSellerEmailsList) {
-      return targetSellerEmailsList.includes(email);
+    if (adminEmails.includes(email)) {
+      return false;
     }
-    return u.role === "seller" || email === "gruasytransportesali@gmail.com" || email === "erickjuarez02@gmail.com" || email === "seseffff942@gmail.com";
+    return u.role === "seller" || email === "gruasytransportesali@gmail.com" || email === "erickjuarez02@gmail.com" || email === "jerickottoniel@gmail.com";
   });
-  const uniqueTargetUsers = activeSellers.filter(
+  const defaultFieldSellers = [
+    { name: "Herbert Argueta", email: "gruasytransportesali@gmail.com", sellerCode: "1521", phone: "50241323037", role: "seller" },
+    { name: "Erick Ju\xE1rez", email: "jerickottoniel@gmail.com", sellerCode: "8363", phone: "50254743595", role: "seller" }
+  ];
+  for (const def of defaultFieldSellers) {
+    const existing = fieldSellers.find((u) => (u.email || "").toLowerCase() === def.email.toLowerCase());
+    if (!existing) {
+      fieldSellers.push(def);
+    } else {
+      if (!existing.phone) existing.phone = def.phone;
+      if (!existing.sellerCode) existing.sellerCode = def.sellerCode;
+    }
+  }
+  const uniqueFieldSellers = fieldSellers.filter(
     (u, idx, arr) => arr.findIndex((x) => (x.email || "").toLowerCase() === (u.email || "").toLowerCase()) === idx
   );
-  console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F4CA} Procesando corte semanal (${periodoLabel}) para ${uniqueTargetUsers.length} vendedores.`);
-  const allReports = [];
-  const results = [];
-  for (const seller of uniqueTargetUsers) {
-    const sellerEmail = (seller.email || "").toLowerCase();
-    const sellerIdKeys = [
-      seller.id ? String(seller.id).toLowerCase() : null,
-      sellerEmail,
-      seller.sellerCode ? String(seller.sellerCode).toLowerCase() : null,
-      seller.name ? seller.name.toLowerCase() : null
+  console.log(`[AUTO-WEEKLY-SALES-CRON] \u{1F4CA} Procesando corte semanal (${periodoLabel}) para ${uniqueFieldSellers.length} asesores de campo y administradores.`);
+  function computeWeeklyStatsForUser(u) {
+    const email = (u.email || "").toLowerCase();
+    const idKeys = [
+      u.id ? String(u.id).toLowerCase() : null,
+      email,
+      u.sellerCode ? String(u.sellerCode).toLowerCase() : null,
+      u.name ? String(u.name).toLowerCase() : null
     ].filter(Boolean);
-    const sellerDisplayName = seller.name || sellerEmail.split("@")[0];
-    const rawSellerPhone = seller.phone || (sellerEmail === "seseffff942@gmail.com" ? process.env.TARGET_SELLER_PHONE || "50248234048" : "");
-    const sellerPhoneClean = formatTelefonoDestinatario(rawSellerPhone);
-    const destinatarios = [{
-      nombreDestinatario: sellerDisplayName,
-      telefono: sellerPhoneClean,
-      numero: sellerPhoneClean,
-      email: seller.email,
-      rol: seller.role || "seller"
-    }].filter((d) => Boolean(d.telefono));
     let cantidadVendida = 0;
     let cantidadFacturas = 0;
     const ventas = [];
     for (const inv of invoicesData || []) {
       if (!inv || inv.status === "cancelled" || inv.status === "rejected") continue;
       const sId = (inv.sellerId || "").toLowerCase();
-      if (sellerIdKeys.includes(sId) || sId === sellerEmail || inv.sellerId && seller.id && String(inv.sellerId).toLowerCase() === String(seller.id).toLowerCase()) {
+      if (idKeys.includes(sId) || sId === email || inv.sellerId && u.id && String(inv.sellerId).toLowerCase() === String(u.id).toLowerCase()) {
         const amount = Number(inv.totalAmount) || 0;
         cantidadVendida += amount;
         cantidadFacturas += 1;
@@ -6386,89 +7873,255 @@ async function checkAndDispatchWeeklySales(options) {
     const alcanzoMeta = cantidadVendida >= WEEKLY_THRESHOLD;
     const superavit = Math.max(0, Math.round((cantidadVendida - WEEKLY_THRESHOLD) * 100) / 100);
     const porcentajeCumplimiento = WEEKLY_THRESHOLD > 0 ? (cantidadVendida / WEEKLY_THRESHOLD * 100).toFixed(1) : "100.0";
-    const codigoAsesor = seller.sellerCode || (sellerDisplayName === "Herbert Argueta" ? "1521" : "");
+    const codigoAsesor = u.sellerCode || (u.name === "Herbert Argueta" ? "1521" : email === "jerickottoniel@gmail.com" ? "8363" : "");
     let detalleVentas = "";
     if (ventas.length > 0) {
       detalleVentas = ventas.map((v) => {
         const fol = v.folio ? `#${v.folio}` : "S/F";
-        let fStr = "";
-        if (v.fecha) {
-          fStr = ` (${v.fecha.slice(8, 10)}/${v.fecha.slice(5, 7)})`;
-        }
+        let fStr = v.fecha ? ` (${v.fecha.slice(8, 10)}/${v.fecha.slice(5, 7)})` : "";
         const montoStr = Number(v.monto || 0).toLocaleString("es-GT", { minimumFractionDigits: 2 });
         return `\u25AB\uFE0F *${fol}*${fStr}: Q${montoStr} - ${v.cliente}`;
       }).join("\n");
     }
-    const formattedWhatsAppMessage = alcanzoMeta ? `\u{1F3C6} *CIERRE SEMANAL DE VENTAS - S\xC1BADO 5:00 PM* \u{1F3C1}
+    return {
+      user: u,
+      email,
+      name: u.name || email.split("@")[0],
+      phone: formatTelefonoDestinatario(u.phone),
+      cantidadVendida,
+      cantidadFacturas,
+      cantidadFaltante,
+      alcanzoMeta,
+      superavit,
+      porcentajeCumplimiento,
+      codigoAsesor,
+      ventas,
+      detalleVentas
+    };
+  }
+  const sellerStats = uniqueFieldSellers.map((s) => computeWeeklyStatsForUser(s));
+  const herbertStat = sellerStats.find((s) => s.email === "gruasytransportesali@gmail.com") || computeWeeklyStatsForUser({ name: "Herbert Argueta", email: "gruasytransportesali@gmail.com", sellerCode: "1521", phone: "50241323037" });
+  const erickStat = sellerStats.find((s) => s.email === "jerickottoniel@gmail.com" || s.email === "erickjuarez02@gmail.com") || computeWeeklyStatsForUser({ name: "Erick Ju\xE1rez", email: "jerickottoniel@gmail.com", sellerCode: "8363", phone: "50254743595" });
+  const emanuelStat = computeWeeklyStatsForUser({ name: "Emanuel Lima", email: "seseffff942@gmail.com", phone: "50248234048" });
+  const emanuelVendio = emanuelStat.cantidadVendida > 0;
+  const herbertMonto = herbertStat.cantidadVendida;
+  const herbertFacturas = herbertStat.cantidadFacturas;
+  const herbertMeta = herbertStat.alcanzoMeta;
+  const herbertDiff = herbertMeta ? herbertStat.superavit : herbertStat.cantidadFaltante;
+  const herbertPct = herbertStat.porcentajeCumplimiento;
+  const erickMonto = erickStat.cantidadVendida;
+  const erickFacturas = erickStat.cantidadFacturas;
+  const erickMeta = erickStat.alcanzoMeta;
+  const erickDiff = erickMeta ? erickStat.superavit : erickStat.cantidadFaltante;
+  const erickPct = erickStat.porcentajeCumplimiento;
+  const emanuelMonto = emanuelStat.cantidadVendida;
+  const emanuelFacturas = emanuelStat.cantidadFacturas;
+  const total2Vendedores = Math.round((herbertMonto + erickMonto) * 100) / 100;
+  const facturas2Vendedores = herbertFacturas + erickFacturas;
+  const totalGeneral = Math.round((total2Vendedores + (emanuelVendio ? emanuelMonto : 0)) * 100) / 100;
+  const totalFacturasGeneral = facturas2Vendedores + (emanuelVendio ? emanuelFacturas : 0);
+  const metaSemanalEquipo = WEEKLY_THRESHOLD * 2;
+  const faltanteEquipo = Math.max(0, Math.round((metaSemanalEquipo - totalGeneral) * 100) / 100);
+  const superavitEquipo = Math.max(0, Math.round((totalGeneral - metaSemanalEquipo) * 100) / 100);
+  const alcanzoMetaEquipo = totalGeneral >= metaSemanalEquipo;
+  const porcentajeEquipo = metaSemanalEquipo > 0 ? (totalGeneral / metaSemanalEquipo * 100).toFixed(1) : "100.0";
+  const payloadsToDispatch = [];
+  for (const stat of sellerStats) {
+    if (targetSellerEmailsList && !targetSellerEmailsList.includes(stat.email)) {
+      continue;
+    }
+    const cleanPhone = stat.phone;
+    if (!cleanPhone) continue;
+    const formattedIndividualMsg = stat.alcanzoMeta ? `\u{1F3C6} *CIERRE SEMANAL DE VENTAS - S\xC1BADO 5:00 PM* \u{1F3C1}
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-Estimado(a) *${sellerDisplayName}*, \xA1excelente trabajo! Has culminado la semana cumpliendo exitosamente tu objetivo comercial:
+Estimado(a) *${stat.name}*, \xA1excelente trabajo! Has culminado la semana cumpliendo exitosamente tu objetivo comercial:
 
 \u{1F4C5} *Semana:* ${periodoLabel}
-\u{1F4BC} *C\xF3digo Asesor:* #${codigoAsesor}
-\u{1F4C4} *Facturas Emitidas:* ${cantidadFacturas} facturas
+\u{1F4BC} *C\xF3digo Asesor:* #${stat.codigoAsesor}
+\u{1F4C4} *Facturas Emitidas:* ${stat.cantidadFacturas} facturas
 
 \u{1F4CA} *RESUMEN FINANCIERO:*
-\u{1F4B0} *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4B0} *Total Vendido Semana:* Q. ${stat.cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
 \u{1F3AF} *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4C8} *Super\xE1vit Logrado:* Q. ${superavit.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F525} *Cumplimiento Semanal:* ${porcentajeCumplimiento}%
+\u{1F4C8} *Super\xE1vit Logrado:* Q. ${stat.superavit.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F525} *Cumplimiento Semanal:* ${stat.porcentajeCumplimiento}%
 
 \u2B50 *\xA1Felicitaciones por tu entrega y constancia esta semana! A descansar y recargar energ\xEDas para arrancar con fuerza el lunes.* \u{1F680}
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_` : `\u{1F4CA} *CIERRE SEMANAL DE VENTAS - S\xC1BADO 5:00 PM* \u{1F3C1}
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-Estimado(a) *${sellerDisplayName}*, te compartimos el informe consolidado de tu cierre semanal de ventas:
+Estimado(a) *${stat.name}*, te compartimos el informe consolidado de tu cierre semanal de ventas:
 
 \u{1F4C5} *Semana:* ${periodoLabel}
-\u{1F4BC} *C\xF3digo Asesor:* #${codigoAsesor}
-\u{1F4C4} *Facturas Emitidas:* ${cantidadFacturas} facturas
+\u{1F4BC} *C\xF3digo Asesor:* #${stat.codigoAsesor}
+\u{1F4C4} *Facturas Emitidas:* ${stat.cantidadFacturas} facturas
 
 \u{1F4CA} *RESUMEN FINANCIERO:*
-\u{1F4B0} *Total Vendido Semana:* Q. ${cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4B0} *Total Vendido Semana:* Q. ${stat.cantidadVendida.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
 \u{1F3AF} *Meta Semanal Asignada:* Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4C9} *Faltante para la Meta:* Q. ${cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4C8} *Cumplimiento Semanal:* ${porcentajeCumplimiento}%
+\u{1F4C9} *Faltante para la Meta:* Q. ${stat.cantidadFaltante.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C8} *Cumplimiento Semanal:* ${stat.porcentajeCumplimiento}%
 
-${detalleVentas ? "\u{1F4CB} *DETALLE DE VENTAS DE LA SEMANA:*\n" + detalleVentas + "\n\n" : ""}\u{1F4AA} *\xA1Buen esfuerzo durante estos d\xEDas! Analicemos oportunidades con nuestros clientes para que la pr\xF3xima semana alcancemos la meta completa.* \u{1F3AF}
+${stat.detalleVentas ? "\u{1F4CB} *DETALLE DE VENTAS DE LA SEMANA:*\n" + stat.detalleVentas + "\n\n" : ""}\u{1F4AA} *\xA1Buen esfuerzo durante estos d\xEDas! Analicemos oportunidades con nuestros clientes para que la pr\xF3xima semana alcancemos la meta completa.* \u{1F3AF}
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
-    const payload = {
-      fecha: todayLabel,
-      corte: "semanal",
-      tipoCorte: "semanal",
-      tipoReporte: "semanal",
-      tipo: "semanal",
-      esSemanal: true,
-      hora: "17:00",
-      horaCorte: "17:00",
-      corteHora: "17:00",
-      titulo: `Cierre Semanal de Ventas - ${sellerDisplayName}`,
-      vendedor: sellerDisplayName,
-      nombreDestinatario: sellerDisplayName,
-      codigoAsesor,
-      periodo: periodoLabel,
-      email: seller.email,
-      numero: sellerPhoneClean,
-      telefono: sellerPhoneClean,
-      cantidadVendida,
-      cantidadFaltante,
-      alcanzoMeta,
-      superavit,
-      umbral: WEEKLY_THRESHOLD,
-      metaSemanal: WEEKLY_THRESHOLD,
-      cantidadFacturas,
-      porcentajeCumplimiento,
-      textoWhatsApp: formattedWhatsAppMessage,
-      destinatarios,
-      ventas,
-      logoBase64: getLogoTiBase64()
-    };
+    payloadsToDispatch.push({
+      recipientName: stat.name,
+      recipientEmail: stat.email,
+      recipientPhone: cleanPhone,
+      isConsolidado: false,
+      payload: {
+        fecha: todayLabel,
+        corte: "semanal",
+        tipoCorte: "semanal",
+        tipoReporte: "semanal",
+        tipo: "semanal",
+        esSemanal: true,
+        esConsolidado: false,
+        hora: "17:00",
+        horaCorte: "17:00",
+        corteHora: "17:00",
+        titulo: `Cierre Semanal de Ventas - ${stat.name}`,
+        vendedor: stat.name,
+        nombreDestinatario: stat.name,
+        codigoAsesor: stat.codigoAsesor,
+        periodo: periodoLabel,
+        email: stat.email,
+        numero: cleanPhone,
+        telefono: cleanPhone,
+        cantidadVendida: stat.cantidadVendida,
+        cantidadFaltante: stat.cantidadFaltante,
+        alcanzoMeta: stat.alcanzoMeta,
+        superavit: stat.superavit,
+        umbral: WEEKLY_THRESHOLD,
+        metaSemanal: WEEKLY_THRESHOLD,
+        cantidadFacturas: stat.cantidadFacturas,
+        porcentajeCumplimiento: stat.porcentajeCumplimiento,
+        mensaje: formattedIndividualMsg,
+        textoWhatsApp: formattedIndividualMsg,
+        caption: formattedIndividualMsg,
+        destinatarios: [{
+          nombreDestinatario: stat.name,
+          telefono: cleanPhone,
+          numero: cleanPhone,
+          email: stat.email,
+          rol: stat.user?.role || "seller"
+        }],
+        ventas: stat.ventas,
+        logoBase64: getLogoTiBase64()
+      }
+    });
+  }
+  for (const adm of adminRecipients) {
+    if (targetSellerEmailsList && !targetSellerEmailsList.includes(adm.email.toLowerCase())) {
+      continue;
+    }
+    const cleanPhone = formatTelefonoDestinatario(adm.phone);
+    if (!cleanPhone) continue;
+    let textoConsolidado = alcanzoMetaEquipo ? `\u{1F3C6} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (S\xC1BADO 5:00 PM)* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)
+\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C8} *Super\xE1vit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F525} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
+
+` : `\u{1F4CA} *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL (S\xC1BADO 5:00 PM)* \u{1F3E2}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):
+
+\u{1F4B0} *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C4} *Facturas Totales Semana:* ${totalFacturasGeneral} factura(s)
+\u{1F3AF} *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4C9} *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*
+\u{1F4C8} *Cumplimiento Semanal:* *${porcentajeEquipo}%*
+
+`;
+    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F465} *DETALLE POR ASESOR:*
+
+1\uFE0F\u20E3 *Herbert Argueta* (Asesor #1521):
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${herbertMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${herbertFacturas} factura(s))
+  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+  \u25AB\uFE0F Estado: ${herbertMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${herbertDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${herbertPct}%)
+
+2\uFE0F\u20E3 *Erick Ju\xE1rez* (Asesor #8363):
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${erickMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${erickFacturas} factura(s))
+  \u25AB\uFE0F Meta Semanal: Q. ${WEEKLY_THRESHOLD.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+  \u25AB\uFE0F Estado: ${erickMeta ? `\u{1F3C6} *Meta Cumplida* (+Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })})` : `\u{1F4C9} *Faltante:* Q. ${erickDiff.toLocaleString("es-GT", { minimumFractionDigits: 2 })}`} (${erickPct}%)
+`;
+    if (emanuelVendio) {
+      textoConsolidado += `
+\u2B50 *Emanuel Lima (Ventas Propias):*
+  \u25AB\uFE0F Total Vendido Semana: *Q. ${emanuelMonto.toLocaleString("es-GT", { minimumFractionDigits: 2 })}* (${emanuelFacturas} factura(s))
+  \u25AB\uFE0F Estado: \u2705 Registr\xF3 ventas en sistema esta semana
+`;
+    } else {
+      textoConsolidado += `
+\u2B50 *Emanuel Lima (Ventas Propias):*
+  \u25AB\uFE0F Sin ventas directas registradas esta semana (Q. 0.00)
+`;
+    }
+    textoConsolidado += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CC} _Sistema de Gesti\xF3n & Rendimiento Comercial Agricovet_`;
+    payloadsToDispatch.push({
+      recipientName: adm.name,
+      recipientEmail: adm.email,
+      recipientPhone: cleanPhone,
+      isConsolidado: true,
+      payload: {
+        fecha: todayLabel,
+        corte: "semanal",
+        tipoCorte: "semanal",
+        tipoReporte: "semanal",
+        tipo: "semanal",
+        esSemanal: true,
+        esConsolidado: true,
+        hora: "17:00",
+        horaCorte: "17:00",
+        corteHora: "17:00",
+        titulo: `Cierre Semanal Consolidado - ${adm.name}`,
+        vendedor: adm.name,
+        nombreDestinatario: adm.name,
+        email: adm.email,
+        numero: cleanPhone,
+        telefono: cleanPhone,
+        cantidadVendida: totalGeneral,
+        cantidadFaltante: faltanteEquipo,
+        alcanzoMeta: alcanzoMetaEquipo,
+        superavit: superavitEquipo,
+        umbral: metaSemanalEquipo,
+        metaSemanal: metaSemanalEquipo,
+        cantidadFacturas: totalFacturasGeneral,
+        porcentajeCumplimiento: porcentajeEquipo,
+        mensaje: textoConsolidado,
+        textoWhatsApp: textoConsolidado,
+        caption: textoConsolidado,
+        destinatarios: [{
+          nombreDestinatario: adm.name,
+          telefono: cleanPhone,
+          numero: cleanPhone,
+          email: adm.email,
+          rol: "admin"
+        }],
+        ventas: [],
+        logoBase64: getLogoTiBase64()
+      }
+    });
+  }
+  const allReports = [];
+  const results = [];
+  for (let i = 0; i < payloadsToDispatch.length; i++) {
+    const item = payloadsToDispatch[i];
+    const { recipientName, recipientEmail, recipientPhone, payload, isConsolidado } = item;
     allReports.push(payload);
     let webhookResult = null;
     if (sendToWebhook) {
-      console.log(`[AUTO-WEEKLY-SALES-CRON] Enviando POST a n8n para ${sellerDisplayName} (Cierre Semanal): ${N8N_WEBHOOK_URL}`);
+      console.log(`[AUTO-WEEKLY-SALES-CRON] Enviando POST a n8n para ${recipientName} (${isConsolidado ? "CONSOLIDADO SEMANAL" : "REPORTE INDIVIDUAL"}): ${N8N_WEBHOOK_URL}`);
       try {
         const webhookRes = await fetch(N8N_WEBHOOK_URL, {
           method: "POST",
@@ -6477,31 +8130,33 @@ ${detalleVentas ? "\u{1F4CB} *DETALLE DE VENTAS DE LA SEMANA:*\n" + detalleVenta
         });
         const resText = await webhookRes.text().catch(() => "");
         webhookResult = { status: webhookRes.status, ok: webhookRes.ok, body: resText };
-        console.log(`[AUTO-WEEKLY-SALES-CRON] Respuesta n8n (${sellerDisplayName}): HTTP ${webhookRes.status} - ${resText}`);
+        console.log(`[AUTO-WEEKLY-SALES-CRON] Respuesta n8n (${recipientName}): HTTP ${webhookRes.status} - ${resText}`);
       } catch (err) {
         webhookResult = { error: err.message, ok: false };
-        console.error(`[AUTO-WEEKLY-SALES-CRON] Error al enviar webhook para ${sellerDisplayName}:`, err.message);
+        console.error(`[AUTO-WEEKLY-SALES-CRON] Error al enviar webhook para ${recipientName}:`, err.message);
       }
-      const isLastSeller = uniqueTargetUsers.indexOf(seller) === uniqueTargetUsers.length - 1;
-      if (!isLastSeller) {
-        console.log(`[AUTO-WEEKLY-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente asesor para proteger el n\xFAmero...`);
+      if (i < payloadsToDispatch.length - 1) {
+        console.log(`[AUTO-WEEKLY-SALES-CRON] \u23F3 Esperando 60 segundos (1 minuto) antes de enviar al siguiente destinatario para proteger el n\xFAmero...`);
         await new Promise((resolve) => setTimeout(resolve, 6e4));
       }
     }
     results.push({
-      vendedor: sellerDisplayName,
-      email: seller.email,
-      telefono: sellerPhoneClean,
-      cantidadVendida,
-      cantidadFacturas,
+      vendedor: recipientName,
+      email: recipientEmail,
+      telefono: recipientPhone,
+      isConsolidado,
+      cantidadVendida: payload.cantidadVendida,
+      cantidadFacturas: payload.cantidadFacturas,
       webhookResult,
       payload
     });
   }
   return {
     success: true,
-    totalVendedores: uniqueTargetUsers.length,
+    totalDestinatarios: payloadsToDispatch.length,
     periodo: periodoLabel,
+    totalGeneral,
+    faltanteEquipo,
     reports: allReports,
     results
   };
@@ -6517,6 +8172,7 @@ function initAutoDailySalesCron() {
       const year = gtNow.getFullYear();
       const month = String(gtNow.getMonth() + 1).padStart(2, "0");
       const day = String(gtNow.getDate()).padStart(2, "0");
+      if (gtNow.getDay() === 0) return;
       const hour = gtNow.getHours();
       const minute = gtNow.getMinutes();
       const todayDateStr = `${year}-${month}-${day}`;
@@ -6532,26 +8188,13 @@ function initAutoDailySalesCron() {
         const corteKey = `${todayDateStr}_17:00`;
         if (lastDispatchedCorteKey !== corteKey) {
           lastDispatchedCorteKey = corteKey;
-          console.log(`[AUTO-SALES-CRON] \u{1F554} Disparando corte autom\xE1tico de las 5:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
           if (gtNow.getDay() === 6) {
-            console.log(`[AUTO-SALES-CRON] \u{1F3C1} S\xE1bado 5:00 PM detectado. Esperando 60 segundos tras el corte diario para iniciar el CIERRE SEMANAL de ${todayDateStr}...`);
-            setTimeout(async () => {
-              try {
-                await checkAndDispatchWeeklySales({ isAutomatedCron: true });
-              } catch (err) {
-                console.error("[AUTO-SALES-CRON] Error en despacho autom\xE1tico de cierre semanal:", err?.message || err);
-              }
-            }, 6e4);
+            console.log(`[AUTO-SALES-CRON] \u{1F3C1} S\xE1bado 5:00 PM detectado. Disparando CIERRE SEMANAL CONSOLIDADO (Mensaje de fin de semana) para ${todayDateStr}`);
+            await checkAndDispatchWeeklySales({ isAutomatedCron: true });
+          } else {
+            console.log(`[AUTO-SALES-CRON] \u{1F554} Disparando corte autom\xE1tico de las 5:00 PM para ${todayDateStr}`);
+            await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
           }
-        }
-      }
-      if (hour === 20 && minute === 0) {
-        const corteKey = `${todayDateStr}_20:00`;
-        if (lastDispatchedCorteKey !== corteKey) {
-          lastDispatchedCorteKey = corteKey;
-          console.log(`[AUTO-SALES-CRON] \u{1F557} Disparando corte autom\xE1tico de las 8:00 PM para ${todayDateStr}`);
-          await checkAndDispatchDailySales({ corteHora: "17:00", isAutomatedCron: true });
         }
       }
     } catch (e) {
@@ -6560,7 +8203,8 @@ function initAutoDailySalesCron() {
   }, 25e3);
 }
 initAutoDailySalesCron();
-app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
+initAutoRouteClosureCron();
+app.post("/api/admin/check-daily-sales", requireAuthOrLocal, asyncHandler(async (req, res) => {
   const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
   if (isMultiSeller && req.body?.sendToWebhook) {
     res.json({
@@ -6579,7 +8223,7 @@ app.post("/api/admin/check-daily-sales", asyncHandler(async (req, res) => {
   }
   return res.json(result);
 }));
-app.post("/api/admin/check-weekly-sales", asyncHandler(async (req, res) => {
+app.post("/api/admin/check-weekly-sales", requireAuthOrLocal, asyncHandler(async (req, res) => {
   const isMultiSeller = Array.isArray(req.body?.targetSellerEmails) && req.body.targetSellerEmails.length > 1;
   if (isMultiSeller && req.body?.sendToWebhook) {
     res.json({
@@ -6605,11 +8249,11 @@ app.get("/api/users", requireAuth, asyncHandler(async (req, res) => {
       if (error.message.includes("sellerCode")) {
         const { data: usersFallback, error: errFallback } = await localDb.from("users").select("id, name, email, role, photo, phone");
         if (errFallback) throw new Error(errFallback.message);
-        return res.json((usersFallback || []).filter((u) => u.role !== "system"));
+        return res.json((usersFallback || []).filter((u) => !isSystemRecord(u)));
       }
       throw new Error(error.message);
     }
-    res.json((users || []).filter((u) => u.role !== "system"));
+    res.json((users || []).filter((u) => !isSystemRecord(u)));
   } catch (err) {
     console.error("Error fetching users:", err);
     res.status(500).json({ error: err.message });
@@ -6940,8 +8584,88 @@ app.put("/api/products/:id", requireAuth, asyncHandler(async (req, res) => {
   if (originalProduct && price !== void 0 && originalProduct.price !== price) {
     await createNotification("price_changed", "\u{1F3F7}\uFE0F Precio Actualizado", `${originalProduct.name}: Q${originalProduct.price} \u2794 Q${price}`, { productId: id });
   }
+  if (originalProduct && stock !== void 0 && originalProduct.stock !== stock) {
+    const diff = stock - originalProduct.stock;
+    const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+    recordAuditLog({
+      action: "STOCK_ADJUSTED",
+      category: "stock",
+      entity_type: "product",
+      entity_id: String(id),
+      entity_name: originalProduct.name || `Producto ${id}`,
+      description: `Ajuste manual de stock para "${originalProduct.name}": de ${originalProduct.stock} a ${stock} (${diffStr} uds)`,
+      previous_data: { stock: originalProduct.stock, price: originalProduct.price },
+      new_data: { stock, price: price ?? originalProduct.price, diff },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
+  } else if (hasUpdates) {
+    recordAuditLog({
+      action: "PRODUCT_UPDATED",
+      category: "stock",
+      entity_type: "product",
+      entity_id: String(id),
+      entity_name: originalProduct.name || `Producto ${id}`,
+      description: `Producto "${originalProduct.name}" editado: ${Object.keys(updates).join(", ")}`,
+      previous_data: originalProduct,
+      new_data: updates,
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
+  }
   res.json(updatedProduct);
 }));
+function notificationBelongsToSeller(notification, user, invoiceSellerMap) {
+  if (!user) return false;
+  const role = (user.role || "").toLowerCase().trim();
+  if (role === "admin" || role === "due\xF1o" || role === "dueno" || role === "ceo" || role === "owner") {
+    return true;
+  }
+  const type = String(notification.type || "").toLowerCase();
+  const title = String(notification.title || "").toLowerCase();
+  const isInventory = type === "restock" || type === "out_of_stock" || type === "low_stock" || type === "price_changed" || type.includes("stock") || type.includes("inventory") || title.includes("stock") || title.includes("agotado") || title.includes("precio") || title.includes("reabastecimiento");
+  if (isInventory) return true;
+  const isVisit = type.includes("visit") || title.includes("visita");
+  if (isVisit) return false;
+  const uId = String(user.id || "").trim().toLowerCase();
+  const uEmail = String(user.email || "").trim().toLowerCase();
+  const uName = String(user.name || "").trim().toLowerCase();
+  const uCode = String(user.sellerCode || "").trim().toLowerCase();
+  const uCodeDigits = uCode.replace(/\D/g, "");
+  const notifSellerId = String(notification.sellerId || notification.seller_id || "").trim().toLowerCase();
+  const notifSellerEmail = String(notification.sellerEmail || notification.seller_email || "").trim().toLowerCase();
+  const notifSellerName = String(notification.sellerName || notification.seller_name || "").trim().toLowerCase();
+  const candidateFields = [notifSellerId, notifSellerEmail, notifSellerName].filter(Boolean);
+  if (candidateFields.length === 0 && notification.invoiceId && invoiceSellerMap) {
+    const mapped = invoiceSellerMap.get(String(notification.invoiceId));
+    if (mapped) candidateFields.push(String(mapped).trim().toLowerCase());
+  }
+  if (candidateFields.length > 0) {
+    if (uId && candidateFields.some((f) => f === uId || f.includes(uId))) return true;
+    if (uEmail && candidateFields.some((f) => f === uEmail || f.includes(uEmail))) return true;
+    if (uCode && candidateFields.some((f) => f === uCode || f.includes(uCode))) return true;
+    if (uCodeDigits && uCodeDigits.length >= 3 && candidateFields.some((f) => f === uCodeDigits || f.includes(uCodeDigits))) return true;
+    if (uName) {
+      const normUName = uName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const firstName = normUName.split(" ")[0];
+      for (const field of candidateFields) {
+        if (field === uName || field.includes(uName)) return true;
+        const normField = field.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (normField.includes(normUName)) return true;
+        if (firstName.length >= 4 && normField.includes(firstName)) return true;
+      }
+    }
+  }
+  return false;
+}
 app.get("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
   let dbNotifs = [];
   try {
@@ -6967,12 +8691,37 @@ app.get("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
         message: n.message,
         createdAt: n.createdAt || n.created_at || (/* @__PURE__ */ new Date()).toISOString(),
         productId: n.productId || n.product_id || null,
-        invoiceId: n.invoiceId || n.invoice_id || null
+        invoiceId: n.invoiceId || n.invoice_id || null,
+        sellerId: n.sellerId || n.seller_id || null,
+        sellerName: n.sellerName || n.seller_name || null
       });
     }
   });
-  const finalNotifs = Array.from(mergedMap.values());
+  let finalNotifs = Array.from(mergedMap.values());
   finalNotifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const isSeller = (req.user?.role || "").toLowerCase().trim() === "seller";
+  if (isSeller) {
+    const invoiceIdsToLookup = finalNotifs.filter((n) => n.invoiceId && !n.sellerId).map((n) => n.invoiceId);
+    const invoiceSellerMap = /* @__PURE__ */ new Map();
+    if (invoiceIdsToLookup.length > 0) {
+      try {
+        const { data: invRows } = await localDb.from("invoices").select("id, sellerId, notes").in("id", invoiceIdsToLookup);
+        if (invRows && Array.isArray(invRows)) {
+          invRows.forEach((inv) => {
+            let sId = inv.sellerId || "";
+            if (!sId && inv.notes) {
+              const match = inv.notes.match(/\|\|\|SELLER:([^|]+)/i);
+              if (match) sId = match[1].trim();
+            }
+            if (sId) invoiceSellerMap.set(String(inv.id), sId);
+          });
+        }
+      } catch (errInv) {
+        console.warn("Error resolviendo sellerId de facturas para notificaciones:", errInv);
+      }
+    }
+    finalNotifs = finalNotifs.filter((n) => notificationBelongsToSeller(n, req.user, invoiceSellerMap));
+  }
   res.json(finalNotifs.slice(0, 100));
 }));
 app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req, res) => {
@@ -6986,6 +8735,9 @@ app.delete("/api/notifications/:id", requireAuth, asyncHandler(async (req, res) 
   res.json({ success: true });
 }));
 app.delete("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ error: "Solo los administradores pueden vaciar el registro general de notificaciones" });
+  }
   try {
     await localDb.from("notifications").delete().neq("id", "clear-trigger");
   } catch (e) {
@@ -6996,27 +8748,27 @@ app.delete("/api/notifications", requireAuth, asyncHandler(async (req, res) => {
 app.get("/api/push/public-key", asyncHandler(async (req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
 }));
-app.post("/api/push/subscribe", asyncHandler(async (req, res) => {
+app.post("/api/push/subscribe", optionalAuth, asyncHandler(async (req, res) => {
   const subscription = req.body;
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: "Suscripci\xF3n inv\xE1lida" });
   }
-  await savePushSubscription(subscription);
+  await savePushSubscription(subscription, req.user);
   res.json({ success: true, message: "Suscripci\xF3n guardada con \xE9xito" });
 }));
-app.post("/api/push/test", asyncHandler(async (req, res) => {
+app.post("/api/push/test", requireAuthOrLocal, asyncHandler(async (req, res) => {
   const { title, message } = req.body;
   const resolvedTitle = title || "Prueba de Agricovet \u{1F514}";
   const resolvedMessage = message || "\xA1Las notificaciones Push funcionan con vibraci\xF3n tipo WhatsApp!";
   await broadcastPushNotification(resolvedTitle, resolvedMessage, "/");
   res.json({ success: true, message: "Emitiendo push de prueba a todos los terminales registrados" });
 }));
-app.post("/api/fcm/register", asyncHandler(async (req, res) => {
+app.post("/api/fcm/register", optionalAuth, asyncHandler(async (req, res) => {
   const { token } = req.body;
   if (!token) {
     return res.status(400).json({ error: "FCM token requerido" });
   }
-  await registerFcmToken(token);
+  await registerFcmToken(token, req.user);
   res.json({ success: true, message: "FCM token registrado correctamente" });
 }));
 app.get("/api/panic/status", asyncHandler(async (req, res) => {
@@ -7050,13 +8802,13 @@ app.get("/api/panic/status", asyncHandler(async (req, res) => {
     server: "PostgreSQL Local"
   });
 }));
-app.post("/api/panic/switch", asyncHandler(async (req, res) => {
+app.post("/api/panic/switch", requireAuthOrLocal, asyncHandler(async (req, res) => {
   const { mode } = req.body;
   await persistGlobalDbMode(mode || "local");
   console.log(`[PANIC SWITCH] Base de datos local: LOCAL`);
   return res.json({ success: true, activeMode: "local" });
 }));
-app.post("/api/panic/sync", asyncHandler(async (req, res) => {
+app.post("/api/panic/sync", requireAuthOrLocal, asyncHandler(async (req, res) => {
   if (!pgPool) {
     return res.status(500).json({ error: "Base de datos no configurada" });
   }
@@ -7067,6 +8819,7 @@ app.post("/api/panic/sync", asyncHandler(async (req, res) => {
     const { data: users } = await localDb.from("users").select("*");
     if (users && users.length > 0) {
       for (const u of users) {
+        if (isSystemRecord(u)) continue;
         await client.query(`
             INSERT INTO public.users (id, name, email, role, password, photo, phone, "sellerCode")
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -7606,288 +9359,373 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     }
   }
   const saleOwner = sellerId || req.user.email;
-  if (client) {
-    let nameToSave = client.trim();
-    let companyToSave = "";
-    if (client.includes(" - ")) {
-      const parts = client.split(" - ");
-      nameToSave = parts[0].trim();
-      companyToSave = parts[1].trim();
-    }
-    const normName = nameToSave.toLowerCase();
-    const normCompany = companyToSave.toLowerCase();
-    let existingList = [];
-    try {
-      const { data } = await localDb.from("clients").select("*");
-      if (data) existingList = data;
-    } catch (e) {
-    }
-    const localList = readLocalClients();
-    const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
-    if (matchedClient) {
-      console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
-      const updates = {};
-      if (!matchedClient.nit && nit && String(nit).toUpperCase() !== "CF") updates.nit = nit;
-      if (!matchedClient.phone && phone) updates.phone = phone;
-      if (!matchedClient.address && address) updates.address = address;
-      if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
-      if (matchedClient.isProspect || matchedClient.clientType === "prospect") {
-        updates.isProspect = false;
-        updates.clientType = "regular";
+  return enqueueSaleTask(async () => {
+    if (client) {
+      let nameToSave = client.trim();
+      let companyToSave = "";
+      if (client.includes(" - ")) {
+        const parts = client.split(" - ");
+        nameToSave = parts[0].trim();
+        companyToSave = parts[1].trim();
       }
-      const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-      if (!currentSeller && (sellerId || saleOwner)) {
-        updates.sellerId = sellerId || saleOwner;
-      }
-      if (Object.keys(updates).length > 0) {
-        updateLocalClient(matchedClient.id, updates);
-        try {
-          await localDb.from("clients").update(updates).eq("id", matchedClient.id);
-        } catch (e) {
-        }
-      }
-    } else {
-      const clientData = {
-        id: `CLI-${Date.now()}`,
-        sellerId: sellerId || saleOwner,
-        name: nameToSave,
-        companyName: companyToSave,
-        nit: nit || "",
-        phone: phone || "",
-        address: address || "",
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      addLocalClient(clientData);
+      const normName = nameToSave.toLowerCase();
+      const normCompany = companyToSave.toLowerCase();
+      let existingList = [];
       try {
-        await safeInsertClient(clientData);
+        const { data } = await localDb.from("clients").select("*");
+        if (data) existingList = data;
       } catch (e) {
-        console.error("Auto-register client insert failed:", e);
       }
-    }
-  }
-  let total = 0;
-  const processedItems = [];
-  const OMITIR_LIMITACION_DEUDA_SERVER = true;
-  let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && debtAlert === true;
-  const id = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-  let invoice = null;
-  const releaseStockLocks = await acquireStockLocks(items.map((i) => i.productId));
-  const deductedStockRecords = [];
-  try {
-    for (const item of items) {
-      let product;
-      if (item.productId?.startsWith("shipping-") || item.productName === "COSTO DE ENVIO" || item.productId === "shipping-cost") {
-        product = {
-          id: item.productId,
-          name: "COSTO DE ENVIO",
-          price: item.price !== void 0 ? parseFloat(item.price) : 26,
-          stock: 999999,
-          is_external: true,
-          category: "Servicios",
-          description: "Costo de env\xEDo"
-        };
-      } else {
-        const { data: products, error } = await localDb.from("products").select("*").eq("id", item.productId);
-        if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
-        product = products[0];
-      }
-      const itemPrice = item.price !== void 0 ? parseFloat(item.price) : product.price;
-      const isExemptFromStock = doesNotNeedStock(product);
-      if (!product.is_external) {
-        let currentStock = parseFloat(product.stock || 0);
-        let variantObj = null;
-        let variantsToUpdate = product.variants ? [...product.variants] : [];
-        if (item.variantId) {
-          const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-          if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-            if (variantObj.stock !== void 0) {
-              currentStock = parseFloat(variantObj.stock || 0);
-            }
+      const localList = readLocalClients();
+      const matchedClient = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit);
+      if (matchedClient) {
+        console.log(`Auto-register: Matching client found: "${matchedClient.name}". Avoiding duplicate.`);
+        const updates = {};
+        if (!matchedClient.nit && nit && String(nit).toUpperCase() !== "CF") updates.nit = nit;
+        if (!matchedClient.phone && phone) updates.phone = phone;
+        if (!matchedClient.address && address) updates.address = address;
+        if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+        if (matchedClient.isProspect || matchedClient.clientType === "prospect") {
+          updates.isProspect = false;
+          updates.clientType = "regular";
+        }
+        const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+        if (!currentSeller && (sellerId || saleOwner)) {
+          updates.sellerId = sellerId || saleOwner;
+        }
+        if (Object.keys(updates).length > 0) {
+          updateLocalClient(matchedClient.id, updates);
+          try {
+            await localDb.from("clients").update(updates).eq("id", matchedClient.id);
+          } catch (e) {
           }
         }
-        if (currentStock < item.quantity && !isExemptFromStock) {
-          requiresAuth = true;
-          item.isStockAlert = true;
+      } else {
+        const clientData = {
+          id: `CLI-${Date.now()}`,
+          sellerId: sellerId || saleOwner,
+          name: nameToSave,
+          companyName: companyToSave,
+          nit: nit || "",
+          phone: phone || "",
+          address: address || "",
+          createdAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        addLocalClient(clientData);
+        try {
+          await safeInsertClient(clientData);
+        } catch (e) {
+          console.error("Auto-register client insert failed:", e);
         }
-        const newStock = currentStock - parseFloat(item.quantity);
-        if (newStock <= 0 && !isExemptFromStock) {
-          const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-          const stockMessage = `\u26A0\uFE0F *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
-          const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
-          if (admins) {
-            for (const admin2 of admins) {
-              if (admin2.phone) {
-                console.log(`Enviando alerta de stock a admin ${admin2.name}: ${productNameStr}`);
-                internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_cero", "es_MX", [
-                  { name: "w_producto", value: productNameStr.substring(0, 50) },
-                  { name: "w_cliente", value: client.substring(0, 50) }
-                ]).catch((err) => console.warn(`Error enviando alerta stock a ${admin2.name}:`, err.message));
+      }
+    }
+    for (const item of items) {
+      if (item.productId?.startsWith("shipping-") || item.productName === "COSTO DE ENVIO" || item.productId === "shipping-cost") {
+        continue;
+      }
+      const { data: prodsCheck, error: pCheckErr } = await localDb.from("products").select("*").eq("id", item.productId);
+      if (pCheckErr || !prodsCheck || prodsCheck.length === 0) {
+        return res.status(400).json({ error: `Producto no encontrado en inventario (ID: ${item.productId})` });
+      }
+      const prodCheck = prodsCheck[0];
+      if (req.user?.role !== "admin" && !item.isOfferApplied && !item.isAuthorized) {
+        const reqPrice = item.price !== void 0 ? parseFloat(item.price) : parseFloat(prodCheck.price || 0);
+        const baseCatalogPrice = parseFloat(prodCheck.price || 0);
+        if (reqPrice < baseCatalogPrice - 1e-3) {
+          return res.status(403).json({
+            error: `No autorizado: el vendedor no puede vender "${prodCheck.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
+          });
+        }
+      }
+      const isExempt = isExemptFromStockBlock(prodCheck, item);
+      if (!prodCheck.is_external && !isExempt) {
+        let availableStock = parseFloat(prodCheck.stock || 0);
+        let variantLabel = "";
+        if (item.variantId && prodCheck.variants) {
+          const vObj = prodCheck.variants.find((v) => v.id === item.variantId);
+          if (vObj && vObj.stock !== void 0) {
+            availableStock = parseFloat(vObj.stock || 0);
+            variantLabel = ` (${vObj.color || ""} ${vObj.size || ""})`.trim();
+          }
+        }
+        const requested = parseFloat(item.quantity || 0);
+        if (availableStock < requested || availableStock <= 0) {
+          const fullLabel = `${prodCheck.name}${variantLabel}`;
+          return res.status(400).json({
+            error: `VENTA DETENIDA EN FILA: Stock insuficiente para "${fullLabel}". En bodega quedan ${availableStock} unidades y solicitaste ${requested} unidades. Otra venta procesada hace momentos consumi\xF3 el inventario disponible. Operaci\xF3n cancelada para proteger el inventario.`,
+            insufficientStock: true,
+            productId: prodCheck.id,
+            productName: fullLabel,
+            availableStock,
+            requestedQuantity: requested
+          });
+        }
+      }
+    }
+    let total = 0;
+    const processedItems = [];
+    const OMITIR_LIMITACION_DEUDA_SERVER = true;
+    let requiresAuth = !OMITIR_LIMITACION_DEUDA_SERVER && debtAlert === true;
+    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+    let invoice = null;
+    const releaseStockLocks = await acquireStockLocks(items.map((i) => i.productId));
+    const deductedStockRecords = [];
+    try {
+      for (const item of items) {
+        let product;
+        if (item.productId?.startsWith("shipping-") || item.productName === "COSTO DE ENVIO" || item.productId === "shipping-cost") {
+          product = {
+            id: item.productId,
+            name: "COSTO DE ENVIO",
+            price: item.price !== void 0 ? parseFloat(item.price) : 29.5,
+            stock: 999999,
+            is_external: true,
+            category: "Servicios",
+            description: "Costo de env\xEDo"
+          };
+        } else {
+          const { data: products, error } = await localDb.from("products").select("*").eq("id", item.productId);
+          if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
+          product = products[0];
+        }
+        const itemPrice = item.price !== void 0 ? parseFloat(item.price) : product.price;
+        const isExemptFromStock = isExemptFromStockBlock(product, item);
+        const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== void 0 || item.tecunToOrder !== void 0;
+        let currentStock = parseFloat(product.stock || 0);
+        let variantObj = null;
+        let newStock = currentStock;
+        let actualDeductedQty = 0;
+        if (!product.is_external) {
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
+            if (varIndex !== -1) {
+              variantObj = variantsToUpdate[varIndex];
+              if (variantObj.stock !== void 0) {
+                currentStock = parseFloat(variantObj.stock || 0);
               }
             }
           }
-        } else if (!isExemptFromStock) {
-          const threshold = getCriticalStockThreshold(product);
-          if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+          if (currentStock < item.quantity && !isExemptFromStock) {
+            requiresAuth = true;
+            item.isStockAlert = true;
+          }
+          let deductQty = parseFloat(item.quantity);
+          if (isSpecialSupplier) {
+            deductQty = Math.max(0, Math.min(currentStock, deductQty));
+          }
+          newStock = Math.max(0, currentStock - deductQty);
+          actualDeductedQty = Math.max(0, currentStock - newStock);
+          if (newStock <= 0 && !isExemptFromStock) {
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-            const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+            const stockMessage = `\u26A0\uFE0F *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
             const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin2 of admins) {
                 if (admin2.phone) {
-                  internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                  console.log(`Enviando alerta de stock a admin ${admin2.name}: ${productNameStr}`);
+                  internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_cero", "es_MX", [
                     { name: "w_producto", value: productNameStr.substring(0, 50) },
-                    { name: "w_stock", value: String(newStock) }
-                  ]).catch((err) => console.warn(`Error enviando alerta cr\xEDtica a ${admin2.name}:`, err.message));
+                    { name: "w_cliente", value: client.substring(0, 50) }
+                  ]).catch((err) => console.warn(`Error enviando alerta stock a ${admin2.name}:`, err.message));
+                }
+              }
+            }
+          } else if (!isExemptFromStock) {
+            const threshold = getCriticalStockThreshold(product);
+            if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+              const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
+              const stockMessage = `\u{1F6A8} *ALERTA CR\xCDTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+              const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
+              if (admins) {
+                for (const admin2 of admins) {
+                  if (admin2.phone) {
+                    internalSendWhatsApp(admin2.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                      { name: "w_producto", value: productNameStr.substring(0, 50) },
+                      { name: "w_stock", value: String(newStock) }
+                    ]).catch((err) => console.warn(`Error enviando alerta cr\xEDtica a ${admin2.name}:`, err.message));
+                  }
                 }
               }
             }
           }
-        }
-        if (variantObj && variantObj.stock !== void 0) {
-          const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", product.id);
-          if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
-        } else {
-          const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq("id", product.id);
-          if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
-        }
-        if (!isExemptFromStock) {
-          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: parseFloat(item.quantity) });
-        }
-      }
-      if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
-        requiresAuth = true;
-      }
-      const itemTotal = item.quantity * itemPrice;
-      total += itemTotal;
-      processedItems.push({ ...item, price: itemPrice, total: itemTotal, productName: product.name, originalPrice: product.price });
-    }
-    const id2 = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-    invalidateCache("folio_map");
-    const currentFolioMap = await getFolioMap(true);
-    const existingFolioValues = Object.values(currentFolioMap).map((v) => Number(v) || 0);
-    const maxFolio = existingFolioValues.reduce((max, val) => val > max ? val : max, 0);
-    let startFromConfig = 1;
-    try {
-      const FOLIO_CONFIG_FILE = import_path2.default.join(process.cwd(), "folio_config.json");
-      if (import_fs2.default.existsSync(FOLIO_CONFIG_FILE)) {
-        const cfg = JSON.parse(import_fs2.default.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-        startFromConfig = cfg.startFrom || 1;
-      }
-    } catch (e) {
-    }
-    let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
-    while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
-      assignedFolio++;
-    }
-    let folioFlag = `|||FOLIO:${assignedFolio}`;
-    let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
-    let baseNotes = nit || "";
-    let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
-    let invoiceTypeFlag = "|||TYPE:" + (invoiceType || "veterinaria");
-    let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === "agricola" ? 60 : 30));
-    let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
-    let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
-    let authFlag = requiresAuth ? "|||AUTH:pending" : "";
-    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
-      authFlag += "|||DEBT:true";
-    }
-    const isUserAdmin = req.user && req.user.role === "admin";
-    const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
-    const saleExactTimestamp = isExplicitCustomDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
-    const invoiceDataRaw = {
-      id: id2,
-      sellerId: saleOwner,
-      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
-      items: processedItems,
-      totalAmount: total,
-      paidAmount: isOwed ? 0 : total,
-      status: isOwed ? "pending" : "paid",
-      date: saleExactTimestamp
-    };
-    invoiceDataRaw["clientName"] = client;
-    invoiceDataRaw["customerPhone"] = phone || "";
-    invoiceDataRaw["deliveryAddress"] = address || "";
-    invoiceDataRaw["nit"] = nit || "";
-    invoiceDataRaw["folio"] = String(assignedFolio);
-    invoiceDataRaw["invoice_type"] = invoiceType || "veterinaria";
-    invoiceDataRaw["credit_days"] = creditDays || (invoiceType === "agricola" ? 60 : 30);
-    invoiceDataRaw["transport_method"] = transportMethod || "";
-    invoiceDataRaw["seller_pays_shipping"] = !!sellerPaysShipping;
-    invoiceDataRaw["auth_status"] = requiresAuth ? "pending" : "approved";
-    invoiceDataRaw["is_archived"] = false;
-    if (sellerSignature) invoiceDataRaw["seller_signature"] = sellerSignature;
-    let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
-    if (insertError) {
-      console.warn("Primary insert invoice error:", insertError.message);
-      const fallbackInvoice1 = { ...invoiceDataRaw };
-      delete fallbackInvoice1["clientName"];
-      delete fallbackInvoice1["customerPhone"];
-      delete fallbackInvoice1["deliveryAddress"];
-      fallbackInvoice1["client"] = client;
-      fallbackInvoice1["phone"] = phone || "";
-      fallbackInvoice1["address"] = address || "";
-      fallbackInvoice1["folio"] = String(assignedFolio);
-      const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
-      if (retryError1) {
-        const bareInvoice = { ...fallbackInvoice1 };
-        delete bareInvoice["phone"];
-        delete bareInvoice["address"];
-        delete bareInvoice["nit"];
-        const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
-        if (retryError2) throw new Error(retryError2.message);
-      }
-    }
-    invoice = { ...invoiceDataRaw, client, phone, address };
-    await syncInvoiceToPermanentBackup(id2, invoiceDataRaw);
-    invalidateCache("products");
-    invalidateCache("folio_map");
-  } catch (err) {
-    if (deductedStockRecords.length > 0) {
-      console.warn(`[StockRollback] Fall\xF3 la creaci\xF3n de factura. Revirtiendo ${deductedStockRecords.length} \xEDtems descontados.`);
-      for (const ded of deductedStockRecords) {
-        try {
-          const { data: pList } = await localDb.from("products").select("stock, variants").eq("id", ded.productId);
-          const p = pList?.[0];
-          if (p) {
-            if (ded.variantId && p.variants) {
-              const vars = [...p.variants];
-              const vIdx = vars.findIndex((v) => v.id === ded.variantId);
-              if (vIdx !== -1) {
-                vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                await localDb.from("products").update({ variants: vars }).eq("id", ded.productId);
-              }
-            } else {
-              await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq("id", ded.productId);
-            }
+          if (variantObj && variantObj.stock !== void 0) {
+            const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
+            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+            const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", product.id);
+            if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
+          } else {
+            const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq("id", product.id);
+            if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
           }
-        } catch (rbErr) {
-          console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+          if (actualDeductedQty > 0) {
+            deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
+            recordAuditLog({
+              action: "STOCK_DEDUCTED_SALE",
+              category: "stock",
+              entity_type: "product",
+              entity_id: product.id,
+              entity_name: product.name,
+              description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
+              previous_data: { stock: currentStock },
+              new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
+              user_id: req.user?.id,
+              user_email: req.user?.email,
+              user_name: req.user?.name || req.user?.email,
+              user_role: req.user?.role,
+              ip_address: req.ip
+            }).catch(() => {
+            });
+          }
+        }
+        if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
+          requiresAuth = true;
+        }
+        const itemTotal = item.quantity * itemPrice;
+        total += itemTotal;
+        const prevStockVal = !product.is_external ? currentStock : 999999;
+        const newStockVal = !product.is_external ? newStock : 999999;
+        const baseName = variantObj ? `${product.name} (${variantObj.color || ""} ${variantObj.size || ""})`.trim() : item.productName || product.name;
+        const finalProductName = item.isBonus && !baseName.includes("Bonificaci\xF3n") ? `${baseName} (Bonificaci\xF3n / Gratis)` : baseName;
+        processedItems.push({
+          ...item,
+          price: itemPrice,
+          total: itemTotal,
+          productName: finalProductName,
+          originalPrice: product.price,
+          previousStock: prevStockVal,
+          newStock: newStockVal,
+          stockDeducted: actualDeductedQty,
+          isExempt: isExemptFromStock
+        });
+      }
+      const id2 = `INV-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+      invalidateCache("folio_map");
+      const currentFolioMap = await getFolioMap(true);
+      const existingFolioValues = Object.values(currentFolioMap).map((v) => Number(v) || 0);
+      const maxFolio = existingFolioValues.reduce((max, val) => val > max ? val : max, 0);
+      let startFromConfig = 1;
+      try {
+        const FOLIO_CONFIG_FILE = import_path2.default.join(process.cwd(), "folio_config.json");
+        if (import_fs2.default.existsSync(FOLIO_CONFIG_FILE)) {
+          const cfg = JSON.parse(import_fs2.default.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+          startFromConfig = cfg.startFrom || 1;
+        }
+      } catch (e) {
+      }
+      let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
+      while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
+        assignedFolio++;
+      }
+      let folioFlag = `|||FOLIO:${assignedFolio}`;
+      let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
+      let baseNotes = nit || "";
+      let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
+      let invoiceTypeFlag = "|||TYPE:" + (invoiceType || "veterinaria");
+      let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === "agricola" ? 60 : 30));
+      let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
+      let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
+      let authFlag = requiresAuth ? "|||AUTH:pending" : "";
+      let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
+      if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
+        authFlag += "|||DEBT:true";
+      }
+      const isUserAdmin = req.user && req.user.role === "admin";
+      const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
+      const saleExactTimestamp = isExplicitCustomDate ? /^\d{4}-\d{2}-\d{2}$/.test(customDate) ? (/* @__PURE__ */ new Date(`${customDate}T12:00:00-06:00`)).toISOString() : new Date(customDate).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+      const invoiceDataRaw = {
+        id: id2,
+        sellerId: saleOwner,
+        notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
+        items: processedItems,
+        totalAmount: total,
+        paidAmount: isOwed ? 0 : total,
+        status: isOwed ? "pending" : "paid",
+        date: saleExactTimestamp
+      };
+      invoiceDataRaw["clientName"] = client;
+      invoiceDataRaw["customerPhone"] = phone || "";
+      invoiceDataRaw["deliveryAddress"] = address || "";
+      invoiceDataRaw["nit"] = nit || "";
+      invoiceDataRaw["folio"] = String(assignedFolio);
+      invoiceDataRaw["invoice_type"] = invoiceType || "veterinaria";
+      invoiceDataRaw["credit_days"] = creditDays || (invoiceType === "agricola" ? 60 : 30);
+      invoiceDataRaw["transport_method"] = transportMethod || "";
+      invoiceDataRaw["seller_pays_shipping"] = !!sellerPaysShipping;
+      invoiceDataRaw["auth_status"] = requiresAuth ? "pending" : "approved";
+      invoiceDataRaw["is_archived"] = false;
+      if (sellerSignature) invoiceDataRaw["seller_signature"] = sellerSignature;
+      let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
+      if (insertError) {
+        console.warn("Primary insert invoice error:", insertError.message);
+        const fallbackInvoice1 = { ...invoiceDataRaw };
+        delete fallbackInvoice1["clientName"];
+        delete fallbackInvoice1["customerPhone"];
+        delete fallbackInvoice1["deliveryAddress"];
+        fallbackInvoice1["client"] = client;
+        fallbackInvoice1["phone"] = phone || "";
+        fallbackInvoice1["address"] = address || "";
+        fallbackInvoice1["folio"] = String(assignedFolio);
+        const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
+        if (retryError1) {
+          const bareInvoice = { ...fallbackInvoice1 };
+          delete bareInvoice["phone"];
+          delete bareInvoice["address"];
+          delete bareInvoice["nit"];
+          const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
+          if (retryError2) throw new Error(retryError2.message);
         }
       }
+      invoice = { ...invoiceDataRaw, client, phone, address };
+      await syncInvoiceToPermanentBackup(id2, invoiceDataRaw);
       invalidateCache("products");
+      invalidateCache("invoices");
+      invalidateCache("folio_map");
+    } catch (err) {
+      if (deductedStockRecords.length > 0) {
+        console.warn(`[StockRollback] Fall\xF3 la creaci\xF3n de factura. Revirtiendo ${deductedStockRecords.length} \xEDtems descontados.`);
+        for (const ded of deductedStockRecords) {
+          try {
+            const { data: pList } = await localDb.from("products").select("stock, variants").eq("id", ded.productId);
+            const p = pList?.[0];
+            if (p) {
+              if (ded.variantId && p.variants) {
+                const vars = [...p.variants];
+                const vIdx = vars.findIndex((v) => v.id === ded.variantId);
+                if (vIdx !== -1) {
+                  vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
+                  await localDb.from("products").update({ variants: vars }).eq("id", ded.productId);
+                }
+              } else {
+                await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq("id", ded.productId);
+              }
+            }
+          } catch (rbErr) {
+            console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+          }
+        }
+        invalidateCache("products");
+      }
+      throw err;
+    } finally {
+      releaseStockLocks();
     }
-    throw err;
-  } finally {
-    releaseStockLocks();
-  }
-  try {
     const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : "https://" + req.headers.host;
     const invoiceUrl = `${baseUrl}/#billing`;
-    const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
-    if (admins && admins.length > 0) {
-      const itemSummary = processedItems && processedItems.length > 0 ? processedItems.map((item) => `${item.quantity}x ${item.productName || "Producto"}`).join(", ") : "Sin productos";
-      const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-      const totalFormatted = `Q. ${total.toFixed(2)}`;
-      const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
-      const folioMap2 = await getFolioMap();
-      const folioVal = String(folioMap2[String(id)] || 1);
-      for (const admin2 of admins) {
-        if (admin2.phone) {
-          const message = `\u{1F6A8} *\xA1Nuevo Pedido Ingresado!* \u{1F6A8}
+    const isDispatchTest = process.env.ORDER_DISPATCH_MODE === "test" || req.user?.email === "seseffff942@gmail.com";
+    if (!isDispatchTest) {
+      try {
+        const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
+        if (admins && admins.length > 0) {
+          const itemSummary = processedItems && processedItems.length > 0 ? processedItems.map((item) => `${item.quantity}x ${item.productName || "Producto"}`).join(", ") : "Sin productos";
+          const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+          const totalFormatted = `Q. ${total.toFixed(2)}`;
+          const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+          const folioMap2 = await getFolioMap();
+          const folioVal = String(folioMap2[String(id)] || 1);
+          for (const admin2 of admins) {
+            if (admin2.phone) {
+              const message = `\u{1F6A8} *\xA1Nuevo Pedido Ingresado!* \u{1F6A8}
 
 Hola ${admin2.name || "Sergio"},
 
@@ -7900,86 +9738,130 @@ Detalles de la compra:
 Por favor, revisa el panel de administraci\xF3n para confirmar el inventario y coordinar el despacho. \u{1F331}\u{1F69C}
 
 AgricoVet - Sistema de Notificaciones`;
-          console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin2.name} (${admin2.phone})`);
-          internalSendWhatsApp(admin2.phone, message, "alerta_nuevo_pedido_interno", "es", [
-            admin2.name || "Sergio",
-            client,
-            itemSummaryTruncated,
-            totalFormatted,
-            zone,
-            folioVal
-          ]).then((result) => {
-            if (!result.success) {
-              console.error(`Error WhatsApp al admin ${admin2.name} (${admin2.phone}):`, result.error, result.data || "");
-            } else {
-              console.log(`WhatsApp enviado exitosamente a ${admin2.name}.`);
+              console.log(`Enviando notificaci\xF3n "alerta_nuevo_pedido_interno" al administrador: ${admin2.name} (${admin2.phone})`);
+              internalSendWhatsApp(admin2.phone, message, "alerta_nuevo_pedido_interno", "es", [
+                admin2.name || "Sergio",
+                client,
+                itemSummaryTruncated,
+                totalFormatted,
+                zone,
+                folioVal
+              ]).then((result) => {
+                if (!result.success) {
+                  console.error(`Error WhatsApp al admin ${admin2.name} (${admin2.phone}):`, result.error, result.data || "");
+                } else {
+                  console.log(`WhatsApp enviado exitosamente a ${admin2.name}.`);
+                }
+              }).catch((err) => {
+                console.error(`Exception enviando WhatsApp a admin ${admin2.name}:`, err);
+              });
             }
-          }).catch((err) => {
-            console.error(`Exception enviando WhatsApp a admin ${admin2.name}:`, err);
-          });
+          }
         }
+      } catch (e) {
+        console.error("Notification block error:", e);
       }
     }
-  } catch (e) {
-    console.error("Notification block error:", e);
-  }
-  await createNotification("new_order", "\u{1F6D2} \xA1Nuevo Pedido!", `\u{1F464} ${client} \u2022 \u{1F4B0} Total: Q${total.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
-\u{1F4E6} ${processedItems?.length || 1} producto(s) asignados`, { invoiceId: id });
-  let returnInvoice = { ...invoice };
-  const rawNotes = returnInvoice.notes || "";
-  const flags = rawNotes.split("|||");
-  let tempNit = flags[0].trim();
-  let realNotes = "";
-  flags.slice(1).forEach((flag) => {
-    const idx = flag.indexOf(":");
-    if (idx === -1) return;
-    const key = flag.substring(0, idx);
-    const value = flag.substring(idx + 1);
-    if (key === "AUTH") {
-      returnInvoice.authStatus = value;
-    } else if (key === "DEBT") {
-      returnInvoice.hasDebtAlert = value === "true";
-    } else if (key === "CREDIT") {
-      returnInvoice.creditDays = parseInt(value);
-    } else if (key === "TYPE") {
-      returnInvoice.invoiceType = value;
-    } else if (key === "OBS") {
-      realNotes = value;
-    } else if (key === "TRANS") {
-      returnInvoice.transportMethod = value;
-    } else if (key === "PAYSHIP") {
-      returnInvoice.sellerPaysShipping = value === "true";
-    } else if (key === "EDITED") {
-      returnInvoice.isEdited = value === "true";
-    } else if (key === "SCAN_CLIENT") {
-      returnInvoice.scanClient = value;
-    } else if (key === "SCAN_DATE") {
-      returnInvoice.scanDate = value;
-    } else if (key === "SELLER_SIG") {
-      returnInvoice.sellerSignature = value;
-    } else if (key === "ADMIN_SIG") {
-      returnInvoice.adminSignature = value;
-    } else if (key === "REVIEWED_BY") {
-      returnInvoice.reviewedBy = value;
+    await createNotification(
+      "new_order",
+      "\u{1F6D2} \xA1Nuevo Pedido!",
+      `\u{1F464} ${client} \u2022 \u{1F4B0} Total: Q${total.toLocaleString("es-GT", { minimumFractionDigits: 2 })}
+\u{1F4E6} ${processedItems?.length || 1} producto(s) asignados`,
+      {
+        invoiceId: id,
+        sellerId: saleOwner,
+        sellerName: req.user?.name || ""
+      }
+    );
+    let returnInvoice = { ...invoice };
+    const rawNotes = returnInvoice.notes || "";
+    const flags = rawNotes.split("|||");
+    let tempNit = flags[0].trim();
+    let realNotes = "";
+    flags.slice(1).forEach((flag) => {
+      const idx = flag.indexOf(":");
+      if (idx === -1) return;
+      const key = flag.substring(0, idx);
+      const value = flag.substring(idx + 1);
+      if (key === "AUTH") {
+        returnInvoice.authStatus = value;
+      } else if (key === "DEBT") {
+        returnInvoice.hasDebtAlert = value === "true";
+      } else if (key === "CREDIT") {
+        returnInvoice.creditDays = parseInt(value);
+      } else if (key === "TYPE") {
+        returnInvoice.invoiceType = value;
+      } else if (key === "OBS") {
+        realNotes = value;
+      } else if (key === "TRANS") {
+        returnInvoice.transportMethod = value;
+      } else if (key === "PAYSHIP") {
+        returnInvoice.sellerPaysShipping = value === "true";
+      } else if (key === "EDITED") {
+        returnInvoice.isEdited = value === "true";
+      } else if (key === "SCAN_CLIENT") {
+        returnInvoice.scanClient = value;
+      } else if (key === "SCAN_DATE") {
+        returnInvoice.scanDate = value;
+      } else if (key === "SELLER_SIG") {
+        returnInvoice.sellerSignature = value;
+      } else if (key === "ADMIN_SIG") {
+        returnInvoice.adminSignature = value;
+      } else if (key === "REVIEWED_BY") {
+        returnInvoice.reviewedBy = value;
+      }
+    });
+    if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
+      returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
+      returnInvoice.nit = returnInvoice.nit || "";
+    } else {
+      returnInvoice.nit = returnInvoice.nit || tempNit;
+      returnInvoice.notes = realNotes;
     }
-  });
-  if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
-    returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
-    returnInvoice.nit = returnInvoice.nit || "";
-  } else {
-    returnInvoice.nit = returnInvoice.nit || tempNit;
-    returnInvoice.notes = realNotes;
-  }
-  invalidateCache("invoices");
-  const folioMap = await getFolioMap();
-  res.json({
-    ...returnInvoice,
-    isOwed: true,
-    folio: folioMap[returnInvoice.id] || 1,
-    client: returnInvoice.client || returnInvoice.clientName || client,
-    nit: returnInvoice.nit || "",
-    phone: returnInvoice.phone || returnInvoice.customerPhone || phone || "",
-    address: returnInvoice.address || returnInvoice.deliveryAddress || address || ""
+    invalidateCache("invoices");
+    const folioMap = await getFolioMap();
+    const invoiceTotal = (items || []).reduce((acc, it) => acc + parseFloat(it.price || 0) * parseFloat(it.quantity || 0), 0);
+    recordAuditLog({
+      action: "SALE_CREATED",
+      category: "ventas",
+      entity_type: "invoice",
+      entity_id: returnInvoice.id,
+      entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
+      description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
+      new_data: {
+        invoiceId: returnInvoice.id,
+        folio: folioMap[returnInvoice.id] || 1,
+        client,
+        total: invoiceTotal,
+        itemsCount: (items || []).length,
+        seller: req.user?.email,
+        itemsStockSummary: (processedItems || []).map((it) => ({
+          productId: it.productId,
+          productName: it.productName,
+          previousStock: it.previousStock,
+          quantitySold: parseFloat(it.quantity) || 0,
+          newStock: it.newStock,
+          unitPrice: it.price,
+          subtotal: it.total,
+          isExempt: it.isExempt
+        }))
+      },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => {
+    });
+    res.json({
+      ...returnInvoice,
+      isOwed: true,
+      folio: folioMap[returnInvoice.id] || 1,
+      client: returnInvoice.client || returnInvoice.clientName || client,
+      nit: returnInvoice.nit || "",
+      phone: returnInvoice.phone || returnInvoice.customerPhone || phone || "",
+      address: returnInvoice.address || returnInvoice.deliveryAddress || address || ""
+    });
   });
 }));
 app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => {
@@ -7989,12 +9871,31 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   const { data: invoices } = await localDb.from("invoices").select("*").eq("id", id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
+  if (!isInvoiceOwnerOrAdmin(req.user, oldInvoice)) {
+    return res.status(403).json({ error: "No autorizado para editar esta factura" });
+  }
   if (oldInvoice.status === "cancelled" || oldInvoice.status === "rejected") {
     return res.status(400).json({ error: "Factura anulada, no se puede editar." });
+  }
+  const docFelFull = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelFull && docFelFull.estado === "certificado" && docFelFull.numero_autorizacion) {
+    return res.status(409).json({
+      error: `Esta venta ya est\xE1 CERTIFICADA ante la SAT (DTE Serie: ${docFelFull.serie}, No: ${docFelFull.numero}). Por seguridad fiscal y control contable no puede ser modificada. Si requieres corregirla, debes anular formalmente el DTE ante la SAT en el panel FEL.`,
+      requiereAnulacionFel: true,
+      serie: docFelFull.serie,
+      numero: docFelFull.numero
+    });
   }
   let finalNotes = notes || oldInvoice.notes || "";
   if (sellerSignature) {
     finalNotes = updateTagInNotes(finalNotes, "SELLER_SIG", sellerSignature);
+  }
+  const oldQtyByKey = {};
+  for (const old of oldInvoice.items || []) {
+    const oldDeducted = getEffectiveDeductedQty(old);
+    if (oldDeducted <= 0 || !old.productId) continue;
+    const key = old.variantId ? `${old.productId}::${old.variantId}` : String(old.productId);
+    oldQtyByKey[key] = (oldQtyByKey[key] || 0) + oldDeducted;
   }
   let total = 0;
   let needsAuth = false;
@@ -8005,16 +9906,26 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
       prod = {
         id: item.productId,
         name: "COSTO DE ENVIO",
-        price: item.price !== void 0 ? parseFloat(item.price) : 26,
+        category: "",
+        price: item.price !== void 0 ? parseFloat(item.price) : 29.5,
         stock: 999999,
         is_external: true,
         variants: []
       };
     } else {
-      const { data: products } = await localDb.from("products").select("stock, price, name, is_external, variants").eq("id", item.productId);
+      const { data: products } = await localDb.from("products").select("stock, price, name, category, is_external, variants").eq("id", item.productId);
       prod = products?.[0];
     }
     if (!prod) return res.status(400).json({ error: `Producto ${item.productName || item.productId} no encontrado o fue eliminado. No se pudo guardar.` });
+    if (!prod.is_external && req.user?.role !== "admin" && !item.isOfferApplied && !item.isAuthorized) {
+      const reqPrice = item.price !== void 0 ? parseFloat(item.price) : parseFloat(prod.price || 0);
+      const baseCatalogPrice = parseFloat(prod.price || 0);
+      if (reqPrice < baseCatalogPrice - 1e-3) {
+        return res.status(403).json({
+          error: `No autorizado: el vendedor no puede vender "${prod.name}" por debajo de su precio base (Q${baseCatalogPrice.toFixed(2)}).`
+        });
+      }
+    }
     let variantsToUpdate = prod.variants ? [...prod.variants] : [];
     let variantObj = null;
     let currentStock = parseFloat(prod.stock || 0);
@@ -8027,11 +9938,18 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
         }
       }
     }
-    let isStockAlert = !prod.is_external && currentStock < item.quantity && !doesNotNeedStock(prod);
-    if (!item.isAuthorized && (item.price < prod.price || isStockAlert)) needsAuth = true;
+    const isAdminEditor = req.user?.role === "admin";
+    const itemKey = item.variantId ? `${item.productId}::${item.variantId}` : String(item.productId);
+    const prevQtyOnInvoice = oldQtyByKey[itemKey] || 0;
+    const addedQty = Math.max(0, parseFloat(item.quantity || 0) - prevQtyOnInvoice);
+    let isStockAlert = !isAdminEditor && !prod.is_external && currentStock < addedQty && !isExemptFromStockBlock(prod, item);
+    const isItemPriceLower = !isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && parseFloat(item.price) < parseFloat(prod.price || 0) - 1e-3;
+    if (!isAdminEditor && !item.isAuthorized && !item.isOfferApplied && !item.isBonus && (isItemPriceLower || isStockAlert)) needsAuth = true;
     total += item.price * item.quantity;
     formattedItems.push({
       ...item,
+      isAuthorized: isAdminEditor ? true : Boolean(item.isAuthorized),
+      isPriceAlert: isAdminEditor ? false : isItemPriceLower,
       isStockAlert,
       productName: prod.name,
       originalPrice: prod.price,
@@ -8039,12 +9957,14 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
     });
   }
   const netStockChanges = {};
-  for (const old of oldInvoice.items) {
+  for (const old of oldInvoice.items || []) {
+    const oldDeducted = getEffectiveDeductedQty(old);
+    if (oldDeducted <= 0) continue;
     if (!netStockChanges[old.productId]) netStockChanges[old.productId] = { total: 0, variants: {} };
     if (old.variantId) {
-      netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + parseFloat(old.quantity);
+      netStockChanges[old.productId].variants[old.variantId] = (netStockChanges[old.productId].variants[old.variantId] || 0) + oldDeducted;
     } else {
-      netStockChanges[old.productId].total += parseFloat(old.quantity);
+      netStockChanges[old.productId].total += oldDeducted;
     }
   }
   for (const newItem of items) {
@@ -8059,21 +9979,37 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req, res) => 
   const releaseEditStockLocks = await acquireStockLocks(Object.keys(netStockChanges));
   try {
     for (const [prodId, changes] of Object.entries(netStockChanges)) {
-      const { data: pData } = await localDb.from("products").select("stock, is_external, variants").eq("id", prodId);
+      const { data: pData } = await localDb.from("products").select("stock, name, category, is_external, variants").eq("id", prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
+      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
+      const isExemptProd = isExemptFromStockBlock(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
         if (netDiff === 0) continue;
         const vIdx = varsToUpdate.findIndex((v) => v.id === varId);
         if (vIdx !== -1) {
-          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: parseFloat(varsToUpdate[vIdx].stock || 0) + netDiff };
+          const curVarStock = parseFloat(varsToUpdate[vIdx].stock || 0);
+          const rawVarStock = curVarStock + netDiff;
+          if (netDiff < 0 && rawVarStock < 0 && !isSpecialProd && !isExemptProd) {
+            return res.status(400).json({
+              error: `Stock insuficiente para agregar ${Math.abs(netDiff)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curVarStock}).`
+            });
+          }
+          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
         await localDb.from("products").update({ variants: varsToUpdate }).eq("id", prodId);
       } else if (changes.total !== 0) {
-        await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + changes.total }).eq("id", prodId);
+        const curProdStock = parseFloat(p.stock || 0);
+        const rawStock = curProdStock + changes.total;
+        if (changes.total < 0 && rawStock < 0 && !isSpecialProd && !isExemptProd) {
+          return res.status(400).json({
+            error: `Stock insuficiente para agregar ${Math.abs(changes.total)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curProdStock}).`
+          });
+        }
+        await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq("id", prodId);
       }
     }
   } finally {
@@ -8175,6 +10111,18 @@ app.put("/api/invoices/:id/customer", requireAuth, asyncHandler(async (req, res)
   const { data: invoices } = await localDb.from("invoices").select("*").eq("id", id);
   if (!invoices || invoices.length === 0) return res.status(404).json({ error: "No encontrada" });
   const oldInvoice = invoices[0];
+  if (!isInvoiceOwnerOrAdmin(req.user, oldInvoice)) {
+    return res.status(403).json({ error: "No autorizado para editar esta factura" });
+  }
+  const docFelCustomer = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelCustomer && docFelCustomer.estado === "certificado" && docFelCustomer.numero_autorizacion) {
+    return res.status(409).json({
+      error: `Esta factura est\xE1 CERTIFICADA ante la SAT (DTE Serie: ${docFelCustomer.serie}, No: ${docFelCustomer.numero}). No se pueden modificar los datos fiscales de un documento legalmente emitido. Para correcciones, anula el DTE en SAT.`,
+      requiereAnulacionFel: true,
+      serie: docFelCustomer.serie,
+      numero: docFelCustomer.numero
+    });
+  }
   let baseNotesParts = (oldInvoice.notes || "").split("|||");
   let effectiveNit = nit !== void 0 ? String(nit).trim() : baseNotesParts[0].trim();
   let otherFlags = baseNotesParts.slice(1).join("|||");
@@ -8264,6 +10212,15 @@ app.put("/api/invoices/:id/price", requireAuth, requireAdmin, asyncHandler(async
   const invoice = invoices[0];
   if (invoice.status === "paid" || invoice.status === "cancelled") {
     return res.status(400).json({ error: "Cannot edit this invoice." });
+  }
+  const docFelPrice = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFelPrice && docFelPrice.estado === "certificado" && docFelPrice.numero_autorizacion) {
+    return res.status(409).json({
+      error: `No se pueden cambiar los precios de una factura CERTIFICADA ante la SAT (DTE Serie: ${docFelPrice.serie}, No: ${docFelPrice.numero}).`,
+      requiereAnulacionFel: true,
+      serie: docFelPrice.serie,
+      numero: docFelPrice.numero
+    });
   }
   if (invoice.items[itemIndex]) {
     invoice.items[itemIndex].price = newPrice;
@@ -8356,8 +10313,15 @@ app.put("/api/invoices/:id/archive", requireAuth, asyncHandler(async (req, res) 
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
-  if (req.user.role !== "admin" && invoice.sellerId !== req.user.email) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No autorizado para archivar esta factura" });
+  }
+  const docFel = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFel && docFel.estado === "certificado" && docFel.numero_autorizacion) {
+    return res.status(409).json({
+      error: 'Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. Para anularla o archivarla, usa "Anular documento ante SAT" en el panel FEL.',
+      requiereAnulacionFel: true
+    });
   }
   await localDb.from("invoices").update({ is_archived: true }).eq("id", id);
   invalidateCache("folio_map");
@@ -8370,38 +10334,38 @@ app.delete("/api/invoices/:id", requireAuth, asyncHandler(async (req, res) => {
   if (!invoice) {
     return res.status(404).json({ error: "La factura no existe" });
   }
-  if (req.user.role !== "admin" && invoice.sellerId !== req.user.email) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No autorizado para eliminar esta factura" });
   }
+  const docFel = await obtenerDocumentoPorFactura(localDb, id);
+  if (docFel && docFel.estado === "certificado" && docFel.numero_autorizacion) {
+    return res.status(409).json({
+      error: 'Esta factura tiene un documento electronico (DTE) CERTIFICADO ante SAT. Para anularla, usa "Anular documento ante SAT" en el panel FEL: ese proceso anula el DTE ante la SAT y ademas cancela la factura y restaura el stock.',
+      requiereAnulacionFel: true
+    });
+  }
   if (invoice.status !== "cancelled" && invoice.status !== "rejected") {
-    for (const item of invoice.items) {
-      const { data: prods } = await localDb.from("products").select("stock, is_external, variants").eq("id", item.productId);
-      const product = prods?.[0];
-      if (product && !product.is_external) {
-        let variantsToUpdate = product.variants ? [...product.variants] : [];
-        let variantObj = null;
-        if (item.variantId) {
-          const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-          if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-          }
-        }
-        if (variantObj && variantObj.stock !== void 0) {
-          const varIndex = variantsToUpdate.findIndex((v) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantObj, stock: parseFloat(variantObj.stock || 0) + parseFloat(item.quantity) };
-          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq("id", item.productId);
-          if (vErr) console.error(`Error restoring variant stock for product ${item.productId}:`, vErr.message);
-        } else {
-          const { error: sErr } = await localDb.from("products").update({ stock: parseFloat(product.stock || 0) + parseFloat(item.quantity) }).eq("id", item.productId);
-          if (sErr) console.error(`Error restoring stock for product ${item.productId}:`, sErr.message);
-        }
-      }
-    }
+    await restaurarStockDeFactura(invoice);
   }
   await localDb.from("invoices").delete().eq("id", id);
   invalidateCache("folio_map");
   invalidateCache("products");
   invalidateCache("invoices");
+  recordAuditLog({
+    action: "SALE_DELETED",
+    category: "ventas",
+    entity_type: "invoice",
+    entity_id: id,
+    entity_name: `Venta #${id} - ${invoice.client || "Cliente"}`,
+    description: `Factura/Venta #${id} eliminada por ${req.user?.name || req.user?.email} (Stock de productos restaurado)`,
+    previous_data: { id, client: invoice.client, total: invoice.total, items: invoice.items },
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => {
+  });
   res.json({ success: true });
 }));
 app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
@@ -8514,6 +10478,16 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
     return !hasDirectFolio && !hasNoteFolio;
   });
   const folioMap = needsFolioMap ? await getFolioMap() : {};
+  const certifiedFelIds = /* @__PURE__ */ new Set();
+  try {
+    const { data: certRows } = await localDb.from("fel_documentos").select("invoice_id").eq("estado", "certificado");
+    if (certRows && Array.isArray(certRows)) {
+      certRows.forEach((r) => {
+        if (r.invoice_id) certifiedFelIds.add(String(r.invoice_id));
+      });
+    }
+  } catch (e) {
+  }
   const parsedInvoices = invoices.map((inv) => {
     const mappedInv = { ...inv };
     const rawNotes = mappedInv.notes || "";
@@ -8596,7 +10570,8 @@ app.get("/api/invoices", requireAuth, asyncHandler(async (req, res) => {
       totalAmount: Number(mappedInv.totalAmount || 0),
       paidAmount: Number(mappedInv.paidAmount || 0),
       total: Number(mappedInv.total || mappedInv.totalAmount || 0),
-      trackingNumber: mappedInv.trackingNumber
+      trackingNumber: mappedInv.trackingNumber,
+      isFelCertified: certifiedFelIds.has(String(mappedInv.id))
     };
   });
   let filteredInvoices = parsedInvoices;
@@ -8806,9 +10781,9 @@ app.post("/api/invoices/:id/auth", requireAuth, requireAdmin, asyncHandler(async
         return res.status(400).json({ error: "Fallo al actualizar estado de autorizaci\xF3n: " + updateErr.message });
       }
       if (status === "rejected") {
-        await createNotification("sale_rejected", "Venta Rechazada", `La venta al cliente ${data.clientName || "desconocido"} ha sido rechazada por el administrador.`, { invoiceId: id });
+        await createNotification("sale_rejected", "Venta Rechazada", `La venta al cliente ${data.clientName || "desconocido"} ha sido rechazada por el administrador.`, { invoiceId: id, sellerId: data.sellerId });
       } else if (status === "authorized") {
-        await createNotification("sale_authorized", "Venta Autorizada", `La venta al cliente ${data.clientName || "desconocido"} ha sido autorizada por el administrador.`, { invoiceId: id });
+        await createNotification("sale_authorized", "Venta Autorizada", `La venta al cliente ${data.clientName || "desconocido"} ha sido autorizada por el administrador.`, { invoiceId: id, sellerId: data.sellerId });
       }
       try {
         const sellerId = data.sellerId;
@@ -8918,7 +10893,7 @@ app.post("/api/invoices/:id/payments", requireAuth, upload.single("receipt"), as
   };
   addLocalPayment(payment);
   const clientNamePay = invoice.clientName || invoice.client || "Cliente";
-  await createNotification("payment_received", "Pago Recibido", `Se registr\xF3 un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId });
+  await createNotification("payment_received", "Pago Recibido", `Se registr\xF3 un abono de Q${numAmount.toFixed(2)} del cliente ${clientNamePay}.`, { invoiceId: id, paymentId, sellerId: invoice.sellerId, clientName: clientNamePay });
   try {
     await safeInsertPayment(payment);
   } catch (e) {
@@ -9176,6 +11151,7 @@ app.post("/api/suppliers", requireAuth, requireAdmin, asyncHandler(async (req, r
   const newSupplier = { ...req.body, id: `sup_${Date.now()}` };
   s.push(newSupplier);
   await writeSuppliers(s);
+  invalidateCache("suppliers");
   res.json(newSupplier);
 }));
 app.put("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -9184,6 +11160,7 @@ app.put("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (req
   if (idx !== -1) {
     s[idx] = { ...s[idx], ...req.body };
     await writeSuppliers(s);
+    invalidateCache("suppliers");
     res.json(s[idx]);
   } else {
     res.status(404).json({ error: "Proveedor no encontrado" });
@@ -9193,6 +11170,7 @@ app.delete("/api/suppliers/:id", requireAuth, requireAdmin, asyncHandler(async (
   const s = await readSuppliers();
   const filtered = s.filter((x) => x.id !== req.params.id);
   await writeSuppliers(filtered);
+  invalidateCache("suppliers");
   res.json({ success: true });
 }));
 app.get("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -9221,6 +11199,7 @@ app.post("/api/business-debts", requireAuth, requireAdmin, asyncHandler(async (r
   };
   d.push(newDebt);
   await writeDebts(d);
+  invalidateCache("business_debts");
   res.json(newDebt);
 }));
 app.put("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -9229,6 +11208,7 @@ app.put("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(async
   if (idx !== -1) {
     d[idx] = { ...d[idx], ...req.body };
     await writeDebts(d);
+    invalidateCache("business_debts");
     res.json(d[idx]);
   } else {
     res.status(404).json({ error: "Deuda del negocio no encontrada" });
@@ -9238,9 +11218,10 @@ app.delete("/api/business-debts/:id", requireAuth, requireAdmin, asyncHandler(as
   const d = await readDebts();
   const filtered = d.filter((x) => x.id !== req.params.id);
   await writeDebts(filtered);
+  invalidateCache("business_debts");
   res.json({ success: true });
 }));
-app.post("/api/business-debts/upload-receipt", requireAuth, requireAdmin, upload.single("receipt"), asyncHandler(async (req, res) => {
+app.post("/api/business-debts/upload-receipt", requireAuth, upload.single("receipt"), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No se proporcion\xF3 ning\xFAn archivo de boleta" });
   try {
     const fileName = `receipt-${Date.now()}.jpg`;
@@ -9323,7 +11304,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     };
     let response = null;
     let lastError = null;
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
     for (const modelName of modelsToTry) {
       let attempts = 0;
       const maxAttempts = 2;
@@ -9462,7 +11443,7 @@ Genera la respuesta estrictamente en formato JSON utilizando el siguiente esquem
     };
     let response = null;
     let lastError = null;
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
     for (const modelName of modelsToTry) {
       let attempts = 0;
       const maxAttempts = 2;
@@ -9955,9 +11936,10 @@ async function popPendingBoleta(phone) {
         }
       }
     }
+    return null;
   } catch (e) {
+    return null;
   }
-  return null;
 }
 async function savePendingFolio(phone, data) {
   try {
@@ -10053,7 +12035,8 @@ app.post("/api/bot/abono-folio", asyncHandler(async (req, res) => {
   const { folio, amount, receiptBase64, noBoleta, banco, sellerPhone, sellerName, notes, cliente } = req.body;
   let cleanFolio = String(folio || "").replace(/^#/, "").trim();
   const cleanPhone = String(sellerPhone || "").replace(/\D/g, "") || "default";
-  const numAmount = parseFloat(amount || 0);
+  let numAmount = parseFloat(amount || 0);
+  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
   let receiptUrl = null;
   if (receiptBase64 && String(receiptBase64).trim() !== "") {
     try {
@@ -10167,6 +12150,7 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
   }
   const pending = await waitForPendingBoleta(cleanPhone, 6e3);
   let numAmount = parseFloat(amount || 0);
+  if (isNaN(numAmount) || numAmount < 0) numAmount = 0;
   let receiptUrl = null;
   let boletaNotes = notes ? decodeURIComponent(notes) : "";
   if (pending) {
@@ -10234,6 +12218,109 @@ app.all(["/api/bot/folio/:folio", "/api/bot/folio"], asyncHandler(async (req, re
     remainingBalance: remaining,
     isFullyPaid,
     receiptUrl
+  });
+}));
+app.post("/api/bot/send-order-document", asyncHandler(async (req, res) => {
+  const { invoice, pdfBase64, fileName, caption, recipientPhone, sellerPhone, isTest } = req.body || {};
+  if (!pdfBase64) {
+    return res.status(400).json({ ok: false, error: "pdfBase64 es requerido" });
+  }
+  let dbSeller = null;
+  const rawSellerVal = String(invoice?.sellerId || invoice?.sellerCode || req.user?.sellerCode || req.user?.id || "").trim();
+  if (rawSellerVal) {
+    try {
+      if (pgPool) {
+        const uRes = await pgPool.query(
+          `SELECT id, name, email, phone, "sellerCode" FROM users 
+           WHERE id = $1 OR "sellerCode" = $1 OR email = $1 OR name ILIKE $1 LIMIT 1`,
+          [rawSellerVal]
+        );
+        if (uRes.rows[0]) dbSeller = uRes.rows[0];
+      }
+    } catch (e) {
+    }
+  }
+  const sellerCode = String(invoice?.sellerCode || dbSeller?.sellerCode || req.user?.sellerCode || "").trim();
+  const sellerName = String(invoice?.sellerName || dbSeller?.name || req.user?.name || "").trim();
+  const sellerId = String(invoice?.sellerId || dbSeller?.id || req.user?.id || "").trim();
+  const sellerEmail = String(req.body?.sellerEmail || dbSeller?.email || req.user?.email || "").trim().toLowerCase();
+  const isHerbertArgueta = sellerCode === "1521" || sellerId === "1521" || sellerId === "u_1780870803300" || sellerName.toLowerCase().includes("herbert") || sellerEmail === "gruasytransportesali@gmail.com";
+  const isTestUser = Boolean(isTest || req.user?.email === "seseffff942@gmail.com");
+  if (!isHerbertArgueta && !isTestUser) {
+    console.log(`[Bot Despacho Pedido] Omitido: El despacho autom\xE1tico est\xE1 habilitado \xFAnicamente para Herbert Argueta (c\xF3digo 1521). Vendedor recibido: "${sellerName || sellerId || sellerCode}"`);
+    return res.json({
+      ok: true,
+      skipped: true,
+      message: "Despacho omitido: activo \xFAnicamente para Herbert Argueta (c\xF3digo 1521)"
+    });
+  }
+  let targetPhone = "";
+  if (isHerbertArgueta) {
+    targetPhone = dbSeller?.phone || sellerPhone || "50241323037";
+  } else if (isTestUser) {
+    targetPhone = "50248234048";
+  } else {
+    targetPhone = recipientPhone || sellerPhone || "50241323037";
+  }
+  let cleanPhone = String(targetPhone).replace(/\D/g, "");
+  if (cleanPhone.length === 8) cleanPhone = "502" + cleanPhone;
+  if (!cleanPhone || cleanPhone.length < 8) cleanPhone = "50241323037";
+  const docName = fileName || `pedido-${invoice?.folio || invoice?.id || Date.now()}.pdf`;
+  const defaultCaption = caption || `\u{1F4C4} *NUEVO PEDIDO REGISTRADO - AGRICOVET* \u{1F1EC}\u{1F1F9}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F464} *Cliente:* ${invoice?.client || invoice?.clientName || "C/F"}
+\u{1F516} *Folio:* #${invoice?.folio || invoice?.id || "S/N"}
+\u{1F4B0} *Total:* Q. ${Number(invoice?.totalAmount ?? invoice?.total ?? 0).toFixed(2)}
+\u{1F4BC} *Vendedor:* ${sellerName || "Herbert Argueta (1521)"}
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CE} _Adjunto documento PDF con el detalle completo del pedido._`;
+  console.log(`[Bot Despacho Pedido] [Herbert Argueta: ${isHerbertArgueta}] Enviando ${docName} a ${cleanPhone}...`);
+  let n8nSuccess = false;
+  const n8nEndpoints = [
+    "http://localhost:5678/webhook/pedidos-documentos",
+    "http://n8n:5678/webhook/pedidos-documentos",
+    "http://185.166.39.49:5678/webhook/pedidos-documentos"
+  ];
+  for (const n8nUrl of n8nEndpoints) {
+    try {
+      const n8nRes = await fetch(n8nUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: cleanPhone,
+          media: pdfBase64,
+          fileName: docName,
+          caption: defaultCaption,
+          invoice
+        })
+      });
+      if (n8nRes.ok) {
+        console.log(`[Bot Despacho Pedido] \u2705 Documento recibido y procesado por n8n webhook (${n8nUrl})`);
+        n8nSuccess = true;
+        break;
+      }
+    } catch (n8nErr) {
+    }
+  }
+  let evoResult = { ok: n8nSuccess };
+  if (!n8nSuccess) {
+    console.log(`[Bot Despacho Pedido] n8n no respondi\xF3, utilizando fallback directo a Evolution API...`);
+    evoResult = await sendWhatsAppEvolutionMedia({
+      phone: cleanPhone,
+      mediaBase64: pdfBase64,
+      fileName: docName,
+      caption: defaultCaption,
+      mimeType: "application/pdf",
+      mediaType: "document"
+    });
+  }
+  return res.json({
+    ok: n8nSuccess || evoResult.ok,
+    targetPhone: cleanPhone,
+    sellerCode,
+    isHerbertArgueta,
+    n8nStatus: n8nSuccess ? "sent" : "failed",
+    evoStatus: evoResult.status || (n8nSuccess ? 200 : evoResult.ok ? 201 : 500)
   });
 }));
 app.get("/api/whatsapp/webhook", (req, res) => {
@@ -10326,36 +12413,52 @@ ${productsContext}`;
         required: ["product_name"]
       }
     };
-    const chatObj = client.chats.create({
-      model: "gemini-3.1-flash-lite",
-      config: {
-        systemInstruction,
-        tools: [{ functionDeclarations: [checkInventoryQuantity] }]
-      },
-      history: formattedHistory
-    });
-    let response = await chatObj.sendMessage({ message });
-    if (response.functionCalls && response.functionCalls.length > 0) {
-      const call = response.functionCalls[0];
-      if (call.name === "check_inventory_quantity") {
-        const product_name = call.args.product_name;
-        const { data } = await localDb.from("products").select("*").ilike("name", `%${product_name}%`).limit(10);
-        let dbResultMsg = "";
-        if (data && data.length > 0) {
-          dbResultMsg = data.map((p) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join("; ");
-        } else {
-          dbResultMsg = "No se encontr\xF3 ning\xFAn producto con ese nombre.";
-        }
-        response = await chatObj.sendMessage({
-          message: [{
-            functionResponse: {
-              id: call.id,
-              name: call.name,
-              response: { result: dbResultMsg }
-            }
-          }]
+    const chatModelsToTry = ["gemini-4-argon", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
+    let response = null;
+    let lastChatErr = null;
+    for (const modelName of chatModelsToTry) {
+      try {
+        const chatObj = client.chats.create({
+          model: modelName,
+          config: {
+            systemInstruction,
+            tools: [{ functionDeclarations: [checkInventoryQuantity] }]
+          },
+          history: formattedHistory
         });
+        response = await chatObj.sendMessage({ message });
+        if (response.functionCalls && response.functionCalls.length > 0) {
+          const call = response.functionCalls[0];
+          if (call.name === "check_inventory_quantity") {
+            const product_name = call.args.product_name;
+            const { data } = await localDb.from("products").select("*").ilike("name", `%${product_name}%`).limit(10);
+            let dbResultMsg = "";
+            if (data && data.length > 0) {
+              dbResultMsg = data.map((p) => `- ${p.name}: ${p.stock || 0} unidades en stock (Q${p.price})`).join("; ");
+            } else {
+              dbResultMsg = "No se encontr\xF3 ning\xFAn producto con ese nombre.";
+            }
+            response = await chatObj.sendMessage({
+              message: [{
+                functionResponse: {
+                  id: call.id,
+                  name: call.name,
+                  response: { result: dbResultMsg }
+                }
+              }]
+            });
+          }
+        }
+        if (response && response.text) {
+          break;
+        }
+      } catch (chatErr) {
+        lastChatErr = chatErr;
+        console.warn(`Gemini chat with model ${modelName} failed: ${chatErr?.message}. Trying fallback...`);
       }
+    }
+    if (!response) {
+      throw lastChatErr || new Error("No se pudo obtener respuesta de Gemini.");
     }
     res.json({ reply: response.text });
   } catch (err) {
@@ -10474,7 +12577,7 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req, res) => {
   const { data: facturas } = await localDb.from("invoices").select("*").eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-  if (req.user.role !== "admin" && invoice.sellerId !== req.user.id) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
   const documento = await obtenerDocumentoPorFactura(localDb, req.params.id);
@@ -10503,10 +12606,11 @@ app.get("/api/invoices/:id/fel", requireAuth, asyncHandler(async (req, res) => {
 app.get("/api/fel/documentos", requireAuth, asyncHandler(async (req, res) => {
   let documentos = await listarDocumentos(localDb, {
     estado: req.query.estado,
-    limite: Number(req.query.limite) || 200
+    limite: req.query.limite ? Number(req.query.limite) : 1e4
   });
   if (req.user.role !== "admin") {
-    const { data: propias } = await localDb.from("invoices").select("id").eq("sellerId", req.user.id);
+    const sellerKeys = [req.user.email, req.user.id, req.user.sellerCode, req.user.name].filter(Boolean);
+    const { data: propias } = await localDb.from("invoices").select("id").in("sellerId", sellerKeys);
     const permitidas = new Set((propias || []).map((f) => f.id));
     documentos = documentos.filter((d) => permitidas.has(d.invoice_id));
   }
@@ -10557,7 +12661,7 @@ app.get("/api/invoices/:id/fel/xml", requireAuth, asyncHandler(async (req, res) 
   const { data: facturas } = await localDb.from("invoices").select('id, "sellerId"').eq("id", req.params.id);
   const invoice = facturas && facturas[0];
   if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
-  if (req.user.role !== "admin" && invoice.sellerId !== req.user.id) {
+  if (!isInvoiceOwnerOrAdmin(req.user, invoice)) {
     return res.status(403).json({ error: "No tienes acceso a esta factura" });
   }
   const doc = await obtenerDocumentoPorFactura(localDb, req.params.id);
@@ -10669,12 +12773,14 @@ app.post("/api/recibos-caja", requireAuth, asyncHandler(async (req, res) => {
     const { data, error } = await localDb.from("recibos_caja").insert([newRecibo]).select();
     if (!error && data && data[0]) {
       saveLocalReciboCaja(data[0]);
+      invalidateCache("recibos_caja");
       return res.status(201).json(data[0]);
     }
   } catch (e) {
     console.warn("PostgreSQL Local insert recibo_caja fallback to local file:", e);
   }
   saveLocalReciboCaja(newRecibo);
+  invalidateCache("recibos_caja");
   res.status(201).json(newRecibo);
 }));
 app.delete("/api/recibos-caja/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
@@ -10692,6 +12798,7 @@ app.delete("/api/recibos-caja/:id", requireAuth, requireAdmin, asyncHandler(asyn
     return res.status(404).json({ error: "Recibo no encontrado" });
   }
   console.log(`[RECIBO ELIMINADO] ID: ${id} marcado como [ELIMINADO] en PostgreSQL Local`);
+  invalidateCache("recibos_caja");
   res.json({ success: true, message: "Recibo eliminado correctamente" });
 }));
 app.get("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
@@ -10755,6 +12862,7 @@ app.post("/api/quotations", requireAuth, asyncHandler(async (req, res) => {
   if (error) {
     throw new Error(error.message);
   }
+  invalidateCache("quotations");
   res.status(201).json(data || newQuote);
 }));
 app.put("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
@@ -10762,12 +12870,14 @@ app.put("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
   const updates = req.body;
   const { data, error } = await localDb.from("quotations").update(updates).eq("id", id).select().single();
   if (error) throw new Error(error.message);
+  invalidateCache("quotations");
   res.json(data);
 }));
 app.delete("/api/quotations/:id", requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { error } = await localDb.from("quotations").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  invalidateCache("quotations");
   res.json({ success: true });
 }));
 app.post("/api/quotations/:id/convert-to-sale", requireAuth, asyncHandler(async (req, res) => {
@@ -10778,6 +12888,7 @@ app.post("/api/quotations/:id/convert-to-sale", requireAuth, asyncHandler(async 
     status: "convertida",
     updated_at: (/* @__PURE__ */ new Date()).toISOString()
   }).eq("id", id);
+  invalidateCache("quotations");
   res.json({ success: true, quotation: quote });
 }));
 app.get("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) => {
@@ -10806,7 +12917,10 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
   if (!invoice_id) {
     return res.status(400).json({ error: "invoice_id es requerido" });
   }
+  const isValidUuid = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(val || "").trim());
+  const effectiveId = req.body?.id && isValidUuid(req.body.id) ? req.body.id : import_crypto.default.randomUUID();
   const payload = {
+    id: effectiveId,
     invoice_id: String(invoice_id),
     folio: String(folio || ""),
     receiver_name: receiver_name || null,
@@ -10822,10 +12936,26 @@ app.post("/api/recibos-conformes", requireAuth, asyncHandler(async (req, res) =>
     pdf_url: pdf_url || null,
     created_by: created_by || req.user?.name || null
   };
+  try {
+    const { data: existing } = await localDb.from("recibos_conformes").select("id").eq("invoice_id", String(invoice_id)).limit(1);
+    if (existing && Array.isArray(existing) && existing.length > 0) {
+      const existingId = existing[0].id;
+      const updatePayload = { ...payload };
+      delete updatePayload.id;
+      const { data: updated, error: updateErr } = await localDb.from("recibos_conformes").update(updatePayload).eq("id", existingId).select().single();
+      if (!updateErr && updated) {
+        invalidateCache("recibos_conformes");
+        return res.json(updated);
+      }
+    }
+  } catch (checkErr) {
+    console.warn("Check existing recibo_conforme:", checkErr);
+  }
   const { data, error } = await localDb.from("recibos_conformes").insert([payload]).select().single();
   if (error) {
     return res.status(500).json({ error: error.message || "Error al guardar Recibo Conforme" });
   }
+  invalidateCache("recibos_conformes");
   res.json(data);
 }));
 var tempDownloadStore = /* @__PURE__ */ new Map();
@@ -10837,7 +12967,7 @@ setInterval(() => {
     }
   }
 }, 18e4);
-app.post("/api/download-temp", import_express.default.json({ limit: "50mb" }), (req, res) => {
+app.post("/api/download-temp", import_express.default.json({ limit: "20mb" }), (req, res) => {
   try {
     const { filename, mimeType, base64 } = req.body;
     if (!filename || !base64) {
@@ -10847,10 +12977,16 @@ app.post("/api/download-temp", import_express.default.json({ limit: "50mb" }), (
     const rawBase64 = base64.includes(",") ? base64.substring(base64.indexOf(",") + 1) : base64;
     const buffer = Buffer.from(rawBase64, "base64");
     const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, "_");
+    const rawMime = String(mimeType || "application/pdf").toLowerCase().trim();
+    const safeMimeType = rawMime.includes("html") || rawMime.includes("javascript") || rawMime.includes("script") ? "application/octet-stream" : mimeType || "application/pdf";
+    if (tempDownloadStore.size >= 25) {
+      const oldestKey = tempDownloadStore.keys().next().value;
+      if (oldestKey) tempDownloadStore.delete(oldestKey);
+    }
     tempDownloadStore.set(token, {
       buffer,
       filename: safeFilename,
-      mimeType: mimeType || "application/pdf",
+      mimeType: safeMimeType,
       expires: Date.now() + 18e4
       // 3 minutos de vigencia
     });
@@ -10867,6 +13003,7 @@ app.get("/api/download-temp/:token/:filename?", (req, res) => {
     return res.status(404).send("Enlace de descarga expirado. Por favor, vuelve a presionar Descargar en la aplicaci\xF3n.");
   }
   res.setHeader("Content-Type", item.mimeType);
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Disposition", `attachment; filename="${item.filename}"`);
   res.setHeader("Content-Length", item.buffer.length.toString());
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -10920,7 +13057,7 @@ app.get(["/agricovet-live.apk", "/agricovet.apk", "/*.apk"], (req, res) => {
 var server_default = app;
 async function startServer() {
   console.log("Starting server script...");
-  const PORT = Number(process.env.PORT) || 3e3;
+  const PORT = Number(process.env.PORT) || 2300;
   console.log("Configured PORT is:", PORT, "from env:", process.env.PORT);
   if (process.env.NODE_ENV !== "production") {
     console.log("Initializing Vite middleware server...");
@@ -10946,8 +13083,8 @@ async function startServer() {
     });
   }
   if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", async () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+    httpServer.listen(PORT, "0.0.0.0", async () => {
+      console.log(`Server running on http://localhost:${PORT} (WebSockets & Realtime active)`);
       try {
         try {
           await localDb.rpc("exec_sql", { sql: "ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL;" });
@@ -10998,7 +13135,7 @@ async function startServer() {
         } catch (e) {
           console.warn("Users select failed in migration:", e?.message || e);
         }
-        const missingUserCodes = usersData.filter((u) => !u.sellerCode || u.sellerCode.trim() === "");
+        const missingUserCodes = usersData.filter((u) => !isSystemRecord(u) && (!u.sellerCode || u.sellerCode.trim() === ""));
         if (missingUserCodes.length > 0) {
           console.log(`Migrating ${missingUserCodes.length} users to have sellerCodes...`);
           const usedUserCodes = new Set(usersData.map((u) => u.sellerCode).filter(Boolean));
@@ -11036,10 +13173,14 @@ if (isDirectRun) {
 0 && (module.exports = {
   activeDatabaseMode,
   app,
+  emitRealtimeSync,
+  enqueueSaleTask,
   fetchGlobalDbModeFromDb,
   getDiaGuatemala,
   getGlobalDbMode,
   getGlobalMaintenanceMode,
+  httpServer,
+  io,
   isClientOfSeller,
   isDbActive,
   isNeonActive,
@@ -11049,6 +13190,7 @@ if (isDirectRun) {
   pgPool,
   queryDb,
   queryNeon,
+  recordAuditLog,
   setGlobalDbMode,
   setGlobalMaintenanceMode
 });

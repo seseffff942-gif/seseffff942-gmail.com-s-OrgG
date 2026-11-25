@@ -1229,8 +1229,11 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
       };
       const variantStr = getVariantString(item);
       const subtotalVal = item.total !== undefined && item.total !== null ? Number(item.total) : (Number(item.quantity || 0) * Number(item.price || 0));
+      const cleanProdName = (item.productName || '')
+        .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)')
+        .replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)');
       return '<tr>' +
-        '<td class="col-producto notranslate" translate="no">' + (item.productName || '') + variantStr + '</td>' +
+        '<td class="col-producto notranslate" translate="no">' + cleanProdName + variantStr + '</td>' +
         '<td class="col-cant">' + formatGT(item.quantity || 0) + '</td>' +
         '<td class="col-precio">' + formatGT(item.price || 0) + '</td>' +
         '<td class="col-subtotal">' + formatGT(subtotalVal) + '</td>' +
@@ -1399,7 +1402,10 @@ export function compilePrintTemplate(templateText: string, invoice: any, sellerN
         row = row.replace(/\{\{this\.variantInfo\}\}/g, variantInfo);
         row = row.replace(/\{\{variantInfo\}\}/g, variantInfo);
 
-        let finalProductName = String(item.productName || '').replace(/\*/g, '');
+        let finalProductName = String(item.productName || '')
+          .replace(/\*/g, '')
+          .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)')
+          .replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)');
         if (variantInfo && !loopBody.includes('variantInfo')) {
           finalProductName += `<br/><span style="font-size: 8.5pt; color: #555555; font-weight: normal; display: block; margin-top: 2px;">${variantInfo}</span>`;
         }
@@ -1587,7 +1593,7 @@ export function generateDeliveryLetterHtml(invoice: any, sellerName?: string, op
               <tr>
                 <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #0b4d2c;">${item.quantity}x</td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                  <div style="font-weight: bold; color: #1e293b;">${item.productName}</div>
+                  <div style="font-weight: bold; color: #1e293b;">${(item.productName || '').replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)').replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)')}</div>
                   ${varStr}
                 </td>
               </tr>
@@ -1873,7 +1879,7 @@ export function generateReciboConformeHtml(invoice: any, options: ReciboConforme
       <tr style="border-bottom: 1px solid #e2e8f0; ${idx % 2 === 1 ? 'background-color: #fafbfc;' : ''}">
         <td style="padding: 9px 12px; font-weight: bold; text-align: center; color: #1e293b; font-size: 12px; width: 65px;">${q}</td>
         <td style="padding: 9px 12px; color: #1e293b; font-size: 12px;">
-          <div style="font-weight: 700; color: #0f172a;">${item.productName || 'Producto'}</div>
+          <div style="font-weight: 700; color: #0f172a;">${(item.productName || 'Producto').replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)').replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)')}</div>
           ${varStr}
         </td>
         ${includePrices ? `

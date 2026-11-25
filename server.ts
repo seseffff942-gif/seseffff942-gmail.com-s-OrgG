@@ -224,7 +224,7 @@ export async function setGlobalMaintenanceMode(enabled: boolean): Promise<boolea
       if (typeof emitRealtimeSync === 'function') {
         emitRealtimeSync("maintenance", { maintenance: enabled });
       }
-    } catch (errSync) {}
+    } catch (errSync) { }
   } catch (e: any) {
     console.error("Error guardando maintenance_mode en base de datos:", e.message);
   }
@@ -480,7 +480,7 @@ export function emitRealtimeSync(entity: string, data?: any) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("disconnect", () => {});
+  socket.on("disconnect", () => { });
 });
 app.set("trust proxy", 1);
 app.use(compression());
@@ -545,7 +545,7 @@ app.use(async (req: any, res: any, next: any) => {
         if (decoded?.email?.toLowerCase() === 'seseffff942@gmail.com' || decoded?.id === 'u1b' || decoded?.role === 'admin') {
           return next();
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Bloquear a cualquier otro usuario con 503 Service Unavailable
@@ -1051,7 +1051,7 @@ let salesProcessingQueue: Promise<any> = Promise.resolve();
 
 export function enqueueSaleTask<T>(task: () => Promise<T>): Promise<T> {
   const next = salesProcessingQueue.then(task, task);
-  salesProcessingQueue = next.catch(() => {});
+  salesProcessingQueue = next.catch(() => { });
   return next;
 }
 
@@ -1230,7 +1230,7 @@ export async function recordAuditLog(entry: {
     if (typeof emitRealtimeSync === 'function') {
       emitRealtimeSync("audit_logs", logItem);
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return logItem;
 }
@@ -3254,134 +3254,134 @@ app.post("/api/clients", requireAuth, asyncHandler(async (req: any, res: any) =>
   const effectiveGeotaggedBy = req.user?.name || req.user?.email || '';
 
   if (matchedClient) {
-  console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
+    console.log(`Matching active client found in POST /api/clients: "${matchedClient.name}" (ID: ${matchedClient.id}). Avoiding duplicate.`);
 
-  const updates: any = {};
-  if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
-  if (!matchedClient.phone && phone) updates.phone = phone;
-  if (!matchedClient.address && address) updates.address = address;
-  if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
+    const updates: any = {};
+    if (!matchedClient.nit && nit && String(nit).toUpperCase() !== 'CF') updates.nit = nit;
+    if (!matchedClient.phone && phone) updates.phone = phone;
+    if (!matchedClient.address && address) updates.address = address;
+    if (!matchedClient.companyName && companyToSave) updates.companyName = companyToSave;
 
-  if (latitude !== undefined && longitude !== undefined) {
-    updates.latitude = Number(latitude);
-    updates.longitude = Number(longitude);
-    updates.locationAddress = locationAddress || address || '';
-    updates.geotaggedAt = geotaggedAt || new Date().toISOString();
-    updates.geotaggedBy = effectiveGeotaggedBy;
-  }
-
-  const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
-  if (!currentSeller) updates.sellerId = effectiveSellerId;
-
-  if (Object.keys(updates).length > 0) {
-    updateLocalClient(matchedClient.id, updates);
-    try {
-      await localDb.from("clients").update(updates).eq("id", matchedClient.id);
-    } catch (e) { }
-  }
-
-  return res.json({
-    success: true,
-    client: {
-      ...matchedClient,
-      nit: matchedClient.nit || nit || '',
-      phone: matchedClient.phone || phone || '',
-      address: matchedClient.address || address || '',
-      sellerId: currentSeller || effectiveSellerId,
-      ...(latitude !== undefined && longitude !== undefined ? {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        locationAddress: locationAddress || address || '',
-        geotaggedAt: updates.geotaggedAt,
-        geotaggedBy: effectiveGeotaggedBy
-      } : {})
+    if (latitude !== undefined && longitude !== undefined) {
+      updates.latitude = Number(latitude);
+      updates.longitude = Number(longitude);
+      updates.locationAddress = locationAddress || address || '';
+      updates.geotaggedAt = geotaggedAt || new Date().toISOString();
+      updates.geotaggedBy = effectiveGeotaggedBy;
     }
-  });
-}
 
-// Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
-const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
-if (deletedMatch) {
-  console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
-  removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+    const currentSeller = matchedClient.sellerId || matchedClient.seller_id;
+    if (!currentSeller) updates.sellerId = effectiveSellerId;
 
-  const reactivatedPayload = {
-    name: nameToSave,
-    companyName: companyToSave || deletedMatch.companyName || '',
-    nit: nit || deletedMatch.nit || '',
-    phone: phone || deletedMatch.phone || '',
-    address: address || deletedMatch.address || '',
-    sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
-    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
-    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
-    locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
-    geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
-    geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
-    isDeleted: false,
-    is_deleted: false,
-    isBlocked: false,
-    is_blocked: false
-  };
+    if (Object.keys(updates).length > 0) {
+      updateLocalClient(matchedClient.id, updates);
+      try {
+        await localDb.from("clients").update(updates).eq("id", matchedClient.id);
+      } catch (e) { }
+    }
 
-  updateLocalClient(deletedMatch.id, reactivatedPayload);
+    return res.json({
+      success: true,
+      client: {
+        ...matchedClient,
+        nit: matchedClient.nit || nit || '',
+        phone: matchedClient.phone || phone || '',
+        address: matchedClient.address || address || '',
+        sellerId: currentSeller || effectiveSellerId,
+        ...(latitude !== undefined && longitude !== undefined ? {
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          locationAddress: locationAddress || address || '',
+          geotaggedAt: updates.geotaggedAt,
+          geotaggedBy: effectiveGeotaggedBy
+        } : {})
+      }
+    });
+  }
 
-  try {
-    await localDb.from("clients").update({
+  // Check if there is a SOFT-DELETED client matching, and REACTIVATE IT seamlessly!
+  const deletedMatch = findMatchingClient([...existingList, ...localList], nameToSave, companyToSave, nit, undefined, true);
+  if (deletedMatch) {
+    console.log(`Reactivating soft-deleted client: "${deletedMatch.name}" -> "${nameToSave}" (ID: ${deletedMatch.id})`);
+    removeDeletedClientKey(deletedMatch.id, deletedMatch.name, nameToSave, deletedMatch.clientCode, nit);
+
+    const reactivatedPayload = {
       name: nameToSave,
-      company_name: companyToSave || deletedMatch.companyName || '',
+      companyName: companyToSave || deletedMatch.companyName || '',
       nit: nit || deletedMatch.nit || '',
       phone: phone || deletedMatch.phone || '',
       address: address || deletedMatch.address || '',
-      seller_id: reactivatedPayload.sellerId,
-      latitude: reactivatedPayload.latitude,
-      longitude: reactivatedPayload.longitude,
-      location_address: reactivatedPayload.locationAddress,
-      geotagged_at: reactivatedPayload.geotaggedAt,
-      geotagged_by: reactivatedPayload.geotaggedBy
-    }).eq("id", deletedMatch.id);
-  } catch (e) { }
+      sellerId: (req.user?.role === 'seller') ? (req.user.email || req.user.id) : (sellerId || deletedMatch.sellerId || req.user.email),
+      latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : deletedMatch.latitude,
+      longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : deletedMatch.longitude,
+      locationAddress: locationAddress || address || deletedMatch.locationAddress || '',
+      geotaggedAt: (latitude !== undefined && latitude !== null && latitude !== '') ? (geotaggedAt || new Date().toISOString()) : deletedMatch.geotaggedAt,
+      geotaggedBy: (latitude !== undefined && latitude !== null && latitude !== '') ? effectiveGeotaggedBy : deletedMatch.geotaggedBy,
+      isDeleted: false,
+      is_deleted: false,
+      isBlocked: false,
+      is_blocked: false
+    };
 
-  invalidateCache("clients");
-  return res.json({
-    success: true,
-    client: {
-      ...deletedMatch,
-      ...reactivatedPayload,
-      id: deletedMatch.id
-    }
-  });
-}
+    updateLocalClient(deletedMatch.id, reactivatedPayload);
 
-const clientData = {
-  id: id || `CLI-${Date.now()}`,
-  sellerId: effectiveSellerId,
-  geotaggedBy: effectiveGeotaggedBy,
-  name: nameToSave,
-  companyName: companyToSave,
-  nit: nit || '',
-  phone: phone || '',
-  address: address || '',
-  clientCode: clientCode ? String(clientCode).trim() : undefined,
-  latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
-  longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
-  locationAddress: locationAddress || address || undefined,
-  geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
-  isProspect: isProspect === true || clientType === 'prospect',
-  clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
-  createdAt: new Date().toISOString()
-};
-
-// Remove from blacklist if explicitly adding new client
-removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
-
-// Save locally
-addLocalClient(clientData);
-
-try {
-  await safeInsertClient(clientData);
-  if (clientData.latitude && clientData.longitude) {
     try {
-      await queryNeon(`
+      await localDb.from("clients").update({
+        name: nameToSave,
+        company_name: companyToSave || deletedMatch.companyName || '',
+        nit: nit || deletedMatch.nit || '',
+        phone: phone || deletedMatch.phone || '',
+        address: address || deletedMatch.address || '',
+        seller_id: reactivatedPayload.sellerId,
+        latitude: reactivatedPayload.latitude,
+        longitude: reactivatedPayload.longitude,
+        location_address: reactivatedPayload.locationAddress,
+        geotagged_at: reactivatedPayload.geotaggedAt,
+        geotagged_by: reactivatedPayload.geotaggedBy
+      }).eq("id", deletedMatch.id);
+    } catch (e) { }
+
+    invalidateCache("clients");
+    return res.json({
+      success: true,
+      client: {
+        ...deletedMatch,
+        ...reactivatedPayload,
+        id: deletedMatch.id
+      }
+    });
+  }
+
+  const clientData = {
+    id: id || `CLI-${Date.now()}`,
+    sellerId: effectiveSellerId,
+    geotaggedBy: effectiveGeotaggedBy,
+    name: nameToSave,
+    companyName: companyToSave,
+    nit: nit || '',
+    phone: phone || '',
+    address: address || '',
+    clientCode: clientCode ? String(clientCode).trim() : undefined,
+    latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : undefined,
+    longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : undefined,
+    locationAddress: locationAddress || address || undefined,
+    geotaggedAt: geotaggedAt || (latitude !== undefined && latitude !== null && latitude !== '' ? new Date().toISOString() : undefined),
+    isProspect: isProspect === true || clientType === 'prospect',
+    clientType: (isProspect === true || clientType === 'prospect') ? 'prospect' : (clientType || 'regular'),
+    createdAt: new Date().toISOString()
+  };
+
+  // Remove from blacklist if explicitly adding new client
+  removeDeletedClientKey(clientData.id, clientData.name, clientData.companyName, clientData.nit);
+
+  // Save locally
+  addLocalClient(clientData);
+
+  try {
+    await safeInsertClient(clientData);
+    if (clientData.latitude && clientData.longitude) {
+      try {
+        await queryNeon(`
           UPDATE public.clients
           SET latitude = $1,
               longitude = $2,
@@ -3390,30 +3390,30 @@ try {
               "geotaggedBy" = $5
           WHERE id = $6
         `, [clientData.latitude, clientData.longitude, clientData.locationAddress || null, clientData.geotaggedAt || new Date().toISOString(), clientData.geotaggedBy || effectiveGeotaggedBy, clientData.id]);
-    } catch (neonErr: any) {
-      console.warn('[Insert Client Location Neon Warning]', neonErr.message);
+      } catch (neonErr: any) {
+        console.warn('[Insert Client Location Neon Warning]', neonErr.message);
+      }
     }
+  } catch (e) {
+    console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
   }
-} catch (e) {
-  console.error("Insert client catch error in PostgreSQL Local (handled gracefully):", e);
-}
 
-recordAuditLog({
-  action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
-  category: 'clientes',
-  entity_type: 'client',
-  entity_id: clientData.id,
-  entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
-  description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
-  new_data: clientData,
-  user_id: req.user?.id,
-  user_email: req.user?.email,
-  user_name: req.user?.name || req.user?.email,
-  user_role: req.user?.role,
-  ip_address: req.ip
-}).catch(() => { });
+  recordAuditLog({
+    action: clientData.clientCode?.startsWith('GT-') || clientData.name.toLowerCase().includes('prueba') ? 'CLIENT_CREATED_TEST' : 'CLIENT_CREATED',
+    category: 'clientes',
+    entity_type: 'client',
+    entity_id: clientData.id,
+    entity_name: `${clientData.name}${clientData.clientCode ? ` (${clientData.clientCode})` : ''}`,
+    description: `Cliente "${clientData.name}" creado con código ${clientData.clientCode || 'N/A'}${clientData.latitude ? ' y coordenadas GPS fijadas' : ''}`,
+    new_data: clientData,
+    user_id: req.user?.id,
+    user_email: req.user?.email,
+    user_name: req.user?.name || req.user?.email,
+    user_role: req.user?.role,
+    ip_address: req.ip
+  }).catch(() => { });
 
-res.json({ success: true, client: clientData });
+  res.json({ success: true, client: clientData });
 }));
 
 app.put("/api/clients/:id", requireAuth, asyncHandler(async (req: any, res: any) => {
@@ -4027,11 +4027,17 @@ app.get("/api/visits", requireAuth, asyncHandler(async (req: any, res: any) => {
 
   let visits: any[] = [];
 
-  // 1. Authoritative Cloud/PostgreSQL fetch first
+  // 1. Authoritative Cloud/PostgreSQL fetch first (Excluyendo fotos pesadas base64 para carga instantánea en menos de 200ms)
   if (pgPool) {
     try {
       const res = await pgPool.query(`
-        SELECT * FROM public.client_visits 
+        SELECT 
+          id, "clientId", client_id, "clientName", client_name, "clientCode", client_code,
+          "companyName", company_name, "sellerId", seller_id, "sellerName", seller_name,
+          "sellerEmail", seller_email, latitude, longitude, accuracy, "distanceMeters", distance_meters,
+          "visitType", visit_type, notes, "routeId", route_id, "createdAt", created_at,
+          (photo_url IS NOT NULL OR "photoUrl" IS NOT NULL OR has_photo IS TRUE OR "hasPhoto" IS TRUE) as has_photo
+        FROM public.client_visits 
         ORDER BY created_at DESC NULLS LAST, "createdAt" DESC NULLS LAST;
       `);
       if (res.rows && res.rows.length > 0) {
@@ -6748,7 +6754,7 @@ async function checkActiveRoutesForRemindersAndAutoClosure() {
 function initAutoRouteClosureCron() {
   console.log('[AUTO-ROUTE-CRON] ⏰ Programador activo: Recordatorios de cierre (7:00 PM / 8:30 PM) y Cierre Automático de Ruta a las 10:00 PM (Guatemala).');
   setInterval(() => {
-    checkActiveRoutesForRemindersAndAutoClosure().catch(() => {});
+    checkActiveRoutesForRemindersAndAutoClosure().catch(() => { });
   }, 45000);
 }
 
@@ -7621,8 +7627,8 @@ async function checkAndDispatchDailySales(options?: {
     }
 
     // A) Enviar reporte individual a los 2 vendedores en ruta: Herbert Argueta y Erick Juárez
-    const fieldSellers = userStatsList.filter(s => 
-      s.sellerEmail === "gruasytransportesali@gmail.com" || 
+    const fieldSellers = userStatsList.filter(s =>
+      s.sellerEmail === "gruasytransportesali@gmail.com" ||
       s.sellerEmail === "jerickottoniel@gmail.com"
     );
 
@@ -7931,9 +7937,9 @@ async function checkAndDispatchWeeklySales(options?: {
   const sellerStats = uniqueFieldSellers.map(s => computeWeeklyStatsForUser(s));
 
   // Estadísticas específicas para el consolidado
-  const herbertStat = sellerStats.find(s => s.email === "gruasytransportesali@gmail.com") 
+  const herbertStat = sellerStats.find(s => s.email === "gruasytransportesali@gmail.com")
     || computeWeeklyStatsForUser({ name: "Herbert Argueta", email: "gruasytransportesali@gmail.com", sellerCode: "1521", phone: "50241323037" });
-    
+
   const erickStat = sellerStats.find(s => s.email === "jerickottoniel@gmail.com" || s.email === "erickjuarez02@gmail.com")
     || computeWeeklyStatsForUser({ name: "Erick Juárez", email: "jerickottoniel@gmail.com", sellerCode: "8363", phone: "50254743595" });
 
@@ -7980,21 +7986,21 @@ async function checkAndDispatchWeeklySales(options?: {
 
     let textoConsolidado = alcanzoMetaEquipo
       ? `🏆 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* 🏢\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
-        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
-        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-        `📈 *Superávit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `🔥 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
+      `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
+      `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+      `📈 *Superávit Semanal Logrado:* *+Q. ${superavitEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `🔥 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`
       : `📊 *RESUMEN CONSOLIDADO DE VENTAS - CIERRE SEMANAL* 🏢\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
-        `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
-        `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
-        `📉 *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
-        `📈 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`;
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Estimado *${adm.name}*, le presentamos el consolidado oficial de ventas de la semana (*${periodoLabel}*):\n\n` +
+      `💰 *TOTAL GENERAL VENDIDO:* *Q. ${totalGeneral.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `📄 *Ventas / Facturas Totales Semana:* *${totalFacturasGeneral} venta(s)*\n` +
+      `🎯 *Meta Semanal del Equipo:* Q. ${metaSemanalEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}\n` +
+      `📉 *Faltante para la Meta Semanal:* *Q. ${faltanteEquipo.toLocaleString("es-GT", { minimumFractionDigits: 2 })}*\n` +
+      `📈 *Cumplimiento Semanal:* *${porcentajeEquipo}%*\n\n`;
 
     textoConsolidado += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `👥 *RESUMEN Y CANTIDAD DE VENTAS POR ASESOR:*\n\n` +
@@ -9765,431 +9771,434 @@ app.post("/api/invoices", requireAuth, asyncHandler(async (req: any, res: any) =
     const releaseStockLocks = await acquireStockLocks(items.map((i: any) => i.productId));
     const deductedStockRecords: Array<{ productId: string; variantId?: string; qty: number }> = [];
 
-  try {
-    for (const item of items) {
-      let product;
-      if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
-        product = {
-          id: item.productId,
-          name: 'COSTO DE ENVIO',
-          price: item.price !== undefined ? parseFloat(item.price) : 29.5,
-          stock: 999999,
-          is_external: true,
-          category: 'Servicios',
-          description: 'Costo de envío'
-        };
-      } else {
-        const { data: products, error } = await localDb.from("products").select("*").eq('id', item.productId);
-        if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
-        product = products[0];
-      }
-
-      const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
-
-      const isExemptFromStock = isExemptFromStockBlock(product, item);
-      const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
-
-      let currentStock = parseFloat(product.stock || 0);
-      let variantObj: any = null;
-      let newStock = currentStock;
-      let actualDeductedQty = 0;
-
-      if (!product.is_external) {
-        let variantsToUpdate = product.variants ? [...product.variants] : [];
-
-        if (item.variantId) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          if (varIndex !== -1) {
-            variantObj = variantsToUpdate[varIndex];
-            if (variantObj.stock !== undefined) {
-              currentStock = parseFloat(variantObj.stock || 0);
-            }
-          }
+    try {
+      for (const item of items) {
+        let product;
+        if (item.productId?.startsWith('shipping-') || item.productName === 'COSTO DE ENVIO' || item.productId === 'shipping-cost') {
+          product = {
+            id: item.productId,
+            name: 'COSTO DE ENVIO',
+            price: item.price !== undefined ? parseFloat(item.price) : 29.5,
+            stock: 999999,
+            is_external: true,
+            category: 'Servicios',
+            description: 'Costo de envío'
+          };
+        } else {
+          const { data: products, error } = await localDb.from("products").select("*").eq('id', item.productId);
+          if (error || !products || products.length === 0) throw new Error(`Producto ${item.productId} no encontrado`);
+          product = products[0];
         }
 
-        if (currentStock < item.quantity && !isExemptFromStock) {
-          requiresAuth = true;
-          item.isStockAlert = true;
-        }
+        const itemPrice = item.price !== undefined ? parseFloat(item.price) : product.price;
 
-        let deductQty = parseFloat(item.quantity);
-        if (isSpecialSupplier) {
-          // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
-          deductQty = Math.max(0, Math.min(currentStock, deductQty));
-        }
-        newStock = Math.max(0, currentStock - deductQty);
-        actualDeductedQty = Math.max(0, currentStock - newStock);
-        if (newStock <= 0 && !isExemptFromStock) {
-          // Send stock alert to admins
-          const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-          const stockMessage = `⚠️ *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
-          const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
-          if (admins) {
-            for (const admin of admins) {
-              if (admin.phone) {
-                console.log(`Enviando alerta de stock a admin ${admin.name}: ${productNameStr}`);
-                internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_cero", "es_MX", [
-                  { name: "w_producto", value: productNameStr.substring(0, 50) },
-                  { name: "w_cliente", value: client.substring(0, 50) }
-                ]).catch(err => console.warn(`Error enviando alerta stock a ${admin.name}:`, err.message));
+        const isExemptFromStock = isExemptFromStockBlock(product, item);
+        const isSpecialSupplier = isFiatProduct(product) || isTecunProduct(product) || doesNotNeedStock(product) || item.fiatToOrder !== undefined || item.tecunToOrder !== undefined;
+
+        let currentStock = parseFloat(product.stock || 0);
+        let variantObj: any = null;
+        let newStock = currentStock;
+        let actualDeductedQty = 0;
+
+        if (!product.is_external) {
+          let variantsToUpdate = product.variants ? [...product.variants] : [];
+
+          if (item.variantId) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            if (varIndex !== -1) {
+              variantObj = variantsToUpdate[varIndex];
+              if (variantObj.stock !== undefined) {
+                currentStock = parseFloat(variantObj.stock || 0);
               }
             }
           }
-        } else if (!isExemptFromStock) {
-          const threshold = getCriticalStockThreshold(product);
-          if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+
+          if (currentStock < item.quantity && !isExemptFromStock) {
+            requiresAuth = true;
+            item.isStockAlert = true;
+          }
+
+          let deductQty = parseFloat(item.quantity);
+          if (isSpecialSupplier) {
+            // Para FIAT y TECÚN solo se descuenta lo que realmente haya en bodega física sin pasar a negativo
+            deductQty = Math.max(0, Math.min(currentStock, deductQty));
+          }
+          newStock = Math.max(0, currentStock - deductQty);
+          actualDeductedQty = Math.max(0, currentStock - newStock);
+          if (newStock <= 0 && !isExemptFromStock) {
+            // Send stock alert to admins
             const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
-            const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+            const stockMessage = `⚠️ *ALERTA DE AGOTADO*: El producto *${productNameStr}* se ha quedado sin stock (Venta a ${client}).`;
             const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
             if (admins) {
               for (const admin of admins) {
                 if (admin.phone) {
-                  internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                  console.log(`Enviando alerta de stock a admin ${admin.name}: ${productNameStr}`);
+                  internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_cero", "es_MX", [
                     { name: "w_producto", value: productNameStr.substring(0, 50) },
-                    { name: "w_stock", value: String(newStock) }
-                  ]).catch(err => console.warn(`Error enviando alerta crítica a ${admin.name}:`, err.message));
+                    { name: "w_cliente", value: client.substring(0, 50) }
+                  ]).catch(err => console.warn(`Error enviando alerta stock a ${admin.name}:`, err.message));
+                }
+              }
+            }
+          } else if (!isExemptFromStock) {
+            const threshold = getCriticalStockThreshold(product);
+            if (currentStock > threshold && newStock <= threshold && newStock > 0) {
+              const productNameStr = variantObj ? `${product.name} (${variantObj.color} - ${variantObj.size})` : product.name;
+              const stockMessage = `🚨 *ALERTA CRÍTICA DE STOCK*: El producto *${productNameStr}* ha bajado a ${threshold} unidades o menos. (Stock actual: ${newStock}).`;
+              const { data: admins } = await localDb.from("users").select("phone, name").eq("role", "admin");
+              if (admins) {
+                for (const admin of admins) {
+                  if (admin.phone) {
+                    internalSendWhatsApp(admin.phone, stockMessage, "alerta_stock_critico", "es_MX", [
+                      { name: "w_producto", value: productNameStr.substring(0, 50) },
+                      { name: "w_stock", value: String(newStock) }
+                    ]).catch(err => console.warn(`Error enviando alerta crítica a ${admin.name}:`, err.message));
+                  }
                 }
               }
             }
           }
+
+          if (variantObj && variantObj.stock !== undefined) {
+            const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
+            variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
+            const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
+            if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
+          } else {
+            const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq('id', product.id);
+            if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+          }
+
+          if (actualDeductedQty > 0) {
+            deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
+            recordAuditLog({
+              action: 'STOCK_DEDUCTED_SALE',
+              category: 'stock',
+              entity_type: 'product',
+              entity_id: product.id,
+              entity_name: product.name,
+              description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
+              previous_data: { stock: currentStock },
+              new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
+              user_id: req.user?.id,
+              user_email: req.user?.email,
+              user_name: req.user?.name || req.user?.email,
+              user_role: req.user?.role,
+              ip_address: req.ip
+            }).catch(() => { });
+          }
         }
 
-        if (variantObj && variantObj.stock !== undefined) {
-          const varIndex = variantsToUpdate.findIndex((v: any) => v.id === item.variantId);
-          variantsToUpdate[varIndex] = { ...variantsToUpdate[varIndex], stock: newStock };
-          const { error: vErr } = await localDb.from("products").update({ variants: variantsToUpdate }).eq('id', product.id);
-          if (vErr) console.error(`Error updating variant stock for product ${product.id}:`, vErr.message);
-        } else {
-          const { error: sErr } = await localDb.from("products").update({ stock: newStock }).eq('id', product.id);
-          if (sErr) console.error(`Error updating stock for product ${product.id}:`, sErr.message);
+        if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
+          requiresAuth = true;
         }
 
-        if (actualDeductedQty > 0) {
-          deductedStockRecords.push({ productId: product.id, variantId: variantObj?.id, qty: actualDeductedQty });
-          recordAuditLog({
-            action: 'STOCK_DEDUCTED_SALE',
-            category: 'stock',
-            entity_type: 'product',
-            entity_id: product.id,
-            entity_name: product.name,
-            description: `Descuento de inventario por venta a "${client}": -${actualDeductedQty} uds de "${product.name}" (Stock previo: ${currentStock}, nuevo: ${newStock})`,
-            previous_data: { stock: currentStock },
-            new_data: { stock: newStock, quantitySold: item.quantity, stockDeducted: actualDeductedQty, client },
-            user_id: req.user?.id,
-            user_email: req.user?.email,
-            user_name: req.user?.name || req.user?.email,
-            user_role: req.user?.role,
-            ip_address: req.ip
-          }).catch(() => { });
+        const itemTotal = item.quantity * itemPrice;
+        total += itemTotal;
+        const prevStockVal = !product.is_external ? currentStock : 999999;
+        const newStockVal = !product.is_external ? newStock : 999999;
+        const baseName = variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name);
+        const cleanBaseName = baseName
+          .replace(/\s*\(\s*Bonificación\s*\/\s*Gratis\s*\)/gi, ' (Bonificación)')
+          .replace(/\s*\(\s*Gratis\s*\)/gi, ' (Bonificación)');
+        const finalProductName = item.isBonus && !cleanBaseName.includes('Bonificación') ? `${cleanBaseName} (Bonificación)` : cleanBaseName;
+        processedItems.push({
+          ...item,
+          price: itemPrice,
+          total: itemTotal,
+          productName: finalProductName,
+          originalPrice: product.price,
+          previousStock: prevStockVal,
+          newStock: newStockVal,
+          stockDeducted: actualDeductedQty,
+          isExempt: isExemptFromStock
+        });
+      }
+
+      const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+      // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
+      invalidateCache("folio_map");
+      const currentFolioMap = await getFolioMap(true);
+      const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
+      const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
+
+      let startFromConfig = 1;
+      try {
+        const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
+        if (fs.existsSync(FOLIO_CONFIG_FILE)) {
+          const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
+          startFromConfig = cfg.startFrom || 1;
+        }
+      } catch (e) { }
+
+      let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
+      while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
+        assignedFolio++;
+      }
+      let folioFlag = `|||FOLIO:${assignedFolio}`;
+
+      let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
+      let baseNotes = (nit || "");
+      let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
+      let invoiceTypeFlag = "|||TYPE:" + (invoiceType || 'veterinaria');
+      let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === 'agricola' ? 60 : 30));
+      let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
+      let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
+      let authFlag = requiresAuth ? "|||AUTH:pending" : "";
+      let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
+      if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
+        authFlag += "|||DEBT:true";
+      }
+
+      // Regla estricta de negocio:
+      // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
+      // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
+      const isUserAdmin = req.user && req.user.role === 'admin';
+      const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
+      const saleExactTimestamp = isExplicitCustomDate
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
+          ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
+          : new Date(customDate).toISOString())
+        : new Date().toISOString();
+
+      // Try to insert with updated schema mapping
+      const invoiceDataRaw: any = {
+        id,
+        sellerId: saleOwner,
+        notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
+        items: processedItems,
+        totalAmount: total,
+        paidAmount: isOwed ? 0 : total,
+        status: isOwed ? 'pending' : 'paid',
+        date: saleExactTimestamp
+      };
+      invoiceDataRaw['clientName'] = client;
+      invoiceDataRaw['customerPhone'] = phone || "";
+      invoiceDataRaw['deliveryAddress'] = address || "";
+      invoiceDataRaw['nit'] = nit || "";
+      invoiceDataRaw['folio'] = String(assignedFolio);
+      invoiceDataRaw['invoice_type'] = invoiceType || 'veterinaria';
+      invoiceDataRaw['credit_days'] = creditDays || (invoiceType === 'agricola' ? 60 : 30);
+      invoiceDataRaw['transport_method'] = transportMethod || "";
+      invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
+      invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
+      invoiceDataRaw['is_archived'] = false;
+      if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
+
+      let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
+
+      if (insertError) {
+        console.warn("Primary insert invoice error:", insertError.message);
+        // Fallback 1: try old schema names
+        const fallbackInvoice1 = { ...invoiceDataRaw };
+        delete fallbackInvoice1['clientName'];
+        delete fallbackInvoice1['customerPhone'];
+        delete fallbackInvoice1['deliveryAddress'];
+        fallbackInvoice1['client'] = client;
+        fallbackInvoice1['phone'] = phone || "";
+        fallbackInvoice1['address'] = address || "";
+        fallbackInvoice1['folio'] = String(assignedFolio);
+
+        const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
+        if (retryError1) {
+          // Fallback 2: bare minimum
+          const bareInvoice = { ...fallbackInvoice1 };
+          delete bareInvoice['phone'];
+          delete bareInvoice['address'];
+          // Si la base no tuviera la columna `nit`, se descarta igual que las
+          // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
+          delete bareInvoice['nit'];
+          const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
+          if (retryError2) throw new Error(retryError2.message);
         }
       }
 
-      if (itemPrice < product.price && !item.isOfferApplied || item.isPriceAlert) {
-        requiresAuth = true;
-      }
+      invoice = { ...invoiceDataRaw, client, phone, address };
+      await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
 
-      const itemTotal = item.quantity * itemPrice;
-      total += itemTotal;
-      const prevStockVal = !product.is_external ? currentStock : 999999;
-      const newStockVal = !product.is_external ? newStock : 999999;
-      const baseName = variantObj ? `${product.name} (${variantObj.color || ''} ${variantObj.size || ''})`.trim() : (item.productName || product.name);
-      const finalProductName = item.isBonus && !baseName.includes('Bonificación') ? `${baseName} (Bonificación / Gratis)` : baseName;
-      processedItems.push({ 
-        ...item, 
-        price: itemPrice, 
-        total: itemTotal, 
-        productName: finalProductName, 
-        originalPrice: product.price,
-        previousStock: prevStockVal,
-        newStock: newStockVal,
-        stockDeducted: actualDeductedQty,
-        isExempt: isExemptFromStock
-      });
-    }
-
-    const id = `INV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
-    // Compute next folio directly from fresh DB lookup to avoid any race condition or stale cache
-    invalidateCache("folio_map");
-    const currentFolioMap = await getFolioMap(true);
-    const existingFolioValues = Object.values(currentFolioMap).map(v => Number(v) || 0);
-    const maxFolio = existingFolioValues.reduce((max, val) => (val > max ? val : max), 0);
-
-    let startFromConfig = 1;
-    try {
-      const FOLIO_CONFIG_FILE = path.join(process.cwd(), "folio_config.json");
-      if (fs.existsSync(FOLIO_CONFIG_FILE)) {
-        const cfg = JSON.parse(fs.readFileSync(FOLIO_CONFIG_FILE, "utf-8"));
-        startFromConfig = cfg.startFrom || 1;
-      }
-    } catch (e) { }
-
-    let assignedFolio = maxFolio >= startFromConfig ? maxFolio + 1 : startFromConfig;
-    while (existingFolioValues.includes(assignedFolio) || assignedFolio === 812) {
-      assignedFolio++;
-    }
-    let folioFlag = `|||FOLIO:${assignedFolio}`;
-
-    let safeNotes = notes ? String(notes).replace(/\|\|\|/g, " - ") : "";
-    let baseNotes = (nit || "");
-    let obsFlag = safeNotes ? "|||OBS:" + safeNotes : "";
-    let invoiceTypeFlag = "|||TYPE:" + (invoiceType || 'veterinaria');
-    let creditFlag = "|||CREDIT:" + (creditDays || (invoiceType === 'agricola' ? 60 : 30));
-    let transFlag = transportMethod ? "|||TRANS:" + transportMethod : "";
-    let sellerFlag = sellerPaysShipping ? "|||PAYSHIP:true" : "";
-    let authFlag = requiresAuth ? "|||AUTH:pending" : "";
-    let sellerSigFlag = sellerSignature ? `|||SELLER_SIG:${sellerSignature}` : "";
-    if (!OMITIR_LIMITACION_DEUDA_SERVER && requiresAuth && debtAlert) {
-      authFlag += "|||DEBT:true";
-    }
-
-    // Regla estricta de negocio:
-    // Establecer fecha personalizada es UNICAMENTE para el administrador (role === 'admin').
-    // Para cualquier otra persona al hacer la venta, el sistema usa la fecha y hora exacta real en que se esta realizando.
-    const isUserAdmin = req.user && req.user.role === 'admin';
-    const isExplicitCustomDate = isUserAdmin && customDate && getDiaGuatemala(customDate) !== getDiaGuatemala();
-    const saleExactTimestamp = isExplicitCustomDate
-      ? (/^\d{4}-\d{2}-\d{2}$/.test(customDate)
-        ? new Date(`${customDate}T12:00:00-06:00`).toISOString()
-        : new Date(customDate).toISOString())
-      : new Date().toISOString();
-
-    // Try to insert with updated schema mapping
-    const invoiceDataRaw: any = {
-      id,
-      sellerId: saleOwner,
-      notes: baseNotes + obsFlag + invoiceTypeFlag + creditFlag + transFlag + sellerFlag + authFlag + sellerSigFlag + folioFlag,
-      items: processedItems,
-      totalAmount: total,
-      paidAmount: isOwed ? 0 : total,
-      status: isOwed ? 'pending' : 'paid',
-      date: saleExactTimestamp
-    };
-    invoiceDataRaw['clientName'] = client;
-    invoiceDataRaw['customerPhone'] = phone || "";
-    invoiceDataRaw['deliveryAddress'] = address || "";
-    invoiceDataRaw['nit'] = nit || "";
-    invoiceDataRaw['folio'] = String(assignedFolio);
-    invoiceDataRaw['invoice_type'] = invoiceType || 'veterinaria';
-    invoiceDataRaw['credit_days'] = creditDays || (invoiceType === 'agricola' ? 60 : 30);
-    invoiceDataRaw['transport_method'] = transportMethod || "";
-    invoiceDataRaw['seller_pays_shipping'] = !!sellerPaysShipping;
-    invoiceDataRaw['auth_status'] = requiresAuth ? 'pending' : 'approved';
-    invoiceDataRaw['is_archived'] = false;
-    if (sellerSignature) invoiceDataRaw['seller_signature'] = sellerSignature;
-
-    let { error: insertError } = await localDb.from("invoices").insert([invoiceDataRaw]);
-
-    if (insertError) {
-      console.warn("Primary insert invoice error:", insertError.message);
-      // Fallback 1: try old schema names
-      const fallbackInvoice1 = { ...invoiceDataRaw };
-      delete fallbackInvoice1['clientName'];
-      delete fallbackInvoice1['customerPhone'];
-      delete fallbackInvoice1['deliveryAddress'];
-      fallbackInvoice1['client'] = client;
-      fallbackInvoice1['phone'] = phone || "";
-      fallbackInvoice1['address'] = address || "";
-      fallbackInvoice1['folio'] = String(assignedFolio);
-
-      const { error: retryError1 } = await localDb.from("invoices").insert([fallbackInvoice1]);
-      if (retryError1) {
-        // Fallback 2: bare minimum
-        const bareInvoice = { ...fallbackInvoice1 };
-        delete bareInvoice['phone'];
-        delete bareInvoice['address'];
-        // Si la base no tuviera la columna `nit`, se descarta igual que las
-        // demas: el NIT sigue viajando dentro de `notes`, asi que no se pierde.
-        delete bareInvoice['nit'];
-        const { error: retryError2 } = await localDb.from("invoices").insert([bareInvoice]);
-        if (retryError2) throw new Error(retryError2.message);
-      }
-    }
-
-    invoice = { ...invoiceDataRaw, client, phone, address };
-    await syncInvoiceToPermanentBackup(id, invoiceDataRaw);
-
-    invalidateCache("products");
-    invalidateCache("invoices");
-    invalidateCache("folio_map");
-  } catch (err: any) {
-    // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
-    if (deductedStockRecords.length > 0) {
-      console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
-      for (const ded of deductedStockRecords) {
-        try {
-          const { data: pList } = await localDb.from("products").select("stock, variants").eq('id', ded.productId);
-          const p = pList?.[0];
-          if (p) {
-            if (ded.variantId && p.variants) {
-              const vars = [...p.variants];
-              const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
-              if (vIdx !== -1) {
-                vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
-                await localDb.from("products").update({ variants: vars }).eq('id', ded.productId);
+      invalidateCache("products");
+      invalidateCache("invoices");
+      invalidateCache("folio_map");
+    } catch (err: any) {
+      // Rollback automático: si falla la creación de factura, revertir todo el stock descontado
+      if (deductedStockRecords.length > 0) {
+        console.warn(`[StockRollback] Falló la creación de factura. Revirtiendo ${deductedStockRecords.length} ítems descontados.`);
+        for (const ded of deductedStockRecords) {
+          try {
+            const { data: pList } = await localDb.from("products").select("stock, variants").eq('id', ded.productId);
+            const p = pList?.[0];
+            if (p) {
+              if (ded.variantId && p.variants) {
+                const vars = [...p.variants];
+                const vIdx = vars.findIndex((v: any) => v.id === ded.variantId);
+                if (vIdx !== -1) {
+                  vars[vIdx] = { ...vars[vIdx], stock: parseFloat(vars[vIdx].stock || 0) + ded.qty };
+                  await localDb.from("products").update({ variants: vars }).eq('id', ded.productId);
+                }
+              } else {
+                await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
               }
-            } else {
-              await localDb.from("products").update({ stock: parseFloat(p.stock || 0) + ded.qty }).eq('id', ded.productId);
+            }
+          } catch (rbErr: any) {
+            console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
+          }
+        }
+        invalidateCache("products");
+      }
+      throw err;
+    } finally {
+      releaseStockLocks();
+    }
+
+    const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
+    const invoiceUrl = `${baseUrl}/#billing`;
+
+    // WhatsApp API Notification a Admins
+    // En modo test se omite para evitar duplicados de mensajes de texto en WhatsApp
+    const isDispatchTest = process.env.ORDER_DISPATCH_MODE === 'test' || req.user?.email === 'seseffff942@gmail.com';
+    if (!isDispatchTest) {
+      try {
+        const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
+        if (admins && admins.length > 0) {
+          const itemSummary = processedItems && processedItems.length > 0
+            ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
+            : "Sin productos";
+          const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
+          const totalFormatted = `Q. ${total.toFixed(2)}`;
+          const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
+
+          const folioMap = await getFolioMap();
+          const folioVal = String(folioMap[String(id)] || 1);
+
+          for (const admin of admins) {
+            if (admin.phone) {
+              const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
+
+              console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
+              internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
+                admin.name || "Sergio",
+                client,
+                itemSummaryTruncated,
+                totalFormatted,
+                zone,
+                folioVal
+              ]).then(result => {
+                if (!result.success) {
+                  console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
+                } else {
+                  console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
+                }
+              }).catch(err => {
+                console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
+              });
             }
           }
-        } catch (rbErr: any) {
-          console.error(`[StockRollback] Error revirtiendo producto ${ded.productId}:`, rbErr.message);
         }
+      } catch (e) {
+        console.error("Notification block error:", e);
       }
-      invalidateCache("products");
     }
-    throw err;
-  } finally {
-    releaseStockLocks();
-  }
 
-  const baseUrl = req.headers.referer ? new URL(req.headers.referer).origin : 'https://' + req.headers.host;
-  const invoiceUrl = `${baseUrl}/#billing`;
-
-  // WhatsApp API Notification a Admins
-  // En modo test se omite para evitar duplicados de mensajes de texto en WhatsApp
-  const isDispatchTest = process.env.ORDER_DISPATCH_MODE === 'test' || req.user?.email === 'seseffff942@gmail.com';
-  if (!isDispatchTest) {
-    try {
-      const { data: admins } = await localDb.from("users").select("name, phone").eq("role", "admin");
-      if (admins && admins.length > 0) {
-        const itemSummary = processedItems && processedItems.length > 0
-          ? processedItems.map(item => `${item.quantity}x ${item.productName || 'Producto'}`).join(', ')
-          : "Sin productos";
-        const itemSummaryTruncated = itemSummary.length > 150 ? itemSummary.substring(0, 147) + "..." : itemSummary;
-        const totalFormatted = `Q. ${total.toFixed(2)}`;
-        const zone = (address || transportMethod || "Entrega en Tienda/Oficina Central").trim();
-
-        const folioMap = await getFolioMap();
-        const folioVal = String(folioMap[String(id)] || 1);
-
-        for (const admin of admins) {
-          if (admin.phone) {
-            const message = `🚨 *¡Nuevo Pedido Ingresado!* 🚨\n\nHola ${admin.name || "Sergio"},\n\nDetalles de la compra:\n👤 *Cliente*: ${client}\n📦 *Productos*: ${itemSummaryTruncated}\n💰 *Total*: ${totalFormatted}\n📍 *Ubicación / Ruta*: ${zone}\n\nPor favor, revisa el panel de administración para confirmar el inventario y coordinar el despacho. 🌱🚜\n\nAgricoVet - Sistema de Notificaciones`;
-
-            console.log(`Enviando notificación "alerta_nuevo_pedido_interno" al administrador: ${admin.name} (${admin.phone})`);
-            internalSendWhatsApp(admin.phone, message, "alerta_nuevo_pedido_interno", "es", [
-              admin.name || "Sergio",
-              client,
-              itemSummaryTruncated,
-              totalFormatted,
-              zone,
-              folioVal
-            ]).then(result => {
-              if (!result.success) {
-                console.error(`Error WhatsApp al admin ${admin.name} (${admin.phone}):`, result.error, result.data || "");
-              } else {
-                console.log(`WhatsApp enviado exitosamente a ${admin.name}.`);
-              }
-            }).catch(err => {
-              console.error(`Exception enviando WhatsApp a admin ${admin.name}:`, err);
-            });
-          }
-        }
+    // CREATE UI NOTIFICATION
+    await createNotification(
+      'new_order',
+      '🛒 ¡Nuevo Pedido!',
+      `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`,
+      {
+        invoiceId: id,
+        sellerId: saleOwner,
+        sellerName: req.user?.name || ''
       }
-    } catch (e) {
-      console.error("Notification block error:", e);
+    );
+
+    let returnInvoice = { ...invoice };
+    const rawNotes = returnInvoice.notes || "";
+
+    // Better flag extraction
+    const flags = rawNotes.split("|||");
+    let tempNit = flags[0].trim();
+    let realNotes = "";
+
+    flags.slice(1).forEach(flag => {
+      const idx = flag.indexOf(":");
+      if (idx === -1) return;
+      const key = flag.substring(0, idx);
+      const value = flag.substring(idx + 1);
+
+      if (key === "AUTH") {
+        (returnInvoice as any).authStatus = value;
+      } else if (key === "DEBT") {
+        (returnInvoice as any).hasDebtAlert = value === "true";
+      } else if (key === "CREDIT") {
+        (returnInvoice as any).creditDays = parseInt(value);
+      } else if (key === "TYPE") {
+        (returnInvoice as any).invoiceType = value;
+      } else if (key === "OBS") {
+        realNotes = value;
+      } else if (key === "TRANS") {
+        (returnInvoice as any).transportMethod = value;
+      } else if (key === "PAYSHIP") {
+        (returnInvoice as any).sellerPaysShipping = value === "true";
+      } else if (key === "EDITED") {
+        (returnInvoice as any).isEdited = value === "true";
+      } else if (key === "SCAN_CLIENT") {
+        (returnInvoice as any).scanClient = value;
+      } else if (key === "SCAN_DATE") {
+        (returnInvoice as any).scanDate = value;
+      } else if (key === "SELLER_SIG") {
+        (returnInvoice as any).sellerSignature = value;
+      } else if (key === "ADMIN_SIG") {
+        (returnInvoice as any).adminSignature = value;
+      } else if (key === "REVIEWED_BY") {
+        (returnInvoice as any).reviewedBy = value;
+      }
+    });
+
+    if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
+      returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
+      returnInvoice.nit = returnInvoice.nit || "";
+    } else {
+      returnInvoice.nit = returnInvoice.nit || tempNit;
+      returnInvoice.notes = realNotes;
     }
-  }
 
-  // CREATE UI NOTIFICATION
-  await createNotification(
-    'new_order',
-    '🛒 ¡Nuevo Pedido!',
-    `👤 ${client} • 💰 Total: Q${total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}\n📦 ${processedItems?.length || 1} producto(s) asignados`,
-    {
-      invoiceId: id,
-      sellerId: saleOwner,
-      sellerName: req.user?.name || ''
-    }
-  );
+    invalidateCache("invoices");
+    const folioMap = await getFolioMap();
 
-  let returnInvoice = { ...invoice };
-  const rawNotes = returnInvoice.notes || "";
-
-  // Better flag extraction
-  const flags = rawNotes.split("|||");
-  let tempNit = flags[0].trim();
-  let realNotes = "";
-
-  flags.slice(1).forEach(flag => {
-    const idx = flag.indexOf(":");
-    if (idx === -1) return;
-    const key = flag.substring(0, idx);
-    const value = flag.substring(idx + 1);
-
-    if (key === "AUTH") {
-      (returnInvoice as any).authStatus = value;
-    } else if (key === "DEBT") {
-      (returnInvoice as any).hasDebtAlert = value === "true";
-    } else if (key === "CREDIT") {
-      (returnInvoice as any).creditDays = parseInt(value);
-    } else if (key === "TYPE") {
-      (returnInvoice as any).invoiceType = value;
-    } else if (key === "OBS") {
-      realNotes = value;
-    } else if (key === "TRANS") {
-      (returnInvoice as any).transportMethod = value;
-    } else if (key === "PAYSHIP") {
-      (returnInvoice as any).sellerPaysShipping = value === "true";
-    } else if (key === "EDITED") {
-      (returnInvoice as any).isEdited = value === "true";
-    } else if (key === "SCAN_CLIENT") {
-      (returnInvoice as any).scanClient = value;
-    } else if (key === "SCAN_DATE") {
-      (returnInvoice as any).scanDate = value;
-    } else if (key === "SELLER_SIG") {
-      (returnInvoice as any).sellerSignature = value;
-    } else if (key === "ADMIN_SIG") {
-      (returnInvoice as any).adminSignature = value;
-    } else if (key === "REVIEWED_BY") {
-      (returnInvoice as any).reviewedBy = value;
-    }
-  });
-
-  if (tempNit.length > 25 || tempNit.toLowerCase().includes("enviar") || tempNit.toLowerCase().includes("entrega") || tempNit.toLowerCase().includes("nota")) {
-    returnInvoice.notes = realNotes ? realNotes + " " + tempNit : tempNit;
-    returnInvoice.nit = returnInvoice.nit || "";
-  } else {
-    returnInvoice.nit = returnInvoice.nit || tempNit;
-    returnInvoice.notes = realNotes;
-  }
-
-  invalidateCache("invoices");
-  const folioMap = await getFolioMap();
-
-  const invoiceTotal = (items || []).reduce((acc: number, it: any) => acc + (parseFloat(it.price || 0) * parseFloat(it.quantity || 0)), 0);
-  recordAuditLog({
-    action: 'SALE_CREATED',
-    category: 'ventas',
-    entity_type: 'invoice',
-    entity_id: returnInvoice.id,
-    entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
-    description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
-    new_data: {
-      invoiceId: returnInvoice.id,
-      folio: folioMap[returnInvoice.id] || 1,
-      client,
-      total: invoiceTotal,
-      itemsCount: (items || []).length,
-      seller: req.user?.email,
-      itemsStockSummary: (processedItems || []).map((it: any) => ({
-        productId: it.productId,
-        productName: it.productName,
-        previousStock: it.previousStock,
-        quantitySold: parseFloat(it.quantity) || 0,
-        newStock: it.newStock,
-        unitPrice: it.price,
-        subtotal: it.total,
-        isExempt: it.isExempt
-      }))
-    },
-    user_id: req.user?.id,
-    user_email: req.user?.email,
-    user_name: req.user?.name || req.user?.email,
-    user_role: req.user?.role,
-    ip_address: req.ip
-  }).catch(() => { });
+    const invoiceTotal = (items || []).reduce((acc: number, it: any) => acc + (parseFloat(it.price || 0) * parseFloat(it.quantity || 0)), 0);
+    recordAuditLog({
+      action: 'SALE_CREATED',
+      category: 'ventas',
+      entity_type: 'invoice',
+      entity_id: returnInvoice.id,
+      entity_name: `Venta #${folioMap[returnInvoice.id] || returnInvoice.id} - ${client}`,
+      description: `Venta registrada para "${client}" por Q${invoiceTotal.toFixed(2)} (Folio: #${folioMap[returnInvoice.id] || 1})`,
+      new_data: {
+        invoiceId: returnInvoice.id,
+        folio: folioMap[returnInvoice.id] || 1,
+        client,
+        total: invoiceTotal,
+        itemsCount: (items || []).length,
+        seller: req.user?.email,
+        itemsStockSummary: (processedItems || []).map((it: any) => ({
+          productId: it.productId,
+          productName: it.productName,
+          previousStock: it.previousStock,
+          quantitySold: parseFloat(it.quantity) || 0,
+          newStock: it.newStock,
+          unitPrice: it.price,
+          subtotal: it.total,
+          isExempt: it.isExempt
+        }))
+      },
+      user_id: req.user?.id,
+      user_email: req.user?.email,
+      user_name: req.user?.name || req.user?.email,
+      user_role: req.user?.role,
+      ip_address: req.ip
+    }).catch(() => { });
 
     res.json({
       ...returnInvoice,
@@ -10340,7 +10349,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
       const { data: pData } = await localDb.from("products").select("stock, name, category, is_external, variants").eq('id', prodId);
       const p = pData?.[0];
       if (!p || p.is_external) continue;
-      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p);
+      const isSpecialProd = isFiatProduct(p) || isTecunProduct(p) || doesNotNeedStock(p);
       const isExemptProd = isExemptFromStockBlock(p);
       let varsToUpdate = p.variants ? [...p.variants] : [];
       for (const [varId, netDiff] of Object.entries(changes.variants)) {
@@ -10354,7 +10363,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
               error: `Stock insuficiente para agregar ${Math.abs(netDiff)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curVarStock}).`
             });
           }
-          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: isSpecialProd ? Math.max(0, rawVarStock) : rawVarStock };
+          varsToUpdate[vIdx] = { ...varsToUpdate[vIdx], stock: Math.max(0, rawVarStock) };
         }
       }
       if (Object.keys(changes.variants).length > 0) {
@@ -10367,7 +10376,7 @@ app.put("/api/invoices/:id/full", requireAuth, asyncHandler(async (req: any, res
             error: `Stock insuficiente para agregar ${Math.abs(changes.total)} unidad(es) adicionales de "${p.name}" (Disponible en bodega: ${curProdStock}).`
           });
         }
-        await localDb.from("products").update({ stock: isSpecialProd ? Math.max(0, rawStock) : rawStock }).eq('id', prodId);
+        await localDb.from("products").update({ stock: Math.max(0, rawStock) }).eq('id', prodId);
       }
     }
   } finally {
@@ -12175,45 +12184,45 @@ app.get("/api/daily-stats", requireAuth, asyncHandler(async (req: any, res: any)
     }
   };
 
-  // Calculate today's payments (based on payment date)
-  allPayments.forEach(pay => {
-    const payDate = pay.date || '';
-    if (matchesTargetDate(payDate, todayStr)) {
-      const inv = invoicesMap.get(pay.invoiceId);
+// Calculate today's payments (based on payment date)
+allPayments.forEach(pay => {
+  const payDate = pay.date || '';
+  if (matchesTargetDate(payDate, todayStr)) {
+    const inv = invoicesMap.get(pay.invoiceId);
 
-      const rawRecordedBy = pay.recordedBy || pay.recordedby || pay.recorded_by;
-      const recordedBy = rawRecordedBy || (inv ? inv.sellerId : 'Desconocido');
+    const rawRecordedBy = pay.recordedBy || pay.recordedby || pay.recorded_by;
+    const recordedBy = rawRecordedBy || (inv ? inv.sellerId : 'Desconocido');
 
-      const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (pay.amount || 0);
-      const clientName = inv ? (inv.clientName || inv.client || 'Cliente') : 'Cliente';
-      const folioNum = inv ? (inv.folio || 1) : 1;
-      const folio = String(folioNum);
-      const receiptUrl = pay.receiptUrl || pay.receipturl || pay.receipt_url || null;
+    const amount = typeof pay.amount === 'string' ? parseFloat(pay.amount) : (pay.amount || 0);
+    const clientName = inv ? (inv.clientName || inv.client || 'Cliente') : 'Cliente';
+    const folioNum = inv ? (inv.folio || 1) : 1;
+    const folio = String(folioNum);
+    const receiptUrl = pay.receiptUrl || pay.receipturl || pay.receipt_url || null;
 
-      paymentsBySeller[recordedBy] = (paymentsBySeller[recordedBy] || 0) + amount;
+    paymentsBySeller[recordedBy] = (paymentsBySeller[recordedBy] || 0) + amount;
 
-      todayPaymentsDetail.push({
-        id: pay.id,
-        amount,
-        date: payDate,
-        receiptUrl,
-        notes: pay.notes || '',
-        recordedBy,
-        invoiceFolio: folio,
-        clientName,
-        invoiceId: pay.invoiceId
-      });
-    }
-  });
+    todayPaymentsDetail.push({
+      id: pay.id,
+      amount,
+      date: payDate,
+      receiptUrl,
+      notes: pay.notes || '',
+      recordedBy,
+      invoiceFolio: folio,
+      clientName,
+      invoiceId: pay.invoiceId
+    });
+  }
+});
 
-  res.json({
-    todayStr,
-    salesBySeller,
-    paymentsBySeller,
-    todayPaymentsDetail,
-    totalSales: Object.values(salesBySeller).reduce((a, b) => a + b, 0),
-    totalPayments: Object.values(paymentsBySeller).reduce((a, b) => a + b, 0)
-  });
+res.json({
+  todayStr,
+  salesBySeller,
+  paymentsBySeller,
+  todayPaymentsDetail,
+  totalSales: Object.values(salesBySeller).reduce((a, b) => a + b, 0),
+  totalPayments: Object.values(paymentsBySeller).reduce((a, b) => a + b, 0)
+});
 }));
 
 // WHATSAPP
@@ -12263,7 +12272,7 @@ async function internalSendWhatsApp(phone: string, message: string, templateName
   try {
     const { data: configData } = await localDb.from('users').select('photo').eq('id', 'sys-whatsapp-config').single();
     if (configData && configData.
-photo) {
+      photo) {
       const parsed = JSON.parse(configData.photo);
       if (parsed.waToken) waToken = parsed.waToken.trim();
       if (parsed.waPhoneId) waPhoneId = parsed.waPhoneId.trim();
@@ -12977,7 +12986,7 @@ app.post('/api/bot/send-order-document', asyncHandler(async (req: any, res: any)
         );
         if (uRes.rows[0]) dbSeller = uRes.rows[0];
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const sellerCode = String(invoice?.sellerCode || dbSeller?.sellerCode || req.user?.sellerCode || '').trim();
@@ -12985,7 +12994,7 @@ app.post('/api/bot/send-order-document', asyncHandler(async (req: any, res: any)
   const sellerId = String(invoice?.sellerId || dbSeller?.id || req.user?.id || '').trim();
   const sellerEmail = String(req.body?.sellerEmail || dbSeller?.email || req.user?.email || '').trim().toLowerCase();
 
-  const isHerbertArgueta = 
+  const isHerbertArgueta =
     sellerCode === '1521' ||
     sellerId === '1521' ||
     sellerId === 'u_1780870803300' ||
@@ -13057,7 +13066,7 @@ app.post('/api/bot/send-order-document', asyncHandler(async (req: any, res: any)
         n8nSuccess = true;
         break;
       }
-    } catch (n8nErr) {}
+    } catch (n8nErr) { }
   }
 
   // Paso B: SOLO si n8n no estuvo disponible, enviar como fallback directo a Evolution API
@@ -13953,7 +13962,7 @@ app.post(['/api/inventory/reconciliation', '/api/inventory/consignacion'], requi
           user_name: req.user?.name || req.user?.email,
           user_role: req.user?.role,
           ip_address: req.ip
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       processedItems.push({

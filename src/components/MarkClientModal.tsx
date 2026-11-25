@@ -201,6 +201,63 @@ export function MarkClientModal({
       return;
     }
 
+    // Si el cliente ya tiene una ubicación GPS previa registrada, preguntar si es una sucursal nueva o si desea mover la existente
+    if (selectedClient.latitude && selectedClient.longitude) {
+      const distLat = Math.abs(Number(selectedClient.latitude) - Number(currentLocation.latitude));
+      const distLng = Math.abs(Number(selectedClient.longitude) - Number(currentLocation.longitude));
+      // Si la distancia es mayor a ~50 metros
+      if (distLat > 0.0005 || distLng > 0.0005) {
+        const respuesta = confirm(
+          `⚠️ "${selectedClient.name}" ya cuenta con un pin GPS registrado en otra ubicación.\n\n` +
+          `¿Esta es una NUEVA SUCURSAL de este cliente?\n\n` +
+          `• Presiona [ACEPTAR] para crear una NUEVA SUCURSAL con estas coordenadas sin borrar la anterior.\n` +
+          `• Presiona [CANCELAR] si solo deseas ACTUALIZAR / MOVER el pin existente de este cliente.`
+        );
+
+        if (respuesta) {
+          // Crear como Sucursal
+          setIsSaving(true);
+          setErrorMsg('');
+          try {
+            const branchPayload = {
+              name: `${selectedClient.name} (Sucursal)`,
+              companyName: selectedClient.companyName || undefined,
+              nit: selectedClient.nit || 'C/F',
+              phone: selectedClient.phone || undefined,
+              address: selectedClient.address || '',
+              sellerId: selectedClient.sellerId || (currentUser.role === 'seller' ? (currentUser.id || currentUser.email) : undefined),
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              locationAddress: selectedClient.address || '',
+              geotaggedAt: new Date().toISOString(),
+              geotaggedBy: currentUser.name || currentUser.email || 'Vendedor'
+            };
+
+            const createdBranch = await api.addClient(branchPayload);
+            const fullBranch: Client = {
+              ...createdBranch,
+              ...branchPayload,
+              id: createdBranch.id || `CLI-${Date.now()}`
+            };
+
+            setSuccessActionType('save');
+            setSuccessSaved(true);
+            setTimeout(() => {
+              onClientMarked(fullBranch);
+              setSuccessSaved(false);
+              resetForm();
+              onClose();
+            }, 700);
+            return;
+          } catch (bErr: any) {
+            setErrorMsg(bErr.message || 'Error al crear la sucursal del cliente.');
+            setIsSaving(false);
+            return;
+          }
+        }
+      }
+    }
+
     setIsSaving(true);
     setErrorMsg('');
 
